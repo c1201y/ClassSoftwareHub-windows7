@@ -1,0 +1,260 @@
+<platform:PageBase
+    x:Class="ClassSoftwareHub.Desktop.Pages.ShellPage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:fa="using:FluentAvalonia.UI.Controls">
+
+    <!--
+      ⚠️ 移植说明（WinUI → Avalonia/FluentAvalonia）：
+        · 根元素 UserControl → platform:PageBase（见 Platform/PageBase.cs）。
+        · NavigationView / NavigationViewItem / Frame / FontIcon / FontIconSource 全部来自
+          FluentAvalonia（xmlns:fa），成员名与 WinUI 一致。
+        · ⚠️ WinUI 里 `NavigationViewItem.Icon`（类型 IconElement）在 FA 里叫 `IconSource`，
+             而且必须塞 **IconSource 家族**（这里用 `<fa:FontIconSource/>`），不再能直接塞 FontIcon。
+        · ⚠️ `{StaticResource}` → `{DynamicResource}`：FA 的资源键没法离线核对，
+             用 DynamicResource（查不到也只是这一次取值落空，不会在加载期抛异常）。
+    -->
+
+    <!--
+      ⚠️ 2026-10-02：这里的「自绘窗口按钮配色 + Button.caption 样式」已经**整体上移到 App.axaml**。
+         原因：主窗口和内置工具窗口（ToolPaletteWindow）在 Win7 上都没有系统标题栏，
+         两边都要用同一套自绘按钮；样式留在页面里的话另一个窗口就取不到了。
+         ⛔ 别再往这里加回来，否则会和 App 级的那份重复定义、以页面这份为准、行为不一致。
+    -->
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="48" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- 原生标题栏：拖动区由 MainWindow 的 SetTitleBar 指定；系统按钮（三大金刚）在右上角 -->
+        <Grid x:Name="TitleBarArea" Grid.Row="0" Background="{x:Null}">
+            <StackPanel x:Name="TitleLeading" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center" Margin="8,0,0,0">
+                <!--
+                  返回：挪进标题栏最左（Win11 设置那种），替代 FA 导航面板里自带的那个。
+                  ⛔ 2026-10-02 真机截图核实：FA 自带返回按钮的图标（E72B）不在内嵌 CshSymbols.ttf 里，
+                     渲染成「图片损坏」占位符；而且它孤悬在面板顶部、和汉堡键竖着堆叠，位置也不对。
+                     所以 IsBackButtonVisible 关掉，这里自己画 —— 图标照三大金刚的规矩用**矢量 Path**
+                     （别用 fa:FontIcon，见下面三大金刚的注释）。
+                  ⚠️ 2026-10-03（用户：「返回按钮感觉好短」）：比金刚加宽加高（48×36 vs 46×32），
+                     箭头也从 10 提到 12 —— 标题栏左上角没有别的挤占，可以给足。
+                -->
+                <Button x:Name="BackButton" Classes="caption" Click="BackButton_Click"
+                        IsVisible="False" ToolTip.Tip="返回" Width="48" Height="36">
+                    <Path Data="M10.5,6 L2.5,6 M6,1.5 L1.5,6 L6,10.5" StrokeThickness="1.2"
+                          Width="12" Height="12" />
+                </Button>
+                <Image x:Name="TitleIcon" Width="18" Height="18" />
+                <TextBlock x:Name="TitleText" Text="ClassSoftwareHub" FontSize="12" FontWeight="Bold"
+                           VerticalAlignment="Center" />
+            </StackPanel>
+            <StackPanel x:Name="TitleBarActions" Orientation="Horizontal" HorizontalAlignment="Right"
+                        VerticalAlignment="Center" Margin="0,0,170,0" Spacing="10">
+                <!-- 深色 / 浅色 一键切换（图标显示"点了会切到的那一边"） -->
+                <Button x:Name="ThemeButton" Click="ThemeButton_Click"
+                        Background="Transparent" BorderThickness="0" Padding="7,4" CornerRadius="4">
+                    <fa:FontIcon x:Name="ThemeIcon" Glyph="&#xE708;" FontSize="14" />
+                </Button>
+
+                <!--
+                  自绘窗口的三大金刚（Win7 路线专用，默认隐藏；MainWindow 挂上 SelfDrawnFrame
+                  之后才由 ShellPage.UseSelfDrawnCaption 打开）。
+
+                  ⚠️ 图标一律用矢量 Path，**不要**换成 fa:FontIcon：
+                     内嵌的 CshSymbols.ttf 里 U+E922 / U+E923 落在源字体自带的 Fluent 码位上，
+                     实际字形是「加人」和「箭头向左」，画出来完全不对（2026-10-02 实测核实）。
+                -->
+                <Button x:Name="CaptionMinButton" Classes="caption" Click="CaptionMinimize_Click"
+                        IsVisible="False">
+                    <Path Data="M0,5 H10" />
+                </Button>
+                <Button x:Name="CaptionMaxButton" Classes="caption" Click="CaptionMaximize_Click"
+                        IsVisible="False">
+                    <Path x:Name="CaptionMaxGlyph" Data="M0.5,0.5 H9.5 V9.5 H0.5 Z" />
+                </Button>
+                <Button x:Name="CaptionCloseButton" Classes="caption close" Click="CaptionClose_Click"
+                        IsVisible="False">
+                    <Path Data="M0.5,0.5 L9.5,9.5 M9.5,0.5 L0.5,9.5" />
+                </Button>
+            </StackPanel>
+        </Grid>
+
+        <!-- ⛔ 返回按钮已挪进标题栏（见上方 TitleBarArea）——这里必须关掉，
+             否则面板顶部还留着那个图标画错的 FA 返回按钮。 -->
+        <fa:NavigationView x:Name="Nav" Grid.Row="1" Background="{x:Null}"
+                           IsBackButtonVisible="False" IsSettingsVisible="False"
+                           PaneDisplayMode="Auto" OpenPaneLength="252"
+                           CompactModeThresholdWidth="820" ExpandedModeThresholdWidth="1180"
+                           BackRequested="Nav_BackRequested"
+                           ItemInvoked="Nav_ItemInvoked">
+
+            <!--
+              材质底座（2026-09-28 起；2026-09-29 修正过一次 —— 之前刷得太狠了）。
+              ⚠️ 本窗口的外观是 Mica / 亚克力（MainWindow.ApplyBackdrop 挂 SystemBackdrop）。
+                 NavigationView 的默认模板会给**内容区**糊一层不透明底色
+                 （SolidBackgroundFillColorBaseBrush），把窗口材质整个盖住 ——
+                 表现就是设置页一片死灰/死黑。所以**只需要把这一层改透明**，材质才透得上来。
+              ⚠️ 必须写成同 key 的 SolidColorBrush 定义：模板用的是 {ThemeResource} 查表，
+                 换成 StaticResource 重指向同一 key 是无效的（会自引用）。
+
+              ⛔⛔ 其余键**一律不要覆盖** —— 2026-09-29 Nick 连着报的两个 bug 全出在这里：
+
+              ① 面板背景（`NavigationViewExpandedPaneBackground` /
+                 `NavigationViewDefaultPaneBackground`）刷成透明会连出两个毛病：
+                   · 窄窗口点汉堡，弹出的浮层面板透明 → 后面的页面内容整个漏出来；
+                   · 并排展开时面板和内容区成了同一张底 → 左边分不出"导航栏"这一块。
+                 官方对照表（NavigationView → Pane Backgrounds）：
+                   Left                       → NavigationViewExpandedPaneBackground
+                   LeftCompact / LeftMinimal  → NavigationViewDefaultPaneBackground
+                   Top                        → NavigationViewTopPaneBackground
+                 系统给它们的是**亚克力**（Expanded 是 background acrylic、跟着窗口材质；
+                 Compact/Minimal 是 in-app acrylic，专为"浮在内容之上"设计）——
+                 本身就是半透明的，不会把材质盖住，⛔ 别再改回 Transparent。
+
+              ② `NavigationViewPaneBorderBrush` / `NavigationViewPaneBorderThickness`
+                 —— 这就是**导航面板与内容区之间那条分隔线**。
+                 2026-09-28 顺手刷成透明 + 粗细 0，线就没了。Nick 原话：
+                 「原先导航栏还有标题栏，他们俩的是连接在一起的，并且与右边的内容区域是有分隔开的，
+                   有一条线的，现在却是没有的」。
+                 同类的还有 `NavigationViewContentGridBorderBrush` / `...GridBorderThickness`
+                 （内容区那一圈边框），一并交回系统。
+
+              → 结论：**这里只留 `NavigationViewContentBackground` 一条透明**。
+                 面板自然有"一整块"的底，那条分隔线也还在。
+            -->
+            <fa:NavigationView.Resources>
+                <SolidColorBrush x:Key="NavigationViewContentBackground" Color="Transparent" />
+            </fa:NavigationView.Resources>
+            <!-- 上半区：首页 / 软件下载 / 内置工具 / 侧边布局 / 实验性功能（实验性功能永远排最后）
+                 ⚠️ 图标别撞脸：E719（购物袋）＝软件商店，E896（下载箭头）留给「任务进行」，
+                    E7F4（显示器）＝本机核实，EA80（灯泡）＝实验性功能。
+                    改图标前先把码位渲染成图看一眼有没有字形（曾经差点用到不存在的码位）。 -->
+            <fa:NavigationView.MenuItems>
+                <fa:NavigationViewItem Content="首页" Tag="home">
+                    <fa:NavigationViewItem.IconSource>
+                        <fa:FontIconSource FontFamily="{DynamicResource SymbolThemeFontFamily}" Glyph="&#xE80F;" />
+                    </fa:NavigationViewItem.IconSource>
+                </fa:NavigationViewItem>
+                <fa:NavigationViewItem Content="软件下载" Tag="apps">
+                    <fa:NavigationViewItem.IconSource>
+                        <fa:FontIconSource FontFamily="{DynamicResource SymbolThemeFontFamily}" Glyph="&#xE719;" />
+                    </fa:NavigationViewItem.IconSource>
+                </fa:NavigationViewItem>
+                <fa:NavigationViewItem Content="内置工具" Tag="tools">
+                    <fa:NavigationViewItem.IconSource>
+                        <fa:FontIconSource FontFamily="{DynamicResource SymbolThemeFontFamily}" Glyph="&#xE71D;" />
+                    </fa:NavigationViewItem.IconSource>
+                </fa:NavigationViewItem>
+                <fa:NavigationViewItem Content="侧边布局" Tag="sidebar">
+                    <fa:NavigationViewItem.IconSource>
+                        <fa:FontIconSource FontFamily="{DynamicResource SymbolThemeFontFamily}" Glyph="&#xE8A0;" />
+                    </fa:NavigationViewItem.IconSource>
+                </fa:NavigationViewItem>
+                <!--
+                  实验性功能：稳定性和准确度都还没到能上主界面的小玩意挂这儿。
+                  ⚠️ **永远排在导航上半区最后一位** —— 这是「还没成熟」的位置含义，
+                     以后往里加新功能也照此放，别插到前面去。
+                  ⚠️ 父项**自己就是总览入口**：点它 = 打开总览页 + 展开/收起分组。
+                     走的就是普通 ItemInvoked（实测：有子项的项被点击时 ItemInvoked 照样触发，
+                     只是 InvokedItemContainer 的 Tag 为空 —— 所以给它设上 Tag 即可）。
+                  ⚠️ 父项**不要进 NavigationView 的选中体系**：把 SelectedItem 指到 group header 上，
+                     它偶尔会顺着分组去 Invoke 第一个子项（实测：点实验性功能却跳到本机核实）。
+                     所以 SelectTag 对 experimental 是特判——手动点亮父项，不碰 SelectedItem（见 ShellPage.xaml.cs）。
+                  ⚠️ 因此**不要**为了"能高亮"再往里加一个「总览」子项：总览没有独立内容，
+                     它就是这一组本身，导航里凭空多一项反而像是个单独的功能。
+                -->
+                <fa:NavigationViewItem x:Name="ExperimentalNav" Content="实验性功能" Tag="experimental">
+                    <fa:NavigationViewItem.IconSource>
+                        <fa:FontIconSource FontFamily="{DynamicResource SymbolThemeFontFamily}" Glyph="&#xEA80;" />
+                    </fa:NavigationViewItem.IconSource>
+                    <fa:NavigationViewItem.MenuItems>
+                        <!--
+                          本机核实：拿本机已装软件跟清单对一遍。
+                          ⚠️ 为啥塞进实验性：结果**明显不准**（只读「程序和功能」注册表，
+                             匹配靠名称模糊比对，Store 版/免安装版/改了名的全认不出来）。
+                             放一级导航容易被当成装机验收依据，所以降级成"供你自己玩"。
+                        -->
+                        <fa:NavigationViewItem Content="本机核实" Tag="machinecheck">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{DynamicResource SymbolThemeFontFamily}" Glyph="&#xE7F4;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
+                        <!--
+                          白板专杀：到点结束希沃白板5 后台滞留的残留进程。
+                          ⚠️ 与「程序专杀」是**两个独立功能**，Nick 2026-09-28 明确要求不合并 ——
+                             本项写死只认白板5 家族（EasiNote*），不碰集控端与更新组件，所以不能拿通用专杀替代。
+                          ⚠️ 为啥塞进实验性：要真机上装了白板5 才能验，而且"有窗口就不动"这套判定
+                             在真实课堂里的误判率还没底（比如白板5 挂了个不可见的辅助窗口）。
+                        -->
+                        <fa:NavigationViewItem Content="白板专杀" Tag="easiguard">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{DynamicResource SymbolThemeFontFamily}" Glyph="&#xEA99;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
+                        <!--
+                          程序专杀：用户自己指定进程名，每个程序单独配结束时间点。
+                          ⚠️ 与白板专杀各存各的配置、各跑各的定时器（Nick 明确要求白板独立出来）。
+                        -->
+                        <fa:NavigationViewItem Content="程序专杀" Tag="procguard">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{DynamicResource SymbolThemeFontFamily}" Glyph="&#xE7E8;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
+                        <!--
+                          虚拟键盘：自绘触屏键盘，取代系统触摸键盘的使用体验。
+                          ⚠️ 为什么塞进实验性：它要装全局触摸钩子、跑 UIA 落点判定，还要（可选地）
+                             改一个注册表键 —— 而且"手指点在输入框上才弹"这套判定在真实课堂里的
+                             误判率还没底（不同输入法、不同自绘输入框的表现不完全一致）。
+                          源码：Services/VirtualKeyboard/* + Views/VirtualKeyboardWindow.*
+                        -->
+                        <fa:NavigationViewItem Content="虚拟键盘" Tag="virtualkeyboard">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{DynamicResource SymbolThemeFontFamily}" Glyph="&#xE765;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
+                    </fa:NavigationViewItem.MenuItems>
+                </fa:NavigationViewItem>
+            </fa:NavigationView.MenuItems>
+
+            <!-- 下半区：任务进行 / 提交软件 / 反馈中心 / 更新日志 / 设置 -->
+            <fa:NavigationView.FooterMenuItems>
+                <!-- 下载不再占着界面：进度在这里看得到；徽标上是「正在下载几个」（0 个就把徽标摘掉） -->
+                <fa:NavigationViewItem x:Name="DownloadsNav" Content="任务进行" Tag="downloads">
+                    <fa:NavigationViewItem.IconSource>
+                        <fa:FontIconSource FontFamily="{DynamicResource SymbolThemeFontFamily}" Glyph="&#xE896;" />
+                    </fa:NavigationViewItem.IconSource>
+                </fa:NavigationViewItem>
+                <fa:NavigationViewItem Content="提交软件" Tag="submit">
+                    <fa:NavigationViewItem.IconSource>
+                        <fa:FontIconSource FontFamily="{DynamicResource SymbolThemeFontFamily}" Glyph="&#xE898;" />
+                    </fa:NavigationViewItem.IconSource>
+                </fa:NavigationViewItem>
+                <!--
+                  反馈中心：和「提交软件」是一对（都是"往维护者那边送东西"），所以紧挨着放。
+                  E939 是「人 + 对话泡」，微软反馈中心用的就是这个字形（已用字形渲染法确认存在）。
+                -->
+                <fa:NavigationViewItem Content="反馈中心" Tag="feedback">
+                    <fa:NavigationViewItem.IconSource>
+                        <fa:FontIconSource FontFamily="{DynamicResource SymbolThemeFontFamily}" Glyph="&#xE939;" />
+                    </fa:NavigationViewItem.IconSource>
+                </fa:NavigationViewItem>
+                <!-- 更新日志：E81C 是时钟/历史，跟「设置」的齿轮分得开 -->
+                <fa:NavigationViewItem Content="更新日志" Tag="changelog">
+                    <fa:NavigationViewItem.IconSource>
+                        <fa:FontIconSource FontFamily="{DynamicResource SymbolThemeFontFamily}" Glyph="&#xE81C;" />
+                    </fa:NavigationViewItem.IconSource>
+                </fa:NavigationViewItem>
+                <fa:NavigationViewItem Content="设置" Tag="settings">
+                    <fa:NavigationViewItem.IconSource>
+                        <fa:FontIconSource FontFamily="{DynamicResource SymbolThemeFontFamily}" Glyph="&#xE713;" />
+                    </fa:NavigationViewItem.IconSource>
+                </fa:NavigationViewItem>
+            </fa:NavigationView.FooterMenuItems>
+
+            <!-- CacheSize=0：页面不留在内存里（教学机内存小，切页就回收，别一路涨上去） -->
+            <fa:Frame x:Name="ContentFrame" CacheSize="0" />
+        </fa:NavigationView>
+    </Grid>
+</platform:PageBase>

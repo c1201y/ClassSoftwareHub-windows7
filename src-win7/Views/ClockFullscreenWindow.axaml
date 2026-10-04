@@ -1,0 +1,46 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:fa="using:FluentAvalonia.UI.Controls"
+        x:Class="ClassSoftwareHub.Desktop.Views.ClockFullscreenWindow"
+        SystemDecorations="None" ShowInTaskbar="False" CanResize="False"
+        Background="Black">
+
+    <Grid x:Name="Root" IsTabStop="True" SizeChanged="Root_SizeChanged"
+          KeyDown="Root_KeyDown" DoubleTapped="Root_DoubleTapped"
+          PointerMoved="Root_PointerMoved" PointerPressed="Root_PointerPressed"
+          Tapped="Root_Tapped">
+        <Border x:Name="Veil" />
+        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                <TextBlock x:Name="TimeText" Text="00:00" FontSize="220" FontWeight="Bold"
+                           FontFamily="Bahnschrift" />
+                <TextBlock x:Name="SecText" Text=":00" FontSize="90" FontWeight="SemiBold"
+                           Opacity="0.85" VerticalAlignment="Bottom" />
+            </StackPanel>
+            <TextBlock x:Name="DateText" FontSize="40" Opacity="0.9" HorizontalAlignment="Center" />
+        </StackPanel>
+
+        <!--
+          退出入口（2026-09-27 加）。
+          在这之前只有「按 Esc」和「双击屏幕」两条路 —— 触屏用户（教学一体机）根本猜不到，
+          现场反馈原话就是「全屏时钟怎么退出」。
+          做法：进来的头几秒自动亮出来让人看清，之后淡出；鼠标一动 / 手指一碰再亮。
+          颜色**故意写死不跟主题走**：这块底下可能是白墙、可能是黑壁纸，
+          只有「深底白字 + 半透明」在任何背景上都读得清。
+        -->
+        <Border x:Name="ExitBar" HorizontalAlignment="Right" VerticalAlignment="Top"
+                Margin="0,18,18,0" CornerRadius="8" Padding="16,6,8,6"
+                Opacity="0" IsHitTestVisible="False"
+                Background="#CC1A1A1A" BorderBrush="#40FFFFFF" BorderThickness="1">
+            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                <TextBlock Text="按 Esc、双击屏幕，或单击此处退出" FontSize="14"
+                           Foreground="#FFFFFFFF" VerticalAlignment="Center" />
+                <Button Click="Exit_Click" MinWidth="36" MinHeight="36" Padding="0"
+                        Background="Transparent" BorderThickness="0"
+                        ToolTip.Tip="退出全屏时钟">
+                    <fa:FontIcon Glyph="&#xE711;" FontSize="14" Foreground="#FFFFFFFF" />
+                </Button>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

@@ -1,0 +1,282 @@
+<platform:PageBase
+    x:Class="ClassSoftwareHub.Desktop.Pages.Tools.EncodingToolPage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:fa="using:FluentAvalonia.UI.Controls">
+
+    <!-- ═══ 2026-09-29 二次重排（Nick：「拖拽区占篇幅太大，把核心结果挤到下面」）═══
+         上一版按用途分了两条主线，方向是对的，但页内的**比例**没调好：
+           · 拖放区 112 高 + 单独一行按钮，光是"选文件"就吃掉小半屏；
+           · 哈希值被压到最下面，用户拖完文件还得往下找 —— 那才是他要的结果；
+           · 哈希值外面套了个灰底圆角框，看着像能编辑的输入框，实际只能复制。
+         这一版：
+           ① 选文件压成**一条横条**（图标 · 提示 · 文件名 · 按钮都在一行，62 高）；
+           ② 哈希值紧跟其后，成为页面下半部分的主体；
+           ③ 哈希行不再套框，改用**逐行分隔线**，一眼就是"只读的结果列表"；
+           ④ 核对结论放大加粗 —— 校验完最想看到的就是"一致 / 不一致"这五个字。
+
+         ⚠️ 移植说明：
+           · 根节点 Page → platform:PageBase；
+           · CshModeCardStyle 在 Avalonia 里是 ControlTheme，用法是 Theme="…"（不是 Style="…"）；
+           · ThemeResource → DynamicResource；AccentButtonStyle 等样式键 → DynamicResource；
+           · Grid.ColumnSpacing / RowSpacing → 子元素 Margin 模拟（间距值照搬）；
+           · Visibility="Collapsed" → IsVisible="False"。 -->
+    <Grid Margin="24,14,24,20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Spacing="2">
+            <TextBlock Text="编码 / 哈希工具" FontSize="24" FontWeight="Bold" />
+            <TextBlock FontSize="12.5" Opacity="0.6" TextWrapping="Wrap"
+                       Text="校验文件：拖入文件即得四种哈希值，粘贴官方提供的哈希值会立即给出核对结论。也可对文本做 Base64 / URL 编解码。全部在本机完成。" />
+        </StackPanel>
+
+        <!-- ═══ 2026-09-29 三次调整：两个用途从「细页签」升格成「两张卡片」═══
+             原来是 SelectorBar 页签，夹在标题和内容之间 —— 从没看过说明的人只会看见
+             "文件校验"四个字，不知道点它还能切到文本编解码。现在两张卡并排，
+             未选中的那张上也写着"文本也能编解码"，一眼就知道还有另一条路。 -->
+        <!-- ColumnSpacing="12" → 第 1/2 列 Margin -->
+        <Grid Grid.Row="1" Margin="0,10,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="76" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="用途" FontSize="12.5" Opacity="0.6" VerticalAlignment="Center"
+                       HorizontalAlignment="Right" Margin="0,0,12,0" />
+
+            <RadioButton x:Name="FileTab" Grid.Column="1" Margin="12,0,0,0" GroupName="EncMode"
+                         Theme="{StaticResource CshModeCardStyle}"
+                         AutomationProperties.Name="校验文件"
+                         Checked="Mode_Changed">
+                <!-- ColumnSpacing="14" → 第 1 列 Margin -->
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Border Width="46" Height="46" CornerRadius="9" BorderThickness="1"
+                            VerticalAlignment="Center"
+                            Background="{DynamicResource ControlFillColorSecondaryBrush}"
+                            BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
+                        <TextBlock Text="文件" FontSize="13" FontWeight="Bold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <StackPanel Grid.Column="1" Margin="14,0,0,0" Spacing="2" VerticalAlignment="Center">
+                        <TextBlock Text="校验文件" FontSize="15" FontWeight="Bold" />
+                        <TextBlock Text="拖入文件即得 MD5 / SHA-1 / SHA-256 / SHA-512，粘贴官方值会自动给结论。"
+                                   FontSize="12" Opacity="0.65" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Grid>
+            </RadioButton>
+
+            <RadioButton x:Name="TextTab" Grid.Column="2" Margin="12,0,0,0" GroupName="EncMode"
+                         Theme="{StaticResource CshModeCardStyle}"
+                         AutomationProperties.Name="文本编解码"
+                         Checked="Mode_Changed">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Border Width="46" Height="46" CornerRadius="9" BorderThickness="1"
+                            VerticalAlignment="Center"
+                            Background="{DynamicResource ControlFillColorSecondaryBrush}"
+                            BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
+                        <TextBlock Text="文本" FontSize="13" FontWeight="Bold"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <StackPanel Grid.Column="1" Margin="14,0,0,0" Spacing="2" VerticalAlignment="Center">
+                        <TextBlock Text="文本编解码" FontSize="15" FontWeight="Bold" />
+                        <TextBlock Text="Base64 / URL 编码与解码，并实时计算这段文本的哈希值。"
+                                   FontSize="12" Opacity="0.65" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Grid>
+            </RadioButton>
+        </Grid>
+
+        <Grid Grid.Row="2" Margin="0,10,0,0">
+            <!-- ══════════ 文件校验 ══════════ -->
+            <ScrollViewer x:Name="FileView" VerticalScrollBarVisibility="Auto">
+                <!-- StackPanel Spacing="12" → 除第一个子元素外逐个加顶 Margin -->
+                <StackPanel>
+
+                    <!-- 从软件详情页的「校验」键跳进来时才有：说明校验值是从哪来的 -->
+                    <TextBlock x:Name="FromAppHint" IsVisible="False" FontSize="12.5"
+                               TextWrapping="Wrap" Opacity="0.85" />
+
+                    <!-- ① 选文件：一条横条，整条都能拖、能点 ——
+                         少一层"我到底该点哪个按钮"的犹豫，也把纵向空间还给下面的结果。 -->
+                    <Border x:Name="DropZone" Margin="0,12,0,0" Padding="14,12,14,12" CornerRadius="10" BorderThickness="1.5"
+                            BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                            Background="{DynamicResource ControlFillColorDefaultBrush}"
+                            DragDrop.AllowDrop="True" Tapped="DropZone_Tapped"
+                            DragDrop.DragOver="File_DragOver" DragDrop.DragLeave="File_DragLeave" DragDrop.Drop="File_Drop">
+                        <!-- ColumnSpacing="12" → 第 1/2 列 Margin -->
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <fa:FontIcon Glyph="&#xE8E5;" FontSize="20" Opacity="0.65"
+                                      VerticalAlignment="Center" />
+
+                            <StackPanel Grid.Column="1" Margin="12,0,0,0" Spacing="2" VerticalAlignment="Center">
+                                <TextBlock x:Name="DropHintText" Text="把文件拖到这里，或单击选择"
+                                           FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                <TextBlock x:Name="SourceText" FontSize="11.5" Opacity="0.6"
+                                           TextTrimming="CharacterEllipsis"
+                                           Text="支持任意文件类型，大文件流式读取" />
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="2" Margin="12,0,0,0" Orientation="Horizontal" Spacing="8"
+                                        VerticalAlignment="Center">
+                                <Button x:Name="PickFileButton" Content="选择文件" Click="PickFile_Click" />
+                                <Button x:Name="ClearFileButton" Content="清除" Click="ClearFile_Click"
+                                        IsEnabled="False" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <ProgressBar x:Name="HashProgress" Margin="0,12,0,0" IsIndeterminate="True" IsVisible="False" />
+
+                    <!-- ② 核对：标签 + 粘贴框 + 结论压在一行，结论放大加粗 ——
+                         粘完那一瞬间最想看到的就是这五个字，别让它藏在 13px 的正文里。 -->
+                    <Border Margin="0,12,0,0" CornerRadius="10" Padding="14" BorderThickness="1"
+                            BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                            Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                        <!-- ColumnSpacing="12" → 第 1/2 列 Margin -->
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="核对官方哈希值" FontSize="12.5" FontWeight="SemiBold"
+                                       VerticalAlignment="Center" />
+                            <!-- PlaceholderText → Avalonia TextBox 用 Watermark（语义相同） -->
+                            <TextBox x:Name="ExpectedBox" Grid.Column="1" Margin="12,0,0,0"
+                                     Watermark="在此粘贴官网给出的 MD5 / SHA-1 / SHA-256 / SHA-512 值（空格、大小写、冒号均可忽略）"
+                                     FontFamily="Consolas" FontSize="12.5" TextChanged="Expected_TextChanged" />
+                            <TextBlock x:Name="MatchText" Grid.Column="2" Margin="12,0,0,0" FontSize="15" FontWeight="Bold"
+                                       VerticalAlignment="Center" MaxWidth="300" TextWrapping="Wrap" />
+                        </Grid>
+                    </Border>
+
+                    <!-- ③ 结果 -->
+                    <Border Margin="0,12,0,0" CornerRadius="10" Padding="16,12,16,12" BorderThickness="1"
+                            BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                            Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="文件哈希值" FontSize="13" FontWeight="Bold" Margin="0,0,0,2" />
+                            <!-- 四行由 BuildHashRows 铺出来：算法名 · 值 · 复制，行与行之间一条分隔线 -->
+                            <StackPanel x:Name="HashPanel" Spacing="0" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- ══════════ 文本编解码 ══════════ -->
+            <ScrollViewer x:Name="TextView" VerticalScrollBarVisibility="Auto" IsVisible="False">
+                <StackPanel>
+                    <!-- ColumnSpacing="14" → 第 1 列 Margin -->
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <Border CornerRadius="10" Padding="16" BorderThickness="1"
+                                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                                Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                            <!-- Spacing="10" → 除第一个子元素外逐个加顶 Margin -->
+                            <StackPanel>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="输入文本" FontSize="13" FontWeight="Bold"
+                                               VerticalAlignment="Center" />
+                                    <!-- 清空：原来只能全选删掉，贴一大段文本后想重来很别扭 -->
+                                    <Button Grid.Column="1" Content="清空" Click="ClearInput_Click"
+                                            Padding="10,2,10,2" FontSize="12.5" />
+                                </Grid>
+                                <TextBox x:Name="InputBox" Margin="0,10,0,0" AcceptsReturn="True" TextWrapping="Wrap" Height="168"
+                                         Watermark="输入文本（支持中文）" FontFamily="Consolas" FontSize="13"
+                                         TextChanged="Input_TextChanged" />
+
+                                <!-- 四个按钮平铺分不清哪个是哪种编码 → 改成"左边给算法、右边给方向"的表格型排布，
+                                     同一列永远是同一个动作（右=解码），肌肉记忆直接建立。 -->
+                                <!-- ColumnSpacing="8" RowSpacing="8" → Margin 模拟 -->
+                                <Grid Margin="0,10,0,0">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <TextBlock Text="Base64" FontSize="12" Opacity="0.7" VerticalAlignment="Center" />
+                                    <Button Grid.Column="1" Content="编码" Click="B64Enc_Click"
+                                            HorizontalAlignment="Stretch" FontSize="13" />
+                                    <Button Grid.Column="2" Margin="8,0,0,0" Content="解码" Click="B64Dec_Click"
+                                            HorizontalAlignment="Stretch" FontSize="13" />
+
+                                    <TextBlock Grid.Row="1" Margin="0,8,0,0" Text="URL" FontSize="12" Opacity="0.7"
+                                               VerticalAlignment="Center" />
+                                    <Button Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" Content="编码" Click="UrlEnc_Click"
+                                            HorizontalAlignment="Stretch" FontSize="13" />
+                                    <Button Grid.Row="1" Grid.Column="2" Margin="8,8,0,0" Content="解码" Click="UrlDec_Click"
+                                            HorizontalAlignment="Stretch" FontSize="13" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Grid.Column="1" Margin="14,0,0,0" CornerRadius="10" Padding="16" BorderThickness="1"
+                                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                                Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                            <StackPanel>
+                                <TextBlock Text="输出结果" FontSize="13" FontWeight="Bold" />
+                                <TextBox x:Name="OutputBox" Margin="0,10,0,0" AcceptsReturn="True" TextWrapping="Wrap" Height="168"
+                                         Watermark="转换结果" FontFamily="Consolas" FontSize="13"
+                                         TextChanged="Output_TextChanged" />
+                                <StackPanel Margin="0,10,0,0" Orientation="Horizontal" Spacing="8">
+                                    <Button x:Name="CopyOutButton" Content="复制结果" Click="CopyOut_Click"
+                                            IsEnabled="False" Padding="10,0,10,0" FontSize="13" />
+                                    <Button x:Name="UseOutputButton" Content="替换输入" Click="UseOutput_Click"
+                                            IsEnabled="False" Padding="10,0,10,0" FontSize="13" />
+                                </StackPanel>
+                                <TextBlock x:Name="StatusText" Margin="0,10,0,0" FontSize="12.5" Opacity="0.6" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+
+                    <!-- 文本的哈希：跟输入框实时联动，所以单独成一块，不与"文件哈希"共用显示区 -->
+                    <Border Margin="0,12,0,0" CornerRadius="10" Padding="16,12,16,12" BorderThickness="1"
+                            BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                            Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="这段文本的哈希值" FontSize="13" FontWeight="Bold" />
+                            <TextBlock FontSize="12" Opacity="0.6" TextWrapping="Wrap"
+                                       Text="随上方输入框的内容实时计算，无需单击任何按钮。" Margin="0,0,0,2" />
+                            <StackPanel x:Name="TextHashPanel" Spacing="0" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+        </Grid>
+
+        <TextBlock x:Name="Toast" Grid.Row="3" Margin="0,10,0,0" FontSize="12" Opacity="0.75" />
+    </Grid>
+</platform:PageBase>

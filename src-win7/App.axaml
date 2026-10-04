@@ -1,0 +1,323 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:sty="using:FluentAvalonia.Styling"
+             xmlns:fa="using:FluentAvalonia.UI.Controls"
+             xmlns:views="using:ClassSoftwareHub.Desktop.Views"
+             x:Class="ClassSoftwareHub.Desktop.App"
+             RequestedThemeVariant="Default">
+
+    <!--
+      样式栈：
+        · FluentAvaloniaTheme —— 提供 WinUI 同款控件外观（NavigationView / InfoBar / Expander /
+          NumberBox / ContentDialog / Frame 等），是「UI 一模一样」的基础。
+
+      ⛔ 图标字体（Windows 7 最关键的一处适配）：
+         Win7 **既没有 Segoe MDL2 Assets 也没有 Segoe Fluent Icons**，
+         而原版 XAML 里用了 91 个 MDL2 码位（&#xE719; 这种）。
+         解法：用 MIT 许可的 Fluent System Icons 把字形**重映射到 MDL2 码位**，
+         生成 Assets/Fonts/CshSymbols.ttf 内嵌进程序。
+         → 好处：**原 XAML 里的 Glyph 码位一个字都不用改**。
+         ⚠️ SymbolThemeFontFamily 是 FluentAvalonia 查图标字体的资源键，必须用这个 key。
+         ⚠️ 字体族名 "CshSymbols" 来自字体文件内部的 family name，不要改。
+    -->
+    <Application.Styles>
+        <sty:FluentAvaloniaTheme PreferSystemTheme="True" />
+
+        <!--
+          全站 ScrollViewer 统一给一个 Transparent 底（对应原版 App.xaml 里那条全局 ScrollViewer 样式）。
+
+          ⚠️⚠️ 滚动区「死区」：原版 2026-09-29 抓到的 bug —— 设置页每个标题上面那一块区域，
+              鼠标放上去滚轮就不动。真因不是哪个控件吞了滚轮，而是：ScrollViewer 默认 Background 是 null，
+              内层 Grid/StackPanel 也没有背景 → 这些元素**不参与命中测试**，落进"没有东西"的缝隙时
+              事件直接穿过去，ScrollViewer 永远收不到。
+
+          → 修法：统一给一个 Transparent 底。Transparent 不画任何像素（外观与 null 完全一致），
+            但会让整块矩形参与命中测试，事件因此能正常冒泡到 ScrollViewer。
+            ⛔ 别改成 {x:Null}（等于没设）；页面里若显式写了 Background，会盖住这条样式，也要一并去掉。
+        -->
+        <Style Selector="ScrollViewer">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+
+        <!--
+          ⛔ 图标字体（Win7 关键）：实测 FA 2.4.1 的 FontIcon **不会**自动套 SymbolThemeFontFamily
+             （FontFamily 停留在 $Default → PUA 码位落到默认字体 → 全部渲染成空心豆腐块，2026-10-01 探针实测）。
+             这里全局强制所有 FontIcon / SymbolIcon 用内嵌的 CshSymbols（91+ 个 MDL2 码位重映射，见 Assets/Fonts/icon-map.md）。
+             FA 内部控件（InfoBar 严重级别图标、NavigationView 折叠钮等）创建的 FontIcon 同样吃这条样式。
+        -->
+        <Style Selector="fa|FontIcon">
+            <Setter Property="FontFamily" Value="{DynamicResource SymbolThemeFontFamily}" />
+        </Style>
+
+        <!--
+          ═══════════════════════════════════════════════════════════════════════════════
+          自绘窗口的「三大金刚」（最小化 / 最大化 / 关闭）。
+
+          ⚠️ 2026-10-02 从 ShellPage.axaml 提到这里：**主窗口和内置工具窗口都要用**。
+             样式放在页面里的话，内置工具窗口（ToolPaletteWindow）在 Win7 上就没有自绘按钮了，
+             而它在 Win7 上同样没有系统标题栏可点。
+
+          用法：`Classes="caption"`（关闭键再加 `close`）。
+          图标一律用矢量 Path —— 内嵌的 CshSymbols.ttf 里 U+E922 / U+E923 落在源字体自带的
+          Fluent 码位上，实际字形是「加人」和「箭头向左」，用 fa:FontIcon 会画错（2026-10-02 实测）。
+          ═══════════════════════════════════════════════════════════════════════════════
+        -->
+        <Style Selector="Button.caption">
+            <Setter Property="Width" Value="46" />
+            <Setter Property="Height" Value="32" />
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+
+        <!-- 常态透明：把 Button 自带的底色/描边压掉，否则窗口按钮会像个普通按钮 -->
+        <!-- ⚠️ 2026-10-03 补 Transitions（用户：「返回小箭头没有动画」）：WinUI 原版三大金刚
+             和返回键的悬停/按下都有 ~100ms 的底色淡入淡出，缺了这层就是「生切」。
+             写在基样式上，pointerover / pressed 的变色、关闭键的红底白叉淡入全都吃到。 -->
+        <Style Selector="Button.caption /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Background" Duration="0:0:0.12" />
+                </Transitions>
+            </Setter>
+        </Style>
+        <Style Selector="Button.caption:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource CshCaptionHoverBrush}" />
+        </Style>
+        <Style Selector="Button.caption:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource CshCaptionPressedBrush}" />
+        </Style>
+
+        <!-- 图标：矢量 Path，10×10 的框，Stretch=None 保证线宽不被缩放 -->
+        <!-- 描边也补过渡：关闭键悬停时白叉是淡入的（Win11 同款），不是瞬间变白 -->
+        <Style Selector="Button.caption Path">
+            <Setter Property="Stroke" Value="{DynamicResource CshCaptionGlyphBrush}" />
+            <Setter Property="StrokeThickness" Value="1" />
+            <Setter Property="Stretch" Value="None" />
+            <Setter Property="Width" Value="10" />
+            <Setter Property="Height" Value="10" />
+            <Setter Property="Transitions">
+                <Transitions>
+                    <BrushTransition Property="Stroke" Duration="0:0:0.12" />
+                </Transitions>
+            </Setter>
+        </Style>
+
+        <!-- 关闭键：悬停红底白叉（Win11 同款） -->
+        <Style Selector="Button.caption.close:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#C42B1C" />
+        </Style>
+        <Style Selector="Button.caption.close:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#B02318" />
+        </Style>
+        <Style Selector="Button.caption.close:pointerover Path">
+            <Setter Property="Stroke" Value="White" />
+        </Style>
+        <Style Selector="Button.caption.close:pressed Path">
+            <Setter Property="Stroke" Value="White" />
+        </Style>
+    </Application.Styles>
+
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- 自建 SettingsCard（FA 没有这个控件）—— 设置页 / 虚拟键盘页共用 -->
+                <ResourceInclude Source="avares://ClassSoftwareHub/Views/SettingsCard.axaml" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <!-- ⛔ Win7 关键：图标字体。绝不能删。 -->
+            <FontFamily x:Key="SymbolThemeFontFamily">avares://ClassSoftwareHub/Assets/Fonts/CshSymbols.ttf#CshSymbols</FontFamily>
+
+            <!--
+              自绘窗口按钮的配色。
+              ⚠️ 故意**不用** FluentAvalonia 的 SubtleFillColor*Brush 那一套键：那些键名在 FA 的
+                 dll 里搜不到（2026-10-02 核实），取不到值时 DynamicResource 会静默留空、按钮悬停没反应。
+                 自己给两套主题，稳。
+              ⚠️ 放在 Application 级别（不是某个页面里）：主窗口和内置工具窗口共用同一套。
+            -->
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="CshCaptionGlyphBrush" Color="#1B1B1B" />
+                    <SolidColorBrush x:Key="CshCaptionHoverBrush" Color="#14000000" />
+                    <SolidColorBrush x:Key="CshCaptionPressedBrush" Color="#24000000" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="CshCaptionGlyphBrush" Color="#F2F2F2" />
+                    <SolidColorBrush x:Key="CshCaptionHoverBrush" Color="#16FFFFFF" />
+                    <SolidColorBrush x:Key="CshCaptionPressedBrush" Color="#26FFFFFF" />
+
+                    <!--
+                      下拉菜单（ComboBox 弹层）在深色下的配色。
+
+                      ⚠️⚠️ 必须自己给，不能交给 FluentAvalonia 的默认值（2026-10-02 真机截图核实）：
+                          FA 深色下 ComboBoxDropDownBorderBrush 是中灰，压在 #242424 的深色弹层上
+                          看上去就是"一圈白边"（浅色模式白底白边、看不出来）。
+                          参考实现（SecRandom-Win7-Port）也是这么关掉这个毛病的，键名一字不差。
+
+                      ⚠️ 这两个键是 FA 的 ComboBox 模板在用的：PopupBorder 的 Background / BorderBrush。
+                         写成 Application 级别的 ThemeDictionaries —— 弹层是**独立顶层窗口**，
+                         只有应用级资源它才查得到（写在某个页面里的话弹层够不着）。
+                    -->
+                    <SolidColorBrush x:Key="ComboBoxDropDownBackground" Color="#242424" />
+                    <SolidColorBrush x:Key="ComboBoxDropDownBorderBrush" Color="#3A3A3A" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+
+            <!--
+              ⚠️ 卡片外面那圈矩形框 = 原版 GridViewItem 自带的「焦点框 / 悬停底色」。
+              原版把容器整套 chrome 关掉，悬停反馈改由卡片自己画。
+
+              ⚠️ Avalonia **没有 GridViewItem**（GridView/ListView 一律是 ListBox/ListBoxItem，
+                 见 PORTING.md 4.2），所以这里把同一套「关容器 chrome」的目标改到 ListBoxItem 上；
+                 使用方：`ItemContainerTheme="{StaticResource CshCardItemStyle}"`。
+            -->
+            <ControlTheme x:Key="CshCardItemStyle" TargetType="ListBoxItem">
+                <Setter Property="Margin" Value="0" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="MinWidth" Value="0" />
+                <Setter Property="MinHeight" Value="0" />
+                <Setter Property="HorizontalContentAlignment" Value="Left" />
+                <Setter Property="VerticalContentAlignment" Value="Top" />
+                <Setter Property="Focusable" Value="False" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="Template">
+                    <ControlTemplate>
+                        <ContentPresenter Content="{TemplateBinding Content}"
+                                          ContentTemplate="{TemplateBinding ContentTemplate}"
+                                          HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+                    </ControlTemplate>
+                </Setter>
+            </ControlTheme>
+
+            <!--
+              ═══════════════════════════════════════════════════════════════════════════════
+              CshModeCardStyle —— 把「模式选择」做成一张看得见、点得懂的卡片。
+
+              用途：页面里有「两种以上玩法」需要用户先选一个的场合（抽号 / 分组、号码 / 名单、
+              文件校验 / 文本编解码、倒计时 / 秒表…）。原来这些都用小号 RadioButton 或一列
+              平铺按钮，未选中的那一边几乎等于不存在，用户根本不知道这个页面还有另一种用法。
+
+              为什么用 RadioButton 而不是自己写 Button：
+                · GroupName 自带互斥，不用手写"选中状态"逻辑；
+                · 方向键切换、屏幕阅读器朗读（RadioButton 语义）都是白送的；
+                · ⚠️ 但 RadioButton 的 IsChecked **不能在 XAML 里写 True**（会运行时报
+                  「Failed to assign to property」）—— 一律在代码里赋初值。
+
+              卡片长什么样：整块可点，内容自定（通常是「图标 + 标题 + 一句话说明」）。
+                · 未选中：普通卡片底 + 普通描边；
+                · 选中：强调色描边 2px + 强调色淡底 + 右侧一个对勾 —— 三处同时变，绝不靠颜色一项。
+
+              ⚠️ 移植说明：原版是 WinUI 的 `Style` + VisualStateManager；
+                 Avalonia 的对应机制是 `ControlTheme` + 伪类选择器，所以用法写成
+                 **`Theme="{StaticResource CshModeCardStyle}"`**（不是 `Style=`）。
+              ═══════════════════════════════════════════════════════════════════════════════
+            -->
+            <ControlTheme x:Key="CshModeCardStyle" TargetType="RadioButton">
+                <Setter Property="MinWidth" Value="0" />
+                <Setter Property="MinHeight" Value="0" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="Margin" Value="0" />
+                <Setter Property="Focusable" Value="False" />
+                <Setter Property="HorizontalAlignment" Value="Stretch" />
+                <Setter Property="VerticalAlignment" Value="Stretch" />
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="VerticalContentAlignment" Value="Center" />
+                <Setter Property="Template">
+                    <ControlTemplate>
+                        <Border Name="Card" CornerRadius="10" BorderThickness="1.5" Padding="0"
+                                Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
+                            <Grid>
+                                <!-- 选中时的强调色淡底：作为最底下的一层铺满整卡 -->
+                                <Border Name="Tint" CornerRadius="9" Opacity="0"
+                                        Background="{DynamicResource AccentFillColorDefaultBrush}" />
+                                <!-- 悬停 / 按下时的浅灰底 -->
+                                <Border Name="Hover" CornerRadius="9" Opacity="0"
+                                        Background="{DynamicResource ControlFillColorSecondaryBrush}" />
+
+                                <!-- Avalonia 的 Grid 没有 Padding，套一层 Border 承载内边距（语义等价） -->
+                                <Border Padding="15,11">
+                                    <Grid Name="Body" ColumnDefinitions="*,Auto">
+                                        <ContentPresenter Grid.Column="0"
+                                                          Content="{TemplateBinding Content}"
+                                                          ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                          HorizontalAlignment="Stretch"
+                                                          VerticalAlignment="Center" />
+                                        <fa:FontIcon Grid.Column="1" Name="CheckGlyph" Glyph="&#xE73E;"
+                                                     FontSize="15" FontWeight="SemiBold" IsVisible="False"
+                                                     Margin="12,0,0,0"
+                                                     VerticalAlignment="Center"
+                                                     Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}" />
+                                    </Grid>
+                                </Border>
+                            </Grid>
+                        </Border>
+                    </ControlTemplate>
+                </Setter>
+
+                <!-- ⚠️ 2026-10-04（用户第 17 轮「应用有些地方没有动画，适当加一点」）：
+                     卡片上那两层的显隐原来是**硬切换**（Opacity 直接 0 → 0.7），鼠标划过很生硬。
+                     给 Hover（悬停浅灰底）和 Tint（选中强调色淡底）各补一条 Opacity 过渡：
+                     划过时淡上来、移开时淡下去、选中时也是渐渐染色 —— 观感立刻不一样，
+                     而且只动透明度，老机器（无 DWM 合成）也不掉帧。
+                     卡片描边（BorderBrush/Thickness）保持硬切换：2px 的变化本身不刺眼，
+                     而且 Thickness 过渡在 Avalonia 里类型更挑，不值得为它冒风险。 -->
+                <Style Selector="^ /template/ Border#Hover">
+                    <Setter Property="Transitions">
+                        <Transitions>
+                            <DoubleTransition Property="Opacity" Duration="0:0:0.14" />
+                        </Transitions>
+                    </Setter>
+                </Style>
+                <Style Selector="^ /template/ Border#Tint">
+                    <Setter Property="Transitions">
+                        <Transitions>
+                            <DoubleTransition Property="Opacity" Duration="0:0:0.14" />
+                        </Transitions>
+                    </Setter>
+                </Style>
+
+                <Style Selector="^:pointerover /template/ Border#Hover">
+                    <Setter Property="Opacity" Value="0.7" />
+                </Style>
+                <Style Selector="^:pressed /template/ Border#Hover">
+                    <Setter Property="Opacity" Value="1" />
+                </Style>
+                <Style Selector="^:disabled /template/ Border#Card">
+                    <Setter Property="Opacity" Value="0.4" />
+                </Style>
+                <Style Selector="^:checked /template/ Border#Card">
+                    <Setter Property="BorderBrush" Value="{DynamicResource AccentFillColorDefaultBrush}" />
+                    <Setter Property="BorderThickness" Value="2" />
+                </Style>
+                <Style Selector="^:checked /template/ Border#Tint">
+                    <Setter Property="Opacity" Value="0.13" />
+                </Style>
+                <Style Selector="^:checked /template/ fa|FontIcon#CheckGlyph">
+                    <Setter Property="IsVisible" Value="True" />
+                </Style>
+                <Style Selector="^:focus /template/ Border#Hover">
+                    <Setter Property="Opacity" Value="1" />
+                </Style>
+            </ControlTheme>
+
+            <!--
+              ⚠️ 原版 App.xaml 里还有两段**无法 1:1 移植**的资源，这里说明去路（不是漏掉）：
+                · 给 ContentDialog 设 CornerRadius=8 的隐式 Style ——
+                  FluentAvalonia 的 ContentDialog 没有 CornerRadius 这个可写属性（实测导出成员里没有），
+                  圆角由它自己的模板决定，故不再覆盖。
+                · 一排 GridViewItem* 刷子（GridViewItemBackground 等）——
+                  Avalonia 没有 GridViewItem 这个类型，键无处挂载；容器 chrome 的关闭已由
+                  上面的 CshCardItemStyle 承担。
+            -->
+        </ResourceDictionary>
+    </Application.Resources>
+
+</Application>

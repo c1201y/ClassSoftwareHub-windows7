@@ -1,0 +1,51 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:fa="using:FluentAvalonia.UI.Controls"
+        x:Class="ClassSoftwareHub.Desktop.Views.VolumeMixerWindow"
+        SystemDecorations="None" ShowInTaskbar="False" CanResize="False" Topmost="True">
+
+    <!--
+      音量合成器浮窗：在主音量浮窗上点「展开」弹出，**贴着主音量浮窗往屏幕里侧排**。
+         · 贴左/右 → 竖版：每个应用**一行**（图标 + 名称 + 横滑块），上下排
+         · 贴上/下 → 横版：每个应用**一列**（图标 / 名称 / 竖滑块），左右排（ApplyOrientation 里换）
+      材质 = 侧边栏同款（见 FlyoutChrome.ApplyMaterial）；
+      行/列是代码里按 pid 增量复用建的（VolumeMixerWindow.axaml.cs），拖动中不重建。
+
+      ⚠️ 移植说明：Grid 的 RowSpacing="10" → 第二行子元素 Margin 模拟（Avalonia Grid 没有行间距）。
+    -->
+    <Grid x:Name="Root" Background="Transparent">
+        <Border x:Name="Panel" CornerRadius="8" BorderThickness="1"
+                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
+
+            <Grid x:Name="ContentHost" Margin="16,14,16,14">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <!-- 标题行（2026-10-03 第 16 轮起**不再是拖动把手**：拖动已撤掉，见 VolumeWindow.axaml）。 -->
+                <Border x:Name="GripRow" Background="Transparent" MinHeight="22">
+                    <StackPanel Orientation="Horizontal" Spacing="7">
+                        <fa:FontIcon Glyph="&#xE767;" FontSize="13" Opacity="0.55" VerticalAlignment="Center" />
+                        <TextBlock Text="音量合成器" FontSize="12.5" FontWeight="SemiBold" Opacity="0.85"
+                                   VerticalAlignment="Center" />
+                        <TextBlock x:Name="SessionCountText" FontSize="11.5" Opacity="0.5"
+                                   VerticalAlignment="Center" />
+                    </StackPanel>
+                </Border>
+
+                <!-- 每个正在发声的应用（最多 6 个，多了滚动） -->
+                <ScrollViewer x:Name="SessionScroll" Grid.Row="1" Margin="0,10,0,0"
+                              VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled">
+                    <!-- 原 VerticalScrollMode/HorizontalScrollMode 为 WinUI 触摸属性，Avalonia 无此属性，删除 -->
+                    <StackPanel x:Name="SessionStack" Spacing="6" />
+                </ScrollViewer>
+
+                <TextBlock x:Name="SessionEmptyText" Grid.Row="1" Margin="0,10,0,0" IsVisible="False"
+                           Text="当前无正在发声的应用。" FontSize="12" Opacity="0.6"
+                           TextWrapping="Wrap" VerticalAlignment="Top" />
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

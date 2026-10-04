@@ -1,0 +1,81 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:fa="using:FluentAvalonia.UI.Controls"
+        xmlns:palette="using:ClassSoftwareHub.Desktop.Views.Palette"
+        x:Class="ClassSoftwareHub.Desktop.Views.ToolPaletteWindow">
+
+    <!--
+      常用工具窗口：**自绘标题栏**（那 32px 的 AppTitleBar 就是窗口顶边）——
+      **不进任务栏**（入口是系统托盘里它自己那个图标，跟主界面那个图标分开）；
+      不能最大化/全屏、不能最小化；× / Esc = 收起来，托盘那个图标点一下就回来。
+
+      ⚠️ 移植说明（WinUI → Avalonia）：
+        · ThemeResource → DynamicResource；
+        · Grid 的 Padding → 子元素 Margin；ColumnSpacing → 后续子元素 Margin；
+        · Win7 路线见 .cs 里 Configure() 与 AttachSelfDrawnFrame() 的说明。
+        · 依赖 Views.Palette 下的四个简版工具（views-b2 负责）。
+    -->
+    <Grid x:Name="Root" Focusable="True" KeyDown="Root_KeyDown"
+          Background="{DynamicResource ApplicationPageBackgroundThemeBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!--
+          自绘标题栏 = 窗口真正的顶边。整条都能拖（Win7 路线上由 SelfDrawnFrame 报 HTCAPTION，
+          Win10/11 路线上由客户区扩展 + 系统 titlebar 机制处理）。
+          ⚠️ 关闭键必须自己画：Win7 路线下系统标题栏被吃掉了，没有这个按钮窗口就关不掉。
+        -->
+        <Grid x:Name="AppTitleBar" Height="32">
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="12,0,0,0">
+                <fa:FontIcon Glyph="&#xE71D;" FontSize="13" Opacity="0.85" />
+                <TextBlock Text="常用工具" FontSize="12.5" VerticalAlignment="Center" />
+            </StackPanel>
+
+            <!-- 图标一律矢量 Path，不用 fa:FontIcon —— 内嵌字体里窗口按钮那几个码位映射的是无关字形 -->
+            <Button x:Name="CaptionCloseButton" Classes="caption close"
+                    HorizontalAlignment="Right" VerticalAlignment="Top"
+                    Margin="0,0,4,0" Click="CaptionClose_Click">
+                <Path Data="M0.5,0.5 L9.5,9.5 M9.5,0.5 L0.5,9.5" />
+            </Button>
+        </Grid>
+
+        <!-- 四个工具切换（等宽，标题统一四个字） -->
+        <Border Grid.Row="1" Padding="14,6,14,10">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Button x:Name="ChipPick" Foreground="{DynamicResource TextFillColorPrimaryBrush}" BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" BorderThickness="1" Background="Transparent" Content="随机抽号" Tag="pick-number" HorizontalAlignment="Stretch"
+                        Padding="0,6" MinWidth="0" Click="Chip_Click" />
+                <Button x:Name="ChipTimer" Foreground="{DynamicResource TextFillColorPrimaryBrush}" BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" BorderThickness="1" Background="Transparent" Grid.Column="1" Content="课堂计时" Tag="timer" MinWidth="0"
+                        HorizontalAlignment="Stretch" Padding="0,6" Margin="6,0,0,0" Click="Chip_Click" />
+                <Button x:Name="ChipStopwatch" Foreground="{DynamicResource TextFillColorPrimaryBrush}" BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" BorderThickness="1" Background="Transparent" Grid.Column="2" Content="秒表计时" Tag="stopwatch" MinWidth="0"
+                        HorizontalAlignment="Stretch" Padding="0,6" Margin="6,0,0,0" Click="Chip_Click" />
+                <Button x:Name="ChipClock" Foreground="{DynamicResource TextFillColorPrimaryBrush}" BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" BorderThickness="1" Background="Transparent" Grid.Column="3" Content="全屏时钟" Tag="clock" MinWidth="0"
+                        HorizontalAlignment="Stretch" Padding="0,6" Margin="6,0,0,0" Click="Chip_Click" />
+            </Grid>
+        </Border>
+
+        <!-- 当前工具 -->
+        <Grid Grid.Row="2" Margin="14,0,14,14">
+            <Grid x:Name="PanePick">
+                <palette:MiniPickNumber x:Name="PickView" />
+            </Grid>
+            <Grid x:Name="PaneTimer" IsVisible="False">
+                <palette:MiniTimer x:Name="TimerView" />
+            </Grid>
+            <Grid x:Name="PaneStopwatch" IsVisible="False">
+                <palette:MiniStopwatch x:Name="StopwatchView" />
+            </Grid>
+            <Grid x:Name="PaneClock" IsVisible="False">
+                <palette:MiniClock x:Name="ClockView" />
+            </Grid>
+        </Grid>
+    </Grid>
+</Window>

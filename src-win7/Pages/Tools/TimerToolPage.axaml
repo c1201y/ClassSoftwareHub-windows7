@@ -1,0 +1,119 @@
+<platform:PageBase
+    x:Class="ClassSoftwareHub.Desktop.Pages.Tools.TimerToolPage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:fa="using:FluentAvalonia.UI.Controls">
+
+    <!-- ═══ 2026-09-29 三次调整 ═══
+         · 倒计时 / 秒表原来是一对普通按钮，靠"当前那个是强调色 + 名字前加个 ●"来提示选中状态，
+           未选中的那个看着跟"重置"没区别。现在换成两张并列的模式卡（App.xaml 的 CshModeCardStyle），
+           每张都写着自己干什么，选中的那张有强调色描边 + 淡底 + 对勾，三处同时变。
+         · 秒表模式下原来把「设定时长」整块收起来，页面底部留一大块空白，像加载失败。
+           现在改成在该位置显示一句说明，位置不跳、内容有解释。
+
+         ⚠️ 移植说明：
+           · CshModeCardStyle 在 Avalonia 里是 ControlTheme，用法是 Theme="…"（不是 Style="…"）；
+           · ToolTipService.ToolTip → ToolTip.Tip；
+           · ThemeResource → DynamicResource；
+           · Grid.ColumnSpacing → 子元素 Margin 模拟；
+           · Visibility="Collapsed" → IsVisible="False"。 -->
+    <!-- ⚠️ 2026-10-02 实机反馈「内置工具界面显示不开也不能滚动」就是这一页：
+         原版是「标题(自动) / 中间(*，**固定高度**的一张 286dip 大卡片) / 底部设定面板(自动)」，
+         中间那行拿到剩余空间后，底部「设定时长」整块被顶出可视区 —— 窗口一矮就只剩
+         时、分、秒一行标题露在外面，而页面**滚不动**，输入框和预设按钮全看不见。
+         改成整页一个滚动条 + 三行都按内容高度排：窗口再矮也能滚到底。 -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <Grid Margin="24,14,24,20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- ColumnSpacing="12" → 第二列 Margin -->
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Spacing="2" VerticalAlignment="Center">
+                <TextBlock Text="课堂计时器" FontSize="24" FontWeight="Bold" />
+                <TextBlock Text="倒计时 / 秒表，大字号便于投影，到达设定时间响铃。" FontSize="12.5" Opacity="0.6" />
+            </StackPanel>
+            <Button Grid.Column="1" Margin="12,0,0,0" Content="在工具窗口打开" VerticalAlignment="Center"
+                    Click="OpenPalette_Click" ToolTip.Tip="打开置顶小窗口，便于随时计时" />
+        </Grid>
+
+        <!-- RowSpacing="14" → 第 1/2 行各加顶 Margin -->
+        <Border Grid.Row="1" Margin="0,14,0,0" CornerRadius="10" Padding="24" BorderThickness="1"
+                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+            <StackPanel Spacing="20" VerticalAlignment="Center" HorizontalAlignment="Center">
+                <!-- ⚠️ IsChecked 一律在代码里赋初值（见 App.axaml 的 CshModeCardStyle 注释） -->
+                <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Center">
+                    <RadioButton x:Name="BtnCountdown" GroupName="TimerMode" Width="252"
+                                 Theme="{StaticResource CshModeCardStyle}" Checked="Mode_Changed">
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="倒计时" FontSize="14" FontWeight="SemiBold" />
+                            <TextBlock Text="设定时长后倒数，到点响铃。" FontSize="12" Opacity="0.65" />
+                        </StackPanel>
+                    </RadioButton>
+                    <RadioButton x:Name="BtnStopwatch" GroupName="TimerMode" Width="252"
+                                 Theme="{StaticResource CshModeCardStyle}" Checked="Mode_Changed">
+                        <StackPanel Spacing="2">
+                            <TextBlock Text="秒表" FontSize="14" FontWeight="SemiBold" />
+                            <TextBlock Text="从 0 开始正向计时，适合掐时间。" FontSize="12" Opacity="0.65" />
+                        </StackPanel>
+                    </RadioButton>
+                </StackPanel>
+
+                <TextBlock x:Name="Display" Foreground="{DynamicResource TextFillColorPrimaryBrush}" Text="05:00"
+                           FontSize="96" FontWeight="Bold"
+                           FontFamily="Consolas" HorizontalAlignment="Center" />
+
+                <Border Width="520" Height="6" CornerRadius="3"
+                        Background="{DynamicResource ControlFillColorSecondaryBrush}">
+                    <Border x:Name="ProgressFill" Width="520" Height="6" CornerRadius="3"
+                            HorizontalAlignment="Left"
+                            Background="{DynamicResource AccentFillColorDefaultBrush}" />
+                </Border>
+
+                <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">
+                    <!-- 原版 Style="{StaticResource AccentButtonStyle}" → FA 同名键（DynamicResource 便于换肤） -->
+                    <Button x:Name="StartButton" Content="开始" Click="StartPause_Click" MinWidth="120" Height="40"
+                            FontSize="15" Theme="{StaticResource AccentButtonStyle}" />  <!-- Style+DynamicResource 不支持，改 Theme+StaticResource -->
+                    <Button Content="重置" Click="Reset_Click" MinWidth="120" Height="40" FontSize="15" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- 倒计时设定 / 秒表说明：同一个位置，两种模式各显示一半，尺寸不跳 -->
+        <Border x:Name="SetupPanel" Grid.Row="2" Margin="0,14,0,0" CornerRadius="10" Padding="16" BorderThickness="1"
+                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+            <StackPanel Spacing="10" MaxWidth="900" HorizontalAlignment="Left">
+                <TextBlock x:Name="SetupTitle" Text="设定时长" FontWeight="Bold" />
+                <StackPanel x:Name="SetRow" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                    <fa:NumberBox x:Name="MinBox" Value="5" Minimum="0" Maximum="999"
+                                  SpinButtonPlacementMode="Compact"
+                                  Width="120" IsEnabled="True" />
+                    <TextBlock Text="分" VerticalAlignment="Center" />
+                    <fa:NumberBox x:Name="SecBox" Value="0" Minimum="0" Maximum="59"
+                                  SpinButtonPlacementMode="Compact"
+                                  Width="120" />
+                    <TextBlock Text="秒" VerticalAlignment="Center" />
+                    <Button Content="1 分钟" Click="Preset_Click" Tag="1" Margin="16,0,0,0" />
+                    <Button Content="3 分钟" Click="Preset_Click" Tag="3" />
+                    <Button Content="5 分钟" Click="Preset_Click" Tag="5" />
+                    <Button Content="10 分钟" Click="Preset_Click" Tag="10" />
+                    <Button Content="15 分钟" Click="Preset_Click" Tag="15" />
+                </StackPanel>
+                <TextBlock x:Name="StopwatchHint" IsVisible="False" FontSize="12.5" Opacity="0.65"
+                           TextWrapping="Wrap"
+                           Text="秒表模式不需要设定时长：单击「开始」即开始计时，再次单击暂停，单击「重置」归零。" />
+            </StackPanel>
+        </Border>
+    </Grid>
+    </ScrollViewer>
+</platform:PageBase>

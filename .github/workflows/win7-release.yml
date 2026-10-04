@@ -1,0 +1,191 @@
+name: Windows 7 版 构建与发布
+
+# ══════════════════════════════════════════════════════════════════════
+#  给 ClassSoftwareHub 的 Windows 7 移植版（Avalonia 11 + .NET 6）出包。
+#
+#  本仓库（ClassSoftwareHub-windows7）就是 Win7 版**自己的仓库**（2026-10-04 独立成库），
+#  Release 列表天然与 WinUI 版（ClassSoftwareHub-Desktop）隔离 —— tag **不需要任何前缀**。
+#
+#  产出两样东西（都在 Release 里）：
+#    ① 便携版  ClassSoftwareHub-Portable-win7-dv<版本>.zip   —— 「启动器 + app 文件夹」两层
+#    ② 安装版  ClassSoftwareHub-Setup-win7-dv<版本>.exe      —— Inno Setup 6
+#
+#  ⚠️ 发布 tag 形如 dv1.1.0-insider1.2（带 insider 自动勾 Pre-release）。
+#
+#  ⚠️ 产物是**正式版**构建：不带 -p:CshConsoleBuild=true，
+#     所以 exe 是 WinExe（Windows 子系统）—— 双击只出界面，不弹控制台黑窗。
+# ══════════════════════════════════════════════════════════════════════
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（不带 dv / win7- 前缀，如 1.1.0-insider1.2）；留空 = 自动读 ShellConfig.cs'
+        required: false
+        default: ''
+      publish:
+        description: '构建完直接创建 GitHub Release？'
+        required: false
+        type: boolean
+        default: false
+      notes:
+        description: '本次更新说明（会原样显示在「更新日志」与更新对话框里）'
+        required: false
+        default: ''
+  push:
+    tags:
+      - 'dv*'
+
+# 创建 Release + 上传资产需要写权限
+permissions:
+  contents: write
+
+env:
+  DOTNET_VERSION: '6.0.x'
+  DOTNET_NOLOGO: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+  PROJECT_APP: 'src-win7/ClassSoftwareHub.Win7.csproj'
+  PROJECT_LAUNCHER: 'src-win7/Launcher/ClassSoftwareHub.Launcher.csproj'
+
+jobs:
+  build:
+    name: 构建便携版与安装版
+    runs-on: windows-latest
+
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # 读 tag / 生成变更说明都要完整历史
+
+      - name: 安装 .NET ${{ env.DOTNET_VERSION }}
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: 确定版本号
+        id: ver
+        shell: pwsh
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          $v = $env:INPUT_VERSION
+
+          # 由 tag 触发时，版本号以 tag 为准（dv1.1.0-insider1.2 → 1.1.0-insider1.2）
+          if ($env:GITHUB_REF -like 'refs/tags/*') {
+            $tag = $env:GITHUB_REF -replace '^refs/tags/', ''
+            # 兼容历史上的 win7- 前缀写法，免得老 tag 重跑时解析错
+            $v = $tag -replace '^win7-', '' -replace '^dv', ''
+          }
+
+          # 两处都没给 → 读源码里的唯一版本号来源
+          if ([string]::IsNullOrWhiteSpace($v)) {
+            $src = Get-Content -LiteralPath 'src-win7/Core/ShellConfig.cs' -Raw
+            $m = [regex]::Match($src, 'ShellVersion\s*=\s*"([^"]+)"')
+            if (-not $m.Success) { throw '读不到 src-win7/Core/ShellConfig.cs 里的 ShellVersion' }
+            $v = $m.Groups[1].Value
+          }
+
+          $channel = if ($v -like '*insider*') { 'insider' } else { 'stable' }
+          Write-Host "版本号 : $v"
+          Write-Host "通道   : $channel"
+          Write-Host "tag    : dv$v"
+
+          "version=$v"      >> $env:GITHUB_OUTPUT
+          "channel=$channel" >> $env:GITHUB_OUTPUT
+
+      # ── 1. 应用本体（注意：不带 CshConsoleBuild → WinExe，无控制台窗口）──
+      - name: 发布应用本体（WinExe，无控制台）
+        shell: pwsh
+        run: |
+          dotnet publish $env:PROJECT_APP `
+            -c Release -r win-x64 --self-contained true `
+            -p:PublishTrimmed=false -p:PublishReadyToRun=true `
+            -p:Version=${{ steps.ver.outputs.version }} `
+            -o dist/win7/app
+          if ($LASTEXITCODE -ne 0) { throw '应用本体发布失败' }
+
+      # ── 2. 启动器（自包含 + 裁剪 + 单文件）──
+      - name: 发布启动器
+        shell: pwsh
+        run: |
+          dotnet publish $env:PROJECT_LAUNCHER `
+            -c Release -r win-x64 `
+            -p:Version=${{ steps.ver.outputs.version }} `
+            -o dist/win7
+          if ($LASTEXITCODE -ne 0) { throw '启动器发布失败' }
+
+      # ── 3. 组装便携版（启动器 + app 文件夹）并打 zip ──
+      - name: 组装便携版
+        shell: pwsh
+        run: |
+          ./tools/pack-win7-portable.ps1 `
+            -AppDir dist/win7/app `
+            -LauncherDir dist/win7 `
+            -Version ${{ steps.ver.outputs.version }} `
+            -OutRoot dist `
+            -Zip
+          if ($LASTEXITCODE -ne 0) { throw '便携版组装失败' }
+
+      # ── 4. 编译安装版 ──
+      - name: 编译安装包（Inno Setup 6）
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path -LiteralPath $iscc)) { throw "找不到 Inno Setup：$iscc" }
+          & $iscc 'installer\ClassSoftwareHub-Win7.iss' "/DDesktopVersion=${{ steps.ver.outputs.version }}"
+          if ($LASTEXITCODE -ne 0) { throw '安装包编译失败' }
+
+      # ── 5. 留档（哪怕是手动跑、不发 Release 也拿得到产物）──
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClassSoftwareHub-Win7-dv${{ steps.ver.outputs.version }}
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            dist/ClassSoftwareHub-Portable-win7-dv*.zip
+            dist/installer/ClassSoftwareHub-Setup-win7-dv*.exe
+
+      # ── 6. 生成更新说明 ──
+      - name: 生成更新说明
+        id: notes
+        shell: pwsh
+        env:
+          INPUT_NOTES: ${{ inputs.notes }}
+        run: |
+          New-Item -ItemType Directory -Path dist/release -Force | Out-Null
+          $path = 'dist/release/notes.md'
+
+          if (-not [string]::IsNullOrWhiteSpace($env:INPUT_NOTES)) {
+            [System.IO.File]::WriteAllText($path, $env:INPUT_NOTES, (New-Object System.Text.UTF8Encoding($false)))
+          } else {
+            $lines = @("ClassSoftwareHub dv${{ steps.ver.outputs.version }}（Windows 7 版）", '')
+            $prev = (git describe --tags --abbrev=0 --match 'dv*' 'HEAD^' 2>$null)
+            if ($LASTEXITCODE -eq 0 -and $prev) {
+              $range = "$prev..HEAD"
+            } else {
+              $range = '-20'
+            }
+            $lines += '本次改动：'
+            $lines += (git log $range --pretty=format:'- %s' --no-merges)
+            [System.IO.File]::WriteAllLines($path, $lines, (New-Object System.Text.UTF8Encoding($false)))
+          }
+          Get-Content -LiteralPath $path | Select-Object -First 30 | ForEach-Object { Write-Host $_ }
+          "path=$path" >> $env:GITHUB_OUTPUT
+
+      # ── 7. 发 Release（打 tag / 勾了 publish 才发）──
+      - name: 创建 GitHub Release
+        if: ${{ startsWith(github.ref, 'refs/tags/') || inputs.publish }}
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $v = '${{ steps.ver.outputs.version }}'
+          node tools/publish-release-win7.mjs `
+            --version $v `
+            --channel ${{ steps.ver.outputs.channel }} `
+            --installer "dist/installer/ClassSoftwareHub-Setup-win7-dv$v.exe" `
+            --portable  "dist/ClassSoftwareHub-Portable-win7-dv$v.zip" `
+            --notes     "${{ steps.notes.outputs.path }}"
+          if ($LASTEXITCODE -ne 0) { throw '创建 Release 失败' }

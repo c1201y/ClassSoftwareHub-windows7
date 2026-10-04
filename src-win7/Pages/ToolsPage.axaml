@@ -1,0 +1,113 @@
+<platform:PageBase
+    x:Class="ClassSoftwareHub.Desktop.Pages.ToolsPage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:fa="using:FluentAvalonia.UI.Controls">
+
+    <!-- 和首页 / 设置页 / 软件下载页同一套版式：内容钉在中间 960 宽 -->
+    <platform:PageBase.Styles>
+        <Style Selector="Border.card:pointerover">
+            <Setter Property="Opacity" Value="0.88" />
+        </Style>
+    </platform:PageBase.Styles>
+
+    <!--
+      ⚠️ 2026-10-02 结构调整：ScrollViewer 提到最外层 —— 滚动条要贴窗口右缘，
+         不是缩在 960 内容列旁边。原来根 Grid 的边距改成 Padding，居中改内层 Grid。
+    -->
+    <ScrollViewer Padding="24,36,24,44" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <Grid MaxWidth="960" HorizontalAlignment="Center">
+
+        <!--
+          ⚠️ 整页套 ScrollViewer（2026-10-02 实机反馈「显示不开、也不能滚动」）。
+          原版这里是 GridView（自带滚动）+ 底部固定卡片；移植成 ItemsControl 之后滚动条没了，
+          6 张 88 高的卡片折成 3 行 + 底部那张「常用工具窗口」卡（约 200 高），
+          在 858 高的窗口里正好差一点放不下 —— 于是最后一行和底部卡片被裁掉，还滚不动。
+          改成：标题 / 卡片区 / 底部卡片 全在一条竖向流里，外层一个滚动条统一管。
+        -->
+        <StackPanel>
+            <TextBlock Text="内置工具" FontSize="30" FontWeight="Bold" />
+
+            <!-- 6 个工具：卡片 462 + 间距 16 = 478，960 里正好两列。
+                 2026-09-29：加上一句话说明（ToolDef.Desc 一直有这个字段，之前没显示）——
+                 光看工具名猜不出点进去能干什么，用户得挨个试一遍。
+                 ⚠️ GridView → ItemsControl + WrapPanel（无容器 chrome），点击走 Tapped 冒泡。 -->
+            <ItemsControl x:Name="ToolGrid" Margin="0,14,0,0" Padding="0,2,0,0" Tapped="ToolGrid_Tapped">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <WrapPanel />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Width="462" Height="88" CornerRadius="8" Padding="20,0" Margin="0,0,16,14"
+                                Classes="card"
+                                Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1">
+                            <Grid>
+                                <!-- 原版 ColumnSpacing=14 → 第 2、3 列各加 14 左 Margin -->
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <fa:FontIcon Glyph="{Binding Glyph}" FontSize="20" VerticalAlignment="Center" />
+                                <StackPanel Grid.Column="1" Margin="14,0,0,0" Spacing="3" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding Name}" FontSize="15" FontWeight="Bold"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding Desc}" FontSize="12.5" Opacity="0.65"
+                                               TextWrapping="Wrap" MaxLines="2"
+                                               TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                                <fa:FontIcon Grid.Column="2" Margin="14,0,0,0" Glyph="&#xE8A7;" FontSize="13" Opacity="0.5"
+                                             VerticalAlignment="Center" />
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <!-- ===== 常用工具窗口：开关就放这儿，跟首页「体验网页版」那张卡一个意思 ===== -->
+            <Border CornerRadius="8" Padding="20,16" Margin="0,18,0,0"
+                    Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                <Grid>
+                    <!-- 原版 ColumnSpacing=16 / RowSpacing=12 → 用 Margin 模拟 -->
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <fa:FontIcon Glyph="&#xE71D;" FontSize="20" VerticalAlignment="Top" />
+                    <StackPanel Grid.Column="1" Margin="16,0,0,0" Spacing="3">
+                        <TextBlock Text="常用工具窗口" FontSize="15" FontWeight="Bold" />
+                        <TextBlock FontSize="12.5" Opacity="0.7" TextWrapping="Wrap"
+                                   Text="置顶小窗口，仅包含四项常用工具：随机抽号、课堂计时、秒表计时、全屏时钟。无需打开主界面：系统托盘提供独立图标，单击即可显示（窗口可拖动，按 Esc 收起）。屏幕边缘另提供「侧边栏」入口，全屏播放 PPT 时仍可单击。" />
+                        <TextBlock FontSize="12" Opacity="0.6" TextWrapping="Wrap"
+                                   Text="侧边栏、窗口置顶等开关位于「设置 → 常用工具」中。" />
+                    </StackPanel>
+                    <Button Grid.Column="2" Margin="16,0,0,0" Content="打开窗口" Classes="accent"
+                            VerticalAlignment="Top" Click="OpenPalette_Click" />
+
+                    <StackPanel Grid.Row="1" Grid.ColumnSpan="3" Margin="0,12,0,0" Orientation="Horizontal" Spacing="28">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="关闭时收进系统托盘" FontSize="13" VerticalAlignment="Center" />
+                            <!-- ⚠️ 原版是 WinUI ToggleSwitch 的 IsOn + Toggled 事件；
+                                 Avalonia 的 ToggleSwitch 用 IsChecked + IsCheckedChanged，语义一致。 -->
+                            <ToggleSwitch x:Name="TraySwitch" OnContent="开" OffContent="关" MinWidth="0"
+                                          IsCheckedChanged="TraySwitch_Toggled" />
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </StackPanel>
+        </Grid>
+    </ScrollViewer>
+</platform:PageBase>

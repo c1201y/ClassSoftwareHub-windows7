@@ -1,0 +1,125 @@
+<platform:PageBase
+    x:Class="ClassSoftwareHub.Desktop.Pages.Tools.ImageColorToolPage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:fa="using:FluentAvalonia.UI.Controls">
+
+    <!-- 版式：标题行 / 内容（滚动，Grid 铺满 → 不会被 ScrollViewer 算歪）/ 状态行
+         ⚠️ 移植说明：ThemeResource → DynamicResource；Visibility → IsVisible；
+         VariableSizedWrapGrid → WrapPanel（ItemWidth/ItemHeight 由代码里给子元素定尺寸）；
+         拖放事件用 DragDrop.AllowDrop / DragDrop.DragOver / DragDrop.Drop 附加事件。 -->
+    <!-- ⚠️ 2026-10-03：ScrollViewer 提到最外层（滚动条贴窗口右缘），边距改 Padding；
+         原来套在中间内容上的那层 ScrollViewer 解开，内容直接铺在行里（外层统一管滚动） -->
+    <ScrollViewer Padding="24,14,24,20" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- ═══ 标题 ═══ -->
+        <StackPanel Spacing="2">
+            <TextBlock Text="图片取色" FontSize="24" FontWeight="Bold" />
+            <TextBlock FontSize="12.5" Opacity="0.6" TextWrapping="Wrap"
+                       Text="上传一张图片，自动提取一组柔和的配色（类似 Win11 壁纸主题色的取法）。单击色块复制 hex。图片只在本机处理，不会上传。" />
+        </StackPanel>
+
+        <!-- ═══ 内容（原来外面包着 ScrollViewer，2026-10-03 起由页面最外层统一管滚动）═══ -->
+        <Grid Grid.Row="1" Margin="0,12,0,0">
+            <!-- RowSpacing="14" → 除第一个子元素外逐个加顶 Margin -->
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <!-- 上传区：点一下或拖进来 -->
+                <Grid x:Name="DropZone" Grid.Row="0" MinHeight="220" Background="Transparent"
+                      Tapped="DropZone_Tapped" DragDrop.AllowDrop="True"
+                      DragDrop.DragOver="DropZone_DragOver" DragDrop.DragLeave="DropZone_DragLeave" DragDrop.Drop="DropZone_Drop">
+                    <Rectangle x:Name="DropFrame" RadiusX="8" RadiusY="8" StrokeThickness="1" StrokeDashArray="4,3"
+                               Stroke="{DynamicResource CardStrokeColorDefaultBrush}"
+                               Fill="{DynamicResource CardBackgroundFillColorDefaultBrush}" />
+                    <Rectangle x:Name="DropFrameAccent" RadiusX="8" RadiusY="8" StrokeThickness="1" StrokeDashArray="4,3"
+                               IsVisible="False"
+                               Stroke="{DynamicResource AccentFillColorDefaultBrush}"
+                               Fill="{DynamicResource CardBackgroundFillColorDefaultBrush}" />
+
+                    <StackPanel x:Name="EmptyState" VerticalAlignment="Center" HorizontalAlignment="Center"
+                                Spacing="10" Margin="24">
+                        <fa:FontIcon Glyph="&#xEB9F;" FontSize="30" HorizontalAlignment="Center"
+                                  Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}" />
+                        <TextBlock Text="单击选择图片" FontSize="15" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                        <TextBlock Text="或将图片拖入 · 支持 PNG / JPG / WebP / GIF" FontSize="12" Opacity="0.6"
+                                   HorizontalAlignment="Center" />
+                    </StackPanel>
+
+                    <StackPanel x:Name="LoadedState" Orientation="Horizontal" Spacing="20" Margin="18"
+                                VerticalAlignment="Center" IsVisible="False">
+                        <Border CornerRadius="6" BorderThickness="1"
+                                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
+                            <Image x:Name="Preview" Stretch="Uniform" MaxWidth="220" MaxHeight="140" />
+                        </Border>
+                        <StackPanel Spacing="4" VerticalAlignment="Center">
+                            <TextBlock Text="更换图片" FontSize="15" FontWeight="SemiBold" />
+                            <TextBlock Text="单击此处，或将新图片拖入" FontSize="12" Opacity="0.6" />
+                            <TextBlock x:Name="ImageInfo" FontSize="12" Opacity="0.6" />
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
+
+                <!-- 错误 -->
+                <TextBlock x:Name="ErrorText" Grid.Row="1" Margin="0,14,0,0" IsVisible="False" TextWrapping="Wrap"
+                           Foreground="{DynamicResource SystemFillColorCriticalBrush}" />
+
+                <!-- 种子色 -->
+                <Border x:Name="SeedCard" Grid.Row="2" Margin="0,14,0,0" IsVisible="False" CornerRadius="8" Padding="14,12"
+                        BorderThickness="1"
+                        BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                    <StackPanel Orientation="Horizontal" Spacing="14">
+                        <Border x:Name="SeedChip" Width="36" Height="36" CornerRadius="6" BorderThickness="1"
+                                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" />
+                        <StackPanel Spacing="2" VerticalAlignment="Center">
+                            <TextBlock Text="提取到的种子色" FontSize="12" Opacity="0.6" />
+                            <TextBlock x:Name="SeedText" FontSize="14" FontFamily="Consolas" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- 配色方案 -->
+                <StackPanel x:Name="PaletteSection" Grid.Row="3" Margin="0,14,0,0" Spacing="10" IsVisible="False">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <TextBlock Text="配色方案" FontSize="14.5" FontWeight="Bold" />
+                        <TextBlock Text="单击色块复制 hex" FontSize="12" Opacity="0.6" VerticalAlignment="Bottom" />
+                    </StackPanel>
+                    <!-- VariableSizedWrapGrid(ItemWidth=148, ItemHeight=126) → WrapPanel，尺寸由子元素自带 -->
+                    <WrapPanel x:Name="SwatchHost" Orientation="Horizontal" />
+                </StackPanel>
+
+                <!-- HSL 快捷复制 -->
+                <StackPanel x:Name="HslSection" Grid.Row="4" Margin="0,14,0,0" Spacing="10" IsVisible="False">
+                    <Rectangle Height="1" Fill="{DynamicResource DividerStrokeColorDefaultBrush}" />
+                    <TextBlock Text="HSL（单击复制）" FontSize="13" FontWeight="SemiBold" />
+                    <WrapPanel x:Name="HslHost" Orientation="Horizontal" />
+                </StackPanel>
+
+                <!-- 操作 -->
+                <StackPanel x:Name="ActionRow" Grid.Row="5" Margin="0,14,0,0" Orientation="Horizontal" Spacing="8" IsVisible="False">
+                    <Button Content="更换图片" Click="Replace_Click" />
+                    <Button Content="清空" Click="Clear_Click" />
+                </StackPanel>
+            </Grid>
+        </Grid>
+
+        <!-- ═══ 状态 ═══ -->
+        <TextBlock x:Name="Toast" Grid.Row="2" Margin="0,12,0,0" FontSize="12" Opacity="0.75" />
+    </Grid>
+    </ScrollViewer>
+</platform:PageBase>

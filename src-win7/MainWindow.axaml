@@ -1,0 +1,120 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:fa="using:FluentAvalonia.UI.Controls"
+        xmlns:pages="using:ClassSoftwareHub.Desktop.Pages"
+        x:Class="ClassSoftwareHub.Desktop.MainWindow"
+        Title="ClassSoftwareHub"
+        Width="1280" Height="820"
+        MinWidth="900" MinHeight="600">
+
+    <Grid x:Name="RootGrid" Background="{x:Null}">
+
+        <!-- ============ 原生界面（全部页面自绘；只有应用内网页浮层 WebSheet 会用到 WebView2） ============ -->
+        <pages:ShellPage x:Name="NativeShell" />
+
+        <!-- ============ 网页内容（只有提交软件页用；默认隐藏） ============ -->
+        <!--
+          ⚠️ 移植说明：Avalonia **没有** WebView2 控件类型（本工程只引了 Microsoft.Web.WebView2 的 Core）。
+             这两处网页宿主改成占位 Panel，真正的网页由 Views/WebSheetHost 用一个子窗口 + CoreWebView2
+             Controller 叠在它上面（见 MainWindow 的移植说明）。占位 Panel 的位置就是网页的落点。
+        -->
+        <Grid x:Name="MainTabContent" Background="{x:Null}" IsVisible="False">
+            <Panel x:Name="Web" />
+
+            <!-- 启动 / 加载过渡 -->
+            <Grid x:Name="LoadingPanel" Background="{x:Null}">
+                <StackPanel Spacing="16" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <Image x:Name="LoadingIcon" Width="64" Height="64" Opacity="0.9" />
+                    <fa:ProgressRing x:Name="LoadingRing" IsActive="True" Width="28" Height="28" />
+                    <TextBlock x:Name="LoadingText" Text="正在加载" FontSize="12" Opacity="0.65"
+                               HorizontalAlignment="Center" />
+                </StackPanel>
+            </Grid>
+
+            <!-- 网络错误（不加载任何本地页面） -->
+            <Grid x:Name="ErrorPanel" IsVisible="False"
+                  Background="{DynamicResource SolidBackgroundFillColorBaseBrush}">
+                <StackPanel MaxWidth="420" Spacing="14"
+                            HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <fa:FontIcon Glyph="&#xEB5E;" FontSize="34" HorizontalAlignment="Center" />
+                    <TextBlock x:Name="ErrorTitle"
+                               Text="网络出现错误，请稍后重试"
+                               FontSize="20" FontWeight="SemiBold"
+                               TextAlignment="Center" TextWrapping="Wrap" />
+                    <TextBlock x:Name="ErrorTip"
+                               FontSize="12" Opacity="0.6"
+                               TextAlignment="Center" TextWrapping="Wrap" />
+                    <Button x:Name="RetryButton"
+                            Content="重试"
+                            Classes="accent"
+                            HorizontalAlignment="Center"
+                            Click="RetryButton_Click" />
+                </StackPanel>
+            </Grid>
+        </Grid>
+
+        <!-- ============ 缺少 WebView2 运行时（全局最上层） ============ -->
+        <Grid x:Name="RuntimePanel" IsVisible="False"
+              Background="{DynamicResource SolidBackgroundFillColorBaseBrush}">
+            <StackPanel MaxWidth="480" Spacing="14"
+                        HorizontalAlignment="Center" VerticalAlignment="Center">
+                <fa:FontIcon Glyph="&#xE7BA;" FontSize="34" HorizontalAlignment="Center"
+                          Foreground="{DynamicResource SystemFillColorCautionBrush}" />
+                <TextBlock Text="缺少 Microsoft Edge WebView2 运行时"
+                           FontSize="20" FontWeight="SemiBold"
+                           TextAlignment="Center" TextWrapping="Wrap" />
+                <TextBlock FontSize="13" Opacity="0.75" TextAlignment="Center" TextWrapping="Wrap"
+                           Text="ClassSoftwareHub 需要系统安装 WebView2 运行时才能显示网页内容。安装后重新打开本应用即可。" />
+                <CheckBox x:Name="NoPromptCheck" Content="不再提示（记住该选择）" />
+                <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">
+                    <Button Content="立即安装" Classes="accent" Click="InstallRuntime_Click" />
+                    <Button Content="在浏览器中打开" Click="OpenInBrowser_Click" />
+                    <Button Content="退出" Click="ExitApp_Click" />
+                </StackPanel>
+            </StackPanel>
+        </Grid>
+
+        <!-- ============ 应用内网页浮层（官网 / 网页版；由下往上淡入的「窗中窗」） ============ -->
+        <Grid x:Name="WebSheet" IsVisible="False">
+            <Rectangle Fill="#66000000" Tapped="WebSheetScrim_Tapped" />
+
+            <Border x:Name="WebSheetCard" Opacity="0"
+                    Margin="28,52,28,28"
+                    CornerRadius="12"
+                    Background="{DynamicResource SolidBackgroundFillColorBaseBrush}"
+                    BorderThickness="1"
+                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
+                <Border.RenderTransform>
+                    <!-- ⚠️ Avalonia 的 x:Name 不作用于属性元素里的 Transform（名字生成器不支持），
+                         code-behind 从 WebSheetCard.RenderTransform 取（见 MainWindow.axaml.cs 的 WebSheetShift 属性） -->
+                    <TranslateTransform Y="150" />
+                </Border.RenderTransform>
+
+                <Grid RowDefinitions="Auto,*">
+                    <!-- 小标题栏 -->
+                    <Grid Grid.Row="0" Margin="16,10,10,10" ColumnDefinitions="Auto,*,Auto">
+                        <fa:FontIcon Grid.Column="0" Glyph="&#xE774;" FontSize="14" Opacity="0.7"
+                                  VerticalAlignment="Center" />
+                        <TextBlock x:Name="WebSheetTitle" Grid.Column="1"
+                                   VerticalAlignment="Center" Margin="8,0,8,0"
+                                   TextTrimming="CharacterEllipsis"
+                                   FontWeight="SemiBold" />
+
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6"
+                                    VerticalAlignment="Center">
+                            <fa:ProgressRing x:Name="WebSheetRing" Width="16" Height="16" IsActive="False" />
+                            <Button Content="在浏览器打开" Click="WebSheetExternal_Click" />
+                            <Button Click="WebSheetClose_Click" Padding="9,5">
+                                <fa:FontIcon Glyph="&#xE711;" FontSize="12" />
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- 网页落点：真正的 CoreWebView2 由子窗口叠在这一块之上 -->
+                    <Panel x:Name="SheetWeb" Grid.Row="1" Background="{x:Null}" />
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+
+</Window>

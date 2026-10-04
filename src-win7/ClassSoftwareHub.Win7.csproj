@@ -1,0 +1,150 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    ClassSoftwareHub · Windows 7 移植版（代号 csh-win7）
+
+    技术路线（与 WinUI 3 原版 1:1 对齐）：
+      · 目标框架 net6.0-windows7.0 —— .NET 6 是最后一个官方支持 Windows 7 的 .NET 版本
+      · UI 框架 Avalonia 11.2.8        —— 支持 net6.0（已核验 nuspec targetFramework）
+      · 控件库   FluentAvaloniaUI 2.4.1 —— 支持 net6.0（已核验），提供 NavigationView / InfoBar /
+                                           Expander / NumberBox 等 WinUI 同款控件
+      · WebView2 锁定 SDK ≤ 1.0.1587 —— Win7 上 WebView2 运行时止于 109.0.1518.x
+
+    ⚠️ 不要升级 Avalonia 到 12.x（需要 D3D12 之外的更高 baseline），
+       不要升级 FluentAvaloniaUI 到 2.5+（依赖 net10）。
+  -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net6.0-windows7.0</TargetFramework>
+    <SupportedOSPlatformVersion>7.0</SupportedOSPlatformVersion>
+    <RootNamespace>ClassSoftwareHub.Desktop</RootNamespace>
+    <AssemblyName>ClassSoftwareHub</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\Assets\AppIcon.ico</ApplicationIcon>
+    <Platforms>x64</Platforms>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>10</LangVersion>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+
+    <!-- Avalonia：暂不启用编译期绑定，移植期用反射绑定更省事（原 WinUI 代码靠 x:Name + 代码后置） -->
+    <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
+    <ApplicationResourceIncludeAssetsFromPackages>true</ApplicationResourceIncludeAssetsFromPackages>
+
+    <!-- 版本号规则见 Core/ShellConfig.cs；与 WinUI 原版保持一致 -->
+    <Version>1.1.0-insider1.2</Version>
+    <AssemblyVersion>1.1.0.0</AssemblyVersion>
+    <FileVersion>1.1.0.0</FileVersion>
+    <InformationalVersion>1.1.0-insider1.2</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <Product>ClassSoftwareHub</Product>
+    <AssemblyTitle>ClassSoftwareHub</AssemblyTitle>
+    <Company>ClassSoftwareHub</Company>
+
+    <!-- 不裁剪：Avalonia + 反射绑定 + WebView2 对 trimming 不友好 -->
+    <PublishTrimmed>false</PublishTrimmed>
+
+    <!--
+      启动加速：ReadyToRun —— 把 IL 预编译成原生码，省掉目标机上的 JIT。
+
+      ⚠️ 只影响 publish 产物（build 不受影响），受益的正是**教室里的 Win7 老机器**：
+         本机实测（2026-10-02）：进程启动 → 主窗口露脸 = 6.4s，其中约 4.4s 花在
+         "进程启动 → 第一条业务日志"之间，即 .NET 运行时加载 + Avalonia 一堆程序集的 JIT，
+         真正属于应用的初始化只占 1.9s。所以这一段只能在构建期解决（R2R），改代码没用。
+      ⚠️ 代价：产物体积变大（约 +30%）。取舍是"启动快"优先 —— 用户 2026-10-02 明确要求优化性能。
+      ⚠️ 不能开 PublishTrimmed（Avalonia 反射绑定 + WebView2 不兼容，见上），
+         也不要开 PublishReadyToRunComposite：体积暴涨且对本工程收益有限。
+    -->
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <PublishReadyToRunComposite>false</PublishReadyToRunComposite>
+    <!-- 抑制 Win7 目标下的平台兼容性噪音（我们明确知道哪些 API 只在更高系统存在，均已在代码里做版本判定） -->
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <!--
+    诊断控制台版开关：dotnet publish -p:CshConsoleBuild=true
+
+      · OutputType=Exe —— 把子系统从「Windows」换成「控制台」。双击 exe 会额外弹一个 cmd 窗口，
+        stdout/stderr 天然可用（不需要 AllocConsole 那套折腾），GUI 照常显示。
+      · CSH_CONSOLE    —— 把 Platform/DiagConsole.cs 编译进来（普通版里这段被预处理器整段剔除）。
+
+    ⚠️ 默认（不带这个参数）仍然是 WinExe —— 正式产物一个字节都不会变。
+  -->
+  <PropertyGroup Condition="'$(CshConsoleBuild)' == 'true'">
+    <OutputType>Exe</OutputType>
+    <DefineConstants>$(DefineConstants);CSH_CONSOLE</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.2.8" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.2.8" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.2.8" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.2.8" />
+    <PackageReference Include="Avalonia.Diagnostics" Version="11.2.8" Condition="'$(Configuration)' == 'Debug'" />
+
+    <PackageReference Include="FluentAvaloniaUI" Version="2.4.1" />
+
+    <!-- Win7 上 WebView2 运行时止于 109.0.1518.x，SDK 必须配套，不能用到更新的 -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.1587.40" />
+
+    <!-- 屏幕亮度：笔记本内屏只认 WMI 的 WmiMonitorBrightnessMethods（与 Windows 自带亮度滑块同源） -->
+    <PackageReference Include="System.Management" Version="8.0.0" />
+
+    <!-- GDI+ 截屏 / 位图处理（Win7 没有 Windows.Graphics.Capture，走 BitBlt + GDI+） -->
+    <PackageReference Include="System.Drawing.Common" Version="6.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Avalonia XAML 资源 -->
+    <AvaloniaResource Include="Assets\**" Exclude="Assets\**\*.cs" />
+    <AvaloniaResource Include="..\Assets\**\*.png" Link="Assets\%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 内嵌资源：与 WinUI 原版保持同一套文件名与同一套读取方式 -->
+    <EmbeddedResource Include="..\Web\shell-shim.js" Link="Web\shell-shim.js" />
+    <EmbeddedResource Include="..\Assets\AppIcon-512.png" Link="Assets\AppIcon-512.png" />
+    <EmbeddedResource Include="..\Assets\AppIcon.ico" Link="Assets\AppIcon.ico" />
+    <EmbeddedResource Include="..\Assets\ToolIcon.ico" Link="Assets\ToolIcon.ico" />
+    <EmbeddedResource Include="..\Assets\dv1.1.png" Link="Assets\dv1.1.png" />
+    <EmbeddedResource Include="..\Assets\feedback\report.png" Link="Assets\feedback\report.png" />
+    <EmbeddedResource Include="..\Assets\feedback\suggest.png" Link="Assets\feedback\suggest.png" />
+    <EmbeddedResource Include="..\Assets\feedback\qq-step-album-panel.png" Link="Assets\feedback\qq-step-album-panel.png" />
+    <EmbeddedResource Include="..\Assets\feedback\qq-step-create-album.png" Link="Assets\feedback\qq-step-create-album.png" />
+    <EmbeddedResource Include="..\Assets\feedback\qq-step-upload-button.png" Link="Assets\feedback\qq-step-upload-button.png" />
+    <EmbeddedResource Include="..\Assets\feedback\qq-step-upload-pick.png" Link="Assets\feedback\qq-step-upload-pick.png" />
+    <EmbeddedResource Include="..\Assets\roster\sample-excel.png" Link="Assets\roster\sample-excel.png" />
+    <EmbeddedResource Include="..\Assets\roster\sample-txt.png" Link="Assets\roster\sample-txt.png" />
+    <EmbeddedResource Include="..\Assets\roster\roster-sample.txt" Link="Assets\roster\roster-sample.txt" />
+    <EmbeddedResource Include="..\Assets\roster\roster-sample.xlsx" Link="Assets\roster\roster-sample.xlsx" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 随发布带出的内容目录（2026-10-02 实机反馈「镜像页没数据 / 图标加载慢」）：
+         · content\          —— 安装包自带的内容包兜底（text/mirror-sites.json 等，离线也有）
+         · ContentIcons\     —— 应用图标本地化：构建期抓好压好的全套图标（<id>.png），
+                                运行时 SoftwareApp.LoadIconAsync ⓪ 优先读它，教室机离线也有图标 -->
+    <Content Include="content\**\*" Link="content\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="ContentIcons\**\*" Link="ContentIcons\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      ⚠️ 排除 Launcher\ —— 便携版启动器的独立工程（Launcher\ClassSoftwareHub.Launcher.csproj）。
+         SDK 默认通配（**\*.cs）会把它一起编进本工程 → 出现两个 Main → 编译直接报错。
+         与根目录 ClassSoftwareHub.Desktop.csproj 排除 src-win7\** 是同一个道理。
+    -->
+    <Compile Remove="Launcher\**" />
+    <None Remove="Launcher\**" />
+    <EmbeddedResource Remove="Launcher\**" />
+    <AvaloniaResource Remove="Launcher\**" />
+    <Content Remove="Launcher\**" />
+  </ItemGroup>
+
+</Project>

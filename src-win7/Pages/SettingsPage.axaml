@@ -1,0 +1,431 @@
+<platform:PageBase
+    x:Class="ClassSoftwareHub.Desktop.Pages.SettingsPage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:fa="using:FluentAvalonia.UI.Controls"
+    xmlns:core="using:ClassSoftwareHub.Desktop.Core"
+    xmlns:views="using:ClassSoftwareHub.Desktop.Views">
+
+    <!--
+      ⚠️ 移植说明（WinUI → Avalonia/FluentAvalonia）：
+        · 原版 Page 根元素上的 NavigationCacheMode="Disabled" —— Avalonia 侧由
+          ShellPage 的 <fa:Frame CacheSize="0"/> 统一承担（页面不留在内存里），这里不再单设。
+        · CommunityToolkit 的 SettingsCard → 本工程自建 views:SettingsCard（FA 没有，
+          见 Views/SettingsCard.axaml）；SettingsExpander → fa:SettingsExpander
+          （⚠️ 图标属性叫 IconSource，不叫 HeaderIcon）。
+        · ThemeResource → DynamicResource；GridView + ItemsWrapGrid + ItemTemplateSelector →
+          ItemsControl + WrapPanel + IDataTemplate（QuickLinkSelector 已是 IDataTemplate）。
+
+      设置页版式遵循 WinUI 3 / WinUI Gallery 的设置页规范（2026-09-28 重构）：
+        · 整页背景透明 —— 窗口的 Mica / 亚克力 / Win7 毛玻璃从 MainWindow 的 Backdrop 透上来，
+          不允许再出现纯黑、纯灰的实心底色（旧版是一整块自绘 Border，把材质全盖死了）。
+        · 每一项 = 一张 SettingsCard：左侧 HeaderIcon + Header（BodyStrong）+ Description（Caption
+          + TextFillColorSecondary，由卡片模板自动套），右侧放开关 / 下拉 / 按钮。
+          卡片自带 16px 内边距，右侧控件与卡片右边缘的间距天然统一，不要自己再加外边距。
+        · 同一组内的卡片间距 4px（StackPanel Spacing），组标题距上一组 24px。
+        · 折叠区用 SettingsExpander，外观与 SettingsCard 一致，不再混用原生 Expander（圆角/描边不一样）。
+      ⚠️ 卡片模板对 Header / Description 的字体样式是写死在控件模板里的，别再手工指定，
+         否则会和工具栏那套 TextBlock 样式打架。
+    -->
+
+    <platform:PageBase.Resources>
+        <!-- 快捷入口两套模板（同首页）：颜色全走 {DynamicResource}，浅色/深色自己会变 -->
+        <DataTemplate x:Key="QuickLinkNormal">
+            <!-- ⚠️ Background="Transparent" 必须有：Avalonia 里没 Background 的 Border **不参与命中测试**，
+                 点卡片空白处（图标文字之外）事件直接穿透 —— 看起来就是"这些按钮只有赞助作者能点"
+                 （2026-10-03 实机反馈）。Transparent 既能命中又看不见。 -->
+            <Border CornerRadius="8" Padding="12,10" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                    Background="Transparent">
+                <StackPanel Spacing="7" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <fa:FontIcon Glyph="{Binding Glyph}" FontSize="24" HorizontalAlignment="Center"
+                              Foreground="{DynamicResource TextFillColorPrimaryBrush}" Opacity="0.95" />
+                    <TextBlock Text="{Binding Name}" FontSize="13" HorizontalAlignment="Center"
+                               Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+
+        <DataTemplate x:Key="QuickLinkAccent">
+            <Border CornerRadius="8" Padding="12,10" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                    Background="{DynamicResource AccentFillColorDefaultBrush}">
+                <StackPanel Spacing="7" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <fa:FontIcon Glyph="{Binding Glyph}" FontSize="24" HorizontalAlignment="Center"
+                              Foreground="{DynamicResource TextOnAccentFillColorPrimaryBrush}" Opacity="0.95" />
+                    <TextBlock Text="{Binding Name}" FontSize="13" HorizontalAlignment="Center"
+                               Foreground="{DynamicResource TextOnAccentFillColorPrimaryBrush}" />
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+
+        <core:QuickLinkSelector x:Key="QuickLinkSelector"
+                                Normal="{StaticResource QuickLinkNormal}"
+                                Accent="{StaticResource QuickLinkAccent}" />
+    </platform:PageBase.Resources>
+
+    <!-- ⛔ 不写 Background：App.axaml 给全站 ScrollViewer 设了 Transparent（见那里的注释）——
+         写 `{x:Null}` 会盖掉它，标题上方的缝隙又会滚不动。 -->
+    <ScrollViewer x:Name="RootScroll" Padding="24,36,24,44" VerticalScrollBarVisibility="Auto">
+        <!-- 和首页同一套版式：三列 Grid 把内容钉在中间 960 宽，导航展开/收起都不动 -->
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="1*" />
+                <ColumnDefinition Width="998*" MaxWidth="960" />
+                <ColumnDefinition Width="1*" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="1">
+
+                <TextBlock Text="设置" FontSize="30" FontWeight="Bold" />
+
+                <!-- ===== 关于（最上，不要卡片底，自成一块区域） ===== -->
+                <StackPanel Spacing="4" Margin="0,10,0,0">
+                    <StackPanel Orientation="Horizontal" Spacing="14">
+                        <Image x:Name="AboutIcon" Width="44" Height="44" VerticalAlignment="Center" />
+                        <TextBlock x:Name="AboutApp" Text="ClassSoftwareHub" FontSize="26" FontWeight="Bold"
+                                   VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBlock x:Name="AboutVersion" FontSize="32" FontWeight="Bold" Margin="0,6,0,0"
+                               Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}" />
+                    <TextBlock x:Name="AboutSiteVersion" FontSize="13" Opacity="0.75" />
+                </StackPanel>
+
+                <!-- 相关链接（在版本号下面，跟首页那行同款）
+                     ⚠️ 移植说明：原版 GridView + ItemsWrapGrid(ItemWidth 192 / ItemHeight 88) +
+                     ItemTemplateSelector。Avalonia 用 ItemsControl + WrapPanel（ItemWidth/ItemHeight
+                     同值）还原；GridView 的 IsItemClickEnabled + ItemClick → Tapped 冒泡（点在
+                     卡片上冒到 ItemsControl，code-behind 从 DataContext 取 QuickLink）。 -->
+                <ItemsControl x:Name="SettingsQuickGrid" Margin="0,6,0,0"
+                              ItemTemplate="{StaticResource QuickLinkSelector}"
+                              Tapped="Quick_ItemClick">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel Orientation="Horizontal" ItemWidth="192" ItemHeight="88" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                </ItemsControl>
+
+                <!-- ================= 外观 ================= -->
+                <!-- 本文件原用 BodyStrongTextBlockStyle / CaptionTextBlockStyle（WinUI 样式键，FA 里没有）→ 已内联为 FontSize/FontWeight -->
+                <TextBlock Text="外观" FontSize="14" FontWeight="SemiBold" Margin="0,24,0,8" />
+                <StackPanel Spacing="4">
+
+                    <views:SettingsCard Header="颜色模式" Description="跟随系统时，随 Windows 的深浅色设置自动切换。">
+                        <views:SettingsCard.HeaderIcon>
+                            <fa:FontIcon Glyph="&#xE790;" />
+                        </views:SettingsCard.HeaderIcon>
+                        <ComboBox x:Name="ThemeCombo" MinWidth="170" SelectionChanged="ThemeChoice_SelectionChanged">
+                            <ComboBoxItem Content="跟随系统" Tag="system" />
+                            <ComboBoxItem Content="浅色" Tag="light" />
+                            <ComboBoxItem Content="深色" Tag="dark" />
+                        </ComboBox>
+                    </views:SettingsCard>
+
+                    <views:SettingsCard Header="外部组件单独设置外观"
+                                           Description="外部组件指屏幕侧边栏、常用工具浮窗与截图编辑窗；主界面不受影响。">
+                        <views:SettingsCard.HeaderIcon>
+                            <fa:FontIcon Glyph="&#xE772;" />
+                        </views:SettingsCard.HeaderIcon>
+                        <ToggleSwitch x:Name="SplitThemeSwitch" OnContent="开" OffContent="关" MinWidth="0"
+                                      IsCheckedChanged="SplitTheme_Toggled" />
+                    </views:SettingsCard>
+
+                    <views:SettingsCard Header="外部组件外观">
+                        <views:SettingsCard.HeaderIcon>
+                            <fa:FontIcon Glyph="&#xE772;" />
+                        </views:SettingsCard.HeaderIcon>
+                        <views:SettingsCard.Description>
+                            <TextBlock x:Name="ExtThemeHint" TextWrapping="Wrap"
+                                       FontSize="12"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                        </views:SettingsCard.Description>
+                        <ComboBox x:Name="ExtThemeCombo" MinWidth="170" SelectionChanged="ExtTheme_SelectionChanged">
+                            <ComboBoxItem Content="跟随系统" Tag="system" />
+                            <ComboBoxItem Content="浅色" Tag="light" />
+                            <ComboBoxItem Content="深色" Tag="dark" />
+                        </ComboBox>
+                    </views:SettingsCard>
+
+                    <views:SettingsCard Header="窗口背景效果"
+                                           Description="主界面、常用工具浮窗与截图编辑窗都随此项；截图框选层与钉图不参与。">
+                        <views:SettingsCard.HeaderIcon>
+                            <fa:FontIcon Glyph="&#xE81E;" />
+                        </views:SettingsCard.HeaderIcon>
+                        <ComboBox x:Name="BackdropCombo" MinWidth="170" SelectionChanged="BackdropChoice_SelectionChanged">
+                            <ComboBoxItem Content="亚克力（半透明）" Tag="acrylic" />
+                            <ComboBoxItem Content="云母（更接近系统窗口）" Tag="mica" />
+                            <ComboBoxItem Content="纯色（最省性能）" Tag="solid" />
+                        </ComboBox>
+                    </views:SettingsCard>
+
+                </StackPanel>
+
+                <!-- ================= 窗口 ================= -->
+                <TextBlock Text="窗口" FontSize="14" FontWeight="SemiBold" Margin="0,24,0,8" />
+                <StackPanel Spacing="4">
+
+                    <views:SettingsCard Header="窗口始终置于最前"
+                                           Description="开启后主窗口不会被其他窗口遮挡。">
+                        <views:SettingsCard.HeaderIcon>
+                            <fa:FontIcon Glyph="&#xE718;" />
+                        </views:SettingsCard.HeaderIcon>
+                        <ToggleSwitch x:Name="TopMostSwitch" OnContent="开" OffContent="关" MinWidth="0"
+                                      IsCheckedChanged="TopMostSwitch_Toggled" />
+                    </views:SettingsCard>
+
+                    <views:SettingsCard Header="开机自动启动"
+                                           Description="登录 Windows 后自动运行本程序。">
+                        <views:SettingsCard.HeaderIcon>
+                            <fa:FontIcon Glyph="&#xE7E8;" />
+                        </views:SettingsCard.HeaderIcon>
+                        <ToggleSwitch x:Name="AutoStartSwitch" OnContent="开" OffContent="关" MinWidth="0"
+                                      IsCheckedChanged="AutoStartSwitch_Toggled" />
+                    </views:SettingsCard>
+
+                    <views:SettingsCard Header="开机时最小化启动">
+                        <views:SettingsCard.HeaderIcon>
+                            <fa:FontIcon Glyph="&#xE921;" />
+                        </views:SettingsCard.HeaderIcon>
+                        <views:SettingsCard.Description>
+                            <TextBlock x:Name="MinimizeHint" TextWrapping="Wrap"
+                                       FontSize="12"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                        </views:SettingsCard.Description>
+                        <ToggleSwitch x:Name="MinimizeSwitch" OnContent="开" OffContent="关" MinWidth="0"
+                                      IsCheckedChanged="MinimizeSwitch_Toggled" />
+                    </views:SettingsCard>
+
+                    <views:SettingsCard Header="点关闭时收进托盘"
+                                           Description="关闭主窗口时程序继续在后台运行，从托盘图标可重新打开。">
+                        <views:SettingsCard.HeaderIcon>
+                            <fa:FontIcon Glyph="&#xE7E7;" />
+                        </views:SettingsCard.HeaderIcon>
+                        <ToggleSwitch x:Name="TraySwitch" OnContent="开" OffContent="关" MinWidth="0"
+                                      IsCheckedChanged="TraySwitch_Toggled" />
+                    </views:SettingsCard>
+
+                </StackPanel>
+
+                <!-- ================= 常用工具 ================= -->
+                <TextBlock Text="常用工具" FontSize="14" FontWeight="SemiBold" Margin="0,24,0,8" />
+                <StackPanel Spacing="4">
+
+                    <views:SettingsCard Header="常用工具窗口始终置顶"
+                                           Description="常用工具浮窗不会被其他窗口遮挡。">
+                        <views:SettingsCard.HeaderIcon>
+                            <fa:FontIcon Glyph="&#xE718;" />
+                        </views:SettingsCard.HeaderIcon>
+                        <ToggleSwitch x:Name="PaletteTopSwitch" OnContent="开" OffContent="关" MinWidth="0"
+                                      IsCheckedChanged="PaletteTopSwitch_Toggled" />
+                    </views:SettingsCard>
+
+                    <views:SettingsCard Header="屏幕边缘侧边栏"
+                                           Description="在屏幕边缘常驻一条工具栏，可放置常用工具与内置功能。">
+                        <views:SettingsCard.HeaderIcon>
+                            <fa:FontIcon Glyph="&#xE8A0;" />
+                        </views:SettingsCard.HeaderIcon>
+                        <ToggleSwitch x:Name="SidebarSwitch" OnContent="开" OffContent="关" MinWidth="0"
+                                      IsCheckedChanged="SidebarSwitch_Toggled" />
+                    </views:SettingsCard>
+
+                    <!-- 两项都用 ComboBox：与「颜色模式」「窗口背景效果」同一套交互，不做成一排单选按钮 -->
+                    <views:SettingsCard Header="侧边栏放置模式">
+                        <views:SettingsCard.HeaderIcon>
+                            <fa:FontIcon Glyph="&#xE7C4;" />
+                        </views:SettingsCard.HeaderIcon>
+                        <views:SettingsCard.Description>
+                            <TextBlock x:Name="ModeHint" TextWrapping="Wrap"
+                                       FontSize="12"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                        </views:SettingsCard.Description>
+                        <ComboBox x:Name="SidebarModeCombo" MinWidth="170"
+                                  SelectionChanged="SidebarMode_SelectionChanged">
+                            <ComboBoxItem Content="贴靠模式" Tag="dock" />
+                            <ComboBoxItem Content="自由模式" Tag="free" />
+                        </ComboBox>
+                    </views:SettingsCard>
+
+                    <views:SettingsCard Header="侧边栏贴在哪条边">
+                        <views:SettingsCard.HeaderIcon>
+                            <fa:FontIcon Glyph="&#xE8A0;" />
+                        </views:SettingsCard.HeaderIcon>
+                        <views:SettingsCard.Description>
+                            <TextBlock x:Name="EdgeHint" TextWrapping="Wrap"
+                                       FontSize="12"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                        </views:SettingsCard.Description>
+                        <!-- 选项按放置模式动态重建（贴靠 = 左/右/左右两边，自由 = 左/右/上/下） -->
+                        <ComboBox x:Name="SidebarEdgeCombo" MinWidth="170"
+                                  SelectionChanged="SidebarEdge_SelectionChanged" />
+                    </views:SettingsCard>
+
+                    <views:SettingsCard Header="截图后自动保存一份原图"
+                                           Description="保存至下方目录，文件名格式为 截图_年月日_时分秒.png（重名时自动追加序号）。">
+                        <views:SettingsCard.HeaderIcon>
+                            <fa:FontIcon Glyph="&#xE722;" />
+                        </views:SettingsCard.HeaderIcon>
+                        <ToggleSwitch x:Name="ShotAutoSaveSwitch" OnContent="开" OffContent="关" MinWidth="0"
+                                      IsCheckedChanged="ShotAutoSave_Toggled" />
+                    </views:SettingsCard>
+
+                    <views:SettingsCard Header="截图保存位置">
+                        <views:SettingsCard.HeaderIcon>
+                            <fa:FontIcon Glyph="&#xE8F4;" />
+                        </views:SettingsCard.HeaderIcon>
+                        <views:SettingsCard.Description>
+                            <StackPanel Spacing="8" Margin="0,4,0,0">
+                                <TextBlock x:Name="ShotDirText" TextWrapping="Wrap"
+                                           FontSize="12"
+                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button Content="更改目录…" Click="ShotDir_Change_Click" />
+                                    <Button Content="打开目录" Click="ShotDir_Open_Click" />
+                                    <Button Content="恢复默认（桌面）" Click="ShotDir_Reset_Click" />
+                                </StackPanel>
+                            </StackPanel>
+                        </views:SettingsCard.Description>
+                    </views:SettingsCard>
+
+                </StackPanel>
+
+                <!-- ================= 软件内容 ================= -->
+                <TextBlock Text="软件内容" FontSize="14" FontWeight="SemiBold" Margin="0,24,0,8" />
+                <StackPanel Spacing="4">
+
+                    <views:SettingsCard Header="本地内容包">
+                        <views:SettingsCard.HeaderIcon>
+                            <fa:FontIcon Glyph="&#xE8B7;" />
+                        </views:SettingsCard.HeaderIcon>
+                        <views:SettingsCard.Description>
+                            <StackPanel Spacing="6" Margin="0,4,0,0">
+                                <TextBlock Text="软件清单与分类来自内容包；重新读取会用当前本地数据再解析一遍。"
+                                           TextWrapping="Wrap"
+                                           FontSize="12"
+                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                <TextBlock x:Name="ContentSummary" TextWrapping="Wrap" Margin="0,4,0,0"
+                                           FontSize="14" FontWeight="SemiBold" />
+                                <TextBlock x:Name="ContentSource" TextWrapping="Wrap"
+                                           FontSize="12"
+                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                <TextBlock x:Name="ContentIssues" TextWrapping="Wrap"
+                                           FontSize="12"
+                                           Foreground="{DynamicResource SystemFillColorCautionBrush}" />
+                                <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
+                                    <Button Content="重新读取内容" Click="ReloadContent_Click" />
+                                    <Button Content="同步内容包" Click="SyncContent_Click" />
+                                    <Button Content="打开内容目录" Click="OpenContentDir_Click" />
+                                </StackPanel>
+                            </StackPanel>
+                        </views:SettingsCard.Description>
+                    </views:SettingsCard>
+
+                </StackPanel>
+
+                <!-- ================= 更新 ================= -->
+                <TextBlock Text="更新" FontSize="14" FontWeight="SemiBold" Margin="0,24,0,8" />
+                <StackPanel Spacing="4">
+
+                    <views:SettingsCard Header="当前版本">
+                        <views:SettingsCard.HeaderIcon>
+                            <fa:FontIcon Glyph="&#xE896;" />
+                        </views:SettingsCard.HeaderIcon>
+                        <views:SettingsCard.Description>
+                            <TextBlock x:Name="UpdateCurrent" TextWrapping="Wrap"
+                                       FontSize="12"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                        </views:SettingsCard.Description>
+                    </views:SettingsCard>
+
+                    <views:SettingsCard Header="更新通道"
+                                           Description="稳定通道更稳；Insider 通道能更早拿到新功能。">
+                        <views:SettingsCard.HeaderIcon>
+                            <fa:FontIcon Glyph="&#xE895;" />
+                        </views:SettingsCard.HeaderIcon>
+                        <ComboBox x:Name="ChannelCombo" MinWidth="170" SelectionChanged="ChannelChoice_SelectionChanged">
+                            <ComboBoxItem Content="稳定通道" Tag="stable" />
+                            <ComboBoxItem Content="Insider 通道" Tag="insider" />
+                        </ComboBox>
+                    </views:SettingsCard>
+
+                    <views:SettingsCard Header="启动时自动检查更新"
+                                           Description="仅检查，不自动安装。">
+                        <views:SettingsCard.HeaderIcon>
+                            <fa:FontIcon Glyph="&#xE72C;" />
+                        </views:SettingsCard.HeaderIcon>
+                        <ToggleSwitch x:Name="AutoCheckSwitch" OnContent="开" OffContent="关" MinWidth="0"
+                                      IsCheckedChanged="AutoCheckSwitch_Toggled" />
+                    </views:SettingsCard>
+
+                    <views:SettingsCard Header="检查更新"
+                                           Description="发现新版本会先询问是否安装，不会自动更新；最小化启动时会通过系统通知提醒。">
+                        <views:SettingsCard.HeaderIcon>
+                            <fa:FontIcon Glyph="&#xE896;" />
+                        </views:SettingsCard.HeaderIcon>
+                        <StackPanel Spacing="10">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <!-- ⚠️ 移植说明：原版 Style="{ThemeResource AccentButtonStyle}" —— FA 的
+                                     程序集里没这个键，改用 FA 自带的 accent 伪类（同 MainWindow 的用法）。 -->
+                                <Button x:Name="CheckButton" Content="检查更新" Click="CheckUpdate_Click"
+                                        Classes="accent" />
+                            </StackPanel>
+                            <ProgressBar x:Name="UpdateProgress" IsVisible="False" />
+                            <TextBlock x:Name="UpdateStatus" TextWrapping="Wrap"
+                                       FontSize="12"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                            <TextBlock x:Name="UpdateNotes" TextWrapping="Wrap" MaxLines="8" IsVisible="False"
+                                       FontSize="12"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
+                    </views:SettingsCard>
+
+                    <!-- 版本记录：内容走 Items（渲染在标题下方的整行区域），
+                         不能塞进默认的 Content 位 —— 那样会挤在标题右侧，展开后成为一条窄长的右栏列表
+                         ⚠️ 移植说明：Toolkit 的 HeaderIcon → FA 的 IconSource；
+                         Toolkit 的 Expanded 事件 FA 没有 → code-behind 里监听 IsExpandedProperty。 -->
+                    <fa:SettingsExpander x:Name="HistoryExpander" Header="版本记录"
+                                               Description="本机运行过哪些版本，以及可以从仓库装回的旧版本。"
+                                               IsExpanded="False">
+                        <fa:SettingsExpander.IconSource>
+                            <fa:FontIconSource FontFamily="{DynamicResource SymbolThemeFontFamily}" Glyph="&#xE81C;" />
+                        </fa:SettingsExpander.IconSource>
+                        <fa:SettingsExpander.Items>
+
+                            <views:SettingsCard Header="本机运行过的版本">
+                                <views:SettingsCard.Description>
+                                    <StackPanel Spacing="4" Margin="0,4,0,0">
+                                        <TextBlock Text="应用每次启动都会记一条（时间为本机时间），按时间倒序。"
+                                                   TextWrapping="Wrap"
+                                                   FontSize="12"
+                                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                        <StackPanel x:Name="LocalHistoryList" Spacing="6" />
+                                    </StackPanel>
+                                </views:SettingsCard.Description>
+                            </views:SettingsCard>
+
+                            <views:SettingsCard Header="从仓库装回旧版本">
+                                <views:SettingsCard.Description>
+                                    <StackPanel Spacing="8" Margin="0,4,0,0">
+                                        <TextBlock Text="从更新仓库加载可回滚的版本（正式版与 Insider 版）。装回旧版会覆盖当前程序文件，设置与软件内容不受影响。"
+                                                   TextWrapping="Wrap"
+                                                   FontSize="12"
+                                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <Button x:Name="LoadHistoryButton" Content="从仓库加载可回滚的版本"
+                                                    Click="LoadHistory_Click" />
+                                            <fa:ProgressRing x:Name="HistoryRing" Width="20" Height="20"
+                                                          IsActive="False" IsVisible="False" />
+                                        </StackPanel>
+                                        <StackPanel x:Name="HistoryList" Spacing="6" />
+                                    </StackPanel>
+                                </views:SettingsCard.Description>
+                            </views:SettingsCard>
+
+                        </fa:SettingsExpander.Items>
+                    </fa:SettingsExpander>
+
+                </StackPanel>
+
+            </StackPanel>
+        </Grid>
+    </ScrollViewer>
+</platform:PageBase>

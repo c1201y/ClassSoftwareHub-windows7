@@ -1,0 +1,110 @@
+<platform:PageBase
+    x:Class="ClassSoftwareHub.Desktop.Pages.DownloadsPage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:fa="using:FluentAvalonia.UI.Controls">
+
+    <!-- 和首页 / 内置工具 / 软件下载同一套版式：内容钉在中间 960 宽 -->
+    <!-- ⚠️ 2026-10-02：ScrollViewer 提到最外层（滚动条贴窗口右缘），边距改 Padding、居中改内层 Grid；
+         原来套在列表外面的那层 ScrollViewer 解开，列表直接铺在行里（外层统一管滚动） -->
+    <!-- ⚠️ 2026-10-03（用户第 12 轮「任务进行界面布局有问题」）：
+         内层 Grid 原来 HorizontalAlignment="Center" —— Avalonia 里 Center 是**缩成内容宽**再居中，
+         空状态下内容只有标题和提示那几百像素，整页就挤在屏幕中间一条窄带里（标题都不贴左了）。
+         改成和 SubmitPage 同一套三列钉宽：两侧 1* 吸收余量，中列 998* 且 MaxWidth=960。 -->
+    <ScrollViewer Padding="24,36,24,44" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="1*" />
+                <ColumnDefinition Width="998*" MaxWidth="960" />
+                <ColumnDefinition Width="1*" />
+            </Grid.ColumnDefinitions>
+            <Grid Grid.Column="1">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+            <StackPanel Spacing="4">
+                <TextBlock Text="任务进行" FontSize="30" FontWeight="Bold" />
+                <TextBlock x:Name="SummaryText" FontSize="12.5" Opacity="0.65" TextWrapping="Wrap" />
+            </StackPanel>
+
+            <!-- 任务列表：不用 ListView —— 这里不需要选中，用 ItemsControl 省掉一整套容器 chrome
+                 ⚠️ Grid 无 RowSpacing=14 → 第 1、2 行加 14 上 Margin -->
+            <ItemsControl x:Name="TaskList" Grid.Row="1" Margin="0,14,0,2">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border CornerRadius="8" Padding="20,16" Margin="0,0,0,12"
+                                    Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1">
+                                <Grid>
+                                    <!-- 原版 ColumnSpacing=16 / RowSpacing=10 → 用 Margin 模拟 -->
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+
+                                    <fa:FontIcon Grid.Row="0" Grid.Column="0" Glyph="&#xE896;" FontSize="20"
+                                                 VerticalAlignment="Center" />
+
+                                    <TextBlock Grid.Row="0" Grid.Column="1" Margin="16,0,0,0" Text="{Binding Title}"
+                                               FontSize="15" FontWeight="Bold" VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis" />
+
+                                    <StackPanel Grid.Row="0" Grid.Column="2" Margin="16,0,0,0" Orientation="Horizontal" Spacing="8"
+                                                VerticalAlignment="Center">
+                                        <Button Content="取消" Tag="{Binding}" Click="Cancel_Click"
+                                                IsVisible="{Binding RunningVisibility}" />
+                                        <Button Content="重试" Tag="{Binding}" Click="Retry_Click"
+                                                IsVisible="{Binding RetryVisibility}" />
+                                        <Button Content="打开" Tag="{Binding}" Click="Open_Click"
+                                                IsVisible="{Binding OpenVisibility}" />
+                                        <Button Content="打开文件夹" Tag="{Binding}" Click="Reveal_Click"
+                                                IsVisible="{Binding OpenVisibility}" />
+                                        <Button Tag="{Binding}" Click="Remove_Click" Padding="9,5"
+                                                ToolTip.Tip="从列表移除（不删除已下载的文件）"
+                                                IsVisible="{Binding RetryVisibility}">
+                                            <fa:FontIcon Glyph="&#xE74D;" FontSize="12" />
+                                        </Button>
+                                    </StackPanel>
+
+                                    <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,10,0,0" Spacing="6">
+                                        <ProgressBar Minimum="0" Maximum="100"
+                                                     Value="{Binding BarValue}"
+                                                     IsIndeterminate="{Binding BarIndeterminate}"
+                                                     IsVisible="{Binding BarVisibility}" />
+                                        <TextBlock Text="{Binding StatusText}" FontSize="12" Opacity="0.7"
+                                                   TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+            <!-- 空状态：一条任务都没有的时候 -->
+            <StackPanel x:Name="EmptyPanel" Grid.Row="1" Margin="0,14,0,0" Spacing="12" IsVisible="False"
+                        HorizontalAlignment="Center" VerticalAlignment="Center">
+                <fa:FontIcon Glyph="&#xE896;" FontSize="34" Opacity="0.45" HorizontalAlignment="Center" />
+                <TextBlock Text="当前无下载任务" FontSize="15" FontWeight="SemiBold" Opacity="0.75"
+                           HorizontalAlignment="Center" />
+                <TextBlock MaxWidth="420" TextAlignment="Center" TextWrapping="Wrap" FontSize="12.5" Opacity="0.6"
+                           Text="在「软件下载」中打开任意软件并单击「下载」，任务将显示在此处。下载期间可继续使用其他功能，左侧入口显示进行中的任务数。" />
+            </StackPanel>
+
+            <StackPanel Grid.Row="2" Margin="0,14,0,0" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Left">
+                <Button Content="打开下载文件夹" Click="OpenFolder_Click" />
+                <Button x:Name="ClearButton" Content="清除已完成" Click="ClearFinished_Click" />
+            </StackPanel>
+            </Grid>
+        </Grid>
+    </ScrollViewer>
+</platform:PageBase>

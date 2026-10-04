@@ -1,0 +1,34 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:fa="using:FluentAvalonia.UI.Controls"
+        x:Class="ClassSoftwareHub.Desktop.Views.SubmitWindow">
+
+    <!--
+      ⚠️ 移植说明（WinUI → Avalonia）：
+        · 原版这里放的是 <WebView2> 控件；Avalonia 没有 WebView2 控件，改用 Views/WebSheetHost
+          （原生子窗口 + CoreWebView2「自带宿主」模式），见 .cs 里的 InitAsync / LayoutWebView。
+          Web 宿主铺在窗口底层，上面的加载/错误面板与原版一模一样。
+        · Visibility="Collapsed" → IsVisible="False"。
+    -->
+    <Grid x:Name="Root" Background="{DynamicResource ApplicationPageBackgroundThemeBrush}">
+        <!-- 只有这一个页面用网页版：提交软件（表单逻辑不重写） -->
+        <Panel x:Name="WebHost" Opacity="0" />
+
+        <StackPanel x:Name="LoadingPanel" Spacing="14" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <fa:ProgressRing x:Name="Ring" IsActive="True" Width="38" Height="38" />
+            <TextBlock x:Name="LoadingText" Text="正在打开提交页" Opacity="0.7" />
+        </StackPanel>
+
+        <StackPanel x:Name="ErrorPanel" IsVisible="False" Spacing="12" MaxWidth="380"
+                    HorizontalAlignment="Center" VerticalAlignment="Center">
+            <fa:FontIcon Glyph="&#xE783;" FontSize="26" Opacity="0.5" HorizontalAlignment="Center" />
+            <TextBlock Text="网络出现错误，请稍后重试" HorizontalAlignment="Center" FontWeight="SemiBold" />
+            <TextBlock x:Name="ErrorTip" Opacity="0.6" FontSize="12" TextWrapping="Wrap"
+                       TextAlignment="Center" HorizontalAlignment="Center" />
+            <Button Content="重试" HorizontalAlignment="Center" Click="Retry_Click"
+                    Theme="{StaticResource AccentButtonStyle}" />  <!-- ControlTheme 用 Theme=（先例见 Views/Palette/MiniClock.axaml） -->
+            <!-- 兜底：WebView2 缺失 / 站点打不开时，至少还能去浏览器提交 -->
+            <Button Content="在浏览器中打开提交页" HorizontalAlignment="Center" Click="Browser_Click" />
+        </StackPanel>
+    </Grid>
+</Window>

@@ -1,0 +1,113 @@
+<platform:PageBase
+    x:Class="ClassSoftwareHub.Desktop.Pages.ExperimentalPage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:fa="using:FluentAvalonia.UI.Controls"
+    xmlns:data="using:ClassSoftwareHub.Desktop.Data">
+
+    <!--
+      ⚠️ 移植说明（WinUI → Avalonia/FluentAvalonia）：
+        · 原版 Page 根元素上的 NavigationCacheMode="Disabled" —— Avalonia 侧由
+          ShellPage 的 <fa:Frame CacheSize="0"/> 统一承担（页面不留在内存里），这里不再单设。
+        · 原版 GridView（IsItemClickEnabled + ItemClick + CshCardItemStyle）→
+          ItemsControl + WrapPanel + Tapped 冒泡（与首页快捷入口同一套写法）；
+          GridViewItem 容器的悬停底色/焦点框随之消失 → 卡片悬停反馈用 :pointerover
+          伪类改 Opacity（原版是 PointerEntered/PointerExited 事件，效果一致）。
+        · x:Bind → {Binding}；ThemeResource → DynamicResource。
+
+      和内置工具页同一套版式：内容钉在中间 960 宽（Nick 2026-09-26 要求"页面布局类似于内置工具页面"）。
+      ⚠️ 原版内层 Grid 的 RowSpacing="14" → Avalonia 的 Grid 没有行间距，改为第 1、2 行各加
+         Margin="0,14,0,0"（第 1 行额外并入了原版 GridView 的 Padding="0,2,0,0"，见那里注释）。
+    -->
+    <platform:PageBase.Styles>
+        <!-- 卡片自己的悬停反馈（原版是 CshCardItemStyle + PointerEntered/Exited 事件） -->
+        <Style Selector="Border.card:pointerover">
+            <Setter Property="Opacity" Value="0.88" />
+        </Style>
+    </platform:PageBase.Styles>
+
+    <!-- ⚠️ 2026-10-02：ScrollViewer 提到最外层（滚动条贴窗口右缘），边距改 Padding、居中改内层 Grid -->
+    <ScrollViewer Padding="24,36,24,44" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <Grid MaxWidth="960" HorizontalAlignment="Center">
+
+        <!-- ⚠️ 整页套 ScrollViewer（2026-10-02：和内置工具页同一个毛病 —— 原版 GridView 自带滚动，
+             移植成 ItemsControl 后滚动条没了，卡片一多就被裁掉且滚不动）。 -->
+        <StackPanel>
+            <StackPanel Spacing="4">
+                <TextBlock Text="实验性功能" FontSize="30" FontWeight="Bold" />
+                <TextBlock FontSize="12.5" Opacity="0.65" TextWrapping="Wrap"
+                           Text="暂未达到主界面功能可靠程度的试验性功能集中于此。功能可用，但结果不保证准确，界面后续仍可能调整。" />
+            </StackPanel>
+
+            <!-- 卡片 462 + 间距 16 = 478，960 里正好两列（跟内置工具页同一个尺寸口径）。
+                 原 GridView Padding="0,2,0,0" + 行间距 14 → Margin="0,16,0,0"。 -->
+            <ItemsControl x:Name="FeatureGrid" Margin="0,16,0,0"
+                          Tapped="FeatureGrid_Tapped">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <WrapPanel Orientation="Horizontal" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Width="462" Height="76" CornerRadius="8" Padding="20,0" Margin="0,0,16,14"
+                                Classes="card"
+                                Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1">
+                            <!-- Grid 无 ColumnSpacing=14 → 第 1、2 列各加 14 左 Margin 模拟 -->
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <fa:FontIcon Glyph="{Binding Glyph}" FontSize="20" VerticalAlignment="Center" />
+                                <!-- 名字 + 一句话说明：说明只占一行，长了就省略号，卡片高度才稳 -->
+                                <StackPanel Grid.Column="1" Margin="14,0,0,0" VerticalAlignment="Center" Spacing="2">
+                                    <TextBlock Text="{Binding Name}" FontSize="15" FontWeight="Bold"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{Binding Desc}" FontSize="12" Opacity="0.65"
+                                               TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                                <fa:FontIcon Grid.Column="2" Margin="14,0,0,0" Glyph="&#xE8A7;" FontSize="13" Opacity="0.5"
+                                             VerticalAlignment="Center" />
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <!-- 页脚：把「实验性」这个标签的含义和检测范围讲清楚（先说清边界，别让用户自己猜） -->
+            <Border CornerRadius="8" Padding="20,16" Margin="0,18,0,0"
+                    Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                <!-- 原 ColumnSpacing=16 / RowSpacing=6 → 列 1 加 16 左 Margin；行 1/2 各加 6/10 顶 Margin
+                     （行 2 原本还带 Margin="0,4,0,0"，6+4=10） -->
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <fa:FontIcon Glyph="&#xEA80;" FontSize="20" VerticalAlignment="Top" />
+                    <TextBlock Grid.Column="1" Margin="16,0,0,0" Text="「实验性」的含义" FontSize="15" FontWeight="Bold" />
+
+                    <TextBlock Grid.Row="1" Grid.Column="1" Margin="16,6,0,0" FontSize="12.5" Opacity="0.7"
+                               TextWrapping="Wrap"
+                               Text="以下功能处于成型阶段，因此入口保留在此处而非主界面：功能成熟后逐步移入主界面。列于此处表示功能已可试用，不代表其可靠程度已达到正式功能水平。" />
+                    <TextBlock Grid.Row="2" Grid.Column="1" Margin="16,10,0,0" FontSize="12" Opacity="0.6"
+                               TextWrapping="Wrap"
+                               Text="使用中如确认功能可用，或发现判断有误，均可在「反馈中心」提交反馈。此类功能的去留取决于实际使用反馈。" />
+                </Grid>
+            </Border>
+        </StackPanel>
+        </Grid>
+    </ScrollViewer>
+</platform:PageBase>

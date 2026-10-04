@@ -1,0 +1,19 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="ClassSoftwareHub.Desktop.Views.StickerWindow"
+        SystemDecorations="None" ShowInTaskbar="False" CanResize="False"
+        TransparencyLevelHint="None">
+
+    <!--
+      钉图（贴纸）：1:1 贴在屏幕上，拖边框缩放、拖身体挪位、滚轮缩放、双击/右键关掉。
+      ⚠️ 底色必须给实色（深灰）：窗口边框被系统钳住最小尺寸时，Uniform 缩放会留出一点边，
+         不给底色就会露出窗口默认的**白底**——就是之前那个"莫名其妙的白边"。
+    -->
+    <Grid x:Name="Root" Background="#FF1C1C1C">
+        <Image x:Name="Shot" Stretch="Uniform" />
+        <Border x:Name="EdgeLine" BorderThickness="1" BorderBrush="#66FFFFFF"
+                IsHitTestVisible="False" Margin="0" />
+        <Border x:Name="HoverEdge" BorderThickness="3" BorderBrush="#884CC2FF"
+                IsHitTestVisible="False" IsVisible="False" />
+    </Grid>
+</Window>

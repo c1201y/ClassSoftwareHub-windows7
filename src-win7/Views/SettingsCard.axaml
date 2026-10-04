@@ -1,0 +1,71 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:views="using:ClassSoftwareHub.Desktop.Views"
+                    xmlns:fa="using:FluentAvalonia.UI.Controls">
+
+    <!--
+      SettingsCard 的默认模板（对应 WinUI CommunityToolkit 的 SettingsCard 外观）。
+
+      ⚠️ 颜色一律走 {DynamicResource}（≈ 原版的 ThemeResource）：它认「元素所在那棵树」的主题、
+         深浅色会自己变；而且**键不存在时不会抛异常**（StaticResource 会）。
+
+      ⚠️ 字体样式（Header=BodyStrong、Description=Caption+次要色）**直接写死在模板上**，
+         不引用 BodyStrongTextBlockStyle / CaptionTextBlockStyle —— 原版那句注释说得对：
+         卡片模板对 Header / Description 的字体样式是写死在控件模板里的，别再手工指定。
+    -->
+    <ControlTheme x:Key="{x:Type views:SettingsCard}" TargetType="views:SettingsCard">
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+        <Setter Property="HorizontalContentAlignment" Value="Right" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border MinHeight="64" Padding="16,0,16,0" CornerRadius="4"
+                        BorderThickness="1"
+                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
+                    <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center" MinHeight="64">
+
+                        <!-- 左侧图标（没有就不占位） -->
+                        <ContentPresenter Grid.Column="0"
+                                          Content="{TemplateBinding HeaderIcon}"
+                                          VerticalAlignment="Center"
+                                          Margin="0,0,16,0">
+                            <ContentPresenter.Styles>
+                                <Style Selector="fa|FontIcon">  <!-- FontIcon 是 FA 类型，选择器需带 fa| 前缀 -->
+                                    <Setter Property="FontSize" Value="16" />
+                                    <Setter Property="VerticalAlignment" Value="Center" />
+                                </Style>
+                            </ContentPresenter.Styles>
+                        </ContentPresenter>
+
+                        <!-- 中间：Header + Description（竖排） -->
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,12,0,12">
+                            <ContentPresenter Name="PART_Header"
+                                              Content="{TemplateBinding Header}"
+                                              TextWrapping="Wrap"
+                                              TextTrimming="CharacterEllipsis"
+                                              FontSize="14"
+                                              FontWeight="SemiBold"
+                                              Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                            <ContentPresenter Name="PART_Description"
+                                              Content="{TemplateBinding Description}"
+                                              TextWrapping="Wrap"
+                                              FontSize="12"
+                                              Margin="0,2,0,0"
+                                              Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
+
+                        <!-- 右侧内容区（开关 / 下拉 / 按钮…） -->
+                        <ContentPresenter Grid.Column="2"
+                                          Content="{TemplateBinding Content}"
+                                          HorizontalAlignment="Right"
+                                          VerticalAlignment="Center"
+                                          Margin="16,0,0,0" />
+                    </Grid>
+                </Border>
+            </ControlTemplate>
+        </Setter>
+    </ControlTheme>
+
+</ResourceDictionary>

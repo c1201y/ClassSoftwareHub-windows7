@@ -1,0 +1,64 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    ClassSoftwareHub · Windows 7 便携版启动器（根目录那一个 exe）
+
+    它解决什么问题：
+      · 便携版是「启动器 + 应用程序文件夹」两层结构 —— 根目录只放这一个 exe，
+        应用本体（体积大、更新频繁的那一堆）全在 app\ 子目录里。
+      · 用户双击根目录的 exe 就启动；以后更新只换 app\ 子目录，启动器不用动，
+        桌面上快捷方式指向的路径也永远有效。
+      · 安装版（Inno Setup）装的也是同一套结构，快捷方式同样指向这个启动器。
+
+    ⚠️ 为什么按「自包含 + 裁剪 + 单文件」发布：
+       目标机是教室里的 Win7 老机器，**不能假设装过 .NET 6 运行时**。
+       而启动器只有 Process.Start 一件事、不碰反射/动态加载，裁剪是安全的。
+       实测（2026-10-04）：裁剪 + 压缩后约 5~7 MB。
+       —— 不裁剪会变成 60 MB+，那对一个"只负责转手"的程序就太荒唐了。
+
+    ⚠️ AssemblyName 故意和主程序同名（也叫 ClassSoftwareHub）：
+       两者一个在根目录、一个在 app\ 下，互不冲突；
+       而进程名一致 → 安装程序的一句 `taskkill /IM ClassSoftwareHub.exe`
+       就能把「启动器残留 + 应用本体」一起收干净。
+  -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net6.0-windows7.0</TargetFramework>
+    <SupportedOSPlatformVersion>7.0</SupportedOSPlatformVersion>
+    <RootNamespace>ClassSoftwareHub.Launcher</RootNamespace>
+    <AssemblyName>ClassSoftwareHub</AssemblyName>
+    <AssemblyTitle>ClassSoftwareHub</AssemblyTitle>
+    <Product>ClassSoftwareHub</Product>
+    <Company>ClassSoftwareHub</Company>
+    <ApplicationIcon>..\..\Assets\AppIcon.ico</ApplicationIcon>
+    <Platforms>x64</Platforms>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>10</LangVersion>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+
+    <!-- 版本号与主程序保持一致（Core/ShellConfig.cs 的 ShellVersion 是唯一来源，这里只是元数据） -->
+    <Version>1.1.0-insider1.2</Version>
+    <InformationalVersion>1.1.0-insider1.2</InformationalVersion>
+
+    <!-- ── 发布形状：自包含 + 裁剪 + 单文件 + 压缩 ── -->
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <PublishTrimmed>true</PublishTrimmed>
+    <!-- ⚠️ 不要写 TrimMode=partial —— 那是 .NET 8 才引入的档位，.NET 6 的 ILLink
+         只认 copy / copyused / link，写了会直接 IL1031 构建失败。
+         这里用 .NET 6 的默认档（copyused：只保留用到的程序集，不做方法级裁剪），
+         对一个"只调 Process.Start"的程序来说足够了。 -->
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <!-- ReadyToRun 会显著变大，且单文件+裁剪下收益有限 —— 启动器冷启动本来就是毫秒级 -->
+    <PublishReadyToRun>false</PublishReadyToRun>
+    <!-- 启动器不做任何本地化，干掉附属程序集 -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <SatelliteResourceLanguages>zh-Hans</SatelliteResourceLanguages>
+    <DebugType>none</DebugType>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+</Project>

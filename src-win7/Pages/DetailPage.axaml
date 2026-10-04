@@ -1,0 +1,159 @@
+<platform:PageBase
+    x:Class="ClassSoftwareHub.Desktop.Pages.DetailPage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:fa="using:FluentAvalonia.UI.Controls">
+
+    <!--
+      和首页 / 设置页 / 软件下载页同一套版式：内容钉在中间 960 宽。
+      ⚠️ 2026-10-02 结构调整：ScrollViewer 提到**最外层**（原来是包在 960 那列里面）——
+         滚动条要贴到窗口最右缘，而不是缩在内容列旁边。原来根 Grid 的 24px 边距
+         改成 ScrollViewer 的 Padding，居中改成内层 Grid 的 MaxWidth + Center，版式不变。
+    -->
+    <ScrollViewer Padding="24,20,24,44" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <Grid MaxWidth="960" HorizontalAlignment="Center">
+            <StackPanel Spacing="14">
+
+                    <!-- ===== 头部：图标 + 名称 + 标语 + 分类徽标 =====
+                         ⚠️ Grid 无 ColumnSpacing=16 → 第 1 列加 16 左 Margin -->
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <!-- 圆角 + 1:1 居中裁剪：固定 72×72 正方形。
+                             ⚠️ 原版用 ImageBrush + AlignmentX/Y=Center 填充；Avalonia 用
+                                Border(ClipToBounds) + Image(UniformToFill) 还原同样的"从正中间裁圆角"。 -->
+                        <Border x:Name="IconBox" Width="72" Height="72" CornerRadius="14" ClipToBounds="True"
+                                VerticalAlignment="Top" HorizontalAlignment="Left">
+                            <Grid>
+                                <Image x:Name="IconImage" Stretch="UniformToFill" />
+                                <!-- 图标没下来时的兜底：彩色底 + 名字首字（2026-10-02，替代原来的灰购物袋字形） -->
+                                <Border x:Name="IconFallback" IsVisible="False">
+                                    <TextBlock x:Name="IconFallbackText" Text="?" FontSize="30" FontWeight="Bold"
+                                               Foreground="White"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Border>
+                            </Grid>
+                        </Border>
+                        <StackPanel Grid.Column="1" Margin="16,0,0,0" Spacing="6">
+                            <TextBlock x:Name="AppName" FontSize="26" FontWeight="Bold" TextWrapping="Wrap" />
+                            <TextBlock x:Name="AppTagline" FontSize="13" Opacity="0.75" TextWrapping="Wrap" />
+                            <Border x:Name="CategoryBadge" CornerRadius="10" Padding="8,3"
+                                    HorizontalAlignment="Left"
+                                    Background="{DynamicResource ControlFillColorSecondaryBrush}">
+                                <TextBlock x:Name="CategoryText" FontSize="12" Opacity="0.85" />
+                            </Border>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- 小提示（数据里 notice 字段） -->
+                    <fa:InfoBar x:Name="NoticeBar" Severity="Informational" IsOpen="False" IsClosable="False" />
+
+                    <!-- ===== 应用介绍 ===== -->
+                    <TextBlock x:Name="IntroTitle" FontSize="18" FontWeight="Bold" Margin="0,6,0,0" />
+                    <TextBlock x:Name="AppDescription" TextWrapping="Wrap" LineHeight="24" Opacity="0.9" />
+
+                    <!-- ===== 详细信息（版本 / 体积 / 系统 / 官网 / GitHub） ===== -->
+                    <TextBlock x:Name="InfoTitle" FontSize="18" FontWeight="Bold" Margin="0,6,0,0" />
+                    <Border CornerRadius="8" Padding="16,14"
+                            Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1">
+                        <StackPanel x:Name="InfoList" Spacing="10" />
+                    </Border>
+
+                    <!-- ===== 下载 ===== -->
+                    <TextBlock x:Name="DownloadsTitle" FontSize="18" FontWeight="Bold" Margin="0,6,0,0" />
+
+                    <!-- 应用商店入口（store 字段，或 downloads 里指向商店的那条）
+                         ⚠️ Grid 无 ColumnSpacing=12 → 第 1 列加 12 左 Margin -->
+                    <Border x:Name="StoreCard" IsVisible="False" CornerRadius="8" Padding="16,14"
+                            Background="{DynamicResource AccentFillColorDefaultBrush}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Spacing="2">
+                                <TextBlock x:Name="StoreTitle" FontSize="15" FontWeight="Bold" TextWrapping="Wrap"
+                                           Foreground="{DynamicResource TextOnAccentFillColorPrimaryBrush}" />
+                                <TextBlock x:Name="StoreDesc" FontSize="12" TextWrapping="Wrap" Opacity="0.85"
+                                           Foreground="{DynamicResource TextOnAccentFillColorPrimaryBrush}" />
+                            </StackPanel>
+                            <Button x:Name="StoreButton" Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center"
+                                    Click="Store_Click"
+                                    Background="Transparent"
+                                    Foreground="{DynamicResource TextOnAccentFillColorPrimaryBrush}"
+                                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1" />
+                        </Grid>
+                    </Border>
+
+                    <TextBlock x:Name="StoreOnlyHint" IsVisible="False" FontSize="12.5" Opacity="0.7"
+                               TextWrapping="Wrap" />
+
+                    <!-- 下载项：平台 / 备注 / 体积 / 校验值（点击复制） + 下载 + 加速下载 -->
+                    <ItemsControl x:Name="DownloadList">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border CornerRadius="8" Padding="16,12" Margin="0,0,0,8"
+                                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                                        BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                                        BorderThickness="1">
+                                    <Grid>
+                                        <!-- 原版 ColumnSpacing=12 → 第 1 列加 12 左 Margin -->
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Spacing="3">
+                                            <TextBlock Text="{Binding Platform}" FontWeight="Bold" TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding Note}" FontSize="12" Opacity="0.7"
+                                                       TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding Size}" FontSize="12" Opacity="0.7"
+                                                       TextWrapping="Wrap" />
+                                            <StackPanel Orientation="Horizontal" Spacing="8"
+                                                        HorizontalAlignment="Left">
+                                                <Button Content="{Binding HashChipText}" Tag="{Binding Hash}"
+                                                        IsVisible="{Binding HashVisibility}"
+                                                        Click="CopyHash_Click"
+                                                        Padding="8,3" FontSize="11.5" Opacity="0.9"
+                                                        ToolTip.Tip="{Binding Hash}" />
+                                                <Button Tag="{Binding Hash}" IsVisible="{Binding HashVisibility}"
+                                                        Click="HashCheck_Click"
+                                                        Padding="8,3" FontSize="11.5" Opacity="0.9"
+                                                        ToolTip.Tip="在「编码 / 哈希工具」中核对该校验值：选择下载的安装包后自动比对">
+                                                    <StackPanel Orientation="Horizontal" Spacing="5">
+                                                        <fa:FontIcon Glyph="&#xE73E;" FontSize="11" />
+                                                        <TextBlock Text="校验" FontSize="11.5" />
+                                                    </StackPanel>
+                                                </Button>
+                                            </StackPanel>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Margin="12,0,0,0" Orientation="Horizontal" Spacing="8"
+                                                    VerticalAlignment="Center">
+                                            <Button Content="下载" Tag="{Binding Url}"
+                                                    Classes="accent"
+                                                    Click="Download_Click" />
+                                            <Button Tag="{Binding Url}" Click="Mirror_Click"
+                                                    IsVisible="{Binding MirrorVisibility}">
+                                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                                    <fa:FontIcon Glyph="&#xE945;" FontSize="12" />
+                                                    <TextBlock Text="加速下载" />
+                                                </StackPanel>
+                                            </Button>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <!-- 数据问题（该软件的 JSON 有问题时会提示） -->
+                    <fa:InfoBar x:Name="IssueBar" Severity="Warning" IsOpen="False" IsClosable="False" />
+                </StackPanel>
+        </Grid>
+    </ScrollViewer>
+</platform:PageBase>

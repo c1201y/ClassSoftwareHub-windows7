@@ -1,0 +1,256 @@
+<platform:PageBase
+    x:Class="ClassSoftwareHub.Desktop.Pages.SubmitPage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:fa="using:FluentAvalonia.UI.Controls">
+
+    <!--
+      和其余页面同一套版式：外层三列 Grid 把内容（含标题）一起钉在中间 960 宽。
+      ⚠️ 标题必须在 960 列**里面** —— 曾经它横跨整宽、卡片居中，
+         宽窗口下标题贴最左、卡片在中间，两套左缘对不齐。
+
+      ⚠️ 移植说明（Avalonia 差异集中处）：
+        · Avalonia 的 TextBox **没有 Header、没有 Description、没有 PlaceholderText**
+          （占位文字是 Watermark）→ 每个字段改用「标签 StackPanel + TextBox（+ 说明 TextBlock）」的竖排结构，
+          外观与 WinUI 的「Header 在输入框上方」一致，说明文字也与原版一致。
+        · Grid 没有 ColumnSpacing / RowSpacing → 用子元素 Margin 模拟，间距值照搬原版。
+        · 必填星号 * 走 SystemFillColorCriticalBrush（红色），跟原版一致。
+    -->
+    <!--
+      ⚠️ 2026-10-03（用户第 12 轮「提交软件滚动条不在窗口右边」）：
+        ScrollViewer 提到最外层（跨整整三列），滚动条贴**窗口右缘**；
+        居中仍由内层三列 Grid 负责（和 DownloadsPage 2026-10-02 同一修法）。
+        原来把 ScrollViewer 套在中间 960 列里，滚动条只能贴中列右缘 —— 内容没到 960 宽时
+        它就悬在窗口中间，看着像布局坏了。
+    -->
+    <Grid Margin="24,36,24,44">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="1*" />
+            <ColumnDefinition Width="998*" MaxWidth="960" />
+            <ColumnDefinition Width="1*" />
+        </Grid.ColumnDefinitions>
+
+        <StackPanel Grid.Column="1" Spacing="4">
+            <TextBlock Text="提交软件" FontSize="30" FontWeight="Bold" />
+            <TextBlock FontSize="12.5" Opacity="0.65" TextWrapping="Wrap"
+                       Text="提交内容先以草稿形式存入仓库（submissions/），审核通过后上架。带 * 的为必填项。" />
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" Grid.ColumnSpan="3" Margin="0,14,0,0" VerticalScrollBarVisibility="Auto">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="1*" />
+                    <ColumnDefinition Width="998*" MaxWidth="960" />
+                    <ColumnDefinition Width="1*" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="1" Spacing="14">
+
+                    <!-- ═══ 从 GitHub 一键读取 ═══ -->
+                    <Border CornerRadius="8" Padding="20" BorderThickness="1"
+                            BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                            Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                        <StackPanel Spacing="12">
+                            <TextBlock Text="从 GitHub 读取" FontSize="18" FontWeight="Bold" />
+                            <TextBlock FontSize="12.5" Opacity="0.7" TextWrapping="Wrap"
+                                       Text="填写 GitHub 仓库地址，自动读取简介、版本号与各安装包的直链，无需手动抄录。读取使用公开接口，不会改动任何内容。" />
+
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="RepoBox" Watermark="github.com/owner/repo 或 owner/repo" />
+                                <Button x:Name="ImportButton" Grid.Column="1" Margin="10,0,0,0" Content="读取" MinWidth="100"
+                                        Classes="accent" VerticalAlignment="Bottom"
+                                        Click="Import_Click" />
+                            </Grid>
+
+                            <CheckBox x:Name="OverwriteBox" Content="覆盖已填写的内容" />
+                            <TextBlock FontSize="12" Opacity="0.6" Margin="28,0,0,0" TextWrapping="Wrap"
+                                       Text="默认仅填写空白字段；勾选后已填写的内容也会被覆盖。" />
+                            <CheckBox x:Name="PrereleaseBox" Content="优先取最新预发布版（Beta / Alpha）" />
+
+                            <fa:InfoBar x:Name="ImportErrorBar" IsOpen="False" IsClosable="False" Severity="Error"
+                                     Title="读取失败" />
+                            <fa:InfoBar x:Name="ImportOkBar" IsOpen="False" IsClosable="False" Severity="Success"
+                                     Title="读取完成" />
+                            <Border x:Name="ImportReport" IsVisible="False" CornerRadius="8" Padding="12"
+                                    BorderThickness="1"
+                                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                                    Background="{DynamicResource ControlFillColorSecondaryBrush}">
+                                <StackPanel x:Name="ImportReportHost" Spacing="6" />
+                            </Border>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- ═══ 基本信息 ═══ -->
+                    <Border CornerRadius="8" Padding="20" BorderThickness="1"
+                            BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                            Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                        <StackPanel Spacing="14">
+                            <TextBlock Text="基本信息" FontSize="18" FontWeight="Bold" />
+
+                            <StackPanel Spacing="6">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="软件 ID" FontSize="12.5" Opacity="0.8" />
+                                    <TextBlock Text=" *" FontSize="12.5" Foreground="{DynamicResource SystemFillColorCriticalBrush}" />
+                                </StackPanel>
+                                <TextBox x:Name="IdBox" Watermark="小写字母 / 数字 / 短横线，如 7-zip" />
+                                <TextBlock FontSize="12" Opacity="0.6" TextWrapping="Wrap"
+                                           Text="详情页网址为 #/download/&lt;id&gt;，不可包含 ? &amp; = 等符号" />
+                            </StackPanel>
+
+                            <StackPanel Spacing="6">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="软件名称" FontSize="12.5" Opacity="0.8" />
+                                    <TextBlock Text=" *" FontSize="12.5" Foreground="{DynamicResource SystemFillColorCriticalBrush}" />
+                                </StackPanel>
+                                <TextBox x:Name="NameBox" Watermark="如 7-Zip" />
+                            </StackPanel>
+
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="图标链接（选填，256×256 方图最佳）" FontSize="12.5" Opacity="0.8" />
+                                    <TextBox x:Name="IconBox" Watermark="https://…/icon.png" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Margin="14,0,0,0" Spacing="6">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="分类" FontSize="12.5" Opacity="0.8" />
+                                        <TextBlock Text=" *" FontSize="12.5" Foreground="{DynamicResource SystemFillColorCriticalBrush}" />
+                                    </StackPanel>
+                                    <ComboBox x:Name="CategoryCombo" HorizontalAlignment="Stretch" PlaceholderText="选择分类" />
+                                </StackPanel>
+                            </Grid>
+
+                            <StackPanel Spacing="6">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="一句话简介" FontSize="12.5" Opacity="0.8" />
+                                    <TextBlock Text=" *" FontSize="12.5" Foreground="{DynamicResource SystemFillColorCriticalBrush}" />
+                                </StackPanel>
+                                <TextBox x:Name="TaglineBox" Watermark="一句话简介，显示在首页卡片上" />
+                            </StackPanel>
+
+                            <StackPanel Spacing="6">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="详细介绍" FontSize="12.5" Opacity="0.8" />
+                                    <TextBlock Text=" *" FontSize="12.5" Foreground="{DynamicResource SystemFillColorCriticalBrush}" />
+                                </StackPanel>
+                                <TextBox x:Name="DescBox" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="120"
+                                         Watermark="详细介绍：软件的用途与使用注意事项（可换行）" />
+                            </StackPanel>
+
+                            <StackPanel Spacing="6">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="联系方式" FontSize="12.5" Opacity="0.8" />
+                                    <TextBlock Text=" *" FontSize="12.5" Foreground="{DynamicResource SystemFillColorCriticalBrush}" />
+                                </StackPanel>
+                                <TextBox x:Name="ContactBox" Watermark="如 QQ / 邮箱 / 站内留言方式" />
+                                <TextBlock FontSize="12" Opacity="0.6" TextWrapping="Wrap"
+                                           Text="仅写入审核工单供管理员查看，不会显示在网站上" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- ═══ 补充信息 ═══ -->
+                    <Border CornerRadius="8" Padding="20" BorderThickness="1"
+                            BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                            Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                        <StackPanel Spacing="14">
+                            <TextBlock Text="补充信息" FontSize="18" FontWeight="Bold" />
+
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Spacing="6">
+                                    <TextBlock Text="版本号" FontSize="12.5" Opacity="0.8" />
+                                    <TextBox x:Name="VersionBox" Watermark="如 24.09" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Margin="14,0,0,0" Spacing="6">
+                                    <TextBlock Text="体积" FontSize="12.5" Opacity="0.8" />
+                                    <TextBox x:Name="SizeBox" Watermark="如 1.6 MB" />
+                                </StackPanel>
+                            </Grid>
+
+                            <StackPanel Spacing="6">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="系统限制" FontSize="12.5" Opacity="0.8" />
+                                    <TextBlock Text=" *" FontSize="12.5" Foreground="{DynamicResource SystemFillColorCriticalBrush}" />
+                                </StackPanel>
+                                <TextBox x:Name="SystemBox" Watermark="如 Windows 10/11（x86 / x64 / ARM64）" />
+                            </StackPanel>
+
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="官网地址（选填）" FontSize="12.5" Opacity="0.8" />
+                                <TextBox x:Name="WebsiteBox" Watermark="https://…" />
+                            </StackPanel>
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="GitHub 仓库（选填）" FontSize="12.5" Opacity="0.8" />
+                                <TextBox x:Name="GithubBox" Watermark="https://github.com/…" />
+                            </StackPanel>
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="提示条（选填）" FontSize="12.5" Opacity="0.8" />
+                                <TextBox x:Name="NoticeBox"
+                                         Watermark="显示在下载区上方的蓝色提示，适合「更新频繁、直链易失效」的软件" />
+                            </StackPanel>
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="应用商店地址（选填）" FontSize="12.5" Opacity="0.8" />
+                                <TextBox x:Name="StoreBox" Watermark="填写后会额外显示一张「商店下载」卡片" />
+                            </StackPanel>
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="排序值（选填）" FontSize="12.5" Opacity="0.8" />
+                                <!-- ⚠️ 原版 InputScope="Number"（WinUI 专有）在 Avalonia 的 TextBox 上没有对应属性 → 略去。 -->
+                                <TextBox x:Name="SortBox" Watermark="数字越小越靠前，留空排最后" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- ═══ 下载项 ═══ -->
+                    <TextBlock Text="下载项" FontSize="18" FontWeight="Bold" Margin="0,6,0,0" />
+                    <TextBlock FontSize="12" Opacity="0.6" TextWrapping="Wrap"
+                               Text="直链需填写文件本身（.exe / .zip / .msi 等），单击后直接开始下载；请勿填写官网下载页。" />
+                    <StackPanel x:Name="DownloadsHost" Spacing="12" />
+                    <Button Content="+ 添加下载项" Click="AddDownload_Click" HorizontalAlignment="Left" />
+
+                    <!-- ═══ 提交 ═══ -->
+                    <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right" Margin="0,6,0,0">
+                        <Button x:Name="RestoreDraftButton" Content="恢复上次未提交的内容"
+                                Click="RestoreDraft_Click" IsVisible="False" />
+                        <Button x:Name="SubmitButton" Content="提交" MinWidth="130"
+                                Classes="accent" Click="Submit_Click" />
+                    </StackPanel>
+
+                    <fa:InfoBar x:Name="ResultBar" IsOpen="False" IsClosable="False" />
+
+                    <!-- 连不上提交服务时的兜底 -->
+                    <StackPanel x:Name="FallbackPanel" Spacing="10" IsVisible="False">
+                        <fa:InfoBar x:Name="FallbackBar" IsOpen="True" IsClosable="False" Severity="Warning"
+                                 Title="无法连接提交服务"
+                                 Message="内容已保存于本机，不会丢失。可稍后重试，或将提交文件下载后手动放入仓库，亦可直接前往 GitHub 提交 Pull Request。" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button x:Name="FallbackRetryButton" Content="重试" Click="Submit_Click"
+                                    Classes="accent" />
+                            <Button Content="下载提交文件" Click="DownloadSubmission_Click" />
+                            <Button Content="复制 JSON" Click="CopySubmission_Click" />
+                            <Button Content="在 GitHub 提交" Click="OpenGithubSubmit_Click" />
+                        </StackPanel>
+                        <TextBlock FontSize="12" Opacity="0.6" TextWrapping="Wrap"
+                                   Text="在 GitHub 提交：打开「新建文件」页面并携带文件名，粘贴内容后保存即可（无写权限时，GitHub 会引导 fork 并提交 PR），合并后同样生成审核工单。" />
+                    </StackPanel>
+
+                    <TextBlock x:Name="Toast" FontSize="12" Opacity="0.75" Margin="0,4,0,10" />
+                </StackPanel>
+            </Grid>
+        </ScrollViewer>
+    </Grid>
+</platform:PageBase>

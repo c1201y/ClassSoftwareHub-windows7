@@ -1,0 +1,142 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:fa="using:FluentAvalonia.UI.Controls"
+        x:Class="ClassSoftwareHub.Desktop.Views.SnipEditorWindow">
+
+    <!--
+      截图编辑窗：截完一块就弹这个。
+        · 外观跟应用里别的窗口一样走**原生**：自绘标题栏（扩展客户区）+
+          ApplicationPageBackgroundThemeBrush 底 + 图片区用 FlyoutPresenterBackground 那种"工作台"色。
+          ⚠️ 根元素**必须**给不透明底色：窗口内容岛不铺满就露**黑底**（之前就是一团黑的）。
+        · 上面一条工具栏：画笔 / 荧光笔 / 箭头 / 矩形 / 椭圆 / 文字 / 马赛克 + 颜色 + 粗细 + 撤销/重做/清除
+        · 下面就是图片本身，按**原始像素 1:1** 显示（大图就在里面滚动，不缩放），居中摆在工作台色底上
+        · 工具栏最右三个动作：复制到剪贴板 / 保存到本地 / 钉图
+
+      ⚠️ 移植说明（WinUI → Avalonia）：
+        · ThemeResource → DynamicResource；DividerStrokeColorDefaultBrush 这个键 Avalonia Fluent
+          没有（FA 也没核到），缺了就是那根分隔线不显示，不影响功能 —— 保留原键名；
+        · StackPanel 的 Padding → Margin；
+        · Win7 上保留系统标题栏（不做客户区扩展），见 .cs 里 UseExtendedTitleBar 的说明。
+    -->
+    <Grid x:Name="RootGrid" Background="{DynamicResource ApplicationPageBackgroundThemeBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- 自绘标题栏（SetTitleBar 就是这一块；外观我们自己的，拖动/阴影/圆角还是系统的）
+             ⚠️ 2026-10-03：Win7 路线挂 SelfDrawnFrame 后系统标题栏一个像素都不画了，
+                关闭按钮得自己给（CaptionCloseButton，只在 Win7 路线露出，见 .cs）；
+                Win10/11 走 PreferSystemChrome，系统按钮还叠在上面，这颗保持隐藏。 -->
+        <Grid x:Name="AppTitleBar" Height="32">
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="12,0,0,0">
+                <fa:FontIcon Glyph="&#xE722;" FontSize="13" Opacity="0.85" />
+                <TextBlock x:Name="TitleText" Text="截图编辑" FontSize="12.5" VerticalAlignment="Center" />
+            </StackPanel>
+            <!-- 图标用矢量 Path，不用 fa:FontIcon —— 内嵌字体里窗口按钮那几个码位映射的是无关字形 -->
+            <Button x:Name="CaptionCloseButton" Classes="caption close" IsVisible="False"
+                    HorizontalAlignment="Right" VerticalAlignment="Top"
+                    Margin="0,0,4,0" Click="CaptionClose_Click">
+                <Path Data="M0.5,0.5 L9.5,9.5 M9.5,0.5 L0.5,9.5" />
+            </Button>
+        </Grid>
+
+        <!-- 工具栏（窄了就横向滚，别把右边的动作按钮截断） -->
+        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+        <!-- 原 HorizontalScrollMode/VerticalScrollMode 为 WinUI 触摸属性，Avalonia 无此属性，Win7 无触摸场景直接删除 -->
+        <StackPanel Orientation="Horizontal" Spacing="2" Margin="8,6">
+            <Button x:Name="BtPen" Click="Tool_Click" Padding="9,7" Tag="pen"
+                    ToolTip.Tip="画笔">
+                <fa:FontIcon Glyph="&#xED63;" FontSize="15" />
+            </Button>
+            <Button x:Name="BtMarker" Click="Tool_Click" Padding="9,7" Tag="marker"
+                    ToolTip.Tip="荧光笔">
+                <fa:FontIcon Glyph="&#xED64;" FontSize="15" />
+            </Button>
+            <Button x:Name="BtArrow" Click="Tool_Click" Padding="9,7" Tag="arrow"
+                    ToolTip.Tip="箭头">
+                <fa:FontIcon Glyph="&#xE72A;" FontSize="15" />
+            </Button>
+            <Button x:Name="BtRect" Click="Tool_Click" Padding="9,7" Tag="rect"
+                    ToolTip.Tip="矩形">
+                <fa:FontIcon Glyph="&#xE739;" FontSize="15" />
+            </Button>
+            <Button x:Name="BtEllipse" Click="Tool_Click" Padding="9,7" Tag="ellipse"
+                    ToolTip.Tip="椭圆">
+                <fa:FontIcon Glyph="&#xEA3A;" FontSize="15" />
+            </Button>
+            <Button x:Name="BtText" Click="Tool_Click" Padding="9,7" Tag="text"
+                    ToolTip.Tip="文字">
+                <fa:FontIcon Glyph="&#xE8D2;" FontSize="15" />
+            </Button>
+            <Button x:Name="BtMosaic" Click="Tool_Click" Padding="9,7" Tag="mosaic"
+                    ToolTip.Tip="马赛克">
+                <fa:FontIcon Glyph="&#xECA5;" FontSize="15" />
+            </Button>
+
+            <Rectangle Width="1" Margin="6,6" Fill="{DynamicResource DividerStrokeColorDefaultBrush}" />
+
+            <StackPanel x:Name="ColorStrip" Orientation="Horizontal" Spacing="4"
+                        VerticalAlignment="Center" Margin="2,0" />
+
+            <Button x:Name="BtThickness" Click="Thickness_Click" Padding="9,7"
+                    ToolTip.Tip="线条粗细（每次单击切换一档）">
+                <StackPanel Orientation="Horizontal" Spacing="7">
+                    <fa:FontIcon Glyph="&#xEDA8;" FontSize="15" />
+                    <TextBlock x:Name="ThicknessText" Text="中" FontSize="12.5" VerticalAlignment="Center" />
+                </StackPanel>
+            </Button>
+
+            <Rectangle Width="1" Margin="6,6" Fill="{DynamicResource DividerStrokeColorDefaultBrush}" />
+
+            <Button x:Name="BtUndo" Click="Undo_Click" Padding="9,7" ToolTip.Tip="撤销">
+                <fa:FontIcon Glyph="&#xE7A7;" FontSize="15" />
+            </Button>
+            <Button x:Name="BtRedo" Click="Redo_Click" Padding="9,7" ToolTip.Tip="重做">
+                <fa:FontIcon Glyph="&#xE7A6;" FontSize="15" />
+            </Button>
+            <Button x:Name="BtClear" Click="Clear_Click" Padding="9,7" ToolTip.Tip="清除所有标注">
+                <fa:FontIcon Glyph="&#xE894;" FontSize="15" />
+            </Button>
+
+            <Rectangle Width="1" Margin="6,6" Fill="{DynamicResource DividerStrokeColorDefaultBrush}" />
+
+            <Button x:Name="BtCopy" Click="Copy_Click" Padding="9,7" ToolTip.Tip="复制到剪贴板">
+                <StackPanel Orientation="Horizontal" Spacing="7">
+                    <fa:FontIcon Glyph="&#xE8C8;" FontSize="15" />
+                    <TextBlock Text="复制" FontSize="12.5" VerticalAlignment="Center" />
+                </StackPanel>
+            </Button>
+            <Button x:Name="BtSave" Click="Save_Click" Padding="9,7" ToolTip.Tip="保存到本地">
+                <StackPanel Orientation="Horizontal" Spacing="7">
+                    <fa:FontIcon Glyph="&#xE74E;" FontSize="15" />
+                    <TextBlock Text="保存" FontSize="12.5" VerticalAlignment="Center" />
+                </StackPanel>
+            </Button>
+            <Button x:Name="BtPin" Click="Pin_Click" Padding="9,7" ToolTip.Tip="钉在屏幕上（1:1，可拖动边框缩放）">
+                <StackPanel Orientation="Horizontal" Spacing="7">
+                    <fa:FontIcon Glyph="&#xE718;" FontSize="15" />
+                    <TextBlock Text="钉图" FontSize="12.5" VerticalAlignment="Center" />
+                </StackPanel>
+            </Button>
+
+            <TextBlock x:Name="StatusText" FontSize="12.5" Opacity="0.75"
+                       VerticalAlignment="Center" Margin="14,0,6,0" />
+        </StackPanel>
+        </ScrollViewer>
+
+        <!-- 图片：1:1 显示，大了就在里面滚；小了就居中摆在"工作台"色底上 -->
+        <ScrollViewer Grid.Row="2" x:Name="Scroller"
+                      HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                      Background="{DynamicResource FlyoutPresenterBackground}">
+            <!-- 原 HorizontalScrollMode/VerticalScrollMode 为 WinUI 触摸属性，Avalonia 无此属性，Win7 无触摸场景直接删除 -->
+            <Grid x:Name="CanvasHost" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Image x:Name="BaseImage" Stretch="Fill" />
+                <Canvas x:Name="InkLayer" Background="Transparent" />
+                <Border x:Name="GhostBorder" BorderThickness="1" BorderBrush="#804CC2FF"
+                        IsHitTestVisible="False" IsVisible="False" />
+            </Grid>
+        </ScrollViewer>
+    </Grid>
+</Window>

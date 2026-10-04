@@ -1,0 +1,94 @@
+<platform:PageBase
+    x:Class="ClassSoftwareHub.Desktop.Pages.Tools.MirrorToolPage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:fa="using:FluentAvalonia.UI.Controls"
+    xmlns:local="using:ClassSoftwareHub.Desktop.Pages.Tools">
+
+    <!--
+      ⚠️ 移植说明（WinUI → Avalonia）：
+        · Page → platform:PageBase；
+        · ThemeResource → DynamicResource；
+        · Grid.ColumnSpacing → 子元素 Margin 模拟（Avalonia 的 Grid 没有该属性）；
+        · x:Bind → {Binding}（反射绑定）；
+        · Visibility 枚举 → bool IsVisible；
+        · Image.Source 绑定 string（站点图标路径）需要 IValueConverter 转成 IImage
+          —— 见代码后置里的 MirrorIconConverter。
+    -->
+    <platform:PageBase.Resources>
+        <local:MirrorIconConverter x:Key="MirrorIcon" />
+    </platform:PageBase.Resources>
+
+    <!-- ⚠️ 2026-10-03：ScrollViewer 提到最外层（滚动条贴窗口右缘），边距改 Padding；
+         原来套在中间内容上的那层 ScrollViewer 解开，内容直接铺在行里（外层统一管滚动） -->
+    <ScrollViewer Padding="24,14,24,20" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Spacing="2">
+            <TextBlock x:Name="TitleText" Text="系统镜像下载" FontSize="24" FontWeight="Bold" />
+            <TextBlock x:Name="SubtitleText" FontSize="12.5" Opacity="0.6" TextWrapping="Wrap" />
+        </StackPanel>
+
+        <!-- RowSpacing="14" → 第二行 Margin="0,14,0,0"
+             ⚠️ 2026-10-03：原来外面包着 ScrollViewer，滚动条贴不到窗口右缘；现由页面最外层统一管滚动 -->
+        <StackPanel Grid.Row="1" Margin="0,14,0,0" Spacing="10">
+                <fa:InfoBar x:Name="DisclaimerBar" IsOpen="False" IsClosable="False" Severity="Warning" />
+                <TextBlock x:Name="EmptyText" IsVisible="False" Opacity="0.6" TextWrapping="Wrap"
+                           Text="未读取到镜像清单（内容包中的 text/mirror-sites.json）。" />
+                <ItemsControl x:Name="Rows">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <!-- x:DataType 模板在反射绑定模式下不支持，去掉了 x:DataType（语义不变） -->
+                            <Button Click="Row_Click" Tag="{Binding Url}"
+                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                    Padding="16,12" CornerRadius="8" Margin="0,0,0,8"
+                                    Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="1">
+                                <!-- ColumnSpacing="14" → 第 1 列起各加左 Margin -->
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Width="40" Height="40" CornerRadius="10" VerticalAlignment="Center"
+                                            BorderThickness="1"
+                                            Background="{Binding BadgeBackground}"
+                                            BorderBrush="{Binding BadgeBorder}">
+                                        <Grid>
+                                            <Image Source="{Binding Icon, Converter={StaticResource MirrorIcon}}"
+                                                   Width="26" Height="26"
+                                                   IsVisible="{Binding IconVisibility}" />
+                                            <TextBlock Text="{Binding Badge}" FontSize="16" FontWeight="Bold"
+                                                       IsVisible="{Binding BadgeVisibility}"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        </Grid>
+                                    </Border>
+                                    <StackPanel Grid.Column="1" Margin="14,0,0,0" Spacing="2" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Name}" FontSize="15" FontWeight="Bold" />
+                                        <TextBlock Text="{Binding Desc}" FontSize="13" Opacity="0.65"
+                                                   TextWrapping="Wrap" />
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="2" Margin="14,0,0,0" Text="{Binding Host}"
+                                               FontSize="12" Opacity="0.5"
+                                               VerticalAlignment="Center" />
+                                    <fa:FontIcon Grid.Column="3" Margin="14,0,0,0" Glyph="&#xE8A7;" FontSize="13"
+                                                 Opacity="0.6"
+                                                 VerticalAlignment="Center" />
+                                </Grid>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock x:Name="NoteText" FontSize="12.5" Opacity="0.6" TextWrapping="Wrap" Margin="0,8,0,8" />
+            </StackPanel>
+    </Grid>
+    </ScrollViewer>
+</platform:PageBase>

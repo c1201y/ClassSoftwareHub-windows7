@@ -1,0 +1,254 @@
+<platform:PageBase
+    x:Class="ClassSoftwareHub.Desktop.Pages.WelcomePage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:fa="using:FluentAvalonia.UI.Controls"
+    xmlns:core="using:ClassSoftwareHub.Desktop.Core">
+
+    <!--
+      ⚠️ 移植说明：WinUI 的 Page.Resources → Avalonia 的 PageBase.Resources（UserControl 也有 Resources）。
+      ⚠️ 卡片悬停反馈：原版是 PointerEntered/PointerExited 事件里改 Opacity；
+         Avalonia 直接用它自带的 :pointerover 伪类选择器表达同一个效果（省掉事件），行为一致。
+    -->
+    <platform:PageBase.Styles>
+        <Style Selector="Border.card:pointerover">
+            <Setter Property="Opacity" Value="0.88" />
+        </Style>
+    </platform:PageBase.Styles>
+
+    <platform:PageBase.Resources>
+        <!-- 快捷入口两套模板：颜色全走 {DynamicResource}（它认识"这棵树"的主题，浅色/深色自己会变） -->
+        <DataTemplate x:Key="QuickLinkNormal">
+            <!-- ⚠️ Background="Transparent" 必须有：没 Background 的 Border 不参与命中测试，
+                 点卡片空白处会穿透 —— 跟设置页那一行同一个坑（2026-10-03）。 -->
+            <Border CornerRadius="8" Padding="12,10" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                    Background="Transparent">
+                <StackPanel Spacing="7" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <fa:FontIcon Glyph="{Binding Glyph}" FontSize="24" HorizontalAlignment="Center"
+                              Foreground="{DynamicResource TextFillColorPrimaryBrush}" Opacity="0.95" />
+                    <TextBlock Text="{Binding Name}" FontSize="13" HorizontalAlignment="Center"
+                               Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+
+        <DataTemplate x:Key="QuickLinkAccent">
+            <Border CornerRadius="8" Padding="12,10" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                    Background="{DynamicResource AccentFillColorDefaultBrush}">
+                <StackPanel Spacing="7" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <fa:FontIcon Glyph="{Binding Glyph}" FontSize="24" HorizontalAlignment="Center"
+                              Foreground="{DynamicResource TextOnAccentFillColorPrimaryBrush}" Opacity="0.95" />
+                    <TextBlock Text="{Binding Name}" FontSize="13" HorizontalAlignment="Center"
+                               Foreground="{DynamicResource TextOnAccentFillColorPrimaryBrush}" />
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+
+        <core:QuickLinkSelector x:Key="QuickLinkSelector"
+                                Normal="{StaticResource QuickLinkNormal}"
+                                Accent="{StaticResource QuickLinkAccent}" />
+    </platform:PageBase.Resources>
+
+
+    <ScrollViewer Padding="24,36,24,44" VerticalScrollBarVisibility="Auto">
+        <!--
+          ⚠️ 别用 Stretch + MaxWidth：一旦触发上限会把整列**右甩**（左边空一大块）→ 看起来就是「变形」。
+          这里用「三列 Grid：* / 960 / *」把内容钉在中间 960 宽，导航展开或收起都不动。
+        -->
+        <Grid>
+            <!-- 中间列 = 想要 960 宽：窗口够宽就正好 960 且居中（剩余给两侧星列），窗口太窄就自动缩、不裁切 -->
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="1*" />
+                <ColumnDefinition Width="998*" MaxWidth="960" />
+                <ColumnDefinition Width="1*" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="1" Spacing="14">
+
+            <TextBlock Text="ClassSoftwareHub" FontSize="44" FontWeight="Bold" />
+
+            <TextBlock x:Name="HomeTitleText" FontSize="24" FontWeight="Bold" TextWrapping="Wrap" />
+
+            <!-- 图片（高 140，宽按比例）+ 版本号（左）+ 代号 Panorama（右，别跟版本号挤一起）
+                 ⚠️ Grid 没有 ColumnSpacing → 用第 1 列子元素的左 Margin=20 模拟原版 20 的列间距 -->
+            <Grid Margin="0,10,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Border CornerRadius="8" BorderThickness="1"
+                        BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                    <Image x:Name="Banner" Height="140" Stretch="Uniform" />
+                </Border>
+
+                <StackPanel Grid.Column="1" Margin="20,0,0,0" VerticalAlignment="Top" Spacing="2" HorizontalAlignment="Left">
+                    <!-- 只显示**软件自己**的版本。以前这行下面还挂着"网站版本：xxx"小字，
+                         把软件版本陪衬成网站版本的附属品 —— 软件已经是独立发布的东西了，
+                         没必要再摆出依附的样子，那一行已删（2026-09-26）。 -->
+                    <TextBlock x:Name="ShellVersionText" FontSize="28" FontWeight="Bold" />
+                </StackPanel>
+
+                <!-- 应用代号：贴右（跟顶上那串版本号岔开，不打架） -->
+                <StackPanel Grid.Column="1" Margin="20,0,0,0" HorizontalAlignment="Right" VerticalAlignment="Bottom">
+                    <TextBlock Text="代号" FontSize="11" Opacity="0.6" HorizontalAlignment="Right" />
+                    <TextBlock x:Name="CodeNameText" Text="Panorama" FontSize="30" FontWeight="Bold"
+                               Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}" />
+                </StackPanel>
+            </Grid>
+
+            <TextBlock Text="快速开始" FontSize="22" FontWeight="Bold" Margin="0,20,0,4" />
+
+            <!-- 更宽的一行：体验网页版（主题色底） -->
+            <Border x:Name="WebCard" Classes="card" Tag="web" Height="60" CornerRadius="8" Padding="20,0"
+                    Background="{DynamicResource AccentFillColorDefaultBrush}"
+                    Tapped="Card_Tapped">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <fa:FontIcon Glyph="&#xE774;" FontSize="20" VerticalAlignment="Center"
+                              Foreground="{DynamicResource TextOnAccentFillColorPrimaryBrush}" />
+                    <!-- Grid 无 ColumnSpacing=16 → 后两列各加 16 左 Margin 模拟 -->
+                    <TextBlock Grid.Column="1" Margin="16,0,0,0" Text="访问网页版" FontSize="15" FontWeight="Bold"
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource TextOnAccentFillColorPrimaryBrush}" />
+                    <fa:FontIcon Grid.Column="2" Margin="16,0,0,0" Glyph="&#xE8A7;" FontSize="13" VerticalAlignment="Center"
+                              Foreground="{DynamicResource TextOnAccentFillColorPrimaryBrush}" />
+                </Grid>
+            </Border>
+
+            <!-- 两张等大卡片（Grid 无 ColumnSpacing=16 → 第 1 列卡片左 Margin=16） -->
+            <Grid Height="60">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Border Grid.Column="0" Classes="card" Tag="apps" CornerRadius="8" Padding="20,0"
+                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                        Tapped="Card_Tapped">
+                    <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                        <fa:FontIcon Glyph="&#xE896;" FontSize="20" />
+                        <TextBlock Text="下载首页" FontSize="15" FontWeight="Bold" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Border>
+
+                <Border Grid.Column="1" Margin="16,0,0,0" Classes="card" Tag="tools" CornerRadius="8" Padding="20,0"
+                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                        Tapped="Card_Tapped">
+                    <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                        <fa:FontIcon Glyph="&#xE71D;" FontSize="20" />
+                        <TextBlock Text="内置工具" FontSize="15" FontWeight="Bold" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <!-- 第二行快速入口：侧边布局 / 实验性功能（跟上面一排同样的两张等大卡片、同样的图标口径） -->
+            <Grid Height="60">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Border Grid.Column="0" Classes="card" Tag="sidebar" CornerRadius="8" Padding="20,0"
+                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                        Tapped="Card_Tapped">
+                    <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                        <fa:FontIcon Glyph="&#xE8A0;" FontSize="20" />
+                        <TextBlock Text="侧边布局" FontSize="15" FontWeight="Bold" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Border>
+
+                <!--
+                  实验性功能：**故意不列它下面有什么**（Nick 2026-09-26）——
+                  首页卡片只说"这里有一组还没成熟的功能"，具体内容进去看。
+                -->
+                <Border Grid.Column="1" Margin="16,0,0,0" Classes="card" Tag="experimental" CornerRadius="8" Padding="20,0"
+                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                        Tapped="Card_Tapped">
+                    <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                        <fa:FontIcon Glyph="&#xEA80;" FontSize="20" />
+                        <TextBlock Text="实验性功能" FontSize="15" FontWeight="Bold" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <!--
+              第三行：提交软件 / 反馈中心 —— 这两个是一对（都是"往维护者那边送东西"），所以并排。
+              ⚠️ **设置永远排在最后一张**（Nick 2026-09-26 定），加新卡片就往它前面插。
+              ⚠️ 约定：导航栏上半区有什么，首页就得有对应的卡片（除非特别说明）；
+                 所以挨着「侧边布局」后面补的「实验性功能」，以及下半区的「提交软件」「反馈中心」。
+            -->
+            <Grid Height="60">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Border Grid.Column="0" Classes="card" Tag="submit" CornerRadius="8" Padding="20,0"
+                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                        Tapped="Card_Tapped">
+                    <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                        <fa:FontIcon Glyph="&#xE898;" FontSize="20" />
+                        <TextBlock Text="提交软件" FontSize="15" FontWeight="Bold" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Border>
+
+                <!-- 反馈中心：图标口径跟导航栏那条一致（E939 = 人 + 对话泡） -->
+                <Border Grid.Column="1" Margin="16,0,0,0" Classes="card" Tag="feedback" CornerRadius="8" Padding="20,0"
+                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                        Tapped="Card_Tapped">
+                    <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                        <fa:FontIcon Glyph="&#xE939;" FontSize="20" />
+                        <TextBlock Text="反馈中心" FontSize="15" FontWeight="Bold" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <!-- 设置：必须永远在最后一张，反馈中心进来后这一行放不下第三个，所以它单独占一行 -->
+            <Border Classes="card" Tag="settings" Height="60" CornerRadius="8" Padding="20,0"
+                    Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                    Tapped="Card_Tapped">
+                <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                    <fa:FontIcon Glyph="&#xE713;" FontSize="20" />
+                    <TextBlock Text="设置" FontSize="15" FontWeight="Bold" VerticalAlignment="Center" />
+                </StackPanel>
+            </Border>
+
+            <!-- ===== 一行快捷入口：图标在上、文字在下（不用卡片、不加标题） =====
+                 ⚠️ 移植说明：原版是 GridView + ItemsWrapGrid(ItemWidth 192 / ItemHeight 88)。
+                 Avalonia 用 ItemsControl + WrapPanel（ItemWidth/ItemHeight 同值）还原；
+                 GridView 的 IsItemClickEnabled + ItemClick → 这里用 Tapped 冒泡（点在卡片上冒到 ItemsControl）。 -->
+            <ItemsControl x:Name="QuickGrid" Margin="0,14,0,0"
+                          ItemTemplate="{StaticResource QuickLinkSelector}"
+                          Tapped="QuickGrid_Tapped">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <WrapPanel Orientation="Horizontal" ItemWidth="192" ItemHeight="88" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+            </ItemsControl>
+
+            <!-- ===== 硬件信息 / 系统信息：列表形式（不用卡片），行在 code-behind 里填 ===== -->
+            <TextBlock Text="硬件信息" FontSize="22" FontWeight="Bold" Margin="0,20,0,2" />
+            <StackPanel x:Name="HardwareList" Margin="2,0,0,0" />
+
+            <TextBlock Text="系统信息" FontSize="22" FontWeight="Bold" Margin="0,22,0,2" />
+            <StackPanel x:Name="SystemList" Margin="2,0,0,0" />
+
+            </StackPanel>
+        </Grid>
+    </ScrollViewer>
+</platform:PageBase>

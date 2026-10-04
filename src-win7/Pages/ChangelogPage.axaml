@@ -1,0 +1,190 @@
+<platform:PageBase
+    x:Class="ClassSoftwareHub.Desktop.Pages.ChangelogPage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:fa="using:FluentAvalonia.UI.Controls">
+
+    <!-- 和其余页面同一套版式：内容钉在中间 960 宽 -->
+    <!-- ⚠️ 2026-10-02：ScrollViewer 提到最外层（滚动条贴窗口右缘），边距改 Padding、居中改内层 Grid；
+         原来套在发布列表外面的那层 ReleaseScroll 解开，整页由外层统一滚动。
+         外层沿用 x:Name="ReleaseScroll" —— 代码后置里「点版本号滚到那一版」的定位逻辑
+         （TranslatePoint 到 Content 再设 Offset）对新结构同样成立，一行都不用改。 -->
+    <ScrollViewer x:Name="ReleaseScroll" Padding="24,36,24,44" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <Grid MaxWidth="960" HorizontalAlignment="Center">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <!-- ⚠️ 2026-10-03（用户第 16 轮「加载时布局有问题」）：这一行原来是 `*`。
+                     页面根是 ScrollViewer，内容比视口矮时会被它按视口高度撑开 ——
+                     加载中「版本」卡片就被拉成一整条空白、转圈跑到页面中间（实测复现）。
+                     改 Auto：内容不满时贴着内容排，列表长的时候照样被右列顶高（左右等高不变）。 -->
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <StackPanel Spacing="4">
+                <TextBlock Text="更新日志" FontSize="30" FontWeight="Bold" />
+                <TextBlock FontSize="12.5" Opacity="0.65" TextWrapping="Wrap"
+                           Text="各版本的更新内容读取自更新仓库的发布说明，与应用内「检查更新」显示的内容一致。在左侧单击版本号可直接跳转至该版本。" />
+            </StackPanel>
+
+            <!-- 当前版本（原版 RowSpacing=14 → 第 1~3 行各加 14 上 Margin） -->
+            <Border Grid.Row="1" Margin="0,14,0,0" CornerRadius="8" Padding="20,16"
+                    Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1">
+                <StackPanel Spacing="6">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <TextBlock x:Name="CurrentVersionText" FontSize="20" FontWeight="Bold" />
+                        <Border CornerRadius="4" Padding="8,2" BorderThickness="1"
+                                VerticalAlignment="Center"
+                                BorderBrush="{DynamicResource TextFillColorSecondaryBrush}">
+                            <TextBlock x:Name="ChannelBadgeText" FontSize="11.5"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                        </Border>
+                    </StackPanel>
+                    <TextBlock x:Name="CurrentHint" FontSize="12.5" Opacity="0.65" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <!-- 工具行：左边操作，右边筛版本范围（原版 ColumnSpacing=10 → 第 1 列加 10 左 Margin） -->
+            <Grid Grid.Row="2" Margin="0,14,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <Button x:Name="RefreshButton" Content="刷新" Click="Refresh_Click" />
+                <Button Grid.Column="1" Margin="10,0,0,0" Content="在浏览器中查看全部发布" Click="OpenWeb_Click" />
+
+                <!--
+                  只分「全部版本 / 正式版本」两种。**故意不做「预览版」这一档** ——
+                  Nick 2026-09-26：预览版用户本来就会收到正式版更新，单独开一档预览没意义。
+                -->
+                <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                    <RadioButton x:Name="FilterAll" GroupName="ChangelogFilter" Content="全部版本" MinWidth="0"
+                                 Tag="all" IsChecked="True" Checked="Filter_Changed" />
+                    <RadioButton x:Name="FilterStable" GroupName="ChangelogFilter" Content="正式版本" MinWidth="0"
+                                 Tag="stable" Checked="Filter_Changed" />
+                </StackPanel>
+            </Grid>
+
+            <!-- ===== 左边版本清单（快速跳版本）+ 右边发布内容 =====
+                 ⚠️ Grid 无 ColumnSpacing=16 → 第 1 列加 16 左 Margin（整列子元素） -->
+            <Grid Grid.Row="3" Margin="0,14,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="216" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Border Grid.Column="0" CornerRadius="8" Padding="0,14,0,12" MinHeight="140"
+                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+
+                        <TextBlock x:Name="VersionListTitle" Text="版本" FontSize="12" Opacity="0.6"
+                                   Margin="16,0,16,8" />
+
+                        <!-- ⚠️ 原版 ListView（IsItemClickEnabled + ItemClick）→ Avalonia ListBox（SelectionChanged）。
+                             SelectionMode 只有 Single/Multiple/Toggle/AlwaysSelected，没有 None。 -->
+                        <ListBox x:Name="VersionList" Grid.Row="1" SelectionMode="Single"
+                                 SelectionChanged="VersionList_SelectionChanged"
+                                 Padding="4,0,4,0">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Spacing="1" Margin="0,5,0,5">
+                                        <TextBlock Text="{Binding Tag}" FontSize="13" FontWeight="SemiBold"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <!-- 日期 + 通道：一眼能认出哪几条是预览版发出来的，不用另开一档 -->
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <TextBlock Text="{Binding DateShort}" FontSize="11" Opacity="0.6" />
+                                            <TextBlock Text="{Binding ChannelShort}" FontSize="11" Opacity="0.6"
+                                                       Foreground="{Binding BadgeBrush}" />
+                                        </StackPanel>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Grid>
+                </Border>
+
+                <Grid Grid.Column="1" Margin="16,0,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <TextBlock x:Name="StateText" FontSize="12.5" Opacity="0.6" TextWrapping="Wrap"
+                               Margin="2,0,0,8" />
+
+                    <Grid Grid.Row="1">
+                        <ItemsControl x:Name="ReleaseList">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border CornerRadius="8" Padding="20,16,20,18" Margin="0,0,0,12"
+                                                Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                                                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                                                BorderThickness="1">
+                                            <StackPanel Spacing="10">
+                                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                                    <TextBlock Text="{Binding Tag}" FontSize="17" FontWeight="Bold"
+                                                               VerticalAlignment="Center" />
+                                                    <Border CornerRadius="4" Padding="8,2" BorderThickness="1"
+                                                            VerticalAlignment="Center"
+                                                            BorderBrush="{Binding BadgeBrush}">
+                                                        <TextBlock Text="{Binding ChannelText}" FontSize="11.5"
+                                                                   Foreground="{Binding BadgeBrush}" />
+                                                    </Border>
+                                                    <TextBlock Text="{Binding DateText}" FontSize="12" Opacity="0.6"
+                                                               VerticalAlignment="Center" />
+                                                </StackPanel>
+
+                                                <!-- 发布说明（把 Markdown 轻量转成若干行 TextBlock） -->
+                                                <ItemsControl ItemsSource="{Binding Lines}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <!-- ⚠️ 原版 TextBlock + IsTextSelectionEnabled → Avalonia 用 SelectableTextBlock -->
+                                                            <SelectableTextBlock Text="{Binding Text}" FontSize="{Binding Size}"
+                                                                       FontWeight="{Binding Weight}"
+                                                                       Margin="{Binding Margin}"
+                                                                       TextWrapping="Wrap" />
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                        <!-- ⚠️ 2026-10-03：靠上摆（原先是 VerticalAlignment=Center）——
+                             右列高度现在跟着内容走，居中会让加载中/兜底文案浮在奇怪的位置。 -->
+                        <StackPanel x:Name="LoadingPanel" Spacing="12" HorizontalAlignment="Center"
+                                    VerticalAlignment="Top" Margin="0,60,0,0" IsVisible="False">
+                            <fa:ProgressRing x:Name="LoadingRing" IsActive="True" Width="34" Height="34"
+                                          HorizontalAlignment="Center" />
+                            <TextBlock Text="正在从更新仓库读取发布说明。" FontSize="13" Opacity="0.7"
+                                       HorizontalAlignment="Center" />
+                        </StackPanel>
+
+                        <!-- 兜底文案（没网 / 没发布过） -->
+                        <StackPanel x:Name="FallbackPanel" Spacing="10" IsVisible="False"
+                                    HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,60,0,0">
+                            <fa:FontIcon Glyph="&#xE81C;" FontSize="34" Opacity="0.45" HorizontalAlignment="Center" />
+                            <TextBlock x:Name="FallbackText" MaxWidth="420" TextAlignment="Center" TextWrapping="Wrap"
+                                       FontSize="13" Opacity="0.7" />
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+            </Grid>
+        </Grid>
+    </ScrollViewer>
+</platform:PageBase>

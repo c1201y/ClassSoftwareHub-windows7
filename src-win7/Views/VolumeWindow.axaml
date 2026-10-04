@@ -1,0 +1,106 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:fa="using:FluentAvalonia.UI.Controls"
+        x:Class="ClassSoftwareHub.Desktop.Views.VolumeWindow"
+        SystemDecorations="None" ShowInTaskbar="False" CanResize="False" Topmost="True">
+
+    <!--
+      音量 / 屏幕亮度调节卡片：点侧边栏「音量」或「屏幕亮度」模块弹出，**挨着边条**长出来（边条不收）。
+      同一个窗口伺候两个模块（类名历史上叫 VolumeWindow，别被名字骗了）：
+         · 音量模式：图标 + 标题 + 百分比 + 横向滑块 + 静音 / 合成器
+         · 亮度模式：同上，第一颗键换成「自动亮度」（**没有二级浮窗**）
+
+      ⚠️ 2026-10-02 实机反馈后**整版重做**（原话：「太难看了还不能用，用 ava 的滑动条」）：
+         · 旧版是 72×300 的**窄竖条** —— 22px 大数字下面塞一根 44×140 的竖滑块，
+           在 2560×1280 的屏幕上就是屏幕边上一条又窄又长的东西，观感差、拖拽行程也短。
+         · 新版是 **300×约 128 的横向卡片**：上面一行「图标 + 名称 …… 百分比」，
+           中间一根**撑满整宽的标准 Avalonia Slider**（拖拽行程从 140 拉到 272），
+           下面一行两个带底色的胶囊按钮。这张卡片浮在侧边栏旁边，不再是"一根条"。
+
+      ⚠️ 亮度读不到时（外接显示器 / 虚拟机 / 远程桌面都没有可调亮度的内屏）
+         滑块会置灰、数值写「—」、副标题写「无法读取设备」——**如实说，不假装 0%**。
+         这是硬件事实，不是界面 bug（brightness.log 里 WMI 与 dxva2 两条路都失败即属此列）。
+
+      ⚠️ 移植说明：原版 Slider 的 StepFrequency / IsThumbToolTipEnabled 在 Avalonia 没有
+         —— 取整由代码里 (int)Math.Round 承担；Avalonia 的 ToolTip 是 ShowDelay 一套，不用设。
+    -->
+    <Grid x:Name="Root" Background="Transparent">
+        <Border x:Name="Panel" CornerRadius="8" BorderThickness="1"
+                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
+
+            <Grid x:Name="ContentHost" Margin="14,12,14,12">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <!-- ===== 第 1 行：图标 + 名称（左）／百分比（右） ===== -->
+                <!-- ⚠️ 2026-10-03（用户第 16 轮「去掉拖动调整位置吧」）：
+                     这一行曾经是拖动把手（点阵抓手 + SizeAll 光标 + 系统级 HTCAPTION），
+                     但把手行变成非客户区后，鼠标从把手进浮窗不再触发激活，
+                     滑块/按钮的第一下会被吃掉（用户感受＝"还是无法点击展开"）。
+                     拖动已整条撤掉 → 点阵抓手和 SizeAll 光标也一起去掉，
+                     免得继续暗示"这行能拖"。现在它就是一行普通标题。 -->
+                <Border x:Name="GripRow" Background="Transparent" MinHeight="26">
+                    <Grid>
+                        <StackPanel Orientation="Horizontal" Spacing="8"
+                                    HorizontalAlignment="Left" VerticalAlignment="Center">
+                            <fa:FontIcon x:Name="MasterIcon" Glyph="&#xE767;" FontSize="15"
+                                         Opacity="0.85" VerticalAlignment="Center" />
+                            <TextBlock x:Name="MasterCaptionText" Text="主音量" FontSize="12.5"
+                                       VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+
+                        <!-- 数值：宽度固定，99% → 100% 时不会把左边挤动 -->
+                        <TextBlock x:Name="MasterPercentText" Text="—" FontSize="16" FontWeight="SemiBold"
+                                   MinWidth="52" TextAlignment="Right"
+                                   HorizontalAlignment="Right" VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
+
+                <!-- ===== 第 2 行：横向滑块（撑满整宽） ===== -->
+                <!-- 按下 / 松手判定在代码里挂（见 Configure 的 AddHandler），别在这里写指针事件 -->
+                <Slider x:Name="MasterSlider" Grid.Row="1" Margin="0,12,0,0"
+                        Orientation="Horizontal"
+                        HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                        Width="272" Height="32"
+                        Minimum="0" Maximum="100"
+                        SmallChange="1" LargeChange="10"
+                        ValueChanged="MasterSlider_ValueChanged" />
+
+                <!-- ===== 第 3 行：操作按钮（胶囊，带淡底色） ===== -->
+                <StackPanel x:Name="ButtonHost" Grid.Row="2" Margin="0,12,0,0"
+                            Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left">
+                    <ToggleButton x:Name="ActionToggle" Click="Action_Click"
+                                  MinWidth="0" MinHeight="32" Padding="12,0" CornerRadius="6"
+                                  Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                                  BorderThickness="0"
+                                  HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                                  ToolTip.Tip="静音 / 取消静音">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <fa:FontIcon x:Name="ActionIcon" Glyph="&#xE74F;" FontSize="14"
+                                         VerticalAlignment="Center" />
+                            <TextBlock x:Name="ActionText" Text="静音" FontSize="12.5"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                    </ToggleButton>
+
+                    <!-- 第二颗键：只有音量模式用（展开合成器），亮度模式整个藏起来 -->
+                    <ToggleButton x:Name="ExpandToggle" Click="Expand_Click"
+                                  MinWidth="0" MinHeight="32" Padding="12,0" CornerRadius="6"
+                                  Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                                  BorderThickness="0"
+                                  HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                                  ToolTip.Tip="展开音量合成器">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <fa:FontIcon Glyph="&#xE92D;" FontSize="14" VerticalAlignment="Center" />
+                            <TextBlock Text="合成器" FontSize="12.5" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </ToggleButton>
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

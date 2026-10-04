@@ -1,0 +1,268 @@
+<platform:PageBase
+    x:Class="ClassSoftwareHub.Desktop.Pages.FeedbackPage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:fa="using:FluentAvalonia.UI.Controls">
+
+    <!--
+      反馈中心：**照着网页版 #/feedback 一比一抄**（版式 / 留白 / 字号 / 图标都对齐，
+      文案直接取站点「文字设置.ts」里 feedback.* 那批字，2026-09-26 Nick 要求）。
+
+        本页 = **选择态**：页头「反馈中心」→ 主视觉横幅（大标题 + 副标题）→ 两张类型卡
+                          → 提交后的处理流程（三步）→ 请先查阅已有反馈 → 草稿条
+        表单态已拆成独立页面 FeedbackFormPage（2026-09-30）。
+
+      ⚠️ 2026-09-30 Nick 要求改成正常页面逻辑：单击类型卡走 **Frame 导航** 进
+         FeedbackFormPage，⛔ 不再是同一页里靠 Visibility 互斥切换。
+         返回走导航栏那一个返回按钮（全站铁律），所以这里没有页内"返回"。
+
+      ⚠️ 卡片图标用的是跟网页版**同一套 PNG**（Assets\feedback\report.png / suggest.png），
+         不是字体图标 —— 这两张图是站点 src/assets/feedback 里原样搬过来的。
+
+      ⚠️ 移植说明（WinUI → Avalonia/FluentAvalonia）：
+        · InfoBar → fa:InfoBar（成员同名）。
+        · ThemeResource → DynamicResource。
+        · 主视觉横幅的渐变底在 code-behind 里画（原来就是运行时算的）。
+    -->
+    <Grid>
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0">
+            <StackPanel MaxWidth="1064" Margin="24,32,24,44">  <!-- StackPanel 没有 Padding，无背景时 Margin 等价 -->
+
+                <!-- 页头 -->
+                <TextBlock Text="反馈中心" FontSize="28" FontWeight="SemiBold" Margin="0,0,0,16" />
+
+                <!-- ═══════════════ 选择态 ═══════════════ -->
+                <StackPanel x:Name="ChooseView" Spacing="0">
+
+                    <!-- 主视觉横幅：主题色 → 面色 的 100° 渐变，跟网页版的 .feedback-hero 一个意思
+                         （底色由 code-behind 的 ApplyHeroBrush 画，这里只留描边和内边距） -->
+                    <Border x:Name="HeroBanner" CornerRadius="8" BorderThickness="1"
+                            BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                            Padding="28,36,28,40">
+                        <StackPanel MaxWidth="680" HorizontalAlignment="Left" Spacing="0">
+                            <TextBlock Text="帮助改进 ClassSoftwareHub" FontSize="40" FontWeight="SemiBold"
+                                       LineHeight="48" TextWrapping="Wrap" Margin="0,0,0,14" />
+                            <TextBlock Text="报告软件信息错误、下载链接失效或其他使用问题；亦可提出功能建议。每条反馈均进入公开的议题列表，由维护者跟进。"
+                                       FontSize="14" LineHeight="22" TextWrapping="Wrap"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 两张类型卡。单击 = 导航到 FeedbackFormPage（类型靠 Tag 带过去）。
+                         Grid 无 ColumnSpacing=20 → 第 1 列卡片加 20 右 Margin 模拟 -->
+                    <Grid Margin="0,20,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <Border Grid.Column="0" Margin="0,0,20,0" CornerRadius="8" BorderThickness="1"
+                                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                                Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                            <Button Click="KindCard_Click" Tag="report"
+                                    Background="Transparent" BorderThickness="0" Padding="22,24,22,24"
+                                    CornerRadius="8" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                    HorizontalContentAlignment="Stretch">
+                                <!-- Grid 无 ColumnSpacing=16 → 第 1、2 列各加 16 左 Margin 模拟 -->
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <Image x:Name="KindIconReport" Grid.Column="0" Width="64" Height="64"
+                                           Stretch="Uniform" VerticalAlignment="Center" />
+
+                                    <StackPanel Grid.Column="1" Margin="16,0,0,0" Spacing="4" VerticalAlignment="Center">
+                                        <TextBlock Text="报告问题" FontSize="17" FontWeight="SemiBold" />
+                                        <TextBlock Text="软件信息有误、下载链接失效，或页面无法正常使用。"
+                                                   FontSize="13" LineHeight="19" TextWrapping="Wrap"
+                                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+
+                                    <fa:FontIcon Grid.Column="2" Margin="16,0,0,0" Glyph="&#xE76C;" FontSize="14" Opacity="0.7"
+                                                 VerticalAlignment="Center" />
+                                </Grid>
+                            </Button>
+                        </Border>
+
+                        <Border Grid.Column="1" CornerRadius="8" BorderThickness="1"
+                                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                                Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                            <Button Click="KindCard_Click" Tag="suggestion"
+                                    Background="Transparent" BorderThickness="0" Padding="22,24,22,24"
+                                    CornerRadius="8" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                    HorizontalContentAlignment="Stretch">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <Image x:Name="KindIconSuggestion" Grid.Column="0" Width="64" Height="64"
+                                           Stretch="Uniform" VerticalAlignment="Center" />
+
+                                    <StackPanel Grid.Column="1" Margin="16,0,0,0" Spacing="4" VerticalAlignment="Center">
+                                        <TextBlock Text="提出建议" FontSize="17" FontWeight="SemiBold" />
+                                        <TextBlock Text="希望新增的功能，或对现有功能的改进建议。"
+                                                   FontSize="13" LineHeight="19" TextWrapping="Wrap"
+                                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+
+                                    <fa:FontIcon Grid.Column="2" Margin="16,0,0,0" Glyph="&#xE76C;" FontSize="14" Opacity="0.7"
+                                                 VerticalAlignment="Center" />
+                                </Grid>
+                            </Button>
+                        </Border>
+                    </Grid>
+
+                    <!-- 提交后的处理流程 -->
+                    <StackPanel Margin="0,28,0,0">
+                        <TextBlock Text="提交后的处理流程" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,14" />
+                        <!-- Grid 无 ColumnSpacing=16 → 第 1、2 列卡片各加 16 左 Margin 模拟 -->
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+
+                            <Border Grid.Column="0" Margin="0,0,16,0" CornerRadius="8" BorderThickness="1"
+                                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                                    Background="{DynamicResource ControlFillColorSecondaryBrush}"
+                                    Padding="18,18,18,20">
+                                <!--
+                                  ⚠️ 这里必须是 Grid（Auto + *），⛔ 不能用 Orientation="Horizontal" 的 StackPanel：
+                                     横向 StackPanel 会拿**无限宽度**去量孩子，里面那句 TextWrapping="Wrap"
+                                     就永远不触发（量出来是一整行），最后被 Border 的圆角裁剪切掉半个字
+                                     —— 2026-09-30 Nick 抓到的"文字被生硬切断"就是这个。
+                                -->
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <Grid Grid.Column="0" Width="26" Height="26" VerticalAlignment="Top">
+                                        <Border CornerRadius="13"
+                                                Background="{DynamicResource AccentFillColorDefaultBrush}"
+                                                Opacity="0.15" />
+                                        <TextBlock Text="1" FontSize="13" FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    </Grid>
+
+                                    <StackPanel Grid.Column="1" Margin="12,0,0,0" Spacing="5">
+                                        <TextBlock Text="填写反馈信息" FontSize="14" FontWeight="SemiBold" />
+                                        <TextBlock Text="选择反馈类型，说明问题或建议。填写内容将在本地自动保存为草稿，中途离开亦不会丢失。"
+                                                   FontSize="13" LineHeight="19" TextWrapping="Wrap"
+                                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+
+                            <Border Grid.Column="1" Margin="16,0,16,0" CornerRadius="8" BorderThickness="1"
+                                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                                    Background="{DynamicResource ControlFillColorSecondaryBrush}"
+                                    Padding="18,18,18,20">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <Grid Grid.Column="0" Width="26" Height="26" VerticalAlignment="Top">
+                                        <Border CornerRadius="13"
+                                                Background="{DynamicResource AccentFillColorDefaultBrush}"
+                                                Opacity="0.15" />
+                                        <TextBlock Text="2" FontSize="13" FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    </Grid>
+
+                                    <StackPanel Grid.Column="1" Margin="12,0,0,0" Spacing="5">
+                                        <TextBlock Text="跳转至 GitHub" FontSize="14" FontWeight="SemiBold" />
+                                        <TextBlock Text="标题与正文已自动填入议题表单，登录后单击提交，内容将公开可见。"
+                                                   FontSize="13" LineHeight="19" TextWrapping="Wrap"
+                                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+
+                            <Border Grid.Column="2" Margin="16,0,0,0" CornerRadius="8" BorderThickness="1"
+                                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                                    Background="{DynamicResource ControlFillColorSecondaryBrush}"
+                                    Padding="18,18,18,20">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <Grid Grid.Column="0" Width="26" Height="26" VerticalAlignment="Top">
+                                        <Border CornerRadius="13"
+                                                Background="{DynamicResource AccentFillColorDefaultBrush}"
+                                                Opacity="0.15" />
+                                        <TextBlock Text="3" FontSize="13" FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    </Grid>
+
+                                    <StackPanel Grid.Column="1" Margin="12,0,0,0" Spacing="5">
+                                        <TextBlock Text="维护者跟进处理" FontSize="14" FontWeight="SemiBold" />
+                                        <TextBlock Text="反馈将进入公开议题列表，处理进度可在议题下方查看，亦可继续补充说明。"
+                                                   FontSize="13" LineHeight="19" TextWrapping="Wrap"
+                                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </Grid>
+                    </StackPanel>
+
+                    <!-- 请先查阅已有反馈 -->
+                    <Border Margin="0,20,0,0" CornerRadius="8" BorderThickness="1"
+                            BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                            Background="{DynamicResource SubtleFillColorSecondaryBrush}"
+                            Padding="20,16,20,16">
+                        <!-- Grid 无 ColumnSpacing=12 → 按钮加 12 左 Margin 模拟 -->
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="0" Spacing="3" VerticalAlignment="Center">
+                                <TextBlock Text="请先查阅已有反馈" FontSize="14" FontWeight="SemiBold" />
+                                <TextBlock Text="已有反馈均记录于公开议题列表中，建议先行搜索关键词，以避免重复提交。"
+                                           FontSize="13" TextWrapping="Wrap"
+                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
+
+                            <Button Grid.Column="1" Margin="12,0,0,0" Click="OpenIssueList_Click"
+                                    Background="Transparent" BorderThickness="0"
+                                    VerticalAlignment="Center">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <TextBlock Text="查看议题列表" />
+                                    <fa:FontIcon Glyph="&#xE8A7;" FontSize="12" />
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+                    </Border>
+
+                    <!-- 草稿条。单击「恢复上次填写」= 带着草稿里的类型直接进表单页 -->
+                    <fa:InfoBar x:Name="DraftBar" IsOpen="False" Severity="Informational"
+                                Title="存在上次填写的反馈草稿" Message="可直接继续填写。"
+                                Margin="0,16,0,0" IsClosable="False">
+                        <fa:InfoBar.ActionButton>
+                            <Button Content="恢复上次填写" Click="ResumeDraft_Click" />
+                        </fa:InfoBar.ActionButton>
+                    </fa:InfoBar>
+                </StackPanel>
+
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</platform:PageBase>

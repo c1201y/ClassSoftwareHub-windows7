@@ -1,0 +1,32 @@
+{
+  "title": "系统镜像下载",
+  "subtitle": "纯净原版 Windows 系统镜像的官方 / 可信下载入口（点了用系统浏览器打开）",
+  "note": "重装系统前请先备份资料；激活密钥与安装教程请咨询信息老师或参考各站点说明。",
+  "disclaimer": "以下均为第三方站点，请认准官方域名，谨防仿冒下载站捆绑的垃圾软件。",
+  "sites": [
+    {
+      "name": "微软官方网站",
+      "desc": "Windows 10 / 11 官方镜像与安装工具（Media Creation Tool）",
+      "url": "https://www.microsoft.com/zh-cn/software-download",
+      "color": "#0078D4"
+    },
+    {
+      "name": "next.itellyou",
+      "desc": "原版系统镜像索引（Windows / Office），来源标注清晰",
+      "url": "https://next.itellyou.cn",
+      "color": "#0067B8"
+    },
+    {
+      "name": "MSDN 我告诉你",
+      "desc": "老牌原版镜像索引站，含 Windows 7 等旧系统镜像",
+      "url": "https://msdn.itellyou.cn",
+      "color": "#68217A"
+    },
+    {
+      "name": "HelloWindows",
+      "desc": "原版镜像归档，下载快，含旧版本系统",
+      "url": "https://hellowindows.cn",
+      "color": "#107C10"
+    }
+  ]
+}
