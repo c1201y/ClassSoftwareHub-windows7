@@ -4,7 +4,7 @@
 //   · 跟 WinUI 版（ClassSoftwareHub-Desktop）彻底分家：两边的 Release 列表、更新日志各看各的，
 //     不存在"把另一个版本的更新推给用户"这种事，所以 **tag 不再需要 win7- 前缀**。
 //   · 这里刻意保留 tag 前缀机制（TAG_PREFIX），留空 = 不加前缀；哪天又想合库，填上即可，
-//     同时要把 src-win7/Core/ShellConfig.cs 的 UpdateTagPrefix 改成一样的值。
+//     同时要把 src/Core/ShellConfig.cs 的 UpdateTagPrefix 改成一样的值。
 //
 // 用法（在工程根目录）：
 //   set GITHUB_TOKEN=ghp_xxx            # 只在当前终端，别写进任何文件

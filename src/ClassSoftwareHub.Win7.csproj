@@ -138,7 +138,7 @@
     <!--
       ⚠️ 排除 Launcher\ —— 便携版启动器的独立工程（Launcher\ClassSoftwareHub.Launcher.csproj）。
          SDK 默认通配（**\*.cs）会把它一起编进本工程 → 出现两个 Main → 编译直接报错。
-         与根目录 ClassSoftwareHub.Desktop.csproj 排除 src-win7\** 是同一个道理。
+         与根目录 ClassSoftwareHub.Desktop.csproj 排除 src\** 是同一个道理。
     -->
     <Compile Remove="Launcher\**" />
     <None Remove="Launcher\**" />

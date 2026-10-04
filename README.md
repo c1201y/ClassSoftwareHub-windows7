@@ -60,12 +60,12 @@ ClassSoftwareHub 桌面版 —— **Windows 7 移植版**（代号 `csh-win7`）
 | FluentAvaloniaUI | **2.4.1** | 支持 `net6.0`；2.5+ 依赖 `net10` |
 | WebView2 SDK | **≤ 1.0.1587** | Win7 上 WebView2 运行时止于 109.0.1518.x |
 
-> 与原版的 1:1 对齐要求与移植记录见 [`src-win7/PORTING.md`](src-win7/PORTING.md)。
+> 与原版的 1:1 对齐要求与移植记录见 [`src/PORTING.md`](src/PORTING.md)。
 
 ## 目录结构
 
 ```
-src-win7\            移植版全部源码（Avalonia 工程）
+src\                 移植版全部源码（Avalonia 工程）
   Launcher\          便携版启动器（产物根目录那一个 exe）
   Core\              外壳常量、版本号、更新通道等
   Services\          更新、数据、站点桥接等
@@ -90,7 +90,7 @@ tools\               打包与发版脚本
 
 ## 贡献
 
-欢迎提交 Pull Request 或 Issue。提交前请先阅读 [`BUILDING.md`](BUILDING.md) 与 [`src-win7/PORTING.md`](src-win7/PORTING.md)，了解构建流程与「与原版对齐」的约定。
+欢迎提交 Pull Request 或 Issue。提交前请先阅读 [`BUILDING.md`](BUILDING.md) 与 [`src/PORTING.md`](src/PORTING.md)，了解构建流程与「与原版对齐」的约定。
 
 ## 致谢
 

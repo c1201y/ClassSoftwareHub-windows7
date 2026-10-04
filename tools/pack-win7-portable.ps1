@@ -47,10 +47,10 @@ $launcherExe = Join-Path $launcherDirFull 'ClassSoftwareHub.exe'
 $appExe = Join-Path $appDirFull 'ClassSoftwareHub.exe'
 
 if (-not (Test-Path -LiteralPath $launcherExe)) {
-    throw "找不到启动器：$launcherExe （先发布 src-win7\Launcher\ClassSoftwareHub.Launcher.csproj）"
+    throw "找不到启动器：$launcherExe （先发布 src\Launcher\ClassSoftwareHub.Launcher.csproj）"
 }
 if (-not (Test-Path -LiteralPath $appExe)) {
-    throw "找不到应用本体：$appExe （先发布 src-win7\ClassSoftwareHub.Win7.csproj）"
+    throw "找不到应用本体：$appExe （先发布 src\ClassSoftwareHub.Win7.csproj）"
 }
 
 Write-Host '── 组装便携版 ──────────────────────────────'

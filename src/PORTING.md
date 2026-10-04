@@ -1,6 +1,6 @@
 # Windows 7 移植版 · 移植契约（所有 agent 必读）
 
-> 本文件是 `src-win7/` 移植工作的**唯一技术依据**。动手前先从头读完。  
+> 本文件是 `src/` 移植工作的**唯一技术依据**。动手前先从头读完。  
 > 契约里写死的 API 名称都是**实测核验过**的（用反射探针 dump 过 Avalonia 11.2.8 与  
 > FluentAvaloniaUI 2.4.1 的真实导出成员），不是猜的。凡本文件没提到的 API，  
 > 动手前先自己核验，**不要凭印象写 WinUI 的成员名**。
@@ -10,7 +10,7 @@
 ## 1. 任务本质
 
 把 `C:\csh-win7\` 根目录下的 **WinUI 3 原版**（net10 + WindowsAppSDK 2.5）**逐文件等价移植**到  
-`C:\csh-win7\src-win7\`（**net6.0-windows7.0 + Avalonia 11.2.8 + FluentAvaloniaUI 2.4.1**）。
+`C:\csh-win7\src\`（**net6.0-windows7.0 + Avalonia 11.2.8 + FluentAvaloniaUI 2.4.1**）。
 
 **两条铁律：**
 
@@ -34,7 +34,7 @@ C:\csh-win7\
 │   ├── MainWindow.xaml / .cs
 │   ├── Core/ Data/ Services/ Pages/ Views/ Web/ Assets/
 │   └── ClassSoftwareHub.Desktop.csproj
-└── src-win7/                     ← 你唯一可以写的地方
+└── src/                     ← 你唯一可以写的地方
     ├── ClassSoftwareHub.Win7.csproj
     ├── App.axaml(.cs)  Program.cs  MainWindow.axaml(.cs)
     ├── app.manifest
@@ -43,13 +43,13 @@ C:\csh-win7\
     ├── Core/  Data/  Services/  Pages/  Views/  Web/
 ```
 
-> ⛔ **绝对不要修改 `src-win7\` 以外的任何文件。** 根目录的 WinUI 原版是 1:1 对照基准。  
+> ⛔ **绝对不要修改 `src\` 以外的任何文件。** 根目录的 WinUI 原版是 1:1 对照基准。  
 > ⛔ **不要改 `Platform/` 下已有文件**（`NativeMethods.cs` / `OsInfo.cs` / `Backdrop.cs` /  
 > `ThemeCompat.cs` / `PageBase.cs`）。缺什么就在 `Platform/` 下**新增**文件，并在总结里说明。  
 > ⛔ **只写你被分配的文件**，不要动别的 agent 负责的文件（见各自的任务说明）。
 
 命名空间统一用 **`ClassSoftwareHub.Desktop.*`**（与 WinUI 原版一致），  
-即 `src-win7/Core/ShellConfig.cs` 里写 `namespace ClassSoftwareHub.Desktop.Core;`。  
+即 `src/Core/ShellConfig.cs` 里写 `namespace ClassSoftwareHub.Desktop.Core;`。  
 **程序集名是 `ClassSoftwareHub`**（`avares://ClassSoftwareHub/...` 里的就是它）。
 
 ---
@@ -59,7 +59,7 @@ C:\csh-win7\
 ```bash
 export DOTNET_ROOT="C:\\Users\\Administrator\\.dotnet6"
 DOTNET=/c/Users/Administrator/.dotnet6/dotnet.exe
-cd /c/csh-win7/src-win7
+cd /c/csh-win7/src
 $DOTNET build ClassSoftwareHub.Win7.csproj -c Debug
 ```
 
@@ -97,7 +97,7 @@ $DOTNET build ClassSoftwareHub.Win7.csproj -c Debug
 | `ProgressBar`                                                                              | `Avalonia.Controls.ProgressBar`                                                                                                                                        |                                                                                                                                                                                                                          |
 | `InfoBadge`                                                                                | `FluentAvalonia.UI.Controls.InfoBadge`                                                                                                                                 | 成员 `Value` `IconSource`；通过 `NavigationViewItem.InfoBadge` 挂载                                                                                                                                                             |
 | `Expander`                                                                                 | `Avalonia.Controls.Expander`                                                                                                                                           |                                                                                                                                                                                                                          |
-| `SettingsCard`（CommunityToolkit）                                                           | ⚠️ **FA 没有**（只有 `SettingsExpander`）。写一个 `src-win7/Views/SettingsCard.axaml(.cs)` 自建（`HeaderedContentControl` 风格：Header/Description/Icon + 右侧内容），**全体共用同一个**，不要各写各的     |                                                                                                                                                                                                                          |
+| `SettingsCard`（CommunityToolkit）                                                           | ⚠️ **FA 没有**（只有 `SettingsExpander`）。写一个 `src/Views/SettingsCard.axaml(.cs)` 自建（`HeaderedContentControl` 风格：Header/Description/Icon + 右侧内容），**全体共用同一个**，不要各写各的     |                                                                                                                                                                                                                          |
 | `SettingsExpander`                                                                         | `FluentAvalonia.UI.Controls.SettingsExpander`                                                                                                                          | 成员 `Header` `Description` `IconSource` `IsExpanded` `Items` `Footer` `ActionIconSource`                                                                                                                                  |
 | `VariableSizedWrapGrid` / `ItemsWrapGrid`                                                  | `Avalonia.Controls.WrapPanel`                                                                                                                                          | Avalonia **没有** VariableSizedWrapGrid                                                                                                                                                                                    |
 | `RelativePanel`                                                                            | `Avalonia.Controls.Grid`                                                                                                                                               | Avalonia **没有** RelativePanel，用 Grid 行列还原                                                                                                                                                                                |
@@ -182,7 +182,7 @@ using ClassSoftwareHub.Desktop.Platform;
 | `Services/BackdropHost.cs`                  | `Platform.Backdrop`（**已实现，不要再写一份**）                               |
 | `Services/ThemeHost.cs`                     | `Platform.ThemeCompat`（**已实现**）                                   |
 | `Services/ScreenCapture.cs` 的 `Log(string)` | 由「服务层」agent 移植，全局日志入口，**不要另起炉灶**                                  |
-| `Core/WindowChrome.cs`                      | 移植成 `src-win7/Core/WindowChrome.cs`，内部改用 `Platform.NativeMethods` |
+| `Core/WindowChrome.cs`                      | 移植成 `src/Core/WindowChrome.cs`，内部改用 `Platform.NativeMethods` |
 
 
 

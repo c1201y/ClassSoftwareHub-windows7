@@ -44,8 +44,8 @@ env:
   DOTNET_VERSION: '6.0.x'
   DOTNET_NOLOGO: 'true'
   DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
-  PROJECT_APP: 'src-win7/ClassSoftwareHub.Win7.csproj'
-  PROJECT_LAUNCHER: 'src-win7/Launcher/ClassSoftwareHub.Launcher.csproj'
+  PROJECT_APP: 'src/ClassSoftwareHub.Win7.csproj'
+  PROJECT_LAUNCHER: 'src/Launcher/ClassSoftwareHub.Launcher.csproj'
 
 jobs:
   build:
@@ -80,9 +80,9 @@ jobs:
 
           # 两处都没给 → 读源码里的唯一版本号来源
           if ([string]::IsNullOrWhiteSpace($v)) {
-            $src = Get-Content -LiteralPath 'src-win7/Core/ShellConfig.cs' -Raw
+            $src = Get-Content -LiteralPath 'src/Core/ShellConfig.cs' -Raw
             $m = [regex]::Match($src, 'ShellVersion\s*=\s*"([^"]+)"')
-            if (-not $m.Success) { throw '读不到 src-win7/Core/ShellConfig.cs 里的 ShellVersion' }
+            if (-not $m.Success) { throw '读不到 src/Core/ShellConfig.cs 里的 ShellVersion' }
             $v = $m.Groups[1].Value
           }
 

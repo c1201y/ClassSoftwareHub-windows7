@@ -21,7 +21,7 @@
 
 ## 2. 字体信息
 
-- 文件：`src-win7/Assets/Fonts/CshSymbols.ttf`（约 2.7 MB）
+- 文件：`src/Assets/Fonts/CshSymbols.ttf`（约 2.7 MB）
 - 字体族名 family name（nameID 1/4/6/16）：`CshSymbols`；子族 `Regular`
 - 码表内含 91 个本工程用到的 MDL2 码位（另有源字体自带的近万个 Fluent 码位）
 
