@@ -5,7 +5,7 @@
 #    pwsh tools\pack-win7-portable.ps1 `
 #         -AppDir      dist\win7\app `
 #         -LauncherDir dist\win7 `
-#         -Version     1.1.0-insider1.2 `
+#         -Version     1.0.0 `
 #         -OutRoot     dist `
 #         -Zip
 #

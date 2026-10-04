@@ -18,7 +18,7 @@ public static class ShellConfig
     /// 命名规则（Nick 指定）：<c>dv</c> + <c>主.功能.补丁</c> + <c>-insider架构.迭代</c>
     /// <list type="bullet">
     ///   <item>第一位「架构」——只有整个应用的架构/技术路线发生重大变动才会动；</item>
-    ///   <item>第二位「功能」——每叠加一块新功能涨一次（1.1.0 就是「下载后台化」这一块）；</item>
+    ///   <item>第二位「功能」——每叠加一块新功能涨一次（例如「下载后台化」落地时会被它抬一位）；</item>
     ///   <item>第三位「补丁」——小功能推送 / 小更新 / 小 bug 修复；</item>
     ///   <item><c>insider</c> 第一位——预览线自己的架构/思路基线，性质同主版本第一位；</item>
     ///   <item><c>insider</c> 第二位——这条预览线上的具体更改次数。</item>
@@ -26,13 +26,16 @@ public static class ShellConfig
     /// 注：<c>dv</c> 前缀由 <see cref="VersionPrefix"/> 单独拼，**不要**写进这个字符串里。
     ///
     /// 递增流程：
-    /// 做出一个能用的版本 → 发 <c>1.1.0-insider1.0</c>
-    /// → 用户反馈还有问题 → 继续改成 <c>1.1.0-insider1.1</c>
-    /// → 一直改到没问题 → **整个 <c>-insider</c> 后缀删掉** → 上线正式版 <c>1.1.0</c>。
+    /// 做出一个能用的版本 → 发 <c>1.0.0-insider1.0</c>
+    /// → 用户反馈还有问题 → 继续改成 <c>1.0.0-insider1.1</c>
+    /// → 一直改到没问题 → **整个 <c>-insider</c> 后缀删掉** → 上线正式版 <c>1.0.0</c>。
     ///
     /// ⚠️ 基数不随便抬（否则旧包会被强制顶掉）。
     /// </summary>
-    public const string ShellVersion = "1.1.0-insider1.2";
+    // 2026-10-04：1.1.0-insider1.2 → **首个正式版 1.0.0**（按上面那套流程删掉 -insider 后缀；
+    // 同时把基数从「预览线跑到的 1.1.0」落回干净的首发 1.0.0）。
+    // 客户端据此判定 IsInsider=false → 走 stable 通道，只认非预发布的 Release。
+    public const string ShellVersion = "1.0.0";
 
     /// <summary>当前是不是预览（内测）构建 —— 版本号里带 <c>insider</c> 即为真。</summary>
     public static bool IsInsider =>
@@ -73,8 +76,8 @@ public static class ShellConfig
     ///
     /// 历史：2026-10-04 之前 Win7 版与 WinUI 版共用 <c>ClassSoftwareHub-Desktop</c>，
     /// 而 GitHub 的 Release 列表是**仓库级**的、不分分支，只能靠前缀
-    /// （<c>win7-dv1.1.0-insider1.2</c>）分家。现在 Win7 版独立成库，天然隔离，
-    /// 于是清空本项 —— tag 回到干净的 <c>dv1.1.0-insider1.2</c> 形状。
+    /// （<c>win7-dv1.0.0</c>）分家。现在 Win7 版独立成库，天然隔离，
+    /// 于是清空本项 —— tag 回到干净的 <c>dv1.0.0</c> 形状。
     /// 机制本身保留：将来若又需要合库，填上前缀即可（发版脚本要同步改）。
     /// </summary>
     public const string UpdateTagPrefix = "";

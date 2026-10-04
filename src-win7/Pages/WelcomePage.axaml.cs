@@ -34,7 +34,7 @@ public sealed partial class WelcomePage : PageBase
 
         var title = ui.AppTitle.Length > 0 ? ui.AppTitle : "电教委员常用软件下载站";
         HomeTitleText.Text = title + " • 桌面版";
-        // 只显示软件自己的版本（前缀 VersionPrefix + ShellVersion，如 dv1.1.0-insider1.0 或正式版 dv1.1.0）。
+        // 只显示软件自己的版本（前缀 VersionPrefix + ShellVersion，如正式版 dv1.0.0 或预览版 dv1.0.0-insider1.1）。
         // ⚠️ 别再往这里挂"网站版本"——软件是独立发布物，不摆成网站版本的附属品（2026-09-26 删）。
         ShellVersionText.Text = ShellConfig.VersionPrefix + ShellConfig.ShellVersion;
 

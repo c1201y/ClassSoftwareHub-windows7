@@ -89,7 +89,7 @@ public sealed class GitHubReleaseSource : IUpdateSource
             // ── tag 前缀过滤（当前未启用）────────────────────────────
             // Win7 版 2026-10-04 起改用独立仓库，天然与 WinUI 版隔离，所以 UpdateTagPrefix 为空、
             // 这一段不生效。留着它是给「万一又得合库」留个挂点：届时填上前缀，
-            // 本版就只认带前缀的 Release，认下来把前缀剥掉，下游拿到的还是 dv1.1.0-insider1.2 形状。
+            // 本版就只认带前缀的 Release，认下来把前缀剥掉，下游拿到的还是 dv1.0.0 形状。
             if (_tagPrefix.Length > 0)
             {
                 if (!tag.StartsWith(_tagPrefix, StringComparison.OrdinalIgnoreCase)) continue;

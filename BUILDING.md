@@ -43,7 +43,7 @@ dotnet publish src-win7\Launcher\ClassSoftwareHub.Launcher.csproj -c Release -r 
 
 # 3. 组装 + 打 zip
 .\tools\pack-win7-portable.ps1 -AppDir dist\win7\app -LauncherDir dist\win7 `
-  -Version 1.1.0-insider1.2 -OutRoot dist -Zip
+  -Version 1.0.0 -OutRoot dist -Zip
 ```
 
 产物：`dist\ClassSoftwareHub-Win7-Portable\`（目录）与 `dist\ClassSoftwareHub-Portable-win7-dv<版本>.zip`。
@@ -58,7 +58,7 @@ dotnet publish src-win7\Launcher\ClassSoftwareHub.Launcher.csproj -c Release -r 
 
 ```powershell
 & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
-  installer\ClassSoftwareHub-Win7.iss /DDesktopVersion=1.1.0-insider1.2
+  installer\ClassSoftwareHub-Win7.iss /DDesktopVersion=1.0.0
 ```
 
 产物：`dist\installer\ClassSoftwareHub-Setup-win7-dv<版本>.exe`。
@@ -73,8 +73,8 @@ dotnet publish src-win7\Launcher\ClassSoftwareHub.Launcher.csproj -c Release -r 
 **① 打 tag 自动发（推荐）**
 
 ```powershell
-git tag dv1.1.0-insider1.3
-git push origin dv1.1.0-insider1.3
+git tag dv1.0.0
+git push origin dv1.0.0
 ```
 
 `.github/workflows/win7-release.yml` 会：构建应用本体与启动器 → 组装便携版 → 编译安装包 →
@@ -87,9 +87,9 @@ git push origin dv1.1.0-insider1.3
 ```powershell
 $env:GITHUB_TOKEN = "..."     # 需要仓库写权限，别写进任何文件
 node tools\publish-release-win7.mjs `
-  --version 1.1.0-insider1.3 --channel insider `
-  --installer "dist\installer\ClassSoftwareHub-Setup-win7-dv1.1.0-insider1.3.exe" `
-  --portable  "dist\ClassSoftwareHub-Portable-win7-dv1.1.0-insider1.3.zip" `
+  --version 1.0.0 --channel stable `
+  --installer "dist\installer\ClassSoftwareHub-Setup-win7-dv1.0.0.exe" `
+  --portable  "dist\ClassSoftwareHub-Portable-win7-dv1.0.0.zip" `
   --notes "dist\release\notes.md"
 ```
 
@@ -98,7 +98,7 @@ node tools\publish-release-win7.mjs `
 ## 更新通道
 
 本仓库**就是** Win7 版的更新源 —— 与 WinUI 版（`ClassSoftwareHub-Desktop`）的 Release 列表
-天然隔离，所以 tag 就是干净的 `dv1.1.0-insider1.3` / `dv1.1.0`，**不带任何前缀**。
+天然隔离，所以 tag 就是干净的 `dv1.0.0`（正式版）/ `dv1.0.0-insider1.1`（预览版），**不带任何前缀**。
 
 客户端只读本仓库的 Release：正式版取 `Latest`（非预发布），预览版取 Pre-release
 （常量在 `src-win7\Core\ShellConfig.cs` 的 `UpdateRepoOwner` / `UpdateRepoName`）。
@@ -115,4 +115,4 @@ node tools\publish-release-win7.mjs `
 - 第三位「补丁」—— 小功能 / 小更新 / 小修复；
 - `insider` 两位 —— 预览线自己的基线与迭代次数。
 
-做出一个能用的版本 → 发 `1.1.0-insider1.0`；一直改到没问题 → 删掉 `-insider` 后缀 → 上线正式版 `1.1.0`。
+做出一个能用的版本 → 发 `1.0.0-insider1.0`；一直改到没问题 → 删掉 `-insider` 后缀 → 上线正式版 `1.0.0`。

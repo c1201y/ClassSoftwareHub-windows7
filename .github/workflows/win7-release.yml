@@ -10,7 +10,7 @@ name: Windows 7 版 构建与发布
 #    ① 便携版  ClassSoftwareHub-Portable-win7-dv<版本>.zip   —— 「启动器 + app 文件夹」两层
 #    ② 安装版  ClassSoftwareHub-Setup-win7-dv<版本>.exe      —— Inno Setup 6
 #
-#  ⚠️ 发布 tag 形如 dv1.1.0-insider1.2（带 insider 自动勾 Pre-release）。
+#  ⚠️ 发布 tag 形如 dv1.0.0（正式版）或 dv1.0.0-insider1.1（预览版，带 insider 自动勾 Pre-release）。
 #
 #  ⚠️ 产物是**正式版**构建：不带 -p:CshConsoleBuild=true，
 #     所以 exe 是 WinExe（Windows 子系统）—— 双击只出界面，不弹控制台黑窗。
@@ -20,7 +20,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: '版本号（不带 dv / win7- 前缀，如 1.1.0-insider1.2）；留空 = 自动读 ShellConfig.cs'
+        description: '版本号（不带 dv / win7- 前缀，如 1.0.0）；留空 = 自动读 ShellConfig.cs'
         required: false
         default: ''
       publish:
@@ -71,7 +71,7 @@ jobs:
         run: |
           $v = $env:INPUT_VERSION
 
-          # 由 tag 触发时，版本号以 tag 为准（dv1.1.0-insider1.2 → 1.1.0-insider1.2）
+          # 由 tag 触发时，版本号以 tag 为准（dv1.0.0 → 1.0.0）
           if ($env:GITHUB_REF -like 'refs/tags/*') {
             $tag = $env:GITHUB_REF -replace '^refs/tags/', ''
             # 兼容历史上的 win7- 前缀写法，免得老 tag 重跑时解析错

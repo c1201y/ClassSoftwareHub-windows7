@@ -3,7 +3,7 @@
 ;
 ;  编译（在工程根目录）：
 ;    & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer\ClassSoftwareHub-Win7.iss
-;    （版本号默认取下面的 DesktopVersion；临时覆盖就加 /DDesktopVersion=1.1.0-insider1.2）
+;    （版本号默认取下面的 DesktopVersion；临时覆盖就加 /DDesktopVersion=1.0.0-insider1.1）
 ;
 ;  产物：dist\installer\ClassSoftwareHub-Setup-win7-dv<DesktopVersion>.exe
 ;
@@ -17,12 +17,12 @@
 ;     而 WinUI 版要求 Windows 10 1809。检查逻辑见下面 [Code] 段。
 ;
 ;  ⚠️ 更新器按「文件名里含 setup」来认包：文件名必须含 Setup（本脚本的 OutputBaseFilename 已满足）。
-;     本仓库是 Win7 版自己的独立仓库，tag 形如 dv1.1.0-insider1.2，不带任何前缀。
+;     本仓库是 Win7 版自己的独立仓库，tag 形如 dv1.0.0，不带任何前缀。
 ; ══════════════════════════════════════════════════════════════════════
 
 ; ⚠️ 唯一的版本号来源，必须和 Core/ShellConfig.cs 的 ShellVersion 一字不差（写在这里时**不带** dv 前缀）
 #ifndef DesktopVersion
-  #define DesktopVersion "1.1.0-insider1.2"
+  #define DesktopVersion "1.0.0"
 #endif
 
 #define AppName "ClassSoftwareHub"

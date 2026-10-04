@@ -8,14 +8,14 @@
 //
 // 用法（在工程根目录）：
 //   set GITHUB_TOKEN=ghp_xxx            # 只在当前终端，别写进任何文件
-//   node tools/publish-release-win7.mjs --version 1.1.0-insider1.2 ^
-//        --installer "dist\installer\ClassSoftwareHub-Setup-win7-dv1.1.0-insider1.2.exe" ^
-//        --portable  "dist\ClassSoftwareHub-Portable-win7-dv1.1.0-insider1.2.zip" ^
-//        --image     "dist\release\dv1.1.png" ^
+//   node tools/publish-release-win7.mjs --version 1.0.0 ^
+//        --installer "dist\installer\ClassSoftwareHub-Setup-win7-dv1.0.0.exe" ^
+//        --portable  "dist\ClassSoftwareHub-Portable-win7-dv1.0.0.zip" ^
+//        --image     "dist\release\dv1.0.png" ^
 //        --notes     notes.md
 //
 // 参数：
-//   --version    必填。不带 dv / 前缀，如 1.1.0-insider1.2（= ShellConfig.ShellVersion）
+//   --version    必填。不带 dv / 前缀，如 1.0.0（= ShellConfig.ShellVersion）
 //   --channel    stable | insider；省略时按 version 里有没有 insider 自动判
 //   --installer  必填。安装包路径；同名 .md5 自动生成并一起上传
 //   --portable   可选。便携版 zip；同名 .md5 自动生成并一起上传
