@@ -125,7 +125,11 @@ jobs:
             -Version ${{ steps.ver.outputs.version }} `
             -OutRoot dist `
             -Zip
-          if ($LASTEXITCODE -ne 0) { throw '便携版组装失败' }
+          # ⚠️ 这里**不能**用 $LASTEXITCODE 判定 —— 那是给原生命令（dotnet/ISCC/node）用的。
+          #    调用 .ps1 脚本时它不会被设置：每个 step 都是全新的 pwsh 进程，
+          #    $LASTEXITCODE 初值为 $null，而 `$null -ne 0` 为真 → 明明打包成功也会报"组装失败"。
+          #    脚本调用看 $? 才对（脚本内部已有 $ErrorActionPreference='Stop' + 关键处 throw）。
+          if (-not $?) { throw '便携版组装失败' }
 
       # ── 4. 编译安装版 ──
       - name: 编译安装包（Inno Setup 6）
