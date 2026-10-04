@@ -51,7 +51,7 @@ ClassSoftwareHub 桌面版 —— **Windows 7 移植版**（代号 `csh-win7`）
 - 与原版（WinUI 3 版）**可同机共存**：安装目录与安装标识都不同，互不覆盖。
 - 每个安装包都附带同名 `.md5`，下载后可校验完整性。
 
-## 技术选型（锁死，别升）
+## 技术选型，不要升级
 
 | 组件 | 版本 | 为什么不能动 |
 | --- | --- | --- |
@@ -86,7 +86,7 @@ tools\               打包与发版脚本
 
 - 问题反馈：[GitHub Issues](https://github.com/c1201y/ClassSoftwareHub-windows7/issues)
 - QQ 群：[487903798](https://qun.qq.com/universal-share/share?ac=1&authKey=vefxPhZAIezynTibFDvI6%2Fk6IdFyykc%2BWJeWDWkhazM7y8LSXhKcbZwaVYM3anw2&busi_data=eyJncm91cENvZGUiOiI0ODc5MDM3OTgiLCJ0b2tlbiI6IlBkZ1FQaWtaQVAybEVEckl3QzBlay85ZzduU3VlblRwTWc5RlVKNWFCUFExSTdvMmJQQjB6V2VacFR1UEdvaHciLCJ1aW4iOiIzOTA0MjE1ODUzIn0%3D&data=pICf64tVKQTKypKZDhfKmNpcj4j6fS-LGeREZiBQnbWrokAMTdULxqLbm2JHCTIPqwgpG2pSPisQKg0QdbEIJvTU_e6wUDNbHUVTnTswsR8&svctype=5&tempid=h5_group_info)
-- 投喂作者：[爱发电 · TinyNickCSHub](https://ifdian.net/a/TinyNickCSHub)
+- 投喂作者：[爱发电 · TinyNickCSHub](https://afdian.com/a/cyan1201)
 
 ## 贡献
 
@@ -105,6 +105,6 @@ tools\               打包与发版脚本
 
 <div align="center">
 
-Copyright © 2026 Tiny-Nick . All rights reserved.
+Copyright © 2026 椰汁 . All rights reserved.
 
 </div>
