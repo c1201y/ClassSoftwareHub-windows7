@@ -15,6 +15,9 @@
     <!--
       ⚠️ 2026-10-02 结构调整：ScrollViewer 提到最外层 —— 滚动条要贴窗口右缘，
          不是缩在 960 内容列旁边。原来根 Grid 的边距改成 Padding，居中改内层 Grid。
+      ⚠️ 上游 dv1.1.0 把根 Page 的 NavigationCacheMode 由 Disabled 改为 Enabled。
+         本仓库所有页面都不写该属性 —— 缓存统一由 ShellPage 的 <fa:Frame CacheSize="0"/>
+         承担（见 LogViewerPage.axaml 的移植说明）；要按页开缓存需改 ShellPage，超出本任务文件范围。
     -->
     <ScrollViewer Padding="24,36,24,44" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <Grid MaxWidth="960" HorizontalAlignment="Center">
@@ -41,7 +44,9 @@
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Border Width="462" Height="88" CornerRadius="8" Padding="20,0" Margin="0,0,16,14"
+                        <!-- ⚠️ 上游 dv1.1.0 把卡片样式抽成 App.xaml 里的 CshCardStyle（圆角 8→4），
+                             本移植版 App.axaml 尚未提供该键，故仍内联画刷/描边，仅把圆角同步为 4。 -->
+                        <Border Width="462" Height="88" CornerRadius="4" Padding="20,0" Margin="0,0,16,14"
                                 Classes="card"
                                 Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
                                 BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
@@ -70,7 +75,7 @@
             </ItemsControl>
 
             <!-- ===== 常用工具窗口：开关就放这儿，跟首页「体验网页版」那张卡一个意思 ===== -->
-            <Border CornerRadius="8" Padding="20,16" Margin="0,18,0,0"
+            <Border CornerRadius="4" Padding="20,16" Margin="0,18,0,0"
                     Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
                     BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1">
                 <Grid>

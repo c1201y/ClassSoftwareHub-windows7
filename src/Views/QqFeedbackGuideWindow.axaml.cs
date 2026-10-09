@@ -73,6 +73,19 @@ public sealed partial class QqFeedbackGuideWindow : Window
 
     public static void CloseIfOpen() => _instance?.HideSelf();
 
+    /// <summary>
+    /// 退出应用时**真正销毁**实例（<see cref="CloseIfOpen"/> 只是藏起来）。
+    /// ⛔ 同 <see cref="ToolPaletteWindow.CloseForExit"/>：Shutdown() 会漏窗口，
+    ///    没关掉的窗口会让进程退不掉（2026-10-04 实测）。
+    /// </summary>
+    public static void CloseForExit()
+    {
+        var w = _instance;
+        _instance = null;
+        try { w?.Close(); } catch { }
+        Core.AppLog.Info("exit", "QQ反馈窗实例已请求 Close");
+    }
+
     // ── 窗口本身 ─────────────────────────────────────────────────────────
 
     private void Configure()
@@ -99,8 +112,12 @@ public sealed partial class QqFeedbackGuideWindow : Window
                 }), RoutingStrategies.Tunnel, true);
 
             // 关掉 = 收起来，别真销毁（下次 Show 直接复用，省掉重新解图那一趟）
+            // ⛔ 应用正在退出时必须放行 —— 否则本窗会拦下 Shutdown() 的关窗、把整条退出流程
+            //    掐断，进程留在任务管理器里（同 ToolPaletteWindow，2026-10-04 实测）。
             Closing += (_, args) =>
             {
+                Core.AppLog.Info("exit", $"QQ反馈窗 Closing: IsExiting={App.IsExiting}");
+                if (App.IsExiting) return;
                 args.Cancel = true;
                 HideSelf();
             };

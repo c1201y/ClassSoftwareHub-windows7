@@ -453,7 +453,7 @@ public sealed partial class ClockToolPage : PageBase
         content.Children.Add(new TextBlock
         {
             Text = preset.Name,
-            FontSize = 12.5,
+            FontSize = 12,
             FontWeight = FontWeight.SemiBold,
             TextTrimming = TextTrimming.CharacterEllipsis,
         });
@@ -491,7 +491,7 @@ public sealed partial class ClockToolPage : PageBase
             Tag = preset,
             MinWidth = 0,
             Padding = new Thickness(10, 4, 10, 4),
-            FontSize = 12.5,
+            FontSize = 12,
         };
         Avalonia.Automation.AutomationProperties.SetName(b, automationName);
         b.Click += handler;

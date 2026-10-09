@@ -35,10 +35,10 @@
     <ApplicationResourceIncludeAssetsFromPackages>true</ApplicationResourceIncludeAssetsFromPackages>
 
     <!-- 版本号规则见 Core/ShellConfig.cs（ShellVersion 是唯一来源，这里只是写进 exe 的元数据） -->
-    <Version>1.0.0</Version>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <FileVersion>1.0.0.0</FileVersion>
-    <InformationalVersion>1.0.0</InformationalVersion>
+    <Version>1.1.0</Version>
+    <AssemblyVersion>1.1.0.0</AssemblyVersion>
+    <FileVersion>1.1.0.0</FileVersion>
+    <InformationalVersion>1.1.0</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Product>ClassSoftwareHub</Product>
     <AssemblyTitle>ClassSoftwareHub</AssemblyTitle>
@@ -121,6 +121,7 @@
     <EmbeddedResource Include="..\Assets\roster\sample-txt.png" Link="Assets\roster\sample-txt.png" />
     <EmbeddedResource Include="..\Assets\roster\roster-sample.txt" Link="Assets\roster\roster-sample.txt" />
     <EmbeddedResource Include="..\Assets\roster\roster-sample.xlsx" Link="Assets\roster\roster-sample.xlsx" />
+    <EmbeddedResource Include="..\Assets\Audio\timer-alarm.wav" Link="Assets\Audio\timer-alarm.wav" />
   </ItemGroup>
 
   <ItemGroup>

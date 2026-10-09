@@ -44,6 +44,10 @@ public sealed partial class ShellPage : PageBase
         // ⚠️ 对应原版 ActualThemeChanged：Avalonia 里是 StyledElement.ActualThemeVariantChanged
         ActualThemeVariantChanged += (_, _) => UpdateThemeButton();
 
+        // 「内置工具」的导航子项在 ShellPage.axaml 里声明（FA 的选中模型只认 XAML 子项，原因见那里的注释）。
+        // 这里做一次一致性自检：XAML 子项的 Tag 必须与 ToolCatalog.All 的 Id 一一对应。
+        VerifyToolNavItems();
+
         // 下载任务数变了 → 同步「任务进行」上的徽标（在下载就不占着界面，但得让人随时看见有几个在下）
         Services.DownloadManager.Current.Changed += UpdateDownloadBadge;
         UpdateDownloadBadge();
@@ -52,18 +56,81 @@ public sealed partial class ShellPage : PageBase
         Nav.DisplayModeChanged += (_, _) => ApplyPaneInset();
         ApplyPaneInset();
 
-        // 每次切页停稳之后收一次内存（页面本身不缓存，这里再把工作集还给系统）
+        // 切页计时（Debug / CSH_PERF=1 才有输出，见 Core/PerfLog.cs）。
+        ContentFrame.Navigating += (_, e) => Core.PerfLog.NavBegin(CurrentTag);
+
+        // 每次切页停稳之后收一次内存（2026-10-04：回到"跳一页收一次"的激进思路）。
+        // ⚠️ 收本体在**后台线程**、且错开 0.6 秒（等动画与首帧过去）—— 跟 2026-10-01 被否掉的
+        //    "UI 线程上延时 3 秒同步 GC"不是一回事，详见 Services/MemoryTrimmer.cs 的类注释。
         ContentFrame.Navigated += (_, _) =>
         {
-            Services.MemoryTrimmer.TrimLater(3000);
+            Core.PerfLog.NavEnd(ContentFrame.Content);
+            Services.MemoryTrimmer.ScheduleAfterNavigate();
             UpdateBackButton();
             SyncNavSelectionToFrame();          // ⚠️ 2026-10-03：返回（含 GoBack）后导航高亮跟着退
             FadeInContent();                    // ⚠️ 2026-10-04：切页淡入（原先切页是"啪"一下换掉）
+            RefreshHomeUpdateBanner();           // 回到首页时复核待装更新横幅（首页实例被 Frame 缓存）
         };
+    }
+
+    /// <summary>
+    /// 复核首页那条「新版本已下载就绪」横幅。
+    ///
+    /// ⚠️ 为什么不在 WelcomePage 的 <c>Loaded</c> 里一把梭：<c>ContentFrame.CacheSize=2</c> 会缓存页面实例，
+    ///    而"用户本来就停在首页"这种情况下**根本没有任何导航发生** —— 后台把更新下完时横幅不会自己冒出来。
+    ///    所以这里做成公开入口，由 <c>MainWindow.NotifyUpdateReady</c> 在下载完成时直接叫一次。
+    /// </summary>
+    public void RefreshHomeUpdateBanner()
+    {
+        if (ContentFrame.Content is WelcomePage home) home.RefreshUpdateReadyBar();
+    }
+
+    /// <summary>
+    /// 自检：导航里「内置工具」的子项（在 <c>ShellPage.axaml</c> 里声明）必须与
+    /// <see cref="Data.ToolCatalog.All"/> 一一对应（Tag ↔ Id，顺序一致）。
+    ///
+    /// <para>⚠️ 为什么子项写在 XAML 而不是代码里：FluentAvalonia 2.4.1 的导航选中模型**只认 XAML
+    /// 一次声明的子项** —— 代码往 <c>MenuItems</c> 里后加的子项能渲染、但选中时认不到，
+    /// 选中指示条（导航栏左边那根竖线）会退回画在父项上。详见 ShellPage.axaml 里的长注释。</para>
+    ///
+    /// <para>所以工具清单变成两处维护，这个方法就是防"改一处漏一处"的哨兵：对不上记一条日志。</para>
+    /// </summary>
+    private void VerifyToolNavItems()
+    {
+        try
+        {
+            var nav = ToolsNav.MenuItems.OfType<NavigationViewItem>().Select(i => i.Tag as string ?? "").ToList();
+            var cat = Data.ToolCatalog.All.Select(t => t.Id).ToList();
+            if (!nav.SequenceEqual(cat))
+            {
+                Platform.PortLog.Step("⚠️ 导航「内置工具」子项与 ToolCatalog 不一致：nav=[" + string.Join(",", nav)
+                                      + "] catalog=[" + string.Join(",", cat) + "]（两处要一起改）");
+            }
+        }
+        catch
+        {
+            // 自检失败不该影响启动
+        }
+    }
+
+    /// <summary>符号字体（与 ShellPage.axaml 里 <c>{DynamicResource SymbolThemeFontFamily}</c> 同一个）。</summary>
+    private static Avalonia.Media.FontFamily SymbolFontFamily()
+    {
+        try
+        {
+            if (Avalonia.Application.Current?.TryFindResource("SymbolThemeFontFamily", out var v) == true
+                && v is Avalonia.Media.FontFamily f)
+                return f;
+        }
+        catch { }
+        return new Avalonia.Media.FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets");
     }
 
     /// <summary>切页淡入用的按帧计时器（重入时作废上一次）。</summary>
     private DispatcherTimer? _contentFade;
+
+    /// <summary>正在淡入的那一页（用于识别"同一次导航被重复触发"，见 <see cref="FadeInContent"/>）。</summary>
+    private Type? _fadePage;
 
     /// <summary>
     /// 页面切换的淡入 —— 2026-10-04（用户第 17 轮「有些地方没有动画，适当加一点」）。
@@ -82,20 +149,38 @@ public sealed partial class ShellPage : PageBase
     /// ⚠️ **只动 Opacity，不做位移**：教室里那批老机器（无 DWM 合成）上逐帧位移会明显掉帧，
     ///    而透明度变化是最廉价的一种，60fps 也扛得住。
     /// </para>
+    ///
+    /// <para>
+    /// ⚠️ 2026-10-06 用户反馈「打开任意页面，加载动画会显示两遍」。实测（Release 版逐帧打点）：
+    ///    ① FluentAvalonia 2.4.1 的 NavigationView 对**展开分组里的子项**（如「内置工具 → 图片取色」）
+    ///       会把 <c>ItemInvoked</c> 派发**两次**（间隔 6~60ms、tag 完全相同），于是切页执行两遍，
+    ///       这里被调两次 —— 老代码每次都把 <c>Opacity</c> 拉回 0 重头开始，用户就看到淡入播两遍。
+    ///       判据：同一页 + 上一次淡入还在跑 → 认定为同一次导航的重复触发，保持正在播放的那一次。
+    ///    ② <c>Navigated</c> 是在 <c>Navigate()</c> 里同步触发的，此刻 UI 线程仍在构建新页控件树
+    ///       （重页 0.8~1.6 秒），16ms 的 <see cref="DispatcherTimer"/> 排不上队；若此刻就把秒表跑起来，
+    ///       等计时器终于 tick 时早已超过 170ms，动画会「一步跳到 1」（既不淡入、又先白屏一大截）。
+    ///       改成**第一帧才开始计时**，动画才真的播得完。
+    /// </para>
     /// </summary>
     private void FadeInContent()
     {
         try
         {
+            var page = ContentFrame.CurrentSourcePageType;
+            if (_contentFade is not null && page is not null && page == _fadePage)
+                return;                         // 同一次导航的重复触发 → 不重启动画
+
             _contentFade?.Stop();
             _contentFade = null;
+            _fadePage = page;
 
             ContentFrame.Opacity = 0;
 
-            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var sw = new System.Diagnostics.Stopwatch();      // ⚠️ 故意不在这里 Start —— 见方法注释 ②
             var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
             timer.Tick += (_, _) =>
             {
+                if (!sw.IsRunning) sw.Start();                // 第一帧才起表，动画才播得满 170ms
                 var t = Math.Clamp(sw.Elapsed.TotalMilliseconds / 170.0, 0, 1);
                 ContentFrame.Opacity = 1 - Math.Pow(1 - t, 3);      // ease-out cubic
                 if (t < 1) return;
@@ -188,7 +273,11 @@ public sealed partial class ShellPage : PageBase
         {
             var tag = TagForPage(ContentFrame.CurrentSourcePageType);
             if (tag is null) return;
-            if (CurrentTag == tag) return;      // 高亮本来就是对的（含 cat:/* 这类特殊态）
+
+            // ⚠️ 2026-10-07：这里原来是 `if (CurrentTag == tag) return;`（"高亮本来就对，不动作"）——
+            //    结果把**起点那一次 SelectTag 没生效**（Init 阶段项容器还没 realize）永久固化：
+            //    竖线一丢就再也回不来，只能切走再切回。改成每次都幂等地重钉一遍
+            //    —— 重设同一个 SelectedItem 不产生任何变化，但能把坏状态修回来。
             CurrentTag = tag;
             SelectTag(tag);
         }
@@ -196,6 +285,30 @@ public sealed partial class ShellPage : PageBase
         {
             // 反查失败就维持原高亮，不值得为它抛异常
         }
+    }
+
+    /// <summary>
+    /// 把"当前页"的导航高亮 + 分组展开**重新钉一遍**（幂等）。
+    ///
+    /// <para>⚠️ 2026-10-07 新增。根因：<see cref="SelectTag"/> 在 ShellPage 构造 / <c>Init()</c>
+    /// 阶段就会跑，而此刻 NavigationView（FluentAvalonia 2.4.1）的项容器尚未 realize：
+    /// 往一个**折叠的分组**里设 <c>SelectedItem</c>，FA 的选中指示条（导航栏左边那根带颜色的竖线）
+    /// 找不到可视落点就整条不画；<c>IsExpanded=true</c> 也可能被紧随其后的首次布局冲掉。
+    /// 现象就是 Nick 说的"在二级菜单里那根竖线不见了"。</para>
+    ///
+    /// <para>对策：布局停稳（Loaded 优先级）后再调一次 <see cref="SelectTag"/>，
+    /// 顺带把父项展开；此时项容器已存在，FA 能把竖线正确定位到**子项**上。</para>
+    /// </summary>
+    private void ReassertNavSelection()
+    {
+        try
+        {
+            // ⚠️ 先置 null 再重设：如果 SelectedItem 已经等于目标值，直接再赋一次是 no-op，
+            //    FluentAvalonia 不会重新定位那根选中竖线；先清空才能逼它重算（也就逼出子项的指示条）。
+            Nav.SelectedItem = null;
+            SelectTag(CurrentTag);
+        }
+        catch { }
     }
 
     /// <summary>页型 → 导航 tag（返回键同步高亮用）。返回 null = 这页不在导航体系里（不动作）。</summary>
@@ -206,8 +319,7 @@ public sealed partial class ShellPage : PageBase
         {
             "WelcomePage" => "home",
             "SoftwarePage" => "apps",         // 分类页（cat:*）也高亮「软件下载」——人确实在这一区
-            "ToolsPage" => "tools",
-            "MirrorToolPage" => "tools",      // 工具子页统一高亮「内置工具」（和 NavigateToTool 一致）
+            "ToolsPage" => "tools",           // 工具**索引页**高亮父项；具体工具页见下面的目录反查
             "SubmitPage" => "submit",
             "FeedbackPage" => "feedback",
             "FeedbackFormPage" => "feedback",
@@ -224,7 +336,16 @@ public sealed partial class ShellPage : PageBase
         };
         if (byName is not null) return byName;
 
-        // 兜底：以后新增的工具子页（Pages.Tools.*）不用逐个来这张表登记
+        // ⚠️ 2026-10-07：工具子页必须反查回**自己的子项 tag**，不能笼统高亮父项「内置工具」。
+        //    根因：Frame 每次导航完成都会走 SyncNavSelectionToFrame → 这里算 tag → SelectTag 重钉高亮。
+        //    以前 Pages.Tools.* 全部落到这里返回 "tools"（父项），把启动时 SelectTag 刚设好的
+        //    子项选中**覆盖回父项** —— 竖线就压在「内置工具」上不跟页面走了（实测 --page=pick-number）。
+        //    「实验性功能」子项没这问题，正是因为它们的页型在上面表里一一映射回子 tag。
+        //    按 Page 反查 ToolCatalog（工具清单只有一份，新工具加了这里自动跟上）。
+        var tool = Data.ToolCatalog.All.FirstOrDefault(t => t.Page == pageType);
+        if (tool is not null) return tool.Id;
+
+        // 兜底：不在目录里的 Pages.Tools.* 页型（理论没有）高亮父项总比丢高亮好
         return pageType.Namespace?.EndsWith(".Pages.Tools", StringComparison.Ordinal) == true
             ? "tools"
             : null;
@@ -343,6 +464,19 @@ public sealed partial class ShellPage : PageBase
         NavigateTag(start);
         Platform.PortLog.Step("ShellPage.Init: 首页导航完成 = " + start);
 
+        // ⚠️ 2026-10-07（Nick：「导航栏左边跟随页面切换变位置的那根带颜色的竖线哪去了，
+        //    在二级菜单里尤其明显」）：Init 阶段 NavigationView 的项容器还没 realize ——
+        //    此刻往**折叠的分组**里塞 SelectedItem，FA 的选中指示条（那根竖线）找不到落点，
+        //    整条就不画；IsExpanded 也可能被随后的首次布局冲掉。
+        //    所以布局停稳之后再补钉一次（详见 ReassertNavSelection）。
+        Dispatcher.UIThread.Post(ReassertNavSelection, DispatcherPriority.Loaded);
+
+        // 再补一发延时兜底：NavigationView 的项容器是**懒 realize** 的，Loaded 那一发常常还是太早
+        // （实测：起始页是二级页时，分组仍旧不展开、竖线仍旧不画）。450ms 后容器已就绪，这一发能钉住。
+        var navFix = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
+        navFix.Tick += (_, _) => { navFix.Stop(); ReassertNavSelection(); };
+        navFix.Start();
+
         UpdateThemeButton();
         Platform.PortLog.Step("ShellPage.Init: 全部完成");
     }
@@ -394,6 +528,16 @@ public sealed partial class ShellPage : PageBase
     }
 
     /// <summary>
+    /// 从外部（首页卡片等）进「内置工具」：切到工具索引页，并把分组展开。
+    /// 与 <see cref="NavigateToExperimental"/> 对称 —— 从外面跳进来时看不出这一组还有子项。
+    /// </summary>
+    public void NavigateToTools()
+    {
+        NavigateTo("tools");
+        ToolsNav.IsExpanded = true;
+    }
+
+    /// <summary>
     /// 跳到「内置工具」里的某个工具页（浮窗里的「详细设置」用）。
     /// 先把工具列表页铺一层，这样工具页左上角的返回按钮能正常退回列表。
     /// </summary>
@@ -403,11 +547,12 @@ public sealed partial class ShellPage : PageBase
     /// 带参数跳工具页。
     /// <paramref name="viaList"/> = false 时**不铺工具列表**：返回一次就回到来的那一页 ——
     /// 软件详情页点「校验」去哈希工具，用户心理是"看一眼再回来"，不该先退到工具列表。
-    /// 两种走法都把导航高亮切到「内置工具」（人确实在工具区里）。
+    /// 导航高亮钉到**这一页自己的子项**上（反查 ToolCatalog，见 TagForPage 的注释）——
+    /// 竖线跟着页面走，而不是停在「内置工具」父项上。
     /// </summary>
     public void NavigateToTool(Type pageType, object? parameter, bool viaList = true)
     {
-        SelectTag("tools");
+        SelectTag(TagForPage(pageType) ?? "tools");
         if (viaList && ContentFrame.CurrentSourcePageType != typeof(ToolsPage))
             ContentFrame.Navigate(typeof(ToolsPage));
         ContentFrame.Navigate(pageType, parameter);
@@ -424,6 +569,12 @@ public sealed partial class ShellPage : PageBase
     {
         SelectTag("feedback");
         ContentFrame.Navigate(typeof(FeedbackFormPage), kind);
+    }
+
+    /// <summary>设置页「关于」里的法律条款入口：打开条款页并定位到指定文档（agreement/privacy/disclaimer）。</summary>
+    public void NavigateToLegal(string key)
+    {
+        ContentFrame.Navigate(typeof(LegalPage), key);
     }
 
     /// <summary>只切页面，不动导航高亮（软件下载页内部按分类切换时用）。</summary>
@@ -448,6 +599,17 @@ public sealed partial class ShellPage : PageBase
     private void NavigateTagCore(string tag)
     {
         CurrentTag = tag;   // 崩溃日志靠它记下"当时在哪一页"（见 App.OnUnhandledException）
+
+        // 内置工具子页：tag 就是 ToolCatalog 里的 Id（导航子项在 ShellPage.axaml 里 XAML 声明，
+        // 见该处长注释 —— 必须 XAML 声明，FA 2.4.1 才把选中竖线画到子项上）。
+        // 按 Id 反查拿页面类型，工具清单只有一份，不用给每个工具单独写 case。
+        var toolDef = Data.ToolCatalog.All.FirstOrDefault(t => t.Id == tag);
+        if (toolDef?.Page is not null)
+        {
+            ContentFrame.Navigate(toolDef.Page);
+            return;
+        }
+
         switch (tag)
         {
             case "submit":
@@ -487,6 +649,10 @@ public sealed partial class ShellPage : PageBase
             case "settings":
                 ContentFrame.Navigate(typeof(SettingsPage));
                 return;
+            case "log-viewer":
+                // 设置 → 诊断 → 日志查看（原版 2026-10-02 起是设置里的正式入口，不出现在导航栏）。
+                ContentFrame.Navigate(typeof(LogViewerPage));
+                return;
             case "sidebar":
                 ContentFrame.Navigate(typeof(SidebarLayoutPage));
                 return;
@@ -515,11 +681,7 @@ public sealed partial class ShellPage : PageBase
     {
         try
         {
-            var dir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ClassSoftwareHub");
-            Directory.CreateDirectory(dir);
-            File.AppendAllText(Path.Combine(dir, "crash.log"),
-                $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] 导航到「{tag}」失败: {ex}{Environment.NewLine}");
+            Core.AppLog.Error("crash", $"导航到「{tag}」失败: {ex}");
         }
         catch
         {
@@ -558,6 +720,26 @@ public sealed partial class ShellPage : PageBase
 
                 top.IsExpanded = true;
                 Nav.SelectedItem = child;
+                // ⚠️ 2026-10-07：「内置工具」这一组的子项是**代码动态添加**的。FA 在分组尚未 realize 时
+                //    拿到子项的 SelectedItem，会认不到这个子项、把选中**退回父项** ——
+                //    现象就是进「随机抽号」时竖线压在「内置工具」上（实测；XAML 声明的「实验性功能」子项无此问题）。
+                //    对策：等这一轮布局把分组撑开、子项容器真的存在之后，再补设一次。
+                top.IsExpanded = true;
+                var parent = top;
+                var target = child;
+                Dispatcher.UIThread.Post(() =>
+                {
+                    try
+                    {
+                        parent.IsExpanded = true;
+                        if (!ReferenceEquals(Nav.SelectedItem, target))
+                        {
+                            Nav.SelectedItem = null;      // 先清空，逼 FA 重新定位指示条
+                            Nav.SelectedItem = target;
+                        }
+                    }
+                    catch { }
+                }, DispatcherPriority.Background);
                 return;
             }
         }
@@ -592,12 +774,26 @@ public sealed partial class ShellPage : PageBase
         => Nav.MenuItems.OfType<NavigationViewItem>()
               .Concat(Nav.FooterMenuItems.OfType<NavigationViewItem>());
 
+    /// <summary>上一次从导航栏派发下来的 <c>ItemInvoked</c>（tag + 时刻），用于丢弃 FA 的重复派发。</summary>
+    private string _lastInvokedTag = "";
+    private long _lastInvokedAt;
+
     private void Nav_ItemInvoked(object? sender, NavigationViewItemInvokedEventArgs args)
     {
         if (args.InvokedItemContainer is not NavigationViewItem item) return;
 
         // ⚠️ 没有 Tag 的项不导航（防止 `?? "home"` 那种兜底把"点分组"变成"跳回首页"）。
         if (item.Tag is not string tag || tag.Length == 0) return;
+
+        // ⚠️ 2026-10-06：FluentAvalonia 2.4.1 的 NavigationView 对**展开分组里的子项**
+        //    （如「内置工具 → 图片取色」）会把 ItemInvoked 派发**两次**（间隔 6~60ms、tag 完全相同）。
+        //    后果：同一页被构建两遍、切页淡入也播两遍（用户反馈「页面加载动画会显示两遍」）。
+        //    这里把紧接着的重复派发丢掉。顶层项只派发一次，不受影响。
+        var now = Environment.TickCount64;
+        if (tag == _lastInvokedTag && now - _lastInvokedAt < 350)
+            return;
+        _lastInvokedTag = tag;
+        _lastInvokedAt = now;
 
         // ⚠️ 走 NavigateTo 而不是 NavigateTag：点顶层项时 NavigationView 本来也会自己改高亮，
         //    但**子项的高亮它靠不住**（「实验性功能 → 本机核实」这种嵌套项，选中态经常不跟着走）。

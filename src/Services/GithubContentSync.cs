@@ -69,7 +69,7 @@ public static class GithubContentSync
             Timeout = TimeSpan.FromSeconds(30),
         };
         // GitHub 接口要求带 User-Agent，不然直接 403
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("ClassSoftwareHub/1.2 content-sync");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd($"ClassSoftwareHub/{ShellConfig.ShellVersion} content-sync");
         client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
         return client;
     }

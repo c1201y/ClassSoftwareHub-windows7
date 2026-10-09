@@ -34,8 +34,11 @@ public static class ShellConfig
     /// </summary>
     // 2026-10-04：1.1.0-insider1.2 → **首个正式版 1.0.0**（按上面那套流程删掉 -insider 后缀；
     // 同时把基数从「预览线跑到的 1.1.0」落回干净的首发 1.0.0）。
+    // 2026-10-06：**1.0.0 → 1.1.0**（对齐 WinUI 桌面版 1.1 正式版，把 1.1 相对 1.0 新增的功能
+    // 全数补进本版：日志查看 / 回声洞 / 联系方式本地加密 / 全屏秒表与全屏计时 / 到点铃声 /
+    // 安装包管理等；基数按"叠加一块新功能涨一位"的规则抬到功能位）。
     // 客户端据此判定 IsInsider=false → 走 stable 通道，只认非预发布的 Release。
-    public const string ShellVersion = "1.0.0";
+    public const string ShellVersion = "1.1.0";
 
     /// <summary>当前是不是预览（内测）构建 —— 版本号里带 <c>insider</c> 即为真。</summary>
     public static bool IsInsider =>
@@ -91,8 +94,23 @@ public static class ShellConfig
     /// </summary>
     public static string DefaultUpdateChannel => IsInsider ? "insider" : "stable";
 
-    /// <summary>与站点 v2.3.3 对齐的适配版本号（内容包里读不到 app.version 时的兜底）。</summary>
-    public const string SiteVersionTarget = "v2.3.3";
+    /// <summary>与站点 v2.3.4 对齐的适配版本号（短号，传给网页做核对用的那个值）。</summary>
+    public const string SiteVersionTarget = "v2.3.4";
+
+    /// <summary>
+    /// 设置页「站点版本」那一行显示的全文。
+    ///
+    /// ⛔⛔ **不要再改回去读内容包的 <c>text/ui.json → app.version</c>**（2026-10-04 踩实了）：
+    ///   内容包里除了 <c>软件数据/apps/*.json</c>，其它文件（<c>text/</c>、<c>manifest.json</c>）**都不联网更新** ——
+    ///   <see cref="Services.GithubContentSync"/> 只拉「软件数据/」，而 <c>SeedMissingFiles</c> 又只在文件**缺失**时才从安装包补
+    ///   （<c>overwrite: false</c>）。于是装机那一刻写进缓存的那份文案就**冻结**了：
+    ///   该字段一直停在装机时那版（实测老机器上读到的是 2.3.2），怎么升级客户端都不会变，
+    ///   用户就会看到「客户端 1.6 / 站点版本 2.3.2」这种自相矛盾的搭配。
+    ///
+    /// 站点的真实版本只有客户端自己知道（发版时人工对齐），所以这里以**编译进程序的常量**为准，
+    /// 每次发版跟着 <see cref="SiteVersionTarget"/> 一起改。
+    /// </summary>
+    public const string SiteVersionDisplay = "v2.3.4 - Tangram (20260927PR01)";
 
     public const string WebView2DownloadUrl = "https://developer.microsoft.com/microsoft-edge/webview2/";
 
@@ -132,6 +150,61 @@ public static class ShellConfig
 
     /// <summary>仓库里软件数据所在目录（子目录 apps/ 一个软件一个 json，根上还有 categories.json）。</summary>
     public const string SiteRepoDataDir = "软件数据";
+
+    // ════════════════════════════════════════════════════════════════
+    // 自建提交服务 —— 「提交软件」与「回声洞投稿」共用
+    // ════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// 提交服务入口（自建 Worker <c>classhub</c>，令牌在服务端，客户端只发内容）。
+    /// 提交软件走 <c>{入口}/api/submit</c>；回声洞投稿走 <c>{入口}/api/echocave</c>；
+    /// 反馈中心走 <c>{入口}/api/feedback</c>（见 <see cref="Services.FeedbackSubmit"/>）。
+    /// 两个域名指向同一套服务，按顺序试；成功的那个记进 <see cref="SubmitEndpointFile"/>。
+    /// </summary>
+    public static readonly string[] SubmitEndpoints =
+    {
+        "https://cshapi.132614.xyz",
+        "https://submit.132614.xyz",
+    };
+
+    /// <summary>「上次可用的提交入口」记忆文件（与提交软件共用同一个）。</summary>
+    public const string SubmitEndpointFile = "submit-endpoint.txt";
+
+    /// <summary>提交请求超时（毫秒）。</summary>
+    public const int SubmitTimeoutMs = 10000;
+
+    /// <summary>提交入口的完整地址（按"上次成功优先"排好序）。</summary>
+    public static System.Collections.Generic.List<string> OrderedSubmitEndpoints()
+    {
+        var list = new System.Collections.Generic.List<string>();
+        try
+        {
+            var file = System.IO.Path.Combine(AppPaths.DataDir, SubmitEndpointFile);
+            if (System.IO.File.Exists(file))
+            {
+                var remembered = System.IO.File.ReadAllText(file).Trim();
+                if (System.Array.IndexOf(SubmitEndpoints, remembered) >= 0) list.Add(remembered);
+            }
+        }
+        catch { /* 读不到就用默认顺序 */ }
+
+        foreach (var endpoint in SubmitEndpoints)
+            if (!list.Contains(endpoint)) list.Add(endpoint);
+
+        return list;
+    }
+
+    /// <summary>记下这次成功的入口，下次先试它。</summary>
+    public static void RememberSubmitEndpoint(string baseUrl)
+    {
+        try
+        {
+            System.IO.Directory.CreateDirectory(AppPaths.DataDir);
+            System.IO.File.WriteAllText(
+                System.IO.Path.Combine(AppPaths.DataDir, SubmitEndpointFile), baseUrl);
+        }
+        catch { /* 记不住不影响功能 */ }
+    }
 
     /// <summary>
     /// 正式来源：站点上的内容清单（route 2 的产物，跟站点一起发布）。

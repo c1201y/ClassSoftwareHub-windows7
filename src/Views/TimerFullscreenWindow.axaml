@@ -1,0 +1,56 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:fa="using:FluentAvalonia.UI.Controls"
+        x:Class="ClassSoftwareHub.Desktop.Views.TimerFullscreenWindow"
+        SystemDecorations="None" ShowInTaskbar="False" CanResize="False"
+        Background="#FF101418">
+
+    <!--
+      全屏倒计时：铺满屏幕，把源计时器的剩余时间显示出来。
+      它是**只读投影** —— 时间由打开它的那个控件提供（浮窗版课堂计时），全屏窗口自己不含计时状态。
+      结构照全屏秒表：大字 + 状态行 + 进度条 + 自动淡出的退出入口。
+
+      ⚠️ 移植说明（Win7 / Avalonia）：
+        · 原版 Window 无 Background（WinUI 默认），这里把窗口底色取成与 Grid 同色，
+          无边框全屏时不会在边缘露出系统底色。
+        · ⚠️ 原版 ProgressBar 有 CornerRadius="3"（WinUI 专属）；Avalonia 的 ProgressBar（RangeBase）
+          **没有圆角属性**，只能去掉（6px 高的细条，视觉差异可忽略）——
+          与 Views/Palette/MiniTimer.axaml 的既有处理一致。
+        · FontIcon 走 FluentAvaloniaUI（fa: 前缀，与 ClockFullscreenWindow 一致）。
+        · ToolTipService.ToolTip → ToolTip.Tip。
+    -->
+    <Grid x:Name="Root" IsTabStop="True" KeyDown="Root_KeyDown" DoubleTapped="Root_DoubleTapped"
+          Background="#FF101418">
+        <!-- 背景层：「使用全屏时钟背景设置」开着时由 ClockBackdrop 铺成时钟那套外观（默认整层隐藏） -->
+        <Image x:Name="BgImage" Stretch="UniformToFill" IsHitTestVisible="False" IsVisible="False" />
+        <Border x:Name="BgVeil" IsHitTestVisible="False" />
+
+        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="18">
+            <TextBlock x:Name="TimeText" Text="00:00" FontSize="300" FontWeight="Bold"
+                       FontFamily="Bahnschrift" Foreground="#FFF2F4F7" HorizontalAlignment="Center" />
+            <!-- 进度条：剩余时间的直觉读法（满 → 空） -->
+            <!-- TODO(win7): 原版 CornerRadius="3" 在 Avalonia 的 ProgressBar 上不存在（模板自带圆角），已去掉 -->
+            <ProgressBar x:Name="Bar" Width="620" Minimum="0" Maximum="100" Value="100"
+                         Height="6"
+                         Foreground="#80FFFFFF" Background="#22FFFFFF" />
+            <TextBlock x:Name="StateText" FontSize="34" Opacity="0.75" HorizontalAlignment="Center"
+                       Foreground="#FFF2F4F7" Text="未开始" />
+        </StackPanel>
+
+        <!-- 退出入口：跟全屏秒表/全屏时钟同一套（进来亮几秒后淡出，动一下再亮） -->
+        <Border x:Name="ExitBar" HorizontalAlignment="Right" VerticalAlignment="Top"
+                Margin="0,18,18,0" CornerRadius="8" Padding="16,6,8,6"
+                Opacity="0" IsHitTestVisible="False"
+                Background="#CC1A1A1A" BorderBrush="#40FFFFFF" BorderThickness="1">
+            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                <TextBlock Text="按 Esc、双击屏幕，或单击此处退出" FontSize="14"
+                           Foreground="#FFFFFFFF" VerticalAlignment="Center" />
+                <Button Click="Exit_Click" MinWidth="36" MinHeight="36" Padding="0"
+                        Background="Transparent" BorderThickness="0"
+                        ToolTip.Tip="退出全屏倒计时">
+                    <fa:FontIcon Glyph="&#xE711;" FontSize="14" Foreground="#FFFFFFFF" />
+                </Button>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

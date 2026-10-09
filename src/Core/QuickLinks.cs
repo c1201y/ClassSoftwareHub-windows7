@@ -38,12 +38,12 @@ public static class QuickLinks
             new()
             {
                 Name = "作者主页", Glyph = "\uE77B",
-                Url = ui.T("about.author-home-url", "https://space.bilibili.com/1274920807"),
+                Url = ui.T("about.author-home-url", "https://space.bilibili.com/3546609547741581"),
             },
             new()
             {
                 Name = "赞助作者", Glyph = "\uEB51", Accent = true,
-                Url = ui.T("about.reward-url", "https://ifdian.net/a/TinyNickCSHub"),
+                Url = ui.T("about.reward-url", "https://afdian.com/a/cyan1201"),
             },
             new()
             {

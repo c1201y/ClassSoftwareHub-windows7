@@ -3,26 +3,50 @@
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
-    xmlns:fa="using:FluentAvalonia.UI.Controls">
+    xmlns:fa="using:FluentAvalonia.UI.Controls"
+    xmlns:tools="using:ClassSoftwareHub.Desktop.Pages.Tools">
 
-    <!-- ═══ 2026-09-29 二次重排（Nick：「拖拽区占篇幅太大，把核心结果挤到下面」）═══
-         上一版按用途分了两条主线，方向是对的，但页内的**比例**没调好：
-           · 拖放区 112 高 + 单独一行按钮，光是"选文件"就吃掉小半屏；
-           · 哈希值被压到最下面，用户拖完文件还得往下找 —— 那才是他要的结果；
-           · 哈希值外面套了个灰底圆角框，看着像能编辑的输入框，实际只能复制。
-         这一版：
-           ① 选文件压成**一条横条**（图标 · 提示 · 文件名 · 按钮都在一行，62 高）；
-           ② 哈希值紧跟其后，成为页面下半部分的主体；
-           ③ 哈希行不再套框，改用**逐行分隔线**，一眼就是"只读的结果列表"；
-           ④ 核对结论放大加粗 —— 校验完最想看到的就是"一致 / 不一致"这五个字。
+    <!-- ═══ 2026-10-02 四次重排（Nick：「所有块都是方块包方块，像一张填满格子的 Excel」）═══
+         前三版一直在解决"拖拽区占篇幅""哈希值被挤到下面"这类比例问题，
+         但外壳一直没动过 —— 每个功能块都套一张手写 Border，四层叠下来又厚又平，没有层级。
+
+         这一版按"能少一层就少一层"重排：
+           ① 「用途」从两张并排大卡降级为**一行原生 RadioButton**（两个选项照样都看得见）；
+           ② 拖拽区从"描边卡片"改成**淡色底、不描边**的扁平块，只保留一条提示语；
+           ③ 核对行去掉卡片外壳，标签交给 TextBox 自带的 Header；
+           ④ 四条哈希值改用 **ListView 承载**（App.axaml 的 CshResultRowStyle 等价物）：
+              每行自带系统悬停底色，最外面那张大卡片整个删掉 —— 只读结果不该长得像能编辑的表格。
+         仅"输入文本 / 输出结果"两块仍保留卡片：它们确实是两个互不相干的模块。
 
          ⚠️ 移植说明：
            · 根节点 Page → platform:PageBase；
-           · CshModeCardStyle 在 Avalonia 里是 ControlTheme，用法是 Theme="…"（不是 Style="…"）；
-           · ThemeResource → DynamicResource；AccentButtonStyle 等样式键 → DynamicResource；
+           · ThemeResource → DynamicResource；Visibility → IsVisible；
            · Grid.ColumnSpacing / RowSpacing → 子元素 Margin 模拟（间距值照搬）；
-           · Visibility="Collapsed" → IsVisible="False"。 -->
-    <Grid Margin="24,14,24,20">
+           · TextBox.Header（WinUI 才有）→ Avalonia 的 TextBox 没有 Header，外包一层「小字标题 + TextBox」；
+           · ListView.ItemContainerStyle="{StaticResource CshResultRowStyle}" →
+             改给 ListView 打 Classes="cshResultRows"（App.axaml 里的 Class 选择器等价物，见其注释）；
+           · x:Bind → {Binding}（反射绑定，DataTemplate 不加 x:DataType）；
+           · 原版 GridView 禁用滚动那套（ScrollViewer.VerticalScrollBarVisibility）照搬到 ListView。 -->
+    <!--
+      ⚠️ 移植说明：上游在这里放了一个 `x:Key="HashRowTemplate"` 的 DataTemplate（ListView.ItemTemplate 用，
+      行里带一个 Click="CopyHashRow_Click" 的复制键）。本移植版**不用它**，两个原因：
+        ① Avalonia 无 ListView（只有 ListBox），且 **ResourceDictionary 里的 DataTemplate 不参与事件
+           绑定解析** —— `Click="某某_Click"` 会被当成普通字符串属性值直接编译失败；
+        ② 本仓库既有的做法是代码后置建行（见 EncodingToolPage.axaml.cs 的 BuildHashRows），
+           值的刷新靠持有的控件字典，不必引入 HashRow + ObservableCollection 那一套。
+      视觉与交互与上游一致：容器是 ListBox + Classes="cshResultRows"（App.axaml 的等价样式），
+      行容器 ListBoxItem 自带系统悬停底色 / 圆角 / 键盘导航。
+    -->
+
+    <!-- 三列钉宽：内容钉在中间、两侧吸收余量（上游工具页加的内容列，上游值 1008；
+         这里取本移植版全站通用的 960 内容列宽，与设置页 / 软件下载页同一套）。 -->
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="1*" />
+            <ColumnDefinition Width="998*" MaxWidth="960" />
+            <ColumnDefinition Width="1*" />
+        </Grid.ColumnDefinitions>
+    <Grid Grid.Column="1" Margin="24,14,24,20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -31,89 +55,37 @@
         </Grid.RowDefinitions>
 
         <StackPanel Spacing="2">
-            <TextBlock Text="编码 / 哈希工具" FontSize="24" FontWeight="Bold" />
-            <TextBlock FontSize="12.5" Opacity="0.6" TextWrapping="Wrap"
+            <TextBlock Text="编码 / 哈希工具" FontSize="28" FontWeight="Bold" />
+            <TextBlock FontSize="12" Opacity="0.6" TextWrapping="Wrap"
                        Text="校验文件：拖入文件即得四种哈希值，粘贴官方提供的哈希值会立即给出核对结论。也可对文本做 Base64 / URL 编解码。全部在本机完成。" />
         </StackPanel>
 
-        <!-- ═══ 2026-09-29 三次调整：两个用途从「细页签」升格成「两张卡片」═══
-             原来是 SelectorBar 页签，夹在标题和内容之间 —— 从没看过说明的人只会看见
-             "文件校验"四个字，不知道点它还能切到文本编解码。现在两张卡并排，
-             未选中的那张上也写着"文本也能编解码"，一眼就知道还有另一条路。 -->
-        <!-- ColumnSpacing="12" → 第 1/2 列 Margin -->
-        <Grid Grid.Row="1" Margin="0,10,0,0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="76" />
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="*" />
-            </Grid.ColumnDefinitions>
-            <TextBlock Text="用途" FontSize="12.5" Opacity="0.6" VerticalAlignment="Center"
-                       HorizontalAlignment="Right" Margin="0,0,12,0" />
-
-            <RadioButton x:Name="FileTab" Grid.Column="1" Margin="12,0,0,0" GroupName="EncMode"
-                         Theme="{StaticResource CshModeCardStyle}"
-                         AutomationProperties.Name="校验文件"
-                         Checked="Mode_Changed">
-                <!-- ColumnSpacing="14" → 第 1 列 Margin -->
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-                    <Border Width="46" Height="46" CornerRadius="9" BorderThickness="1"
-                            VerticalAlignment="Center"
-                            Background="{DynamicResource ControlFillColorSecondaryBrush}"
-                            BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
-                        <TextBlock Text="文件" FontSize="13" FontWeight="Bold"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Border>
-                    <StackPanel Grid.Column="1" Margin="14,0,0,0" Spacing="2" VerticalAlignment="Center">
-                        <TextBlock Text="校验文件" FontSize="15" FontWeight="Bold" />
-                        <TextBlock Text="拖入文件即得 MD5 / SHA-1 / SHA-256 / SHA-512，粘贴官方值会自动给结论。"
-                                   FontSize="12" Opacity="0.65" TextWrapping="Wrap" />
-                    </StackPanel>
-                </Grid>
-            </RadioButton>
-
-            <RadioButton x:Name="TextTab" Grid.Column="2" Margin="12,0,0,0" GroupName="EncMode"
-                         Theme="{StaticResource CshModeCardStyle}"
-                         AutomationProperties.Name="文本编解码"
-                         Checked="Mode_Changed">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-                    <Border Width="46" Height="46" CornerRadius="9" BorderThickness="1"
-                            VerticalAlignment="Center"
-                            Background="{DynamicResource ControlFillColorSecondaryBrush}"
-                            BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
-                        <TextBlock Text="文本" FontSize="13" FontWeight="Bold"
-                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Border>
-                    <StackPanel Grid.Column="1" Margin="14,0,0,0" Spacing="2" VerticalAlignment="Center">
-                        <TextBlock Text="文本编解码" FontSize="15" FontWeight="Bold" />
-                        <TextBlock Text="Base64 / URL 编码与解码，并实时计算这段文本的哈希值。"
-                                   FontSize="12" Opacity="0.65" TextWrapping="Wrap" />
-                    </StackPanel>
-                </Grid>
-            </RadioButton>
-        </Grid>
+        <!-- ═══ 2026-10-02：两个用途从「两张卡片」降级为**一行原生单选** ═══
+             前三版用两张并排大卡，一眼看到还有另一条路是对的，但两块卡片占了整整一屏高。
+             原生 RadioButton 也照样两个选项都看得见，只是不再抢内容的高度。
+             ⚠️ MinWidth 必须清零（RadioButton 默认 120）；IsChecked 一律在代码里赋初值。 -->
+        <StackPanel Grid.Row="1" Margin="0,10,0,0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+            <TextBlock Text="用途" FontSize="12" Opacity="0.6" VerticalAlignment="Center" Margin="0,0,2,0" />
+            <RadioButton x:Name="FileTab" GroupName="EncMode" Content="校验文件" MinWidth="0"
+                         AutomationProperties.Name="校验文件" Checked="Mode_Changed" />
+            <RadioButton x:Name="TextTab" GroupName="EncMode" Content="文本编解码" MinWidth="0"
+                         AutomationProperties.Name="文本编解码" Checked="Mode_Changed" />
+        </StackPanel>
 
         <Grid Grid.Row="2" Margin="0,10,0,0">
             <!-- ══════════ 文件校验 ══════════ -->
             <ScrollViewer x:Name="FileView" VerticalScrollBarVisibility="Auto">
-                <!-- StackPanel Spacing="12" → 除第一个子元素外逐个加顶 Margin -->
-                <StackPanel>
+                <!-- ⛔ 底部 Margin 是保险栓：外层 Grid 的 Padding 底部在滚动区**之外**，
+                     实测滚到底最后一项仍会贴住窗口底边。留白必须写在滚动区**里**才可靠。 -->
+                <StackPanel Margin="0,0,0,20">
 
                     <!-- 从软件详情页的「校验」键跳进来时才有：说明校验值是从哪来的 -->
-                    <TextBlock x:Name="FromAppHint" IsVisible="False" FontSize="12.5"
+                    <TextBlock x:Name="FromAppHint" IsVisible="False" FontSize="12"
                                TextWrapping="Wrap" Opacity="0.85" />
 
-                    <!-- ① 选文件：一条横条，整条都能拖、能点 ——
-                         少一层"我到底该点哪个按钮"的犹豫，也把纵向空间还给下面的结果。 -->
-                    <Border x:Name="DropZone" Margin="0,12,0,0" Padding="14,12,14,12" CornerRadius="10" BorderThickness="1.5"
-                            BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                    <!-- ① 选文件：一条扁平横条，整条都能拖、能点 ——
+                         只铺一层淡底、不描边，不再是"又一张卡片"。 -->
+                    <Border x:Name="DropZone" Margin="0,10,0,0" Padding="14,12,14,12" CornerRadius="4" BorderThickness="0"
                             Background="{DynamicResource ControlFillColorDefaultBrush}"
                             DragDrop.AllowDrop="True" Tapped="DropZone_Tapped"
                             DragDrop.DragOver="File_DragOver" DragDrop.DragLeave="File_DragLeave" DragDrop.Drop="File_Drop">
@@ -176,8 +148,17 @@
                             Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                         <StackPanel Spacing="2">
                             <TextBlock Text="文件哈希值" FontSize="13" FontWeight="Bold" Margin="0,0,0,2" />
-                            <!-- 四行由 BuildHashRows 铺出来：算法名 · 值 · 复制，行与行之间一条分隔线 -->
-                            <StackPanel x:Name="HashPanel" Spacing="0" />
+                            <!-- 四行由 BuildHashRows 铺出来：算法名 · 值 · 复制。
+                                 ⚠️ 移植：上游 dv1.1.0 把这块从"手画分隔线的表格"换成 ListView +
+                                 ItemContainerStyle（= App.xaml 的 CshResultRowStyle），让每行自带系统
+                                 悬停底色与圆角。Avalonia 无 ListView → 用 ListBox（等价物，行容器是
+                                 ListBoxItem，悬停/圆角/键盘导航一样由系统提供），样式走 App.axaml 的
+                                 `ListBox.cshResultRows` 选择器 + Classes="cshResultRows"。
+                                 ⛔ SelectionMode=None（只读结果，不参与选中）+ 禁自身滚动条
+                                    （它待在外层 ScrollViewer 里，不禁会出现内外两层滚动条）。 -->
+                            <ListBox x:Name="HashPanel" Classes="cshResultRows" SelectionMode="Single"
+                                     Background="Transparent" BorderThickness="0" Padding="0" Margin="0,4,0,0"
+                                     ScrollViewer.VerticalScrollBarVisibility="Disabled" />
                         </StackPanel>
                     </Border>
                 </StackPanel>
@@ -270,7 +251,9 @@
                             <TextBlock Text="这段文本的哈希值" FontSize="13" FontWeight="Bold" />
                             <TextBlock FontSize="12" Opacity="0.6" TextWrapping="Wrap"
                                        Text="随上方输入框的内容实时计算，无需单击任何按钮。" Margin="0,0,0,2" />
-                            <StackPanel x:Name="TextHashPanel" Spacing="0" />
+                            <ListBox x:Name="TextHashPanel" Classes="cshResultRows" SelectionMode="Single"
+                                     Background="Transparent" BorderThickness="0" Padding="0" Margin="0,4,0,0"
+                                     ScrollViewer.VerticalScrollBarVisibility="Disabled" />
                         </StackPanel>
                     </Border>
                 </StackPanel>
@@ -278,5 +261,6 @@
         </Grid>
 
         <TextBlock x:Name="Toast" Grid.Row="3" Margin="0,10,0,0" FontSize="12" Opacity="0.75" />
+    </Grid>
     </Grid>
 </platform:PageBase>

@@ -1,0 +1,38 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="ClassSoftwareHub.Desktop.Views.MessageWindow"
+        Title="桌面留言"
+        SystemDecorations="None" CanResize="False" ShowInTaskbar="False" Topmost="True"
+        TransparencyLevelHint="None"
+        Background="Transparent"
+        KeyDown="Window_KeyDown" DoubleTapped="Window_DoubleTapped">
+
+    <!--
+      桌面留言悬浮窗：把用户写好的那句话**钉在桌面上**（默认置顶，可拖动位置）。
+
+      ⚠️ 移植说明（WinUI → Avalonia）：
+        · 原版走 AppWindow + OverlappedPresenter(IsAlwaysOnTop) 那一套；Avalonia 里对应
+          SystemDecorations=None + Topmost=true + ShowInTaskbar=false（Windows 上自动带 WS_EX_TOOLWINDOW，
+          所以它不进任务栏也不进 Alt+Tab，跟贴图/侧边栏一致）；
+        · 圆角：Win11 走 DWM，Win7/10 走 Core.RoundedCorners 的 SetWindowRgn 裁剪
+          —— 只在"不透明"时才裁（透明窗口自己那圈圆角由 Border 的 CornerRadius 出，裁了反而会被切掉）；
+        · 关闭按钮走 App.axaml 里那套 Classes="caption close"（矢量 Path，不用图标字体）。
+
+      ⛔ 别给 Panel 写死 Padding/CornerRadius 的初值又想让代码改它 —— 一律在 code-behind 里按
+         「字号 / 是否透明」算完再赋值，XAML 里只留结构。
+    -->
+    <Grid x:Name="Root" Background="Transparent">
+        <Border x:Name="Panel" CornerRadius="10" BorderThickness="1">
+            <TextBlock x:Name="Body" TextWrapping="Wrap" TextAlignment="Center"
+                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Border>
+
+        <!-- 悬停才露头的小关闭键（平时 IsVisible=False，连命中测试都不参与，不挡拖动） -->
+        <Button x:Name="CloseButton" Classes="caption close"
+                HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,2,2,0"
+                IsVisible="False" Click="Close_Click"
+                ToolTip.Tip="关闭留言悬浮窗">
+            <Path x:Name="CloseGlyph" Data="M0.5,0.5 L9.5,9.5 M9.5,0.5 L0.5,9.5" />
+        </Button>
+    </Grid>
+</Window>

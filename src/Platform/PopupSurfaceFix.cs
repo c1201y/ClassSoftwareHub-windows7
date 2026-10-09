@@ -47,7 +47,8 @@ namespace ClassSoftwareHub.Desktop.Platform;
 ///
 /// <para>
 /// ⚠️ 只在「弹窗做不了逐像素透明」的环境下动手（见 <see cref="PopupIsOpaque"/>）。
-/// Win11 / 开了 Aero 的机器上弹窗本来就是真透明，什么都不用做 —— 保持原样最好。
+/// Win8/10/11 上弹窗本来就是真透明，什么都不用做 —— 保持原样最好。
+/// <b>Win7 就算开了 Aero 也算"做不了"</b>（2026-10-08 实机：深色弹层四角露白，见该处注释）。
 /// </para>
 /// </summary>
 internal static class PopupSurfaceFix
@@ -84,8 +85,13 @@ internal static class PopupSurfaceFix
     /// ⚠️ <c>SimulateWin7</c> 时强制按"不能"处理：教室机是否关掉了 Aero 我们在开发机上
     ///    判断不了，而这条兜底路径正是要在开发机上验证的东西。模拟模式下让它走一边，
     ///    就能用 <c>--simulate-win7</c> 实测（见 PORTING 说明里的排障开关约定）。
+    /// ⚠️ 2026-10-08（Nick 截图）：<b>Win7 就算开了 Aero 也按"不能"处理</b>（<see cref="OsInfo.IsWindows7"/>
+    ///    已含模拟）。旧判定只看「DWM 合成开没开」，Win7+Aero 会被放行 —— 但 Avalonia 的
+    ///    逐像素透明弹窗在 Win7 上并不成立（Transparent 提示落不到实处，PopupRoot 还是不透明白底），
+    ///    于是深色弹层四角照样露白色四分之一圆；关了 Aero 反而会走进这条兜底、什么都能对上。
+    ///    Win8/10/11 的 DWM 弹窗才是真透明，维持"不动它"。
     /// </remarks>
-    private static bool PopupIsOpaque => OsInfo.SimulateWin7 || !OsInfo.IsDwmCompositionEnabled;
+    private static bool PopupIsOpaque => OsInfo.IsWindows7 || !OsInfo.IsDwmCompositionEnabled;
 
     /// <summary>在 <c>App.OnFrameworkInitializationCompleted</c> 里调一次。</summary>
     public static void Install()

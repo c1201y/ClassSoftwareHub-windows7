@@ -316,6 +316,21 @@ internal static class NativeMethodsEx
         public IntPtr lppos;
     }
 
+    // ── 窗口子类化（Core/WindowChrome 给自绘浮窗补装 WM_NCCALCSIZE 用）──────
+    //  最低 WinXP（comctl32 v6）。SetWindowSubclass 是在**既有 WndProc 之上**再叠一层，
+    //  DefSubclassProc 把消息转发给下一环 —— 与框架自己的消息处理天然并存，
+    //  不像 SetWindowLong 替换 WndProc 那样要自己保存/还原旧指针。
+    //  ⚠️ 必须在**拥有该窗口的线程**上调用。
+
+    internal delegate IntPtr SubclassProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam,
+        uint uIdSubclass, IntPtr dwRefData);
+
+    [DllImport("comctl32.dll", SetLastError = true)]
+    internal static extern bool SetWindowSubclass(IntPtr hWnd, SubclassProc pfnSubclass, uint uIdSubclass, IntPtr dwRefData);
+
+    [DllImport("comctl32.dll")]
+    internal static extern IntPtr DefSubclassProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam);
+
     // ══════════════════════════════════════════════════════════════════
     //  非客户区绘制的抑制（2026-10-02）
     //

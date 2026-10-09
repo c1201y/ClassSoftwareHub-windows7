@@ -45,5 +45,11 @@ internal static class NativeMethodsUtil
     internal static extern uint GetDpiForWindow(IntPtr hwnd);
 
     /// <summary>最低 Win2000。SetWindowPos 的「不许动 Z 序」（贴纸窗改大小/挪位时别把自己压到底下去）。</summary>
+    internal const uint SWP_NOSIZE = 0x0001;
+    internal const uint SWP_NOMOVE = 0x0002;
     internal const uint SWP_NOZORDER = 0x0004;
+    internal const uint SWP_NOACTIVATE = 0x0010;
+
+    /// <summary>SetWindowPos 的 hWndInsertAfter：把窗口放到最上层（Z 序，不影响激活）。</summary>
+    internal static readonly IntPtr HWND_TOPMOST = new(-1);
 }

@@ -40,8 +40,8 @@
     <NoWarn>$(NoWarn);CA1416</NoWarn>
 
     <!-- 版本号与主程序保持一致（Core/ShellConfig.cs 的 ShellVersion 是唯一来源，这里只是元数据） -->
-    <Version>1.0.0</Version>
-    <InformationalVersion>1.0.0</InformationalVersion>
+    <Version>1.1.0</Version>
+    <InformationalVersion>1.1.0</InformationalVersion>
 
     <!-- ── 发布形状：自包含 + 裁剪 + 单文件 + 压缩 ── -->
     <SelfContained>true</SelfContained>

@@ -46,7 +46,7 @@
                             <!-- x:DataType 模板在反射绑定模式下不支持，去掉了 x:DataType（语义不变） -->
                             <Button Click="Row_Click" Tag="{Binding Url}"
                                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
-                                    Padding="16,12" CornerRadius="8" Margin="0,0,0,8"
+                                    Padding="16,12" CornerRadius="4" Margin="0,0,0,8"
                                     Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
                                     BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
                                     BorderThickness="1">

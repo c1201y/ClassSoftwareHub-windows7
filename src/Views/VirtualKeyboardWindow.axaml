@@ -3,6 +3,7 @@
         xmlns:fa="using:FluentAvalonia.UI.Controls"
         x:Class="ClassSoftwareHub.Desktop.Views.VirtualKeyboardWindow"
         SystemDecorations="None" ShowInTaskbar="False" CanResize="False"
+        Topmost="True"
         TransparencyLevelHint="None">
 
     <!--

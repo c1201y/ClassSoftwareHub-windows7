@@ -1,0 +1,44 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:fa="using:FluentAvalonia.UI.Controls"
+        x:Class="ClassSoftwareHub.Desktop.Views.MessageFullscreenWindow"
+        SystemDecorations="None" ShowInTaskbar="False" CanResize="False"
+        Background="#FF101418">
+
+    <!--
+      全屏留言：把留言铺满整块屏幕（投影 / 班会 / 考场提醒都吃这一套）。
+      结构与 ClockFullscreenWindow 一致：Esc、双击屏幕、右上角那颗按钮都能退出，
+      退出入口进来先亮几秒再淡出（触屏用户没有 Esc 键，得让他看见）。
+
+      ⚠️ 移植说明（WinUI → Avalonia）：
+        · 原版 Window 无 Background（WinUI 默认），这里把窗口底色取成与 Grid 同色，无边框全屏时边缘不露系统底色；
+        · 无边框全屏语义照 ClockFullscreenWindow：SystemDecorations=None + CanResize=False，
+          运行时再置 WindowState=FullScreen（见 .axaml.cs 的 Start）；
+        · 字号**由 code-behind 按屏幕尺寸与字数自适应**（见 Layout），所以 XAML 里不写字号。
+    -->
+    <Grid x:Name="Root" IsTabStop="True" KeyDown="Root_KeyDown" DoubleTapped="Root_DoubleTapped"
+          Background="#FF101418">
+        <TextBlock x:Name="Body" TextWrapping="Wrap" TextAlignment="Center"
+                   HorizontalAlignment="Center" VerticalAlignment="Center" Margin="40"
+                   Foreground="#FFF2F4F7" />
+
+        <!--
+          退出入口：跟全屏时钟一样，进来先亮几秒，之后淡出；鼠标一动 / 手指一碰再亮。
+          颜色故意写死（底下永远是深底，不跟主题走也不怕主题变）。
+        -->
+        <Border x:Name="ExitBar" HorizontalAlignment="Right" VerticalAlignment="Top"
+                Margin="0,18,18,0" CornerRadius="8" Padding="16,6,8,6"
+                Opacity="0" IsHitTestVisible="False"
+                Background="#CC1A1A1A" BorderBrush="#40FFFFFF" BorderThickness="1">
+            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                <TextBlock Text="按 Esc、双击屏幕，或单击此处退出" FontSize="14"
+                           Foreground="#FFFFFFFF" VerticalAlignment="Center" />
+                <Button Click="Exit_Click" MinWidth="36" MinHeight="36" Padding="0"
+                        Background="Transparent" BorderThickness="0"
+                        ToolTip.Tip="退出全屏留言">
+                    <fa:FontIcon Glyph="&#xE711;" FontSize="14" Foreground="#FFFFFFFF" />
+                </Button>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

@@ -155,12 +155,17 @@ public sealed partial class MiniTimer : UserControl
 
         _endAtMs = _remainMs;
         _blink.Stop();
+        Services.TimerAlarm.Stop();     // 重新开始：把还在响的铃掐掉
         _sw.Restart();
         _tick.Start();
         _running = true;
         UpdateDisplay();
         SyncInputs();
     }
+
+    /// <summary>全屏：把当前倒计时交给全屏窗口，跟着一起走（关闭全屏不影响这里的计时）。</summary>
+    private void Fullscreen_Click(object? sender, RoutedEventArgs e)
+        => Views.TimerFullscreenWindow.Show(() => _remainMs, () => _totalMs, () => _running);
 
     private void Reset_Click(object? sender, RoutedEventArgs e)
     {
@@ -170,6 +175,7 @@ public sealed partial class MiniTimer : UserControl
         _finished = false;
         _sw.Reset();
         _remainMs = _totalMs;
+        Services.TimerAlarm.Stop();     // 重置：把还在响的铃掐掉
         UpdateDisplay();
         SyncInputs();
     }
@@ -194,14 +200,9 @@ public sealed partial class MiniTimer : UserControl
         UpdateDisplay();
         SyncInputs();
         _blink.Start();
-        NativeMethodsUtil.Beep(880, 250);
-        Dispatcher.UIThread.Post(async () =>
-        {
-            await Task.Delay(350);
-            NativeMethodsUtil.Beep(880, 250);
-            await Task.Delay(350);
-            NativeMethodsUtil.Beep(880, 250);
-        });
+        // 铃声与「内置工具 → 课堂计时器」共用同一个来源（默认内嵌那段，也能自定义），
+        // 别再各响各的 —— 见 Services/TimerAlarm.cs（2026-10-04 原版起）。
+        Services.TimerAlarm.Play();
     }
 
     private void SyncInputs()

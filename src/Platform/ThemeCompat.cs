@@ -20,8 +20,9 @@ public static class ThemeCompat
     // ⚠️ 每个登记的根都要带**作用域**（2026-10-03 修，用户反馈「开启外部组件单独设置颜色」后
     //    主界面文字全变白看不清）：以前所有根共用一个 CurrentSetting() —— 开了分体后
     //    Notify() 会把**外部组件**的外观算给**所有**登记过的根，连主窗口的 RootGrid 也一起被
-    //    染成深色（背景还是浅色的玻璃 → 白底白字）。现在主窗口 / 音量浮窗登记为 main 作用域，
-    //    永远跟「颜色模式」走；侧边栏 / 工具面板 / 截图窗登记为 external，跟分体设置走。
+    //    染成深色（背景还是浅色的玻璃 → 白底白字）。现在主窗口登记为 main 作用域，
+    //    永远跟「颜色模式」走；侧边栏 / 工具面板 / 截图窗 / 音量·亮度·合成器浮窗登记为
+    //    external，跟分体设置走（音量等浮窗 2026-10-08 从 main 改归 external，Nick 定的口径）。
     private static readonly List<(WeakReference<StyledElement> Ref, bool Main)> Roots = new();
 
     /// <summary>设置里的主题（system | light | dark）映射成 Avalonia 的 ThemeVariant。</summary>
@@ -49,8 +50,9 @@ public static class ThemeCompat
     /// <summary>
     /// 把当前设置的主题应用到某个窗口/控件，并登记（之后改设置会一起变）。
     /// 对应原版 <c>ThemeHost.Apply(FrameworkElement root)</c>。
-    /// ⚠️ <paramref name="mainScope"/>：主窗口 / 音量·亮度·合成器这些小浮窗传 **true**
-    ///    （永远跟主界面的颜色模式走）；侧边栏 / 常用工具面板 / 截图窗不传（跟外部组件设置走）。
+    /// ⚠️ <paramref name="mainScope"/>：只有**主窗口**传 true（永远跟主界面的颜色模式走）。
+    ///    音量 / 亮度 / 合成器这些小浮窗 2026-10-08 起也归**外部组件**作用域（Nick：分体深色下
+    ///    它们得跟着变深）；侧边栏 / 常用工具面板 / 截图窗一直就是外部作用域。
     /// </summary>
     public static void Apply(StyledElement root, bool mainScope = false)
     {

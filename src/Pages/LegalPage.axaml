@@ -1,0 +1,53 @@
+<platform:PageBase
+    x:Class="ClassSoftwareHub.Desktop.Pages.LegalPage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:fa="using:FluentAvalonia.UI.Controls">
+
+    <!--
+      法律条款页（与网页端「关于 → 法律条款」一致）：用户协议 / 隐私政策 / 免责声明。
+      内容全部取自 Data/LegalDocs.cs（逐字移植自网页端 法律文本.ts，中英双语）。
+      设置页「关于 → 法律条款」的三个入口各自带 Tag（agreement / privacy / disclaimer），
+      经 ShellPage.NavigateToLegal(key) 跳进来，参数就是这份文档的 key。
+
+      版式沿用 ChangelogPage：最外层 ScrollViewer 统一滚动，内容钉在中间 960 宽。
+      右上角一个语言开关在中文 / English 之间切（两套文案都已在 LegalDocs 里备好）。
+      返回走 ShellPage 左上角的返回按钮（ContentFrame.GoBack）—— 与其他子页一致，不再单独画返回键。
+    -->
+
+    <ScrollViewer Padding="24,28,24,44" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel MaxWidth="960" HorizontalAlignment="Center" Spacing="8">
+
+            <ToggleSwitch x:Name="LangSwitch" OnContent="English" OffContent="中文"
+                          MinWidth="0" IsCheckedChanged="LangSwitch_Toggled" VerticalAlignment="Center" />
+
+            <StackPanel Spacing="4">
+                <TextBlock x:Name="DocTitle" FontSize="26" FontWeight="Bold" />
+                <TextBlock x:Name="DocMeta" FontSize="12" Opacity="0.7" />
+            </StackPanel>
+
+            <TextBlock x:Name="DocIntro" TextWrapping="Wrap" FontSize="13"
+                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+
+            <ItemsControl x:Name="SectionList" Margin="0,8,0,0">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Spacing="6" Margin="0,0,0,4">
+                            <TextBlock Text="{Binding Heading}" FontSize="16" FontWeight="SemiBold" />
+                            <ItemsControl ItemsSource="{Binding Items}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding}" TextWrapping="Wrap" FontSize="13" Margin="0,2,0,0"
+                                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+        </StackPanel>
+    </ScrollViewer>
+</platform:PageBase>

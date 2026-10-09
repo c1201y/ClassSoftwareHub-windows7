@@ -13,7 +13,7 @@ using ClassSoftwareHub.Desktop.Services;
 namespace ClassSoftwareHub.Desktop.Views;
 
 /// <summary>
-/// 常用工具窗口：里面塞四个简版工具（随机抽号 / 课堂计时 / 秒表计时 / 全屏时钟）。
+/// 常用工具窗口：里面塞五个简版工具（随机抽号 / 课堂计时 / 秒表计时 / 全屏时钟 / 桌面留言）。
 /// 不需要开主界面，从托盘就能点出来。
 ///
 /// <para>
@@ -67,6 +67,7 @@ public sealed partial class ToolPaletteWindow : Window
     private string _tool = "pick-number";
     private bool _shownOnce;
     private bool _visible;
+    private int _fadeEpoch;                              // 淡入/淡出的代次：淡出播完别回头把刚显示的窗藏掉
 
     /// <summary>构造期算好的背景偏好（等窗口显示后再交给 Backdrop.Apply）。</summary>
     private readonly string _backdropPrefer;
@@ -85,6 +86,40 @@ public sealed partial class ToolPaletteWindow : Window
         ApplySelection();
     }
 
+    /// <summary>
+    /// 标题栏那颗按钮：当前这个工具在主界面里的完整页面（全屏时钟没有页面，直接开全屏）。
+    /// ⚠️ 移植说明（WinUI → Avalonia）：
+    ///   · 元素主题判断 ElementTheme.Dark → Root.ActualThemeVariant == ThemeVariant.Dark；
+    ///   · 其余照搬（切页/收起浮窗、打开对应工具页）。
+    /// </summary>
+    private void OpenPage_Click(object? sender, RoutedEventArgs e)
+    {
+        switch (_tool)
+        {
+            case "timer":
+            case "stopwatch":
+                HidePalette();
+                App.MainWindow?.OpenToolSettings(typeof(Pages.Tools.TimerToolPage));
+                break;
+
+            case "clock":
+                HidePalette();   // 全屏前面不能挡着浮窗（照 MiniClock 全屏的做法）
+                try { ClockFullscreenWindow.Show(null, Root.ActualThemeVariant == ThemeVariant.Dark); } catch { }
+                break;
+
+            case "message":
+                // 留言的「完整页面」就是工具页（内容/底色/全屏倍数都在那儿调），照实打开
+                HidePalette();
+                App.MainWindow?.OpenToolSettings(typeof(Pages.Tools.MessageToolPage));
+                break;
+
+            default:             // 随机抽号
+                HidePalette();
+                App.MainWindow?.OpenToolSettings(typeof(Pages.Tools.PickNumberToolPage));
+                break;
+        }
+    }
+
     // ── 对外入口 ─────────────────────────────────────────────
 
     /// <summary>显示工具窗口；<paramref name="toolId"/> 非空就切到那个工具。</summary>
@@ -95,6 +130,19 @@ public sealed partial class ToolPaletteWindow : Window
     }
 
     public static void HidePalette() => _instance?.Collapse();
+
+    /// <summary>
+    /// 退出应用时**真正销毁**实例 —— 和平时"关掉=收起来"（<see cref="HidePalette"/>）是两回事。
+    /// ⛔ 为什么必须有：desktop.Shutdown() / Application.Exit() 会漏窗口，浮窗没被关掉就会把消息循环撑住、
+    ///    让进程留在任务管理器里（2026-10-04 实测，见 MainWindow.FinishExit 的注释）。
+    /// </summary>
+    public static void CloseForExit()
+    {
+        var w = _instance;
+        _instance = null;
+        try { w?.Close(); } catch { }
+        Core.AppLog.Info("exit", "浮窗实例已请求 Close");
+    }
 
     public static void TogglePalette()
     {
@@ -159,7 +207,21 @@ public sealed partial class ToolPaletteWindow : Window
             Debug.WriteLine("[toolwin] 初始化失败: " + ex.Message);
         }
 
-        Closing += (_, args) => { args.Cancel = true; HidePalette(); };   // 关掉 = 收起来，别真销毁
+        Core.AppLog.Info("exit", "浮窗实例已建");
+        Closed += (_, _) => Core.AppLog.Info("exit", "浮窗 Closed");
+
+        // 关掉 = 收起来，别真销毁。
+        // ⛔ 但**应用正在退出时必须放行**：desktop.Shutdown() 逐个关窗，撞上被取消的关闭会中止整条退出流程
+        //    → 只要本窗开着，托盘「退出」后进程就会赖在任务管理器里不走（2026-10-04 实测复现）。
+        //    App.IsExiting 由 MainWindow.ExitApp / 主窗真的关闭时置位。
+        Closing += (_, args) =>
+        {
+            Core.AppLog.Info("exit", $"浮窗 Closing: IsExiting={App.IsExiting}");
+            if (App.IsExiting) return;
+            args.Cancel = true;
+            Core.AppLog.Info("exit", "浮窗 Closing -> 取消（收起来）");
+            HidePalette();
+        };
     }
 
     /// <summary>
@@ -203,24 +265,30 @@ public sealed partial class ToolPaletteWindow : Window
     /// </summary>
     private System.Collections.Generic.IReadOnlyList<Rect> TitleBarInteractiveRegions()
     {
-        var list = new System.Collections.Generic.List<Rect>(1);
+        var list = new System.Collections.Generic.List<Rect>(2);
 
+        // ⚠️「打开页面」和「关闭」都要挖出来：不挖的话点它们会被系统当成拖窗 —— 点击直接丢失。
+        AddInteractiveRegion(list, OpenPageButton);
+        AddInteractiveRegion(list, CaptionCloseButton);
+
+        return list;
+    }
+
+    private void AddInteractiveRegion(System.Collections.Generic.List<Rect> list, Control button)
+    {
         try
         {
-            if (CaptionCloseButton.IsVisible &&
-                CaptionCloseButton.Bounds.Width > 0 && CaptionCloseButton.Bounds.Height > 0)
+            if (button.IsVisible && button.Bounds.Width > 0 && button.Bounds.Height > 0)
             {
-                var origin = CaptionCloseButton.TranslatePoint(new Point(0, 0), this);
+                var origin = button.TranslatePoint(new Point(0, 0), this);
                 if (origin is { } p)
-                    list.Add(new Rect(p.X, p.Y, CaptionCloseButton.Bounds.Width, CaptionCloseButton.Bounds.Height));
+                    list.Add(new Rect(p.X, p.Y, button.Bounds.Width, button.Bounds.Height));
             }
         }
         catch
         {
             // 控件树正在重建时可能取不到坐标：跳过就行，顶多那一下点不动
         }
-
-        return list;
     }
 
     /// <summary>自绘的关闭键。语义跟 Esc 一致：**收起来**（不是退出程序）。</summary>
@@ -231,6 +299,11 @@ public sealed partial class ToolPaletteWindow : Window
         if (!string.IsNullOrWhiteSpace(toolId)) _tool = toolId!;
         SelectPane(_tool, reload: true);
 
+        // 淡入：先压透明再露脸，然后淡到不透明（系统 Flyout 那种"浮现"而不是"啪"一下）。
+        // ⚠️ 压透明必须在 ShowWindow/Activate **之前**：否则先闪一帧满不透明，再被我压 0 重淡，等于闪了一下。
+        _fadeEpoch++;                            // 作废还在跑的淡出（别让它回头把窗藏掉）
+        FlyoutFade.Prepare(Root);
+
         try
         {
             Topmost = App.Settings.Current.PaletteOnTop;
@@ -240,6 +313,18 @@ public sealed partial class ToolPaletteWindow : Window
             {
                 _shownOnce = true;
                 Show();                                     // Avalonia 首次显示（原版 Activate）
+
+                // ⚠️ 2026-10-06（用户「首次启动悬浮窗白底白字」同因同修）：构造期那次
+                //    ThemeCompat.Apply 发生在窗口显示之前，主题变体未必传播到位；
+                //    显示后补一次主题 + 按钮配色，再 Dispatcher 补一拍兜底。
+                ThemeCompat.Apply(Root);
+                ApplySelection();
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    ThemeCompat.Apply(Root);
+                    ApplySelection();
+                }, Avalonia.Threading.DispatcherPriority.Loaded);
+
                 // ⚠️ 扩展客户区会把窗口圆角偏好按回 Default（Win11 上渲染出来是**直角**），
                 //    所以显示之后必须再要一次圆角。Win7 上这个调用不认，改由 RoundedCorners
                 //    用 SetWindowRgn 裁剪窗口形状（见 Core/RoundedCorners）。
@@ -266,6 +351,8 @@ public sealed partial class ToolPaletteWindow : Window
         ApplySelection();
         try { Root.Focus(); } catch { }     // Esc 收起
 
+        FlyoutFade.In(Root, 150);
+
         // 里面的表该走的走起来
         try { ClockView.Resume(); TimerView.Resume(); StopwatchView.Resume(); } catch { }
     }
@@ -282,13 +369,19 @@ public sealed partial class ToolPaletteWindow : Window
         // 收起 = 没人看：停掉里面的表，顺手把内存还给系统
         try { ClockView.Pause(); TimerView.Pause(); StopwatchView.Pause(); } catch { }
 
-        try { NativeMethods.ShowWindow(Backdrop.TryGetHwnd(this), SW_HIDE); }
-        catch (Exception ex) { Debug.WriteLine("[toolwin] 收起失败: " + ex.Message); }
+        // 先淡出，播完再藏 —— 别"啪"一下消失（系统 Flyout 收起也是淡出）
+        var epoch = ++_fadeEpoch;
+        FlyoutFade.Out(Root, 150, () =>
+        {
+            if (epoch != _fadeEpoch) return;             // 淡出期间又点开了：别把刚显示的窗藏掉
+            try { NativeMethods.ShowWindow(Backdrop.TryGetHwnd(this), SW_HIDE); }
+            catch (Exception ex) { Debug.WriteLine("[toolwin] 收起失败: " + ex.Message); }
 
-        MemoryTrimmer.Trim();
+            MemoryTrimmer.Trim();
+        });
     }
 
-    // ── 四个工具的切换 ───────────────────────────────────────
+    // ── 五个工具的切换 ───────────────────────────────────────
 
     private void SelectPane(string tool, bool reload)
     {
@@ -296,11 +389,14 @@ public sealed partial class ToolPaletteWindow : Window
         PaneTimer.IsVisible = tool == "timer";
         PaneStopwatch.IsVisible = tool == "stopwatch";
         PaneClock.IsVisible = tool == "clock";
+        PaneMessage.IsVisible = tool == "message";
 
         App.Settings.Current.PaletteTool = tool;
         App.Settings.Save();
 
-        if (reload && tool == "pick-number") PickView.Reload();
+        if (!reload) return;
+        if (tool == "pick-number") PickView.Reload();
+        if (tool == "message") MessageView.Reload();   // 存档可能刚在工具页里被改过
     }
 
     private void ApplySelection()
@@ -314,6 +410,7 @@ public sealed partial class ToolPaletteWindow : Window
                      (ChipTimer, "timer"),
                      (ChipStopwatch, "stopwatch"),
                      (ChipClock, "clock"),
+                     (ChipMessage, "message"),
                  })
         {
             var on = tag == _tool;

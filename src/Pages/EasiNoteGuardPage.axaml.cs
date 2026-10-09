@@ -93,7 +93,7 @@ public sealed partial class EasiNoteGuardPage : PageBase
             var label = new TextBlock
             {
                 Text = t,
-                FontSize = 13.5,
+                FontSize = 14,
                 VerticalAlignment = VerticalAlignment.Center
             };
             var del = new Button
@@ -198,7 +198,7 @@ public sealed partial class EasiNoteGuardPage : PageBase
             ProcHost.Children.Add(new TextBlock
             {
                 Text = "当前未检测到希沃白板5 进程。",
-                FontSize = 12.5,
+                FontSize = 12,
                 Opacity = 0.6,
                 TextWrapping = TextWrapping.Wrap
             });
@@ -212,7 +212,7 @@ public sealed partial class EasiNoteGuardPage : PageBase
                 Text = $"{p.Name}（PID {p.Pid}）—— " + (p.HasWindow
                     ? "存在可见窗口，正在使用 → 将跳过"
                     : "无可见窗口，后台驻留 → 将结束"),
-                FontSize = 12.5,
+                FontSize = 12,
                 Opacity = 0.75,
                 TextWrapping = TextWrapping.Wrap
             });

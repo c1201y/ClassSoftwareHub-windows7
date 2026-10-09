@@ -2,12 +2,19 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="ClassSoftwareHub.Desktop.Views.Palette.MiniStopwatch">
 
-    <!-- 浮窗版秒表：正计时 + 计次（只管用，不落盘）
+    <!-- 浮窗版秒表：正计时 + 计次（分段，**不限次数**）+ 全屏（只管用，不落盘）
          ⚠️ 移植说明：原版按钮行的 Grid 有 ColumnSpacing="8"，Avalonia 的 Grid 没有间距属性，
-         改用第 2/3 列的 Margin 模拟，间距值不变。 -->
+         改用第 2/3/4 列的 Margin 模拟，间距值不变。
+
+         2026-10-03（上游 dv1.1.0）：上游把「计次」整个砍掉换成了「全屏」（理由是"教室里没人用"）。
+         2026-10-06（Nick 实机反馈）：**我们保留计次，只把"最多 3 次"这个上限去掉** ——
+            · 一次活动里往往要记十几个人的成绩，只留 3 条等于没法用；
+            · 计次列表改成可滚动的列表（见 LapPanel），条数不再受浮窗高度限制；
+            · 全屏按钮同时保留（上游那份改进照收）。 -->
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
@@ -18,20 +25,40 @@
                 <TextBlock x:Name="CsText" Text=".00" FontSize="24" FontWeight="SemiBold" Opacity="0.8"
                            FontFamily="Bahnschrift" VerticalAlignment="Bottom" Margin="0,0,0,8" />
             </StackPanel>
-            <TextBlock x:Name="LapText" FontSize="11.5" Opacity="0.65" TextAlignment="Center"
-                       TextWrapping="Wrap" Margin="0,2,0,0" />
+            <TextBlock x:Name="StateText" FontSize="11.5" Opacity="0.65" TextAlignment="Center"
+                       Text="未开始" Margin="0,2,0,0" />
         </StackPanel>
 
-        <Grid Grid.Row="1" Margin="0,6,0,0">
+        <!-- 计次（分段）列表：不限条数、可滚动；一次都没记的时候整块收起来。
+             ⛔ 别再给这里加"最多 N 条" —— 2026-10-06 用户要的就是不限量。 -->
+        <Border x:Name="LapPanel" Grid.Row="1" Margin="0,4,0,0" MaxHeight="118"
+                CornerRadius="4" Padding="10,6,10,6" BorderThickness="1"
+                IsVisible="False"
+                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+            <!-- ⚠️ 2026-10-06（用户「计次的数字和滚动条在一起了」）：Fluent 的滚动条是**盖在内容上**
+                 的 overlay——右列的时间值会被滚动条压住。右侧留 12px 内边距把数字往左让开。 -->
+            <ScrollViewer x:Name="LapScroll" VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled" Padding="0,0,12,0">
+                <StackPanel x:Name="LapHost" Spacing="2" />
+            </ScrollViewer>
+        </Border>
+
+        <Grid Grid.Row="2" Margin="0,6,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <Button x:Name="StartButton" Content="开始" Theme="{StaticResource AccentButtonStyle}"
                     HorizontalAlignment="Stretch" Click="StartPause_Click" />
-            <Button x:Name="LapButton" Grid.Column="1" Content="计次" Click="Lap_Click" Margin="8,0,0,0" />
-            <Button Grid.Column="2" Content="重置" Click="Reset_Click" Margin="8,0,0,0" />
+            <Button x:Name="LapButton" Grid.Column="1" Content="计次" Click="Lap_Click" Margin="8,0,0,0"
+                    IsEnabled="False" ToolTip.Tip="记一次分段成绩（不限次数，列表可滚动）" />
+            <Button Grid.Column="2" Content="全屏" Click="Fullscreen_Click" Margin="8,0,0,0"
+                    ToolTip.Tip="把秒表铺满整块屏幕，适合投影或比赛计时" />
+            <Button Grid.Column="3" Content="重置" Click="Reset_Click" Margin="8,0,0,0"
+                    ToolTip.Tip="清零并清空全部计次" />
         </Grid>
     </Grid>
 </UserControl>

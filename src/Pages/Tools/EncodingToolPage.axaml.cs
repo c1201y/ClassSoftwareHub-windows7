@@ -114,10 +114,16 @@ public sealed partial class EncodingToolPage : PageBase
     ///
     /// ⚠️ 2026-09-29 二次调整（Nick）：「那些哈希值文本框，看起来像是可以编辑的，但实际上只是为了复制」。
     ///    原来每行的值外面套一个灰底圆角 Border，视觉上跟 TextBox 一模一样 —— 用户会去点它想改。
-    ///    现在去掉底框，改用**逐行分隔线**（只画底边，最后一行不画）：
-    ///    一眼就是"只读的结果列表"。值本身仍可拖选复制（<c>IsTextSelectionEnabled</c>）。
+    ///    去掉了底框，改用逐行分隔线。
+    ///
+    /// ⚠️ dv1.1.0（2026-10-02，Nick：「所有块都是方块包方块，像一张填满格子的 Excel」，照上游移植）：
+    ///    逐行分隔线仍是"手画的表格"，整块换成 **ListBox** 承载 —— 行容器 ListBoxItem 自带系统
+    ///    悬停底色 / 圆角 / 键盘导航，外面那张大卡片也一并删掉。
+    ///    ⚠️ 上游用 WinUI 的 ListView + ItemTemplate（x:Bind 到 HashRow）；Avalonia 无 ListView，
+    ///       且资源字典里的 DataTemplate 不参与事件绑定解析（复制键会编译失败），
+    ///       所以这里仍走**代码后置建行**（本仓库既有做法），容器换成 ListBox 即可拿到同一份观感。
     /// </summary>
-    private void BuildHashRows(StackPanel host, Dictionary<string, TextBlock> table)
+    private void BuildHashRows(ListBox host, Dictionary<string, TextBlock> table)
     {
         for (var i = 0; i < Algorithms.Length; i++)
         {
@@ -162,13 +168,8 @@ public sealed partial class EncodingToolPage : PageBase
             Grid.SetColumn(copy, 2);
             row.Children.Add(copy);
 
-            var line = new Border { Padding = new Thickness(0, 9, 0, 9), Child = row };
-            if (i < Algorithms.Length - 1)
-            {
-                line.BorderThickness = new Thickness(0, 0, 0, 1);
-                line.BorderBrush = Res("CardStrokeColorDefaultBrush");
-            }
-            host.Children.Add(line);
+            // 行本身交给 ListBoxItem（悬停底色 / 圆角 / 内边距都在 App.axaml 的 cshResultRows 样式里）
+            host.Items.Add(new ListBoxItem { Content = row, HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Stretch });
         }
     }
 

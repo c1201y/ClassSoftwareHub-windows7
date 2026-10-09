@@ -51,11 +51,8 @@
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Border Width="462" Height="76" CornerRadius="8" Padding="20,0" Margin="0,0,16,14"
-                                Classes="card"
-                                Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
-                                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
-                                BorderThickness="1">
+                        <!-- ⚠️ 移植说明：卡片外壳走统一的 CshCardStyle（4 圆角 / 系统卡片底 + 描边）。 -->
+                        <Border Classes="cshCard card" Width="462" Height="76" Padding="20,0" Margin="0,0,16,14">
                             <!-- Grid 无 ColumnSpacing=14 → 第 1、2 列各加 14 左 Margin 模拟 -->
                             <Grid>
                                 <Grid.ColumnDefinitions>
@@ -80,7 +77,7 @@
             </ItemsControl>
 
             <!-- 页脚：把「实验性」这个标签的含义和检测范围讲清楚（先说清边界，别让用户自己猜） -->
-            <Border CornerRadius="8" Padding="20,16" Margin="0,18,0,0"
+            <Border CornerRadius="4" Padding="20,16" Margin="0,18,0,0"
                     Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
                     BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1">
                 <!-- 原 ColumnSpacing=16 / RowSpacing=6 → 列 1 加 16 左 Margin；行 1/2 各加 6/10 顶 Margin

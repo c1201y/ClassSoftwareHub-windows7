@@ -34,6 +34,20 @@
                 <TextBlock Text="常用工具" FontSize="12.5" VerticalAlignment="Center" />
             </StackPanel>
 
+            <!-- 快速打开当前工具在主界面里的完整页面（全屏时钟没有页面 → 直接开全屏）。
+                 ⚠️ 移植说明：上游放在 AppTitleBar **外面**（WinUI 的 SetTitleBar 整条是拖拽区，
+                 塞在里面收不到点击）；本仓库自绘标题栏只把 CaptionCloseButton 挖成非拖拽区，
+                 所以这里要把 OpenPageButton 一并加进 TitleBarInteractiveRegions()，否则点它会变成拖窗。
+                 叠在标题栏右边、系统 × 的左侧（这窗只有一个关闭钮 ≈48dip）。 -->
+            <Button x:Name="OpenPageButton" HorizontalAlignment="Right" VerticalAlignment="Center"
+                    Width="34" Height="28" Margin="0,0,50,0" Padding="0" MinWidth="0" BorderThickness="0"
+                    Background="Transparent"
+                    AutomationProperties.Name="打开对应的完整页面"
+                    ToolTip.Tip="在主界面打开对应的完整页面"
+                    Click="OpenPage_Click">
+                <fa:FontIcon Glyph="&#xE8A7;" FontSize="13" />
+            </Button>
+
             <!-- 图标一律矢量 Path，不用 fa:FontIcon —— 内嵌字体里窗口按钮那几个码位映射的是无关字形 -->
             <Button x:Name="CaptionCloseButton" Classes="caption close"
                     HorizontalAlignment="Right" VerticalAlignment="Top"
@@ -42,7 +56,9 @@
             </Button>
         </Grid>
 
-        <!-- 四个工具切换（等宽，标题统一四个字） -->
+        <!-- 五个工具切换（等宽，标题统一四个字）
+             ⚠️ 2026-10-06 由四个加到五个（新增「桌面留言」）：列宽从 1/4 变 1/5，
+                窗口最小宽 300 时每格约 50dip —— 刚好放得下四个字，所以字号收到 12。 -->
         <Border Grid.Row="1" Padding="14,6,14,10">
             <Grid>
                 <Grid.ColumnDefinitions>
@@ -50,15 +66,18 @@
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
                 <Button x:Name="ChipPick" Foreground="{DynamicResource TextFillColorPrimaryBrush}" BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" BorderThickness="1" Background="Transparent" Content="随机抽号" Tag="pick-number" HorizontalAlignment="Stretch"
-                        Padding="0,6" MinWidth="0" Click="Chip_Click" />
+                        Padding="0,6" MinWidth="0" FontSize="12" Click="Chip_Click" />
                 <Button x:Name="ChipTimer" Foreground="{DynamicResource TextFillColorPrimaryBrush}" BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" BorderThickness="1" Background="Transparent" Grid.Column="1" Content="课堂计时" Tag="timer" MinWidth="0"
-                        HorizontalAlignment="Stretch" Padding="0,6" Margin="6,0,0,0" Click="Chip_Click" />
+                        HorizontalAlignment="Stretch" Padding="0,6" FontSize="12" Margin="6,0,0,0" Click="Chip_Click" />
                 <Button x:Name="ChipStopwatch" Foreground="{DynamicResource TextFillColorPrimaryBrush}" BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" BorderThickness="1" Background="Transparent" Grid.Column="2" Content="秒表计时" Tag="stopwatch" MinWidth="0"
-                        HorizontalAlignment="Stretch" Padding="0,6" Margin="6,0,0,0" Click="Chip_Click" />
+                        HorizontalAlignment="Stretch" Padding="0,6" FontSize="12" Margin="6,0,0,0" Click="Chip_Click" />
                 <Button x:Name="ChipClock" Foreground="{DynamicResource TextFillColorPrimaryBrush}" BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" BorderThickness="1" Background="Transparent" Grid.Column="3" Content="全屏时钟" Tag="clock" MinWidth="0"
-                        HorizontalAlignment="Stretch" Padding="0,6" Margin="6,0,0,0" Click="Chip_Click" />
+                        HorizontalAlignment="Stretch" Padding="0,6" FontSize="12" Margin="6,0,0,0" Click="Chip_Click" />
+                <Button x:Name="ChipMessage" Foreground="{DynamicResource TextFillColorPrimaryBrush}" BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" BorderThickness="1" Background="Transparent" Grid.Column="4" Content="桌面留言" Tag="message" MinWidth="0"
+                        HorizontalAlignment="Stretch" Padding="0,6" FontSize="12" Margin="6,0,0,0" Click="Chip_Click" />
             </Grid>
         </Border>
 
@@ -75,6 +94,9 @@
             </Grid>
             <Grid x:Name="PaneClock" IsVisible="False">
                 <palette:MiniClock x:Name="ClockView" />
+            </Grid>
+            <Grid x:Name="PaneMessage" IsVisible="False">
+                <palette:MiniMessage x:Name="MessageView" />
             </Grid>
         </Grid>
     </Grid>

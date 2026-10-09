@@ -64,6 +64,7 @@ public sealed partial class MainWindow : Window
     private Win32TrayIcon? _tray;
     private Win32TrayIcon? _trayTools;      // 第二个托盘图标：常用工具（左键直接开工具窗口）
     private bool _exitRequested;
+    private bool _finishing;                 // FinishExit 防重入（ExitApp / OnWindowClosed 两条路都会走到）
 
     /// <summary>
     /// 主窗口是不是**我们自己**收进托盘的（点 × / 托盘菜单 / 启动参数 --minimized、--palette）。
@@ -215,23 +216,48 @@ public sealed partial class MainWindow : Window
             var needH = Math.Min(120, Math.Max(60, r.Height / 3));     // 至少露出这么高（标题栏得够得着）
 
             var onScreen = false;
+            // 顺便记下"窗口主要落在哪块屏上" —— 后面把位置夹回工作区时要按这块屏算，
+            // 不能一律按主屏，否则副屏摆在左边/上边时会把窗口硬拽到主屏去。
+            var wa = (Screens.Primary ?? screens[0]).WorkingArea;
+            long bestArea = 0;
             foreach (var s in screens)
             {
                 var inter = s.WorkingArea.Intersect(rect);
-                if (inter.Width >= needW && inter.Height >= needH) { onScreen = true; break; }
+                if (inter.Width >= needW && inter.Height >= needH) onScreen = true;
+
+                var area = (long)Math.Max(0, inter.Width) * Math.Max(0, inter.Height);
+                if (area > 0 && area >= bestArea) { bestArea = area; wa = s.WorkingArea; }
             }
-            if (onScreen) return;
 
-            var wa = (Screens.Primary ?? screens[0]).WorkingArea;
-            var w = Math.Min(r.Width, wa.Width);
-            var h = Math.Min(r.Height, wa.Height);
-            var x = wa.X + (wa.Width - w) / 2;
-            var y = wa.Y + (wa.Height - h) / 2;
+            if (!onScreen)
+            {
+                var w = Math.Min(r.Width, wa.Width);
+                var h = Math.Min(r.Height, wa.Height);
+                var x = wa.X + (wa.Width - w) / 2;
+                var y = wa.Y + (wa.Height - h) / 2;
 
-            NativeMethods.SetWindowPos(hwnd, IntPtr.Zero, x, y, w, h,
-                NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE);
+                NativeMethods.SetWindowPos(hwnd, IntPtr.Zero, x, y, w, h,
+                    NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE);
 
-            Services.ScreenCapture.Log($"[startup] 主窗口原本不在屏幕内（{r.Left},{r.Top},{r.Right},{r.Bottom}）→ 已居中到 {x},{y} {w}×{h}");
+                Services.ScreenCapture.Log($"[startup] 主窗口原本不在屏幕内（{r.Left},{r.Top},{r.Right},{r.Bottom}）→ 已居中到 {x},{y} {w}×{h}");
+                return;
+            }
+
+            // ⚠️ 2026-10-07：窗口"露得够多"≠"整扇都够得着"。
+            //    Windows 给「没自己指定位置」的窗口用的是**级联默认位置** —— 每开一次就往下、往右挪一点；
+            //    窗口高度又和屏幕差不多时，右下角（往往正是"开始抽号"这类主操作按钮）会压到任务栏底下，
+            //    用户看到的现象和"按钮点了没反应"一模一样。
+            //    实测：窗口 (98,98)-(2064,1233)，按钮矩形 y=1198~1286，而任务栏从 y=1184 起 —— 点击全被任务栏吃掉。
+            //    这里**只挪位置、不动尺寸**：右/下越界就整体左移/上移回工作区；
+            //    窗口本身比工作区还大时不硬缩（尺寸有专门的夹取逻辑），顶到左上角为止。
+            var nx = Math.Max(Math.Min(r.Left, wa.Right - r.Width), wa.X);
+            var ny = Math.Max(Math.Min(r.Top, wa.Bottom - r.Height), wa.Y);
+            if (nx == r.Left && ny == r.Top) return;
+
+            NativeMethods.SetWindowPos(hwnd, IntPtr.Zero, nx, ny, 0, 0,
+                NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE);
+
+            Services.ScreenCapture.Log($"[startup] 主窗口右下越界（{r.Left},{r.Top},{r.Right},{r.Bottom}）→ 已挪回 {nx},{ny}");
         }
         catch { }
     }
@@ -240,6 +266,19 @@ public sealed partial class MainWindow : Window
     {
         try
         {
+            // 上次「静默安装」的退出码（由 UpdateService.RunInstaller 让 cmd 写下来的）。
+            // 以前退出码从不被读取：安装失败时应用已经退了，用户下次启动仍是旧版本、
+            // 且完全不知情 —— 这里补一句，别让更新静默失败。
+            // ⚠️ 放在 AutoCheckUpdate 之前：用户关掉"自动检查更新"不代表他不关心"上次装失败了"。
+            // ⚠️ 只在拿到**非 0** 退出码时才提示；读不到记录一律当没有（宁可漏报也不误报）。
+            var installOutcome = Services.Updating.UpdateService.ConsumeInstallOutcome();
+            if (installOutcome.HasValue && installOutcome.Value != 0)
+            {
+                ShowBalloon("上次更新可能没有成功",
+                    $"安装程序返回了退出码 {installOutcome.Value}，本机仍是 dv{ShellConfig.ShellVersion}。\n" +
+                    "可到「设置 → 检查更新」再试一次。", null);
+            }
+
             if (!_settings.Current.AutoCheckUpdate) return;
 
             var service = Services.Updating.UpdateService.CreateDefault();
@@ -258,9 +297,12 @@ public sealed partial class MainWindow : Window
             }
 
             // 让用户自己决定；选「稍后」就安静放过，下次启动还会再问一次
-            // ⚠️ 签名已变：首参 XamlRoot 去掉 → AskAsync(release, owner)
-            if (!await Services.Updating.UpdateFlow.AskAsync(release, this)) return;
-            await Services.Updating.UpdateFlow.RunAsync(service, release, owner: this);
+            // ⚠️ 签名已变：首参 XamlRoot 去掉 → AskAsync(release, owner)；返回值由 bool 改为三态枚举
+            var choice = await Services.Updating.UpdateFlow.AskAsync(release, this);
+            if (choice == Services.Updating.UpdateFlow.UpdateChoice.Now)
+                await Services.Updating.UpdateFlow.RunAsync(service, release, owner: this);
+            else if (choice == Services.Updating.UpdateFlow.UpdateChoice.Background)
+                Services.Updating.UpdateFlow.StartBackgroundDownload(service, release);
         }
         catch
         {
@@ -273,6 +315,31 @@ public sealed partial class MainWindow : Window
     {
         ShowBalloon($"发现新版本 {release.Tag}", "当前版本不是最新版，单击查看更新详情。",
             () => { ShowFromTray(); _ = CheckUpdateManualAsync(); });
+    }
+
+    /// <summary>
+    /// 更新包下载完成：报一声，点通知打开首页看横幅（横幅上有「立即安装」）。
+    ///
+    /// ⚠️ 移植说明（WinUI → Avalonia）：原版这里优先走
+    ///    <c>Microsoft.Windows.AppNotifications</c>（唯一能带「现在安装 / 稍后安装」按钮的通知形态），
+    ///    注册失败才退回托盘气泡。Avalonia 侧没有对应设施，而本仓库系统通知本来就是**托盘气泡**
+    ///    （见 <see cref="ShowBalloon"/> 注释：免安装形态下 AppNotification 要额外注册 AUMID/COM），
+    ///    所以这里直接走气泡 —— 按钮语义由首页横幅承担（待装标记已在存档里，横幅会一直提醒到装上）。
+    ///    ⚠️ 正因如此，**首页横幅是待装更新唯一的可见入口**（见 WelcomePage.RefreshUpdateReadyBar 注释），
+    ///    下面必须先把它点亮：用户可能本来就停在首页，那种情况不会有任何导航、横幅不会自己出现。
+    /// </summary>
+    public void NotifyUpdateReady(string tag)
+    {
+        Shell.RefreshHomeUpdateBanner();
+
+        ShowBalloon($"ClassSoftwareHub {tag} 下载完成", "安装包已通过校验，打开首页即可安装。",
+            () => { ShowFromTray(); Shell.NavigateTo("home"); });
+    }
+
+    /// <summary>后台更新下载失败：报一声，别让人干等（直接走气泡，见 <see cref="NotifyUpdateReady"/>）。</summary>
+    public void NotifyBackgroundDownloadFailed(string tag, string reason)
+    {
+        ShowBalloon($"ClassSoftwareHub {tag} 下载失败", $"{reason}\n可稍后在应用内重试。", null);
     }
 
     /// <summary>下载跑完的提示：完成报一声「好了」，失败也报一声（别让人以为还在下）。</summary>
@@ -430,7 +497,7 @@ public sealed partial class MainWindow : Window
     {
         // 给进程一个显式的任务栏身份：任务栏按这个 id 取图标，
         // 避免 Windows 拿旧缓存（上次那个"只有 256 一张图、缩不来"的 ico）继续显示通用图标。
-        try { NativeMethods.SetCurrentProcessExplicitAppUserModelID("TinyNick.ClassSoftwareHub.Desktop"); }
+        try { NativeMethods.SetCurrentProcessExplicitAppUserModelID("c1201y.ClassSoftwareHub.Desktop"); }
         catch { /* 设不上不影响使用 */ }
 
         var hwnd = TryGetHwnd();
@@ -485,19 +552,58 @@ public sealed partial class MainWindow : Window
         }
         catch { }
 
-        Closing += (_, _) => SaveWindowState();
+        Closing += (_, _) =>
+        {
+            Core.AppLog.Info("exit", "主窗 Closing#1 SaveWindowState");
+            SaveWindowState();
+        };
 
         // 点右上角 × 默认收进托盘（可在设置 / 内置工具页关掉）；托盘挂不上就直接退，别把用户困在后台
         Closing += (_, args) =>
         {
-            if (_exitRequested || !_settings.Current.CloseToTray || _tray?.IsReady != true) return;
+            Core.AppLog.Info("exit", $"主窗 Closing: exitRequested={_exitRequested} "
+                + $"closeToTray={_settings.Current.CloseToTray} trayReady={_tray?.IsReady}");
+
+            if (_exitRequested || !_settings.Current.CloseToTray || _tray?.IsReady != true)
+            {
+                // 这一支是"真的要走"（托盘退出 / 用户关掉了「收进托盘」/ 托盘没挂上）。
+                // ⚠️ 必须打上全局退出标记：工具浮窗与 Q 群反馈窗的 Closing 会把关闭拦成"收起来"，
+                //    而 desktop.Shutdown() 撞上被取消的关闭就会中止整条退出流程 ——
+                //    结果就是"窗口都关了、托盘也摘了、进程却一直不走"（2026-10-04 实测）。
+                App.IsExiting = true;
+                Core.AppLog.Info("exit", "主窗 Closing -> 放行（真的要走）");
+                return;
+            }
+
             args.Cancel = true;
+            Core.AppLog.Info("exit", "主窗 Closing -> 取消（收进托盘）");
             HideToTray();
             ShowTrayHideHintOnce();
         };
 
         Resized += (_, _) => OnWindowGeometryChanged();
         PositionChanged += (_, _) => OnWindowGeometryChanged();
+
+        // 最小化 = 用户看不见窗口了 → 把内存还给系统（教学机 8G）。
+        // ⚠️ 不要挪到切页时做 —— 那条路会把 GC 卡在用户正要滚动的瞬间（见 Services/MemoryTrimmer.cs）。
+        //    可见时的回收由 MemoryTrimmer 自己的巡检线程负责（水位 + 停手）。
+        // ⚠️ 移植说明：原版挂 <c>AppWindow.Changed</c>（<c>args.DidPresenterChange &amp;&amp; IsMinimized()</c>）；
+        //    Avalonia 没有那个回调，等价做法是监听窗口的 <c>WindowState</c> 属性变化。
+        PropertyChanged += (_, e) =>
+        {
+            if (e.Property == WindowStateProperty && WindowState == WindowState.Minimized)
+                Services.MemoryTrimmer.TrimLater(2500);
+        };
+
+        // 让内存回收知道"用户此刻看不看得见窗口"：
+        //   藏进托盘 / 最小化 → 立刻收（不等水位、不等停手，这是最该收的时候）；
+        //   看得见            → 走"水位 + 停手"那条路（见 Services/MemoryTrimmer.cs）。
+        Services.MemoryTrimmer.IsIdle = () => !IsWindowVisible() || IsMinimized();
+
+        // 可见时也得能收 —— 后台巡检线程就是那条路唯一的触发点（2026-10-02，
+        // 起因：用户一直可见地乱点也能把占用顶到半个 G，而原来只在最小化时收）。
+        // ⚠️ 必须**注完 IsIdle 再起**，否则头几轮巡检会按"看得见"判、空转。
+        Services.MemoryTrimmer.StartWatch();
     }
 
     /// <summary>窗口大小 / 位置 / 最大化状态变了：重算网页落点、圆角、标题栏几何。</summary>
@@ -776,6 +882,13 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
+    /// 窗口此刻是不是最小化状态（托盘隐藏走的另一条路，见 <see cref="HideToTray"/>）。
+    /// ⚠️ 移植说明：原版判 <c>AppWindow.Presenter is OverlappedPresenter { State: Minimized }</c>；
+    ///    Avalonia 没有 presenter 那套，等价判据是 <see cref="Window.WindowState"/>。
+    /// </summary>
+    private bool IsMinimized() => WindowState == WindowState.Minimized;
+
+    /// <summary>
     /// 把右侧标题栏占位（系统按钮宽度）报给网页。
     /// ⚠️ 移植说明：原版从 <c>AppWindow.TitleBar.RightInset/LeftInset/Height</c> 取真实值；
     ///    Avalonia 没有这套 API，这里按 <c>SystemOverlay</c> 的常见值给个近似（并与缩放对齐）。
@@ -903,8 +1016,8 @@ public sealed partial class MainWindow : Window
 
     private void OnWindowClosed(object? sender, EventArgs args)
     {
+        Core.AppLog.Info("exit", $"主窗口 Closed (exitRequested={_exitRequested})");
         _loadTimer.Stop();
-        _exitRequested = true;
         DownloadManager.Current.Finished -= OnDownloadFinished;
         try { _settings.Save(); } catch { }
         try { _sheetHost?.Dispose(); } catch { }
@@ -913,6 +1026,19 @@ public sealed partial class MainWindow : Window
         _tray = null;
         try { _trayTools?.Dispose(); } catch { }
         _trayTools = null;
+
+        // 走到这儿说明主窗口是**真的关掉了**（"收进托盘"那条路在 Closing 里被 cancel，压根到不了 Closed）
+        // → 应用就该退出了。
+        // ⛔ Avalonia 也是"主窗关了不等于进程退"：侧边栏 / 工具浮窗还活着，消息循环就被撑住，
+        //    进程会一直挂在任务管理器里。2026-10-04 实测：把「关闭时收进托盘」关掉后点 ×
+        //    （= 任务栏右键「关闭窗口」）必现残留。所以这里自己把剩下的窗口收掉并请应用退出。
+        //    已经由 ExitApp 发起时（_exitRequested 已是 true）不重复走 —— 那条路自己会收尾。
+        if (!_exitRequested)
+        {
+            _exitRequested = true;
+            App.IsExiting = true;
+            FinishExit();
+        }
     }
 
     private void LoadLoadingIcon()
@@ -1407,9 +1533,12 @@ public sealed partial class MainWindow : Window
 
             if (result is { HasUpdate: true, Release: { } release })
             {
-                // 一样先问，绝不替用户做主
-                if (!await Services.Updating.UpdateFlow.AskAsync(release, this)) return;
-                await Services.Updating.UpdateFlow.RunAsync(service, release, owner: this);
+                // 一样先问，绝不替用户做主（返回值是三态：Later / Now / Background）
+                var choice = await Services.Updating.UpdateFlow.AskAsync(release, this);
+                if (choice == Services.Updating.UpdateFlow.UpdateChoice.Now)
+                    await Services.Updating.UpdateFlow.RunAsync(service, release, owner: this);
+                else if (choice == Services.Updating.UpdateFlow.UpdateChoice.Background)
+                    Services.Updating.UpdateFlow.StartBackgroundDownload(service, release);
                 return;
             }
 
@@ -1748,11 +1877,12 @@ public sealed partial class MainWindow : Window
     ///   · 下完/失败会弹系统通知，通知点开直接跳到「任务进行」。
     /// 弹窗还开着的时候跑完了，更省事：直接在这儿弹「下载完成」。
     /// </summary>
-    public async void DownloadFile(string? url, string? suggestedName = null)
+    public async void DownloadFile(string? url, string? suggestedName = null,
+        DownloadRoute route = DownloadRoute.Setting)
     {
         if (string.IsNullOrWhiteSpace(url)) return;
 
-        var task = DownloadManager.Current.Start(url, suggestedName, suggestedName);
+        var task = DownloadManager.Current.Start(url, suggestedName, suggestedName, route);
         _downloadDialogTaskId = task.Id;   // 这条由本方法负责收尾，别让系统通知重复报一次
 
         // 同一时刻只允许一个 ContentDialog：上一条下载的弹窗先收掉（它自己的下载转后台继续）
@@ -1901,9 +2031,23 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void ExitApp()
+    /// <summary>
+    /// 真的要退出应用（不是"收进托盘"）。
+    ///
+    /// ⚠️ public（2026-10-04）：<c>Services/Updating/UpdateFlow.ExitAppNow()</c> 走静默安装**必须**从
+    ///    更新流程里调到它 —— 直接 <c>desktop.Shutdown()</c> 会被本窗的关闭逻辑当成"用户点了 ×"、
+    ///    只把窗口藏起来，进程不退 → 安装程序查到 Mutex 占用 → 静默模式自动取消（这就是
+    ///    「1.2 无法更新到 1.3」的根因）。
+    /// </summary>
+    public void ExitApp()
     {
+        Core.AppLog.Info("exit", "ExitApp() 被调用");
         _exitRequested = true;
+        // 让工具浮窗 / Q 群反馈窗的 Closing 放行（它们默认是"关掉 = 收起来"）。
+        // ⚠️ 实测（2026-10-04）：程序化的 Window.Close() 与 desktop.Shutdown() **都不保证**触发
+        //    Avalonia 的 Closing（取决于关闭路径），所以真正保证退干净的是 FinishExit() 里的显式关窗；
+        //    这个标记是防御性的 —— 万一某条路径让程序化关闭也走 Closing，它保证那两个窗不会被自己的 args.Cancel 拦下。
+        App.IsExiting = true;
         try { _settings.Save(); } catch { }
         try { _sheetHost?.Dispose(); } catch { }
         _sheetHost = null;
@@ -1911,15 +2055,71 @@ public sealed partial class MainWindow : Window
         _tray = null;
         try { _trayTools?.Dispose(); } catch { }
         _trayTools = null;
+        FinishExit();
+    }
+
+    /// <summary>
+    /// 退出流程的后半段：摘钩子 → 关掉所有自家窗口 → <c>desktop.Shutdown()</c> → 1.5 秒硬退兜底。
+    /// 两个入口共用：<see cref="ExitApp"/>（托盘「退出」/ 更新安装器要接管），
+    /// 以及 <see cref="OnWindowClosed"/>（用户点了 × 且没开「关闭时收进托盘」）。
+    /// </summary>
+    private void FinishExit()
+    {
+        // 防重入：ExitApp 与 OnWindowClosed 两条路都可能走到这儿。
+        if (_finishing) return;
+        _finishing = true;
+
+        // ① 先摘钩子 / 还原注册表（虚拟键盘）。必须在任何硬退兜底之前 —— 硬退会跳过清理，
+        //    把"系统键盘不自动弹"这种脏状态留在用户机器上。
+        try { Services.VirtualKeyboard.VirtualKeyboardService.Stop(); } catch { }
+
+        // ② 显式关掉我们自己建的每一个窗口，再请应用退出。
+        //    ⛔ 不能只依赖 desktop.Shutdown()，2026-10-04 实测它会漏窗口：
+        //       没关掉的窗口把消息循环撑住，结果就是「主界面没了、托盘图标也没了，
+        //       进程却一直挂在任务管理器里」—— 正是用户反馈的"点了退出，任务管理器里还有残留"。
+        Core.AppLog.Info("exit", "开始显式关闭所有窗口");
+        try { Views.ToolPaletteWindow.CloseForExit(); } catch { }
+        try { Views.QqFeedbackGuideWindow.CloseForExit(); } catch { }
+        try { Views.ToolSidebarWindow.CloseForExit(); } catch { }
+        try { Views.MessageWindow.CloseForExit(); } catch { }   // 桌面留言悬浮窗（可拖动、置顶，同样会撑住消息循环）
+
+        // 兜底扫一遍：其它自建窗口（贴纸 / 音量 / 截图 / 虚拟键盘…）一并收掉，
+        // 谁家窗口忘了自己关，这里统一兜住。App.IsExiting 已经置位，拦关闭的窗口会放行。
+        try
+        {
+            if (Application.Current?.ApplicationLifetime
+                is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
+            {
+                foreach (var w in desktop.Windows.ToList())
+                {
+                    try { w.Close(); } catch { }
+                }
+            }
+        }
+        catch { }
+
+        Core.AppLog.Info("exit", "窗口已全部请求关闭");
 
         try
         {
-            if (Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop)
-                desktop.Shutdown();
+            if (Application.Current?.ApplicationLifetime
+                is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime d2)
+                d2.Shutdown();
             else
                 Environment.Exit(0);
         }
         catch { Environment.Exit(0); }
+        Core.AppLog.Info("exit", "Shutdown() 已返回（若进程仍在 = 消息循环没退）");
+
+        // ③ 最后一道保险：desktop.Shutdown() 偶尔仍会让消息循环卡住不退。
+        //    1.5 秒还没走就硬退 —— 走到这里该做的清理都已做完（设置已存、托盘已摘、键盘钩子已还原），硬退是安全的。
+        new System.Threading.Thread(() =>
+        {
+            System.Threading.Thread.Sleep(1500);
+            Core.AppLog.Info("exit", "1.5 秒后进程仍在 -> 硬退兜底");
+            Environment.Exit(0);
+        })
+        { IsBackground = true, Name = "csh-exit-watchdog" }.Start();
     }
 
     private async Task ExecuteScriptAsync(string script)

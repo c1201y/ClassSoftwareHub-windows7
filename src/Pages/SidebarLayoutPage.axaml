@@ -3,6 +3,7 @@
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:views="using:ClassSoftwareHub.Desktop.Views"
     xmlns:fa="using:FluentAvalonia.UI.Controls">
 
     <!--
@@ -15,14 +16,22 @@
           的开关，Avalonia 没有对应属性 → 略去（触摸滚动行为由框架自己管）。
         · Visibility="Collapsed" → IsVisible="False"；ThemeResource → DynamicResource；
           ToolTipService.ToolTip → ToolTip.Tip。
-        · 原版底部五颗 ToggleSwitch 用了 Header（Avalonia 的 ToggleSwitch 没有）→
-          拆成「文字 + 开关」竖排，外观与原版一致。
+        · 原版 CommunityToolkit 的 controls:SettingsCard → 本工程的 views:SettingsCard
+          （FluentAvalonia 没有 SettingsCard，全工程共用这一个自建实现，见 Views/SettingsCard.cs）。
+        · 原版 Style="{StaticResource BodyStrongTextBlockStyle}"（组标题）→ FontSize=14 + SemiBold
+          （与本工程设置页同一套写法）。
+        · ToggleSwitch 没有 Header（Avalonia 的没有）→ 原版那五颗底部按钮已各自成为一张
+          SettingsCard，不再需要"文字 + 开关"竖排的临时还原。
+
+      ⚠️ 2026-10-07：按上游 dv1.1.0 重写本页 —— 上游 2026-10-01 把「设置 → 常用工具」整组
+         （浮窗置顶 / 屏幕边缘侧边栏 / 放置模式 / 贴哪条边）与「截图」两项都搬到了这里，
+         并把底部五颗按钮从"横排五个开关"改成"五颗各自一张卡片"，另加了「动画方案」卡。
+         本仓库此前还是老版式（横排五开关 + 一句"侧边栏开关位于设置页"）—— 现补齐。
     -->
 
     <Grid>
         <!-- ⚠️ 2026-10-03：ScrollViewer 提到最外层（滚动条贴窗口右缘），边距改 Padding、
-             居中改内层 Grid 的 MaxWidth + Center；原来「右边留 18 的空」不再需要 ——
-             滚动条已经贴到窗口边上，不会压着预览条 -->
+             居中改内层 Grid 的 MaxWidth + Center。 -->
         <ScrollViewer x:Name="PageScroll" Padding="24,36,24,44" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
             <!-- 原版 RowSpacing="14" → 每行子元素各自带 0,0,0,14 的底边距 -->
             <Grid x:Name="WorkspaceRoot" MaxWidth="960" HorizontalAlignment="Center">
@@ -89,52 +98,187 @@
                     </StackPanel>
                 </Grid>
 
-                <!-- 侧边栏自带的那排底部按钮（收起 / 常驻 / 位置复原 / 隐藏 / 打开应用）——
-                     **五颗各自一个开关**，横排。开关只管显示与否，不改变它们在侧边栏里的先后。
-                     ⚠️ IsChecked 一律**不在 XAML 里写死**（原版同理不写死 IsOn），
-                        由 Refresh() 从设置同步过来。
-                     ⚠️ 五颗的 `Tag` 必须跟 SidebarFooterKeys 里的字面量一致（那是存档格式的一部分）。
-                     ⚠️ Avalonia 的 ToggleSwitch 没有 Header → 用「文字 + 开关」竖排还原。 -->
-                <StackPanel Grid.Row="2" Spacing="4" Margin="0,0,0,14">
-                    <TextBlock Text="侧边栏底部按钮" FontSize="14" FontWeight="SemiBold" />
-                    <TextBlock FontSize="12" Opacity="0.6" TextWrapping="Wrap" Margin="0,-2,0,2"
-                               Text="侧边栏展开面板底部自带的一排按钮，逐颗控制显示与隐藏；侧边栏按实际显示的颗数收缩。" />
-                    <!-- 原版 ColumnSpacing="8" → 第 2~5 列各带 8 的左边距 -->
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
+                <!--
+                  ============ 常用工具 / 侧边栏开关 ============
+                  2026-10-01：这四项原本在「设置 → 常用工具」，搬到这里 —— 它们本就是侧边栏
+                  与常用工具浮窗自己的开关，跟模块库、预览摆在一页才顺。（截图那两项见下一组。）
+                  ⚠️ 版式一律照设置页那套：SettingsCard + HeaderIcon + 4px 组内间距，
+                     不许自己叠 Border / 写死颜色。
+                -->
+                <StackPanel Grid.Row="2">
 
-                        <StackPanel Grid.Column="0" Spacing="0">
-                            <TextBlock Text="收起" FontSize="12" Opacity="0.8" Margin="0,0,0,2" />
-                            <ToggleSwitch x:Name="FoldToggle" Tag="fold"
-                                          OnContent="显示" OffContent="隐藏" IsCheckedChanged="FooterItem_Toggled" />
-                        </StackPanel>
-                        <StackPanel Grid.Column="1" Margin="8,0,0,0" Spacing="0">
-                            <TextBlock Text="常驻" FontSize="12" Opacity="0.8" Margin="0,0,0,2" />
-                            <ToggleSwitch x:Name="PinToggle" Tag="pin"
-                                          OnContent="显示" OffContent="隐藏" IsCheckedChanged="FooterItem_Toggled" />
-                        </StackPanel>
-                        <StackPanel Grid.Column="2" Margin="8,0,0,0" Spacing="0">
-                            <TextBlock Text="位置复原" FontSize="12" Opacity="0.8" Margin="0,0,0,2" />
-                            <ToggleSwitch x:Name="ResetToggle" Tag="reset"
-                                          OnContent="显示" OffContent="隐藏" IsCheckedChanged="FooterItem_Toggled" />
-                        </StackPanel>
-                        <StackPanel Grid.Column="3" Margin="8,0,0,0" Spacing="0">
-                            <TextBlock Text="隐藏" FontSize="12" Opacity="0.8" Margin="0,0,0,2" />
-                            <ToggleSwitch x:Name="HideToggle" Tag="hide"
-                                          OnContent="显示" OffContent="隐藏" IsCheckedChanged="FooterItem_Toggled" />
-                        </StackPanel>
-                        <StackPanel Grid.Column="4" Margin="8,0,0,0" Spacing="0">
-                            <TextBlock Text="打开应用" FontSize="12" Opacity="0.8" Margin="0,0,0,2" />
-                            <ToggleSwitch x:Name="OpenAppToggle" Tag="openapp"
-                                          OnContent="显示" OffContent="隐藏" IsCheckedChanged="FooterItem_Toggled" />
-                        </StackPanel>
-                    </Grid>
+                    <TextBlock Text="常用工具" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,8" />
+                    <StackPanel Spacing="4">
+
+                        <views:SettingsCard Header="常用工具窗口始终置顶"
+                                               Description="常用工具浮窗不会被其他窗口遮挡。">
+                            <views:SettingsCard.HeaderIcon>
+                                <fa:FontIcon Glyph="&#xE718;" />
+                            </views:SettingsCard.HeaderIcon>
+                            <ToggleSwitch x:Name="PaletteTopSwitch" OnContent="开" OffContent="关" MinWidth="0"
+                                          IsCheckedChanged="PaletteTopSwitch_Toggled" />
+                        </views:SettingsCard>
+
+                        <views:SettingsCard Header="屏幕边缘侧边栏"
+                                               Description="在屏幕边缘常驻一条工具栏，可放置常用工具与内置功能。">
+                            <views:SettingsCard.HeaderIcon>
+                                <fa:FontIcon Glyph="&#xE8A0;" />
+                            </views:SettingsCard.HeaderIcon>
+                            <ToggleSwitch x:Name="SidebarSwitch" OnContent="开" OffContent="关" MinWidth="0"
+                                          IsCheckedChanged="SidebarSwitch_Toggled" />
+                        </views:SettingsCard>
+
+                        <!-- 两项都用 ComboBox：与「颜色模式」「窗口背景效果」同一套交互，不做成一排单选按钮 -->
+                        <views:SettingsCard Header="侧边栏放置模式">
+                            <views:SettingsCard.HeaderIcon>
+                                <fa:FontIcon Glyph="&#xE7C4;" />
+                            </views:SettingsCard.HeaderIcon>
+                            <views:SettingsCard.Description>
+                                <TextBlock x:Name="ModeHint" TextWrapping="Wrap"
+                                           FontSize="12"
+                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                            </views:SettingsCard.Description>
+                            <ComboBox x:Name="SidebarModeCombo" MinWidth="170"
+                                      SelectionChanged="SidebarMode_SelectionChanged">
+                                <ComboBoxItem Content="贴靠模式" Tag="dock" />
+                                <ComboBoxItem Content="自由模式" Tag="free" />
+                            </ComboBox>
+                        </views:SettingsCard>
+
+                        <views:SettingsCard Header="侧边栏贴在哪条边">
+                            <views:SettingsCard.HeaderIcon>
+                                <fa:FontIcon Glyph="&#xE8A0;" />
+                            </views:SettingsCard.HeaderIcon>
+                            <views:SettingsCard.Description>
+                                <TextBlock x:Name="EdgeHint" TextWrapping="Wrap"
+                                           FontSize="12"
+                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                            </views:SettingsCard.Description>
+                            <!-- 选项按放置模式动态重建（贴靠 = 左/右/左右两边，自由 = 左/右/上/下） -->
+                            <ComboBox x:Name="SidebarEdgeCombo" MinWidth="170"
+                                      SelectionChanged="SidebarEdge_SelectionChanged" />
+                        </views:SettingsCard>
+
+                    </StackPanel>
+
+                    <!--
+                      ============ 截图 ============
+                      2026-10-01：原在「设置 → 截图」，整组搬来这里，紧接「常用工具」下面 ——
+                      与浮窗 / 侧边栏同属外部组件那套行为设置，摆在一栏里才顺（设置页那一组已删干净）。
+                      ⚠️ 版式照旧：SettingsCard + HeaderIcon + 4px 组内间距。
+                    -->
+                    <TextBlock Text="截图" FontSize="14" FontWeight="SemiBold" Margin="0,24,0,8" />
+                    <StackPanel Spacing="4">
+
+                        <views:SettingsCard Header="截图后自动保存一份原图"
+                                               Description="保存至下方目录，文件名格式为 截图_年月日_时分秒.png（重名时自动追加序号）。">
+                            <views:SettingsCard.HeaderIcon>
+                                <fa:FontIcon Glyph="&#xE722;" />
+                            </views:SettingsCard.HeaderIcon>
+                            <ToggleSwitch x:Name="ShotAutoSaveSwitch" OnContent="开" OffContent="关" MinWidth="0"
+                                          IsCheckedChanged="ShotAutoSave_Toggled" />
+                        </views:SettingsCard>
+
+                        <views:SettingsCard Header="截图保存位置">
+                            <views:SettingsCard.HeaderIcon>
+                                <fa:FontIcon Glyph="&#xE8F4;" />
+                            </views:SettingsCard.HeaderIcon>
+                            <views:SettingsCard.Description>
+                                <StackPanel Spacing="8" Margin="0,4,0,0">
+                                    <TextBlock x:Name="ShotDirText" TextWrapping="Wrap"
+                                               FontSize="12"
+                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button Content="更改目录…" Click="ShotDir_Change_Click" />
+                                        <Button Content="打开目录" Click="ShotDir_Open_Click" />
+                                        <Button Content="恢复默认（桌面）" Click="ShotDir_Reset_Click" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </views:SettingsCard.Description>
+                        </views:SettingsCard>
+
+                    </StackPanel>
+
+                    <!--
+                      侧边栏自带的那排底部按钮（收起 / 常驻 / 位置复原 / 隐藏 / 打开应用）——
+                      **五颗各自一张卡片、一行一个**（2026-10-01：原来横排五个 ToggleSwitch，
+                      挤在一起既不好点也不像系统设置）。开关只管显示与否，不改变它们在侧边栏里的先后。
+                      ⚠️ IsChecked 一律**不在 XAML 里写死**（原版同理不写死 IsOn），
+                         由 Refresh() 从设置同步过来。
+                      ⚠️ 五颗的 `Tag` 必须跟 SidebarFooterKeys 里的字面量一致（那是存档格式的一部分）。
+                    -->
+                    <TextBlock Text="侧边栏底部按钮" FontSize="14" FontWeight="SemiBold" Margin="0,24,0,8" />
+                    <TextBlock FontSize="12" Opacity="0.6" TextWrapping="Wrap" Margin="0,-4,0,8"
+                               Text="侧边栏展开面板底部自带的一排按钮，逐颗控制显示与隐藏；侧边栏按实际显示的颗数收缩。" />
+                    <StackPanel Spacing="4">
+
+                        <views:SettingsCard Header="收起" Description="把侧边栏收成一条窄条，收起来后仍可重新展开。">
+                            <views:SettingsCard.HeaderIcon>
+                                <fa:FontIcon Glyph="&#xE76C;" />
+                            </views:SettingsCard.HeaderIcon>
+                            <ToggleSwitch x:Name="FoldToggle" Tag="fold" OnContent="显示" OffContent="隐藏"
+                                          MinWidth="0" IsCheckedChanged="FooterItem_Toggled" />
+                        </views:SettingsCard>
+
+                        <views:SettingsCard Header="常驻" Description="侧边栏展开后保持展开，不自动收起。">
+                            <views:SettingsCard.HeaderIcon>
+                                <fa:FontIcon Glyph="&#xE718;" />
+                            </views:SettingsCard.HeaderIcon>
+                            <ToggleSwitch x:Name="PinToggle" Tag="pin" OnContent="显示" OffContent="隐藏"
+                                          MinWidth="0" IsCheckedChanged="FooterItem_Toggled" />
+                        </views:SettingsCard>
+
+                        <views:SettingsCard Header="位置复原" Description="把侧边栏移回屏幕边缘的居中位置。">
+                            <views:SettingsCard.HeaderIcon>
+                                <fa:FontIcon Glyph="&#xE777;" />
+                            </views:SettingsCard.HeaderIcon>
+                            <ToggleSwitch x:Name="ResetToggle" Tag="reset" OnContent="显示" OffContent="隐藏"
+                                          MinWidth="0" IsCheckedChanged="FooterItem_Toggled" />
+                        </views:SettingsCard>
+
+                        <views:SettingsCard Header="隐藏" Description="把侧边栏从屏幕上隐藏，可从托盘菜单重新显示。">
+                            <views:SettingsCard.HeaderIcon>
+                                <fa:FontIcon Glyph="&#xED1A;" />
+                            </views:SettingsCard.HeaderIcon>
+                            <ToggleSwitch x:Name="HideToggle" Tag="hide" OnContent="显示" OffContent="隐藏"
+                                          MinWidth="0" IsCheckedChanged="FooterItem_Toggled" />
+                        </views:SettingsCard>
+
+                        <views:SettingsCard Header="打开应用" Description="唤出软件主界面，主窗口最小化或收进托盘时使用。">
+                            <views:SettingsCard.HeaderIcon>
+                                <fa:FontIcon Glyph="&#xE80F;" />
+                            </views:SettingsCard.HeaderIcon>
+                            <ToggleSwitch x:Name="OpenAppToggle" Tag="openapp" OnContent="显示" OffContent="隐藏"
+                                          MinWidth="0" IsCheckedChanged="FooterItem_Toggled" />
+                        </views:SettingsCard>
+
+                    </StackPanel>
+
+                    <!--
+                      ============ 动画方案 ============
+                      2026-10-01 Nick：两种落位收尾都做出来之后觉得都挺好，索性都留给用户自己挑。
+                      ⚠️ 版式照旧：组标题 + Caption 说明 + SettingsCard + 4px 组内间距，不许自己叠 Border。
+                      ⚠️ 两项都用 ComboBox：与「颜色模式」「侧边栏放置模式」同一套交互，不做成一排单选按钮。
+                    -->
+                    <TextBlock Text="动画方案" FontSize="14" FontWeight="SemiBold" Margin="0,24,0,8" />
+                    <TextBlock FontSize="12" Opacity="0.6" TextWrapping="Wrap" Margin="0,-4,0,8"
+                               Text="拖放卡片落位时的收尾效果。两种方案均已完成验证，手感取向不同；其实两者观感差异不大，只是开发过程中两种效果均做得不错，删之可惜，一并保留，交由各位自行选择。" />
+                    <StackPanel Spacing="4">
+
+                        <views:SettingsCard Header="落位收尾"
+                                               Description="平滑收势：落位后直接收掉提起效果。轻落一下：落位后再轻轻下沉一次，落地感更实。">
+                            <views:SettingsCard.HeaderIcon>
+                                <fa:FontIcon Glyph="&#xE8CB;" />
+                            </views:SettingsCard.HeaderIcon>
+                            <ComboBox x:Name="DropAnimCombo" MinWidth="170"
+                                      SelectionChanged="DropAnim_SelectionChanged">
+                                <ComboBoxItem Content="平滑收势" Tag="plain" />
+                                <ComboBoxItem Content="轻落一下" Tag="dip" />
+                            </ComboBox>
+                        </views:SettingsCard>
+
+                    </StackPanel>
+
                 </StackPanel>
 
                 <!-- 原版 ColumnSpacing="16" → 右侧按钮组左边距 16 -->
@@ -145,7 +289,7 @@
                     </Grid.ColumnDefinitions>
 
                     <TextBlock FontSize="12.5" Opacity="0.7" TextWrapping="Wrap" VerticalAlignment="Center"
-                               Text="可不放置任何模块，此时侧边栏仅保留自带的按钮。侧边栏开关位于「设置 → 常用工具」中。" />
+                               Text="可不放置任何模块，此时侧边栏仅保留自带的按钮。" />
 
                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="16,0,0,0">
                         <Button x:Name="SidebarButton" Content="隐藏侧边栏" Click="ToggleSidebar_Click" />

@@ -124,6 +124,12 @@ public static class VersionCompare
         // 桌面版显示前缀 dv
         if (v.StartsWith("dv", StringComparison.OrdinalIgnoreCase)) v = v[2..];
 
+        // ⚠️ SemVer 的构建元数据（`+` 后面那截）**不参与版本高低比较**：
+        //    `1.1.0+build.5` 与 `1.1.0` 是同一个版本。不剥掉的话它会被拆成 [1,1,0,0,5]，
+        //    比 [1,1,0] 更"新" → 装完了下次检查还提示更新 → **无限更新循环**。
+        var plus = v.IndexOf('+');
+        if (plus >= 0) v = v[..plus];
+
         var dash = v.IndexOf('-');
         var core = dash < 0 ? v : v[..dash];
         if (dash >= 0) pre = v[(dash + 1)..];
@@ -131,7 +137,9 @@ public static class VersionCompare
         foreach (var part in core.Split('.', StringSplitOptions.RemoveEmptyEntries))
         {
             var digits = new string(part.TakeWhile(char.IsDigit).ToArray());
-            numbers.Add(int.TryParse(digits, out var n) ? n : 0);
+            // 溢出时原来会给 0（把一个很大的号段当成最旧），改成钳到 int.MaxValue 更合理；
+            // 非数字段（"1.x.3" 的 x）拿不到数字 → 仍是 0，保持原样。
+            numbers.Add(int.TryParse(digits, out var n) ? n : (digits.Length > 0 ? int.MaxValue : 0));
         }
         return (numbers, pre);
     }

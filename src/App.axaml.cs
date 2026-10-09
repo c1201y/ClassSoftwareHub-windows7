@@ -31,6 +31,18 @@ public partial class App : Application
     public static MainWindow? MainWindow { get; private set; }
 
     /// <summary>
+    /// 「应用正在退出」的全局标记（2026-10-04 修，对齐上游 dv1.1.0-insider1.7）。
+    ///
+    /// ⛔ 为什么必须有：工具浮窗（<c>ToolPaletteWindow</c>）和 Q 群反馈窗（<c>QqFeedbackGuideWindow</c>）
+    ///    都把窗口关闭拦下来当"收起来"用（<c>args.Cancel = true</c>），这是它们自己的正常语义。
+    ///    但 Avalonia 的 <c>desktop.Shutdown()</c> 与 WinUI 的 <c>Application.Exit()</c> 一样是**逐个关窗**的，
+    ///    碰到被取消的就中止整条退出流程 —— 结果：只要这两个窗里任意一个开着，托盘菜单「退出」就会变成
+    ///    「主窗关了、托盘图标摘了、**进程却一直赖在任务管理器里**」。
+    ///    退出流程一开始就把它置 true，那两个窗口的 Closing 看到它就放行，不再拦。
+    /// </summary>
+    public static bool IsExiting { get; set; }
+
+    /// <summary>
     /// 主窗口是否**至少显示过一次**（首次 Activated 时置位）。
     ///
     /// 为什么要单独记：退出那一刻窗口往往已经被关掉，<c>IsVisible</c> 必然为 false，
@@ -317,6 +329,15 @@ public partial class App : Application
     {
         // 对应原版 OnLaunched：先读设置，再建主窗口。
         Settings.Load();
+
+        // 数据目录分区：日志 → logs\，内嵌解包的图片/图标缓存 → cache\（旧版全堆在根上）。
+        // 尽早搬 —— 后面任何模块一写日志就落到新位置了。
+        try
+        {
+            Core.AppLog.MigrateLegacyFiles();
+            Services.EmbeddedAssets.MigrateLegacyCache();
+        }
+        catch { /* 迁移失败不影响启动，文件留在原地 */ }
         Telemetry = new NoopTelemetryService(Settings);
         Telemetry.Track("app_launch", new Dictionary<string, object?>
         {
@@ -404,6 +425,10 @@ public partial class App : Application
         // 虚拟键盘（实验性功能）：总开关是单一的 —— 关着的时候 Start() 第一句就 return，
         // 触摸钩子、UIA 探测、注册表接管一个都不会上电（见 VirtualKeyboardService）。
         Services.VirtualKeyboard.VirtualKeyboardService.Start();
+
+        // 更新安装包自动清理：updates 目录只留最近 N 个（默认 3），更早的删掉。
+        // 走后台线程，不沾首帧；新版本装完后的第一次启动正好把旧包收掉。
+        Services.Updating.InstallerCleanup.Start();
 
         base.OnFrameworkInitializationCompleted();
     }
@@ -505,9 +530,6 @@ public partial class App : Application
         {
             if (ex is not null) Telemetry.TrackException(ex, "xaml_unhandled");
 
-            var dir = SettingsStore.Dir;
-            Directory.CreateDirectory(dir);
-
             // 排障信息：当时停在哪一页 + 窗口多大（只在特定尺寸下冒出来的问题，没有这两个数无从复现）
             var where = "page=" + Pages.ShellPage.CurrentTag;
             try
@@ -517,8 +539,9 @@ public partial class App : Application
             }
             catch { /* 拿不到窗口尺寸不影响记录 */ }
 
-            File.AppendAllText(Path.Combine(dir, "crash.log"),
-                $"[{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss}] [{where}] {ex?.Message}\n{ex}\n\n");
+            // ⚠️ 移植说明：不再自己往根目录写 crash.log —— 日志统一走 Core.AppLog（logs\crash.log），
+            //    与 AppLog.MigrateLegacyFiles 的"分区"保持一致（原版同样改成 AppLog.Write）。
+            Core.AppLog.Write("crash", Core.LogLevel.Error, $"[{where}] {ex?.Message}\n{ex}");
         }
         catch { /* 记录失败也不影响 */ }
 

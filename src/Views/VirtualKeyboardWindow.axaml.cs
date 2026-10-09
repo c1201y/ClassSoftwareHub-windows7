@@ -234,10 +234,23 @@ public sealed partial class VirtualKeyboardWindow : Window
         var hwnd = HwndNow();
         _ = Show(hwnd);                              // SW_SHOWNOACTIVATE：显示但不抢前台
 
+        // ⚠️ 首次 Show() 之前窗口还没创建，句柄是 Zero —— 圆角与置顶都得在**显示之后**重取句柄。
+        hwnd = HwndNow();
+
         // ⛔ 去白边 / 圆角必须在**显示之后**再调一次：DWM 首帧会按系统主题重刷一遍非客户区。
         if (hwnd != IntPtr.Zero)
             WindowChrome.RemoveBorder(hwnd, rounded: true,
                 dark: Root.ActualThemeVariant == ThemeVariant.Dark);
+
+        // ⚠️ 2026-10-06 实机反馈「点了输入框，键盘跑到那个窗口的底层、点不着」：
+        //    显示走 SW_SHOWNOACTIVATE（不激活，**也不置前**），摆位用 SetWindowPos(SWP_NOZORDER)（明确不动 Z 序），
+        //    两者叠加，键盘就老老实实停在原 Z 序位置上 —— 全屏的记事本 / WPS 一盖就"不见了"。
+        //    XAML 的 Topmost 在 Win7 上有时候来不及（Avalonia 是在窗口创建那一刻应用该属性），
+        //    这里在显示之后钉一次：TOPMOST + 不移动 / 不改尺寸 / **不激活**。
+        //    与"不抢前台"的设计不冲突 —— 置顶管的是 Z 序，激活是另一回事。
+        if (hwnd != IntPtr.Zero)
+            _ = NativeMethods.SetWindowPos(hwnd, NativeMethodsUtil.HWND_TOPMOST, 0, 0, 0, 0,
+                NativeMethodsUtil.SWP_NOMOVE | NativeMethodsUtil.SWP_NOSIZE | NativeMethodsUtil.SWP_NOACTIVATE);
 
         // 圆角区域是按当时的窗口尺寸算死的，而键盘宽度/字号在设置里能改 —— 挂上自动重算，
         // 否则改了宽度之后四角会被按旧尺寸裁歪（见 Core/RoundedCorners）。

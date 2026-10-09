@@ -72,6 +72,9 @@ public static class SidebarModules
         new() { Id = "timer", Name = "课堂计时", ShortName = "计时", Glyph = "\uE81C", Kind = SidebarModuleKinds.Palette },
         new() { Id = "stopwatch", Name = "秒表计时", ShortName = "秒表", Glyph = "\uE916", Kind = SidebarModuleKinds.Palette },
         new() { Id = "clock", Name = "全屏时钟", ShortName = "时钟", Glyph = "\uE740", Kind = SidebarModuleKinds.Palette },
+        // 桌面留言（2026-10-06 加）：跟上面四个一样走「常用工具」浮窗 —— 写一句话就能丢到桌面上或全屏展示。
+        // ⚠️ Id 必须和 ToolPaletteWindow 里的 chip Tag 一字不差，否则 side bar 点开的是浮窗默认页。
+        new() { Id = "message", Name = "桌面留言", ShortName = "留言", Glyph = "\uE8BD", Kind = SidebarModuleKinds.Palette },
         new() { Id = "image-color", Name = "图片取色", ShortName = "取色", Glyph = "\uE790", Kind = SidebarModuleKinds.Page, Page = typeof(Pages.Tools.ImageColorToolPage) },
         new() { Id = "encoding", Name = "编码 / 哈希转换", ShortName = "编码", Glyph = "\uE943", Kind = SidebarModuleKinds.Page, Page = typeof(Pages.Tools.EncodingToolPage) },
         new() { Id = "mirror-download", Name = "系统镜像下载", ShortName = "镜像", Glyph = "\uE896", Kind = SidebarModuleKinds.Page, Page = typeof(Pages.Tools.MirrorToolPage) },

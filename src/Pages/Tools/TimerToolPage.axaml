@@ -3,6 +3,7 @@
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:palette="using:ClassSoftwareHub.Desktop.Views.Palette"
     xmlns:fa="using:FluentAvalonia.UI.Controls">
 
     <!-- ═══ 2026-09-29 三次调整 ═══
@@ -22,10 +23,11 @@
          原版是「标题(自动) / 中间(*，**固定高度**的一张 286dip 大卡片) / 底部设定面板(自动)」，
          中间那行拿到剩余空间后，底部「设定时长」整块被顶出可视区 —— 窗口一矮就只剩
          时、分、秒一行标题露在外面，而页面**滚不动**，输入框和预设按钮全看不见。
-         改成整页一个滚动条 + 三行都按内容高度排：窗口再矮也能滚到底。 -->
+         改成整页一个滚动条 + 四行都按内容高度排：窗口再矮也能滚到底。 -->
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
     <Grid Margin="24,14,24,20">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -45,8 +47,37 @@
                     Click="OpenPalette_Click" ToolTip.Tip="打开置顶小窗口，便于随时计时" />
         </Grid>
 
-        <!-- RowSpacing="14" → 第 1/2 行各加顶 Margin -->
-        <Border Grid.Row="1" Margin="0,14,0,0" CornerRadius="10" Padding="24" BorderThickness="1"
+        <!-- ═══ 2026-10-04（Nick）：这一行右边原版还有「自定义铃声」+「使用全屏时钟背景设置」开关 ═══
+             原版把它们挂在**模式选择那一行**右侧（模式是两个 RadioButton 排成一行）。
+             移植版把模式做成了两张卡、收进计时盘内部，已经没有一行"模式行"可挂，
+             故在标题行与计时盘之间补一行、右对齐 —— 保持"计时盘上方、靠右"的相对位置。 -->
+        <StackPanel Grid.Row="1" Margin="0,10,0,0" Orientation="Horizontal" Spacing="12"
+                    HorizontalAlignment="Right" VerticalAlignment="Center">
+            <!-- 「自定义铃声」：一律先弹一个小菜单 —— 试听当前铃声 / 换一个 / 恢复默认。
+                 试听是必须留的：默认时长最短也是 1 分钟，不给试听就得干等一轮才知道响的是什么。
+                 ⚠️ 原版 MenuFlyout / MenuFlyoutItem 在鲜 Menu 里是"每次点击现搭一个 MenuFlyout"；
+                    Avalonia 的 Button 点一下会自动展开自己的 Flyout，故这里把 MenuFlyout 挂在按钮上，
+                    三项改成 XAML 命名元素，恢复项的 IsEnabled 由 SyncAlarmButton 统一刷（语义不变）。 -->
+            <Button x:Name="AlarmButton" Content="自定义铃声" MinWidth="0">
+                <Button.Flyout>
+                    <MenuFlyout>
+                        <MenuItem x:Name="AlarmTestItem" Header="试听当前铃声" Click="AlarmTest_Click" />
+                        <Separator />
+                        <MenuItem x:Name="AlarmPickItem" Header="选择自定义铃声…" Click="AlarmPick_Click" />
+                        <MenuItem x:Name="AlarmResetItem" Header="恢复默认铃声" Click="AlarmReset_Click" />
+                    </MenuFlyout>
+                </Button.Flyout>
+            </Button>
+            <TextBlock Text="使用全屏时钟背景设置" FontSize="12" Opacity="0.6" VerticalAlignment="Center" />
+            <!-- ⚠️ MinWidth 必须清零；On/Off 文案留空 —— 标签已经在左边了，再来个「开/关」就重复。
+                 ⚠️ 原版是 WinUI ToggleSwitch 的 IsOn + Toggled；Avalonia 的 ToggleSwitch
+                    用 IsChecked + IsCheckedChanged，语义一致（同 Pages/ToolsPage.axaml）。 -->
+            <ToggleSwitch x:Name="ClockBgSwitch" MinWidth="0" OffContent="" OnContent=""
+                          IsCheckedChanged="ClockBg_Toggled" />
+        </StackPanel>
+
+        <!-- RowSpacing="14" → 第 2/3 行各加顶 Margin -->
+        <Border Grid.Row="2" Margin="0,14,0,0" CornerRadius="10" Padding="24" BorderThickness="1"
                 BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
                 Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
             <StackPanel Spacing="20" VerticalAlignment="Center" HorizontalAlignment="Center">
@@ -84,30 +115,46 @@
                     <Button x:Name="StartButton" Content="开始" Click="StartPause_Click" MinWidth="120" Height="40"
                             FontSize="15" Theme="{StaticResource AccentButtonStyle}" />  <!-- Style+DynamicResource 不支持，改 Theme+StaticResource -->
                     <Button Content="重置" Click="Reset_Click" MinWidth="120" Height="40" FontSize="15" />
+                    <!-- 全屏投影：倒计时开全屏倒计时、秒表开全屏秒表（2026-10-03 Nick：两端都要有） -->
+                    <Button x:Name="FullscreenButton" Content="全屏倒计时" Click="Fullscreen_Click" MinWidth="120" Height="40"
+                            FontSize="15"
+                            ToolTip.Tip="把计时铺满整块屏幕，适合投影" />
                 </StackPanel>
             </StackPanel>
         </Border>
 
         <!-- 倒计时设定 / 秒表说明：同一个位置，两种模式各显示一半，尺寸不跳 -->
-        <Border x:Name="SetupPanel" Grid.Row="2" Margin="0,14,0,0" CornerRadius="10" Padding="16" BorderThickness="1"
+        <Border x:Name="SetupPanel" Grid.Row="3" Margin="0,14,0,0" CornerRadius="10" Padding="16" BorderThickness="1"
                 BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
                 Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
             <StackPanel Spacing="10" MaxWidth="900" HorizontalAlignment="Left">
                 <TextBlock x:Name="SetupTitle" Text="设定时长" FontWeight="Bold" />
-                <StackPanel x:Name="SetRow" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                    <fa:NumberBox x:Name="MinBox" Value="5" Minimum="0" Maximum="999"
-                                  SpinButtonPlacementMode="Compact"
-                                  Width="120" IsEnabled="True" />
-                    <TextBlock Text="分" VerticalAlignment="Center" />
-                    <fa:NumberBox x:Name="SecBox" Value="0" Minimum="0" Maximum="59"
-                                  SpinButtonPlacementMode="Compact"
-                                  Width="120" />
-                    <TextBlock Text="秒" VerticalAlignment="Center" />
-                    <Button Content="1 分钟" Click="Preset_Click" Tag="1" Margin="16,0,0,0" />
-                    <Button Content="3 分钟" Click="Preset_Click" Tag="3" />
-                    <Button Content="5 分钟" Click="Preset_Click" Tag="5" />
-                    <Button Content="10 分钟" Click="Preset_Click" Tag="10" />
-                    <Button Content="15 分钟" Click="Preset_Click" Tag="15" />
+                <!-- 2026-10-04（Nick）：这一整块与**网页版** `TimerTool.vue` 对齐 ——
+                     网页版就是「分/秒输入框一行、预设另起一行」，桌面端原来挤成一行，
+                     窗口一窄（≥700 的紧凑导航就是这个区间）左右两头都会被裁掉。
+                     SetRow 现在是**竖排**容器（里面两行），所以 SetMode 里 SetRow.IsVisible 照旧管用。 -->
+                <StackPanel x:Name="SetRow" Spacing="12" HorizontalAlignment="Center">
+                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                        <!-- ═══ TimePicker 已撤 ═══
+                             TimePicker 的弹出列表只有「时 / 分」、**没有秒**（10 秒倒计时都设不了），
+                             而且它的列表默认朝上展开，会把上面那行「05:00」大字整块盖住（就是"起飞"）。
+                             时长改用分/秒两个数字框（可直接设到秒）。
+                             ⚠️ 原版用的是 WinUI NumberBox（配 DecimalFormatter 显示 "05"）；移植版改用
+                                目标仓库已有的触摸友好控件 SpinField（按住加减键可连续快速调整），
+                                Win7 触屏上比 NumberBox 好用 —— 详见 .cs 与交付说明。
+                             ⚠️ 分上限 999 —— 90 分钟的公开课直接填 90，不用换算成小时（同网页版）。 -->
+                        <palette:SpinField x:Name="MinBox" Label="分" Minimum="0" Maximum="999" Step="1" />
+                        <palette:SpinField x:Name="SecBox" Label="秒" Minimum="0" Maximum="59" Step="1" />
+                    </StackPanel>
+
+                    <StackPanel x:Name="PresetRow" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
+                        <Button Content="1 分钟" Click="Preset_Click" Tag="1" />
+                        <Button Content="3 分钟" Click="Preset_Click" Tag="3" />
+                        <Button Content="5 分钟" Click="Preset_Click" Tag="5" />
+                        <Button Content="10 分钟" Click="Preset_Click" Tag="10" />
+                        <Button Content="15 分钟" Click="Preset_Click" Tag="15" />
+                        <Button Content="1 小时" Click="Preset_Click" Tag="60" />
+                    </StackPanel>
                 </StackPanel>
                 <TextBlock x:Name="StopwatchHint" IsVisible="False" FontSize="12.5" Opacity="0.65"
                            TextWrapping="Wrap"

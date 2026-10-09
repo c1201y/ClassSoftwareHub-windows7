@@ -6,11 +6,15 @@
 
     <!-- 2026-09-29（Nick 提）：导入名单之前，先让人看见"名单文件该长什么样"。
          两张示意截图并排（Excel / txt），下面三个按钮：直接用示例试试 / 下载示例文件。
-         ⚠️ 移植说明：原版默认对话框宽 548、靠覆盖主题资源 ContentDialogMaxWidth 放宽到 940
-            （ContentDialog 唯一能改宽度的办法）；FluentAvalonia 的对话框模板**没有**这个资源键，
-            改给内容 ScrollViewer 一个显式 Width=940，效果等价。
+         ⚠️ 移植说明：宽度**必须**走主题资源 ContentDialogMaxWidth —— 默认约 548，
+            两张示意截图并排会被压得看不清，覆盖成 940。
+            （2026-10-07 修正：原来误判成"FA 没有这个资源键"，改成给 ScrollViewer 写死
+              Width="940" —— 一样会被外层容器钳回 548，内容被挤扁。现按上游原样改回资源覆盖。）
          ⚠️ 移植说明：原版 Grid / StackPanel 的 ColumnSpacing、Spacing 改成子元素 Margin，间距值不变。 -->
-    <ScrollViewer Width="940" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <fa:ContentDialog.Resources>
+        <x:Double x:Key="ContentDialogMaxWidth">940</x:Double>
+    </fa:ContentDialog.Resources>
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <StackPanel Spacing="14">
 
             <TextBlock FontSize="13" Opacity="0.75" TextWrapping="Wrap"

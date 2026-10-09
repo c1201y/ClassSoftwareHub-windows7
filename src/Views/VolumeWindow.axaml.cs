@@ -147,14 +147,24 @@ public sealed partial class VolumeWindow : Window
     /// <summary>主音量浮窗当前在屏幕上的矩形（给合成器浮窗「贴着它排」用）。</summary>
     public static PixelRect? CurrentRect => _instance?._chrome.CurrentRect;
 
+    /// <summary>主音量浮窗本次落定的**最终**矩形（滑入动画的目标位置，不是半路上的实时位置）。
+    /// ⚠️ 合成器必须锚这里：锚实时位置的话，主音量还在滑入时点「展开」，
+    ///    合成器就按半路位置落座，主音量随后滑到位正好压进合成器（2026-10-01 修「三个窗叠一起」）。</summary>
+    public static PixelRect? AnchorRect => _instance?._finalRect ?? CurrentRect;
+
+    /// <summary>ShowSelf/Reposition 里算出的最终落点（滑入动画的目标）。</summary>
+    private PixelRect? _finalRect;
+
     private void Configure()
     {
         try
         {
-            // ⚠️ mainScope: true（2026-10-03，用户反馈「浅色模式下悬浮窗不是白色」）：
-            //    音量/亮度这类小浮窗跟**主界面**的颜色模式走 —— 主界面浅色它就是白色的；
-            //    「外部组件单独外观（深色）」只管侧边栏 / 工具面板 / 截图窗，不管这儿。
-            ThemeCompat.Apply(Root, mainScope: true);
+            // ⚠️ mainScope: false（2026-10-08，Nick 截图反馈：分体深色下音量/亮度浮窗还是白的）：
+            //    口径变更 —— 音量/亮度小浮窗改跟「外部组件」的作用域走：
+            //      · 「外部组件单独设置外观」开着 → 跟外部组件外观（深色就是深色浮窗）；
+            //      · 没开 → 跟主界面的颜色模式（与原行为一致）。
+            //    旧的"永远跟主界面"（mainScope: true，2026-10-03）就此废弃；合成器浮窗同一口径。
+            ThemeCompat.Apply(Root);
             VolumeFlyoutGroup.MainHwnd = _chrome.Hwnd;
 
             // ⚠️ handledEventsToo: true —— Slider 内部会把 PointerPressed 标成 handled，
@@ -271,6 +281,7 @@ public sealed partial class VolumeWindow : Window
             // 锚点 = 边条（挨着它长）；边条拿不到就当成贴屏幕边
             var anchor = ToolSidebarWindow.CurrentRect ?? EdgeGeometry.EdgeBar(Edge, work);
             var (start, final) = EdgeGeometry.BesideAnchor(Edge, anchor, work, w, h, scale);
+            _finalRect = new PixelRect(final.X, final.Y, w, h);   // 给合成器当锚（别让它锚半路上的实时位置）
 
             _chrome.Present(start, w, h);
             _visible = true;
@@ -337,6 +348,7 @@ public sealed partial class VolumeWindow : Window
             // ⚠️ 钉住机制已删（2026-10-03）：换目标时一律贴回边条旁边。
             var anchor = ToolSidebarWindow.CurrentRect ?? EdgeGeometry.EdgeBar(Edge, work);
             var (_, final) = EdgeGeometry.BesideAnchor(Edge, anchor, work, w, h, scale);
+            _finalRect = new PixelRect(final.X, final.Y, w, h);
 
             _chrome.Present(final, w, h);
         }

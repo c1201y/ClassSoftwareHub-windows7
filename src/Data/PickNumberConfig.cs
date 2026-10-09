@@ -34,6 +34,11 @@ public sealed class PickNumberConfig
     public List<string> UsedNames { get; set; } = new();
     public string RosterSource { get; set; } = "";
 
+    // ── 结果字号（2026-10-06 加：工具页有滑块可调，跟浮窗共用这一份存档；
+    //    2026-10-07 上限从 2.0 提到 3.0，且号码结果也吃这个系数）──
+    /// <summary>结果字号缩放系数：1.0 = 默认，范围 0.5 ~ 3.0（名字和号码共用）。</summary>
+    public double NameScale { get; set; } = 1.0;
+
     public static PickNumberConfig Load()
     {
         var cfg = new PickNumberConfig();

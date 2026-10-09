@@ -12,7 +12,11 @@
          改成 ScrollViewer 的 Padding，居中改成内层 Grid 的 MaxWidth + Center，版式不变。
     -->
     <ScrollViewer Padding="24,20,24,44" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-        <Grid MaxWidth="960" HorizontalAlignment="Center">
+        <!-- ⚠️ 2026-10-07（Nick 实机反馈「图一图二布局还不一样，好几个应用好几种布局」）：
+             Center + MaxWidth 只能**封顶**、不会**撑满** —— Grid 的宽度实际由内容决定，
+             于是描述文字长的应用撑到 960（图一），文字短的应用只有三四百宽、缩在中间一块（图二）。
+             改成 Stretch：内容一律撑满到 960（到不了就居中），同一套版式在所有应用上都一致。 -->
+        <Grid MaxWidth="960" HorizontalAlignment="Stretch">
             <StackPanel Spacing="14">
 
                     <!-- ===== 头部：图标 + 名称 + 标语 + 分类徽标 =====
@@ -57,7 +61,7 @@
 
                     <!-- ===== 详细信息（版本 / 体积 / 系统 / 官网 / GitHub） ===== -->
                     <TextBlock x:Name="InfoTitle" FontSize="18" FontWeight="Bold" Margin="0,6,0,0" />
-                    <Border CornerRadius="8" Padding="16,14"
+                    <Border CornerRadius="4" Padding="16,14"
                             Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
                             BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
                             BorderThickness="1">
@@ -69,7 +73,7 @@
 
                     <!-- 应用商店入口（store 字段，或 downloads 里指向商店的那条）
                          ⚠️ Grid 无 ColumnSpacing=12 → 第 1 列加 12 左 Margin -->
-                    <Border x:Name="StoreCard" IsVisible="False" CornerRadius="8" Padding="16,14"
+                    <Border x:Name="StoreCard" IsVisible="False" CornerRadius="4" Padding="16,14"
                             Background="{DynamicResource AccentFillColorDefaultBrush}">
                         <Grid>
                             <Grid.ColumnDefinitions>
@@ -98,7 +102,7 @@
                     <ItemsControl x:Name="DownloadList">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Border CornerRadius="8" Padding="16,12" Margin="0,0,0,8"
+                                <Border CornerRadius="4" Padding="16,12" Margin="0,0,0,8"
                                         Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
                                         BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
                                         BorderThickness="1">

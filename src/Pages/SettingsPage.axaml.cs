@@ -12,6 +12,9 @@ using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
 using Avalonia.Styling;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
+using ClassSoftwareHub.Desktop.Controls;
+using ClassSoftwareHub.Desktop.Views;
 using ClassSoftwareHub.Desktop.Core;
 using ClassSoftwareHub.Desktop.Platform;
 using ClassSoftwareHub.Desktop.Services.Updating;
@@ -24,8 +27,6 @@ public sealed partial class SettingsPage : PageBase
 {
     private bool _loading = true;
     private bool _contentBusy;
-    /// <summary>「贴在哪条边」下拉正在按模式重建选项（期间忽略 SelectionChanged）。</summary>
-    private bool _edgeRebuild;
     /// <summary>
     /// 打开设置页后把滚动位置拉回顶部的定时器。
     /// ⚠️ 必须存字段 —— DispatcherTimer 被 GC 收走就不会触发（本项目踩过）。
@@ -44,6 +45,19 @@ public sealed partial class SettingsPage : PageBase
             if (e.Property == SettingsExpander.IsExpandedProperty && HistoryExpander.IsExpanded)
                 LoadLocalHistory();
         };
+
+        // 「本地安装包」展开时才去读目录。
+        // ⚠️ 原版监听 Toolkit SettingsExpander 的 Expanded 事件；FA 没有这个事件，
+        //    这里改监听 IsExpandedProperty（同 HistoryExpander 的写法）。
+        InstallerExpander.PropertyChanged += (_, e) =>
+        {
+            if (e.Property == SettingsExpander.IsExpandedProperty && InstallerExpander.IsExpanded)
+                RefreshInstallerList();
+        };
+
+        // 回声洞折叠区固定收起：模板里那个内层 Expander 要等可视树就绪才压得动，
+        // 用 AttachedToVisualTree 兜一道（原版挂在 Loaded 上，语义等价）。
+        EchoCaveExpander.AttachedToVisualTree += (_, _) => CollapseEchoCave();
     }
 
     public override void OnNavigatedTo(object? parameter)
@@ -62,32 +76,9 @@ public sealed partial class SettingsPage : PageBase
         MinimizeSwitch.IsChecked = s.MinimizeOnStart;
         TraySwitch.IsChecked = s.CloseToTray;
 
-        // 常用工具窗口 / 侧边栏
-        PaletteTopSwitch.IsChecked = s.PaletteOnTop;
-        SidebarSwitch.IsChecked = s.SidebarEnabled;
+        // 2026-10-07（对齐上游 dv1.1.0）：原「常用工具窗口 / 侧边栏」与「截图自动保存」两组设置项，
+        // 上游 2026-10-01 搬去了「侧边布局」页 —— 这里的初始化与处理函数一并删干净（见 SidebarLayoutPage）。
 
-        // 贴靠模式只认左右两条边（Nick 2026-09-28 定：贴靠 = 左右模式）。
-        // 老设置里若留着 top/bottom，这里归到右边 —— 想贴上下边需切到自由模式。
-        if (s.SidebarEdge is not ("left" or "both" or "right"))
-        {
-            s.SidebarEdge = "right";
-            App.Settings.Save();
-        }
-
-        // 自由模式：左 / 右 / 上 / 下四条边
-        if (s.SidebarFreeEdge is not ("left" or "right" or "top" or "bottom"))
-        {
-            s.SidebarFreeEdge = "right";
-            App.Settings.Save();
-        }
-
-        SidebarModeCombo.SelectedIndex = s.SidebarMode == "free" ? 1 : 0;
-        RebuildEdgeCombo();
-        UpdateSidebarHints();
-
-        // 截图自动保存
-        ShotAutoSaveSwitch.IsChecked = s.ShotAutoSave;
-        RefreshShotDir();
         ThemeCombo.SelectedIndex = s.Theme switch
         {
             "light" => 1,
@@ -108,6 +99,8 @@ public sealed partial class SettingsPage : PageBase
 
         ChannelCombo.SelectedIndex = UpdateChannels.Parse(s.UpdateChannel) == UpdateChannel.Insider ? 1 : 0;
         AutoCheckSwitch.IsChecked = s.AutoCheckUpdate;
+        // 安装包保留数量：下拉项 1~10 与索引一一对应；存档里的怪值夹回 1~10 再定位
+        KeepCombo.SelectedIndex = Math.Clamp(s.InstallerKeepCount, 1, 10) - 1;
         UpdateCurrent.Text = $"当前版本：{ShellConfig.VersionPrefix}{ShellConfig.ShellVersion}· 更新源：{UpdateService.CreateDefault().Source.DisplayName}";
 
         RefreshContentInfo();
@@ -115,9 +108,20 @@ public sealed partial class SettingsPage : PageBase
             SettingsQuickGrid.ItemsSource = Core.QuickLinks.Build(App.Content.Ui);
             _loading = false;
 
+        // GitHub 下载取用路径（软件内容 → GitHub 应用更新加速源）；与上游设置页一致，默认自动。
+        GithubRouteCombo.SelectedIndex = Services.GithubRoute.Current switch
+        {
+            Services.GithubRoutes.SelfHosted => 1,
+            Services.GithubRoutes.Official => 2,
+            _ => 0
+        };
+        UpdateGithubRouteHint();
+
         // 「版本记录」固定折叠：里面是十几条运行记录，摊开会把设置页拉得极长。
         // ⚠️ 只在 XAML 里写 IsExpanded="False" 不够 —— 实测加载过程中仍会被撑开，这里再压一次。
         HistoryExpander.IsExpanded = false;
+        InstallerExpander.IsExpanded = false;
+        CollapseEchoCave();
 
         // 打开设置页固定从顶部开始：卡片高度会被设置值二次刷新，ScrollViewer 的锚点跟着漂，
         // 实测会直接停到「常用工具」那一段（2026-09-28）。
@@ -128,8 +132,110 @@ public sealed partial class SettingsPage : PageBase
             // ⚠️ 原版 ScrollViewer.ChangeView(null, 0, null, true)；Avalonia 没有 ChangeView，
             //    直接写 Offset（同样的"带动画滚回顶部"在这里不做 —— 原样本意就是瞬间归零）。
             RootScroll.Offset = new Vector(RootScroll.Offset.X, 0);
+
+            // 三个折叠区在导航后 200ms（早已过布局）再压一次，防"首帧摊开"。
+            HistoryExpander.IsExpanded = false;
+            InstallerExpander.IsExpanded = false;
+            CollapseEchoCave();
         };
         _settleTimer.Start();
+
+        // 回声洞折叠区固定收起（原版在 Loaded 里做；移植版页面每次新建，导航入场再压一次）。
+        CollapseEchoCave();
+    }
+
+    // ══════════════════════════ 诊断 ══════════════════════════
+
+    /// <summary>设置 → 诊断 → 日志查看（Nick 2026-10-02：正式入口，不再放实验性分组）。
+    /// 走 ShellPage 的导航（左侧「设置」保持高亮），返回键能回到设置页。</summary>
+    private void OpenLogViewer_Click(object? sender, RoutedEventArgs e)
+    {
+        App.MainWindow?.Shell.NavigateTo("log-viewer");
+    }
+
+    // ══════════════════════════ 回声洞 ══════════════════════════
+
+    /// <summary>回声洞那张卡片整卡可点＝换一条（悬停底色铺满整行，正文自己不带框）。</summary>
+    private void EchoCave_Click(object? sender, RoutedEventArgs e) => EchoCave.ShowNext();
+
+    /// <summary>
+    /// 把回声洞折叠区收起来（设置页一打开必须是折叠的样子，2026-10-03 Nick 指定）。
+    /// ⚠️ 外层 SettingsExpander.IsExpanded 与模板里那个内层 Expander 都要压 ——
+    ///    内层才是真身（模板里绑的是 TwoWay，它起手展开会把 true 反推回外层），只压外层会被顶回来。
+    /// ⛔ 别删。实测口径：收起后外层/内层 ActualHeight 都是 70（只剩表头行），摊开 125~165（随内容长短）。
+    /// </summary>
+    private void CollapseEchoCave()
+    {
+        // 光设 false 在这个控件上不够稳：只在 IsExpanded **发生变化**时才驱动 VisualState。
+        // 所以先拨到 true 再拨回 false，强制它把"折叠"真的跑一遍。
+        if (!EchoCaveExpander.IsExpanded) EchoCaveExpander.IsExpanded = true;
+        EchoCaveExpander.IsExpanded = false;
+
+        var inner = FindDescendant<Expander>(EchoCaveExpander);
+        if (inner is not null)
+        {
+            if (!inner.IsExpanded) inner.IsExpanded = true;
+            inner.IsExpanded = false;
+        }
+    }
+
+    /// <summary>深度优先找一个后裔控件（模板里的内层控件用；找不到返回 null）。</summary>
+    private static T? FindDescendant<T>(Visual root) where T : Visual
+    {
+        foreach (var child in root.GetVisualChildren())
+        {
+            if (child is T hit) return hit;
+            var deeper = FindDescendant<T>(child);
+            if (deeper is not null) return deeper;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// 「投稿」弹层里的提交：走「提交软件」同一套自建服务（令牌在服务端）。
+    /// 回执**就留在弹层里** —— 成功时给一句回执、停一下自己收起，失败时留着让用户看。
+    /// </summary>
+    private async void SubmitEchoCave_Click(object? sender, RoutedEventArgs e)
+    {
+        var text = EchoSubmitBox.Text?.Trim() ?? "";
+        if (text.Length == 0)
+        {
+            ShowEchoSubmitStatus("还没写内容。");
+            return;
+        }
+
+        EchoSubmitButton.IsEnabled = false;
+        EchoSubmitButton.Content = "正在提交";
+        ShowEchoSubmitStatus("正在提交…");
+
+        var (ok, message) = await Services.EchoCaveService.SubmitAsync(text);
+
+        EchoSubmitButton.IsEnabled = true;
+        EchoSubmitButton.Content = "提交";
+        ShowEchoSubmitStatus(message);
+        // 服务端还没接上（或网络被挡）时给条退路：去 GitHub 网页投。成功时不给，免得画蛇添足。
+        EchoSubmitFallback.IsVisible = !ok;
+
+        if (ok)
+        {
+            EchoSubmitBox.Text = "";
+
+            // 回执看一眼够了就自己收（成功才收；失败留着，还能点兜底链接）。
+            await Task.Delay(1800);
+            if (EchoSubmitStatus.Text == message) EchoSubmitButton.Flyout?.Hide();
+        }
+    }
+
+    private async void SubmitEchoCaveFallback_Click(object? sender, RoutedEventArgs e)
+    {
+        if (await EchoCave.OpenSubmitPage()) EchoSubmitButton.Flyout?.Hide();
+        else ShowEchoSubmitStatus("无法打开浏览器，请手动访问 GitHub 投稿。");
+    }
+
+    private void ShowEchoSubmitStatus(string message)
+    {
+        EchoSubmitStatus.Text = message;
+        EchoSubmitStatus.IsVisible = true;
     }
 
     private void RefreshContentInfo()
@@ -149,10 +255,12 @@ public sealed partial class SettingsPage : PageBase
 
         AboutApp.Text = ShellConfig.AppName;
         AboutVersion.Text = ShellConfig.VersionPrefix + ShellConfig.ShellVersion;
-        var siteVersion = App.Content.Ui.AppVersion;
-        AboutSiteVersion.Text = siteVersion.Length > 0
-            ? $"站点版本：{siteVersion}"
-            : $"站点版本：{ShellConfig.SiteVersionTarget}";
+
+        // ⚠️ 移植说明：原版本轮改为**以编译进程序的常量为准**，不再读内容包的 app.version
+        //    （内容包的 text/ 不联网更新、装机即冻结，读它会一直显示装机那天那版）。
+        //    原版用 ShellConfig.SiteVersionDisplay（带代号的长串）；本移植版暂无该常量，
+        //    退回编译期常量 SiteVersionTarget —— 语义一致（同样不受内容包冻结影响）。
+        AboutSiteVersion.Text = $"站点版本：{ShellConfig.SiteVersionTarget}";
     }
 
     private void UpdateMinimizeAvailability()
@@ -196,10 +304,10 @@ public sealed partial class SettingsPage : PageBase
     private void UpdateExtThemeAvailability()
     {
         ExtThemeCombo.IsEnabled = SplitThemeSwitch.IsChecked == true;
-        // ⚠️ 2026-10-03 起音量/亮度/合成器小浮窗跟**主界面**走（浅色主界面 = 白色浮窗），
-        //    这里把口径说清楚，别让用户以为这个开关也管它们。
+        // ⚠️ 2026-10-08 起音量/亮度/合成器小浮窗改跟**外部组件**外观走（Nick：分体深色下浮窗也得变深），
+        //    提示文案同步更新，别再让用户以为这个开关管不到它们。
         ExtThemeHint.Text = SplitThemeSwitch.IsChecked == true
-            ? "侧边栏 / 常用工具浮窗 / 截图编辑窗都跟着这个走；音量等小浮窗跟主界面走"
+            ? "侧边栏 / 常用工具浮窗 / 截图编辑窗 / 音量亮度浮窗都跟着这个走"
             : "现在是关的：外部组件跟主界面的颜色模式保持一致";
     }
 
@@ -243,182 +351,13 @@ public sealed partial class SettingsPage : PageBase
         App.MainWindow?.SetCloseToTray(TraySwitch.IsChecked == true);
     }
 
-    private void PaletteTopSwitch_Toggled(object? sender, RoutedEventArgs e)
-    {
-        if (_loading) return;
-        App.MainWindow?.SetPaletteOnTop(PaletteTopSwitch.IsChecked == true);
-    }
-
-    private void SidebarSwitch_Toggled(object? sender, RoutedEventArgs e)
-    {
-        if (_loading) return;
-        App.Settings.Current.SidebarEnabled = SidebarSwitch.IsChecked == true;
-        App.Settings.Save();
-        Views.ToolSidebarWindow.ApplySetting();
-    }
-
-    // ── 侧边栏放置模式 / 贴在哪条边 ───────────────────────────
-    // 2026-09-28 Nick：这两项本质是"多个互斥选项里选一个"，跟「颜色模式」「更新通道」同类，
-    // 一律做成下拉；不做成一排单选按钮（会把 Header 和控件挤到卡片两端，中间空出一大片）。
-
-    /// <summary>
-    /// 按当前放置模式重建「贴在哪条边」的选项：
-    /// 贴靠 = 左 / 左右两边 / 右；自由 = 左 / 右 / 上 / 下。
-    /// ⚠️ 重建期间必须挡住 SelectionChanged —— Items.Clear() 会把 SelectedIndex 打成 -1，
-    ///    不然会把设置误写成空值。
-    /// </summary>
-    private void RebuildEdgeCombo()
-    {
-        var s = App.Settings.Current;
-        var free = s.SidebarMode == "free";
-
-        _edgeRebuild = true;
-        try
-        {
-            SidebarEdgeCombo.Items.Clear();
-            if (free)
-            {
-                AddEdgeItem("左边", "left");
-                AddEdgeItem("右边", "right");
-                AddEdgeItem("上边", "top");
-                AddEdgeItem("下边", "bottom");
-                SelectEdge(s.SidebarFreeEdge);
-            }
-            else
-            {
-                AddEdgeItem("左边", "left");
-                AddEdgeItem("左右两边", "both");
-                AddEdgeItem("右边", "right");
-                SelectEdge(s.SidebarEdge);
-            }
-        }
-        finally
-        {
-            _edgeRebuild = false;
-        }
-    }
-
-    private void AddEdgeItem(string text, string tag) =>
-        SidebarEdgeCombo.Items.Add(new ComboBoxItem { Content = text, Tag = tag });
-
-    private void SelectEdge(string tag)
-    {
-        foreach (var item in SidebarEdgeCombo.Items)
-        {
-            if (item is ComboBoxItem it && it.Tag as string == tag)
-            {
-                SidebarEdgeCombo.SelectedItem = it;
-                return;
-            }
-        }
-        if (SidebarEdgeCombo.Items.Count > 0) SidebarEdgeCombo.SelectedIndex = 0;
-    }
-
-    /// <summary>说明文案随模式切换，免得对着下拉不知道是两条边还是四条边。</summary>
-    private void UpdateSidebarHints()
-    {
-        var free = App.Settings.Current.SidebarMode == "free";
-
-        ModeHint.Text = free
-            ? "侧边栏可吸附屏幕任意一条边；贴上边或下边时呈横条。"
-            : "侧边栏只吸附屏幕左右两条边，可选左右同时显示。";
-
-        EdgeHint.Text = free
-            ? "四条边均可吸附；贴上边或下边时侧边栏为横条。拖动收起状态的抓手也可改边。"
-            : "选「左右两边」时两侧同时显示，上下位置保持一致，拖动其中一条另一条同步移动。拖动收起状态的抓手也可改边。";
-    }
-
-    private void SidebarMode_SelectionChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        if (_loading) return;
-        if (SidebarModeCombo.SelectedItem is not ComboBoxItem item || item.Tag is not string mode) return;
-
-        App.Settings.Current.SidebarMode = mode;
-        App.Settings.Save();
-
-        // 模式变了 → 可选的边也变了，下拉要整个换一套
-        RebuildEdgeCombo();
-        UpdateSidebarHints();
-
-        if (App.Settings.Current.SidebarEnabled) Views.ToolSidebarWindow.ApplySetting();
-    }
-
-    private void SidebarEdge_SelectionChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        if (_loading || _edgeRebuild) return;
-        if (SidebarEdgeCombo.SelectedItem is not ComboBoxItem item || item.Tag is not string edge) return;
-
-        var s = App.Settings.Current;
-        if (s.SidebarMode == "free") s.SidebarFreeEdge = edge;
-        else s.SidebarEdge = edge;
-        App.Settings.Save();
-
-        if (s.SidebarEnabled) Views.ToolSidebarWindow.ApplySetting();
-    }
-
-    // ── 截图自动保存 ──────────────────────────────────────────
-
-    private void ShotAutoSave_Toggled(object? sender, RoutedEventArgs e)
-    {
-        if (_loading) return;
-        App.Settings.Current.ShotAutoSave = ShotAutoSaveSwitch.IsChecked == true;
-        App.Settings.Save();
-        RefreshShotDir();
-    }
-
-    /// <summary>把当前保存位置显示出来（没设 = 桌面）。</summary>
-    private void RefreshShotDir()
-    {
-        var dir = Services.ShotSaver.DirSetting();
-        var custom = !string.IsNullOrWhiteSpace(App.Settings.Current.ShotSaveDir);
-        ShotDirText.Text = custom ? dir : $"{dir}（默认：桌面，没改过）";
-        ShotDirText.Opacity = ShotAutoSaveSwitch.IsChecked == true ? 0.7 : 0.4;
-    }
-
-    private async void ShotDir_Change_Click(object? sender, RoutedEventArgs e)
-    {
-        try
-        {
-            // ⚠️ 原版 WinRT FolderPicker + InitializeWithWindow；Avalonia 走 StorageProvider。
-            var top = TopLevel.GetTopLevel(this);
-            if (top is null) return;
-
-            var folders = await top.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
-            {
-                AllowMultiple = false,
-            });
-            if (folders.Count == 0) return;
-
-            App.Settings.Current.ShotSaveDir = folders[0].Path.LocalPath;
-            App.Settings.Save();
-            RefreshShotDir();
-        }
-        catch (Exception ex)
-        {
-            Services.ScreenCapture.Log("选截图目录失败: " + ex.Message);
-        }
-    }
-
-    private void ShotDir_Open_Click(object? sender, RoutedEventArgs e)
-    {
-        try
-        {
-            var dir = Services.ShotSaver.Dir();
-            Directory.CreateDirectory(dir);
-            Process.Start(new ProcessStartInfo(dir) { UseShellExecute = true });
-        }
-        catch (Exception ex)
-        {
-            Services.ScreenCapture.Log("打开截图目录失败: " + ex.Message);
-        }
-    }
-
-    private void ShotDir_Reset_Click(object? sender, RoutedEventArgs e)
-    {
-        App.Settings.Current.ShotSaveDir = "";                // 空 = 桌面
-        App.Settings.Save();
-        RefreshShotDir();
-    }
+    // ── 常用工具 / 侧边栏 / 截图：2026-10-07 整组搬去「侧边布局」页 ──────────
+    // 上游 2026-10-01 把「浮窗置顶 / 屏幕边缘侧边栏 / 放置模式 / 贴哪条边」四项与「截图」两项
+    // 都移到了 SidebarLayoutPage（那页本就是侧边栏与常用工具的布置中心）。
+    // 这里对应的 13 个处理函数（PaletteTopSwitch_Toggled / SidebarSwitch_Toggled /
+    // RebuildEdgeCombo / AddEdgeItem / SelectEdge / UpdateSidebarHints / SidebarMode_SelectionChanged /
+    // SidebarEdge_SelectionChanged / ShotAutoSave_Toggled / RefreshShotDir / ShotDir_Change_Click /
+    // ShotDir_Open_Click / ShotDir_Reset_Click）一并删除，逻辑原样搬到了那边。
 
     private void ReloadContent_Click(object? sender, RoutedEventArgs e)
     {
@@ -521,7 +460,18 @@ public sealed partial class SettingsPage : PageBase
 
                 // 先问；选「稍后」就什么都不做
                 // ⚠️ 原版首参 XamlRoot 是 WinUI 的弹窗宿主；移植版 UpdateFlow 改收 owner（TopLevel）。
-                if (!await UpdateFlow.AskAsync(release, TopLevel.GetTopLevel(this))) return;
+                var choice = await UpdateFlow.AskAsync(release, TopLevel.GetTopLevel(this));
+                if (choice == UpdateFlow.UpdateChoice.Later) return;
+
+                // 「后台下载」：不弹进度窗，下完发系统通知，装不装等用户点。
+                if (choice == UpdateFlow.UpdateChoice.Background)
+                {
+                    if (UpdateFlow.StartBackgroundDownload(_updater, release))
+                        UpdateStatus.Text = $"已转为后台下载 {release.Tag}，完成后通过系统通知提醒。";
+                    else
+                        UpdateStatus.Text = "已有一个更新正在后台下载，完成后会通知。";
+                    return;
+                }
 
                 if (!await UpdateFlow.RunAsync(_updater, release, owner: TopLevel.GetTopLevel(this)))
                     UpdateStatus.Text = "更新失败：可稍后重试，或前往发布页手动下载新版本。";
@@ -736,5 +686,214 @@ public sealed partial class SettingsPage : PageBase
         if (string.IsNullOrWhiteSpace(text)) return "";
         var t = text.Replace("\r", "").Trim();
         return t.Length <= max ? t : t[..max] + "…";
+    }
+
+    // ── 安装包自动清理（updates 目录） ─────────────────────────
+
+    /// <summary>保留数量改动：存档 + 后台立刻清一轮（不用等下次启动），列表若摊开着就跟着刷新。</summary>
+    private void KeepCombo_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_loading) return;
+        if (KeepCombo.SelectedItem is not ComboBoxItem item || item.Tag is not string tag) return;
+        if (!int.TryParse(tag, out var keep)) return;
+
+        App.Settings.Current.InstallerKeepCount = Math.Clamp(keep, 1, 10);
+        App.Settings.Save();
+
+        var target = App.Settings.Current.InstallerKeepCount;
+        _ = Task.Run(() =>
+        {
+            try { InstallerCleanup.Clean(target); }
+            catch { /* 清理失败不打扰界面，下次启动会再试 */ }
+        }).ContinueWith(_ =>
+        {
+            // ⚠️ 移植：原版 DispatcherQueue.TryEnqueue → Avalonia Dispatcher.UIThread.Post。
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (InstallerExpander.IsExpanded) RefreshInstallerList();
+            });
+        });
+    }
+
+    /// <summary>「本地安装包」展开时现读目录（平时折叠，不占加载时间）。</summary>
+    private void RefreshInstallerList()
+    {
+        InstallerList.Children.Clear();
+        InstallerDirText.Text = $"存放位置：{InstallerCleanup.InstallerDirectory}";
+
+        var files = InstallerCleanup.Scan();
+        if (files.Count == 0)
+        {
+            InstallerList.Children.Add(new TextBlock
+            {
+                Text = "本地暂无安装包。更新完成后会自动存放于此。",
+                FontSize = 12,
+                Opacity = 0.7,
+                TextWrapping = TextWrapping.Wrap,
+            });
+            return;
+        }
+
+        foreach (var f in files)
+            InstallerList.Children.Add(BuildInstallerRow(f));
+    }
+
+    /// <summary>单行：左边名称 + 大小/时间，右边「覆盖安装」「删除」。</summary>
+    private StackPanel BuildInstallerRow(InstallerFileInfo f)
+    {
+        var meta = $"{FormatSize(f.Length)}　·　{f.ModifiedUtc.LocalDateTime:yyyy-MM-dd HH:mm}"
+                   + (f.HasMd5File ? "　·　含校验文件" : "");
+
+        var name = new TextBlock
+        {
+            Text = f.Name,
+            FontWeight = FontWeight.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+        };
+        var sub = new TextBlock
+        {
+            Text = meta,
+            FontSize = 12,
+            Opacity = 0.65,
+            TextWrapping = TextWrapping.Wrap,
+        };
+
+        // 「覆盖安装」：留着这个包的直接用途 —— 原地覆盖装一遍当前（或更旧）版本，不用重新下载。
+        // ⚠️ 对象初始化器里 VerticalAlignment 会被解析成控件自身属性（CS0176），写全限定名（同 HistoryRow）。
+        var install = new Button { Content = "覆盖安装", VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center };
+        ToolTip.SetTip(install, "用这个安装包原地覆盖安装，安装目录与各项设置保持不变。");
+        install.Click += async (_, _) => await InstallFromLocalAsync(f);
+
+        var del = new Button { Content = "删除", VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center };
+        del.Click += async (_, _) => await DeleteInstallerAsync(f);
+
+        var actions = new StackPanel
+        {
+            Orientation = Avalonia.Layout.Orientation.Horizontal,
+            Spacing = 8,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+        };
+        actions.Children.Add(install);
+        actions.Children.Add(del);
+
+        var left = new StackPanel { Spacing = 2 };
+        left.Children.Add(name);
+        left.Children.Add(sub);
+
+        // ⚠️ 原版 Grid ColumnSpacing=12；本仓库不用 Grid 的 ColumnSpacing，右列靠按钮自身左边距让位。
+        install.Margin = new Thickness(12, 0, 0, 0);
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        left.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center;
+        Grid.SetColumn(left, 0);
+        Grid.SetColumn(actions, 1);
+        grid.Children.Add(left);
+        grid.Children.Add(actions);
+
+        var wrap = new StackPanel { Spacing = 0 };
+        wrap.Children.Add(grid);
+        return wrap;
+    }
+
+    /// <summary>
+    /// 用本地已有的安装包覆盖安装（不必重新下载）。
+    /// ⚠️ 真正的"先退应用、安装程序后起"由 UpdateFlow.InstallLocalAsync 保证 ——
+    ///    顺序反了安装会被 Inno 静默取消（见 UpdateService.RunInstaller 的注释）。
+    /// </summary>
+    private async Task InstallFromLocalAsync(InstallerFileInfo f)
+    {
+        var body = new StackPanel { Spacing = 8 };
+        body.Children.Add(new TextBlock
+        {
+            Text = f.Name,
+            FontWeight = FontWeight.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+        });
+        body.Children.Add(new TextBlock
+        {
+            Text = "安装程序会按同一个应用标识原地覆盖安装，安装目录与各项设置都保持不变，无需重新下载。"
+                 + "安装过程中应用会自动关闭，装好后自动重新打开（约十几秒），此过程并非程序异常。",
+            FontSize = 12,
+            Opacity = 0.7,
+            TextWrapping = TextWrapping.Wrap,
+        });
+
+        // ⚠️ 原版 ContentDialog.XamlRoot → FA 的 ShowAsync(TopLevel)（同 RollbackAsync 的写法）。
+        var confirm = new ContentDialog
+        {
+            Title = "用这个安装包覆盖安装",
+            Content = body,
+            PrimaryButtonText = "覆盖安装",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Close,
+        };
+        var top = TopLevel.GetTopLevel(this);
+        var result = top is null ? await confirm.ShowAsync() : await confirm.ShowAsync(top);
+        if (result != ContentDialogResult.Primary) return;
+
+        await UpdateFlow.InstallLocalAsync(f.FullPath);
+    }
+
+    private async Task DeleteInstallerAsync(InstallerFileInfo f)
+    {
+        var confirm = new ContentDialog
+        {
+            Title = "删除安装包",
+            Content = $"删除 {f.Name}？删除后装回该版本需重新下载。",
+            PrimaryButtonText = "删除",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Close,
+        };
+        var top = TopLevel.GetTopLevel(this);
+        var result = top is null ? await confirm.ShowAsync() : await confirm.ShowAsync(top);
+        if (result != ContentDialogResult.Primary) return;
+
+        InstallerCleanup.TryDeleteWithMd5(f.FullPath);
+        RefreshInstallerList();
+    }
+
+    private static string FormatSize(long bytes)
+    {
+        if (bytes >= 1024 * 1024 * 1024) return $"{bytes / 1024.0 / 1024 / 1024:0.0#} GB";
+        if (bytes >= 1024 * 1024) return $"{bytes / 1024.0 / 1024:0.0#} MB";
+        if (bytes >= 1024) return $"{bytes / 1024.0:0} KB";
+        return $"{bytes} B";
+    }
+
+    // ── GitHub 应用更新加速源（软件内容） ─────────────────────────
+    // 与网页端设置页一致：自动 / 自建加速服务 / GitHub 源。
+    // 实际改写下载链接的逻辑在 Services.GithubRoute（自建优先 → 公益镜像测速择优 → GitHub 官方保底）。
+
+    private void GithubRoute_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_loading) return;
+        if (GithubRouteCombo.SelectedItem is not ComboBoxItem item || item.Tag is not string route) return;
+        App.Settings.Current.GithubDownloadRoute = Services.GithubRoutes.Normalize(route);
+        App.Settings.Save();
+        Services.GithubRoute.InvalidateCache();
+        UpdateGithubRouteHint();
+    }
+
+    private void UpdateGithubRouteHint()
+    {
+        var current = Services.GithubRoute.Current;
+        GithubRouteHint.Text = current switch
+        {
+            Services.GithubRoutes.SelfHosted => "更新包等自动下载优先走社区自建加速节点（本站 Worker 代签、限时直链）；节点不可用时自动测速挑选最快的公益镜像，全部不可用再回 GitHub 源。",
+            Services.GithubRoutes.Official => "更新包等自动下载直接连接 github.com，不做任何改写。",
+            _ => "更新包等自动下载优先走社区自建加速节点；节点不可用时自动测速挑选最快的公益镜像，全部不可用再回 GitHub 源。",
+        };
+        // 只要不是「GitHub 源」就给一条说明：自建节点已就绪（Worker 代签、限时直链），
+        // 不可用时自动按测速挑最快公益镜像，全不可用再回 GitHub 官方直链。
+        GithubRouteWarning.IsOpen = current != Services.GithubRoutes.Official;
+    }
+
+    // ── 法律条款（关于 → 用户协议 / 隐私政策 / 免责声明） ──────────
+
+    private void OpenLegal_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not SettingsCard card || card.Tag is not string key) return;
+        App.MainWindow?.Shell.NavigateToLegal(key);
     }
 }

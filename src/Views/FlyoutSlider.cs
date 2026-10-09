@@ -31,6 +31,7 @@ public sealed class FlyoutSlider
     private const uint SWP_NOACTIVATE = 0x0010;
 
     private DispatcherTimer? _timer;
+    private DispatcherTimer? _watchdog;
     private int _epoch;
 
     /// <summary>正在滑（滑入或滑出）。调用方据此避免在动画中途改窗口位置。</summary>
@@ -41,6 +42,8 @@ public sealed class FlyoutSlider
         _epoch++;
         _timer?.Stop();
         _timer = null;
+        _watchdog?.Stop();
+        _watchdog = null;
         IsRunning = false;
     }
 
@@ -78,5 +81,22 @@ public sealed class FlyoutSlider
 
         _timer = timer;
         timer.Start();
+
+        // 兜底：按帧计时器万一停摆（消息循环被卡住 / 窗口被藏），动画不能卡死不收尾。
+        // （原版 WinUI 靠 CompositionTarget.Rendering 每 vsync 一帧 + 同样的 watchdog 兜底；
+        //  Avalonia 侧按本仓库既有约定仍走 16ms DispatcherTimer，见类顶部说明。）
+        var watchdog = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(ms + 400) };
+        watchdog.Tick += (_, _) =>
+        {
+            watchdog.Stop();
+            if (epoch != _epoch) return;
+            Stop();
+            if (hwnd != IntPtr.Zero)
+                _ = NativeMethods.SetWindowPos(hwnd, IntPtr.Zero, to.X, to.Y, 0, 0,
+                    SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+            done?.Invoke();
+        };
+        _watchdog = watchdog;
+        watchdog.Start();
     }
 }

@@ -79,7 +79,7 @@
                            Foreground="{DynamicResource SystemFillColorCriticalBrush}" />
 
                 <!-- 种子色 -->
-                <Border x:Name="SeedCard" Grid.Row="2" Margin="0,14,0,0" IsVisible="False" CornerRadius="8" Padding="14,12"
+                <Border x:Name="SeedCard" Grid.Row="2" Margin="0,14,0,0" IsVisible="False" CornerRadius="4" Padding="14,12"
                         BorderThickness="1"
                         BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
                         Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">

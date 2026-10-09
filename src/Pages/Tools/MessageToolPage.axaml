@@ -1,0 +1,172 @@
+<platform:PageBase
+    x:Class="ClassSoftwareHub.Desktop.Pages.Tools.MessageToolPage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:fa="using:FluentAvalonia.UI.Controls">
+
+    <!--
+      桌面留言：把一句话写出来，做成**桌面悬浮窗**随时看，或**全屏**铺满屏幕展示。
+      2026-10-06（Nick 提）：常用工具里加一个留言功能 —— 可输入文字、调字号与颜色，
+      还能做成文字悬浮窗在桌面显示和全屏。
+
+      ⚠️ 移植说明（WinUI → Avalonia）：
+        · ThemeResource → DynamicResource；ToolTipService.ToolTip → ToolTip.Tip；
+        · 卡片统一走 App.axaml 里的 Classes="cshCard"（4px 圆角 + 系统卡片底/描边 + 16,12 内边距）；
+        · Grid 的 RowSpacing / ColumnSpacing 在 Avalonia 里没有 → 用子元素的 Margin 模拟；
+        · 色卡（一排小色块）在 code-behind 里铺，不在这里手写二十个 Button。
+    -->
+    <Grid Margin="24,10,24,12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- ═══ 标题 ═══ -->
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Spacing="2" VerticalAlignment="Center">
+                <TextBlock Text="桌面留言" FontSize="24" FontWeight="Bold" />
+                <TextBlock FontSize="12.5" Opacity="0.6" TextWrapping="Wrap"
+                           Text="把要提醒的话写下来：可调字号与颜色，既能做成置顶悬浮窗钉在桌面上，也能全屏铺满屏幕展示。" />
+            </StackPanel>
+            <Button Grid.Column="1" Margin="12,0,0,0" Content="在工具窗口打开" VerticalAlignment="Center"
+                    Click="OpenPalette_Click" ToolTip.Tip="打开置顶小窗口，随手改字、随手投屏" />
+        </Grid>
+
+        <!-- ═══ 内容：左设置 / 右预览 ═══ -->
+        <ScrollViewer Grid.Row="1" Margin="0,10,0,0" VerticalScrollBarVisibility="Auto">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="352" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <!-- ── 左栏：内容 + 外观 ── -->
+                <StackPanel>
+                    <Border Classes="cshCard">
+                        <StackPanel>
+                            <TextBlock Text="留言内容" FontSize="13" FontWeight="Bold" />
+                            <TextBox x:Name="ContentBox" Margin="0,8,0,0" Height="128"
+                                     AcceptsReturn="True" TextWrapping="Wrap"
+                                     VerticalContentAlignment="Top"
+                                     Watermark="在这里输入要展示的文字，可换行"
+                                     TextChanged="Content_Changed" />
+                            <TextBlock Margin="0,8,0,0" FontSize="12" Opacity="0.6" TextWrapping="Wrap"
+                                       Text="换行会原样保留。文字不多时建议短句，全屏展示时字号会自动放得更大。" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Classes="cshCard" Margin="0,12,0,0">
+                        <StackPanel>
+                            <TextBlock Text="外观" FontSize="13" FontWeight="Bold" />
+
+                            <!-- ColumnSpacing="12" → 第 2 列 Margin -->
+                            <Grid Margin="0,12,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <!-- ⚠️ NumberBox 的 ValueChanged 一律在 code-behind 里挂（本仓库既有约定：
+                                     事件在构造之后再接，避免 XAML 解析期就回调到还没建好的控件）。 -->
+                                <fa:NumberBox x:Name="FontSizeBox" Header="字号" Value="48"
+                                              Minimum="12" Maximum="300" SmallChange="2"
+                                              SpinButtonPlacementMode="Compact"
+                                              HorizontalAlignment="Stretch" />
+                                <CheckBox x:Name="BoldBox" Grid.Column="1" Margin="12,22,0,0"
+                                          Content="加粗" MinWidth="0" Padding="6,0,0,0"
+                                          IsCheckedChanged="Bold_Changed" />
+                            </Grid>
+
+                            <!-- 全屏放大倍数：全屏时字号 = 字号 × 这个倍数（再按屏幕兜一次上限） -->
+                            <Grid Margin="0,16,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="ScaleLabel" Margin="0,0,10,0" FontSize="12"
+                                           VerticalAlignment="Center" Text="全屏放大 3 倍" />
+                                <Slider x:Name="ScaleSlider" Grid.Column="1" Minimum="1" Maximum="6"
+                                        IsSnapToTickEnabled="True" TickFrequency="1"
+                                        ValueChanged="Scale_Changed" />
+                            </Grid>
+
+                            <!-- ── 文字颜色 ── -->
+                            <TextBlock Margin="0,16,0,0" Text="文字颜色" FontSize="12" Opacity="0.6" />
+                            <WrapPanel x:Name="TextColorHost" Margin="0,8,0,0" />
+                            <TextBox x:Name="TextColorHex" Margin="0,8,0,0" FontSize="12.5"
+                                     Watermark="#FF1F1F1F（可粘贴自定义颜色）"
+                                     TextChanged="TextColorHex_Changed" />
+
+                            <!-- ── 背景底色 ── -->
+                            <TextBlock Margin="0,16,0,0" Text="背景底色" FontSize="12" Opacity="0.6" />
+                            <WrapPanel x:Name="BackColorHost" Margin="0,8,0,0" />
+                            <TextBox x:Name="BackColorHex" Margin="0,8,0,0" FontSize="12.5"
+                                     Watermark="#FFFDFDF7（可粘贴自定义颜色）"
+                                     TextChanged="BackColorHex_Changed" />
+
+                            <CheckBox x:Name="TransparentBox" Margin="0,14,0,0" MinWidth="0" Padding="6,0,0,0"
+                                      Content="悬浮窗使用无底色（透明）"
+                                      ToolTip.Tip="只对桌面悬浮窗生效；系统不支持真正的透明时会自动改用上面的底色"
+                                      IsCheckedChanged="Transparent_Changed" />
+                            <TextBlock Margin="0,6,0,0" FontSize="11.5" Opacity="0.55" TextWrapping="Wrap"
+                                       Text="提示：真正的「透明」需要系统合成支持（Win7 关了 Aero / 经典主题时并不成立），此时悬浮窗会自动改用上面的底色。" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- ── 右栏：预览 + 动作 ── -->
+                <StackPanel Grid.Column="1" Margin="16,0,0,0">
+                    <Border x:Name="PreviewCard" Classes="cshCard" MinHeight="240" Padding="24,20"
+                            VerticalAlignment="Top">
+                        <Grid>
+                            <TextBlock x:Name="PreviewHint" Text="预览" FontSize="12" Opacity="0.45"
+                                       HorizontalAlignment="Right" VerticalAlignment="Top" />
+                            <TextBlock x:Name="PreviewText" TextWrapping="Wrap" TextAlignment="Center"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Grid>
+                    </Border>
+                    <TextBlock Margin="0,8,0,0" FontSize="11.5" Opacity="0.55" TextWrapping="Wrap"
+                               Text="预览按比例缩小显示；悬浮窗与全屏显示的是你设定的字号。" />
+
+                    <!-- ColumnSpacing="10" → 第 2/3 列 Margin -->
+                    <Grid Margin="0,14,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Button x:Name="FloatButton" Content="桌面悬浮显示" Height="38"
+                                Theme="{StaticResource AccentButtonStyle}"
+                                HorizontalAlignment="Stretch" Click="Float_Click"
+                                ToolTip.Tip="把留言钉在桌面上（置顶、可拖动，双击或 Esc 收起）" />
+                        <Button x:Name="FullscreenButton" Grid.Column="1" Margin="10,0,0,0" Content="全屏显示"
+                                Height="38" HorizontalAlignment="Stretch" Click="Fullscreen_Click"
+                                ToolTip.Tip="铺满整块屏幕展示留言（Esc、双击或右上角按钮退出）" />
+                        <Button x:Name="HideButton" Grid.Column="2" Margin="10,0,0,0" Content="收起悬浮窗"
+                                Height="38" HorizontalAlignment="Stretch" Click="Hide_Click"
+                                ToolTip.Tip="关掉桌面上的留言悬浮窗" />
+                    </Grid>
+
+                    <Border Classes="cshCard" Margin="0,14,0,0">
+                        <StackPanel>
+                            <TextBlock Text="怎么用" FontSize="13" FontWeight="Bold" />
+                            <TextBlock Margin="0,8,0,0" FontSize="12.5" Opacity="0.75" TextWrapping="Wrap"
+                                       Text="· 悬浮窗：钉在桌面最上层，拖动任意位置可移动，鼠标移上去会出现关闭键，双击或按 Esc 也能收起。" />
+                            <TextBlock Margin="0,6,0,0" FontSize="12.5" Opacity="0.75" TextWrapping="Wrap"
+                                       Text="· 全屏：适合投影或班会，字号按「字号 × 全屏放大倍数」自动算，并按屏幕大小兜住上限，长段落也不会溢出。" />
+                            <TextBlock Margin="0,6,0,0" FontSize="12.5" Opacity="0.75" TextWrapping="Wrap"
+                                       Text="· 内容与外观会自动保存，下次打开还是这个样子；「常用工具」浮窗里也有一个简版入口。" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Grid>
+        </ScrollViewer>
+
+        <TextBlock x:Name="Toast" Grid.Row="2" Margin="0,8,0,0" FontSize="12" Opacity="0.75" />
+    </Grid>
+</platform:PageBase>

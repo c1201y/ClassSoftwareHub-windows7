@@ -1,5 +1,7 @@
 using System;
+using System.Reflection;
 using Avalonia;
+using Avalonia.Rendering.Composition;
 
 namespace ClassSoftwareHub.Desktop;
 
@@ -46,6 +48,39 @@ internal static class Program
         Platform.OsInfo.SimulateWin7 =
             Array.Exists(args, a => a.Equals("--simulate-win7", StringComparison.OrdinalIgnoreCase))
             || Environment.GetEnvironmentVariable("CSH_SIMULATE_WIN7") == "1";
+
+        // ⚠️ 2026-10-09（椰汁截图：抽号页出现随机灰色矩形，每次刷新形状都不一样，之前没有）：
+        //   Avalonia 默认走「脏矩形」局部重绘 —— 每帧只重画变化的那几块区域，其余像素依赖
+        //   显卡"保住上一帧"。Win7 的老驱动（ANGLE/D3D9、WGL，教室机清一色 Intel 老核显）
+        //   在这条路上会漏出垃圾像素：屏幕上就是几块深浅略有差别的矩形残影，位置形状每帧都变。
+        //   大字号结果区（抽号 96~288px 的数字）重绘面积大，最容易把这条路径踩出来。
+        //   这是 Skia 官方记录在案的 bug 一类（issues.skia.org/issues/327877721），
+        //   Avalonia 给的绕法就是 <see cref="CompositionOptions.UseSaveLayerRootClip"/>：
+        //   脏区内容先画进一层**中间表面**，再整体合成到画面上，不再直接往保帧表面上裁剪绘制。
+        //   代价是每帧多一次离屏合成 —— 教室软件站这种"大部分时间静止"的界面完全无感。
+        //   仅 Win7（含 --simulate-win7 模拟分支）启用；Win10/11 驱动新，维持 Avalonia 默认行为。
+        //   ⛔ 必须在第一个窗口（也就是 Compositor）创建**之前**注册进 AvaloniaLocator，
+        //      放在 Main 里 BuildAvaloniaApp() 之前是最稳的位置。
+        if (Platform.OsInfo.IsWindows7)
+        {
+            // ⚠️ AvaloniaLocator.CurrentMutable 在 NuGet 的 ref 程序集里被裁掉了（编译期不可见，
+            //    运行时仍全量公开），编译又不能引 lib 程序集 —— 所以这里走反射注册，一次性开销忽略不计。
+            try
+            {
+                var locatorType = typeof(Avalonia.Media.Color).Assembly
+                    .GetType("Avalonia.AvaloniaLocator", throwOnError: true)!;
+                var locator = locatorType.InvokeMember("CurrentMutable",
+                    BindingFlags.Public | BindingFlags.Static | BindingFlags.GetProperty,
+                    null, null, Array.Empty<object>())!;
+                var helper = locatorType.GetMethod("Bind")!
+                    .MakeGenericMethod(typeof(CompositionOptions))
+                    .Invoke(locator, Array.Empty<object>())!;
+                helper.GetType().GetMethod("ToConstant")!
+                    .MakeGenericMethod(typeof(CompositionOptions))
+                    .Invoke(helper, new object?[] { new CompositionOptions { UseSaveLayerRootClip = true } });
+            }
+            catch { /* 注册不上就维持默认渲染路径 —— 这不是致命配置，别为它挡启动 */ }
+        }
 
 #if CSH_CONSOLE
         // 控制台版：先把输出通道架好，之后发生的一切（包括启动期崩溃）都看得见。

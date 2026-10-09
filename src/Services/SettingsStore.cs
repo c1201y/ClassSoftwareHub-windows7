@@ -128,6 +128,14 @@ public sealed class AppSettings
     public string[] SidebarFooterHidden { get; set; } = Array.Empty<string>();
 
     /// <summary>
+    /// 「动画方案」：拖放卡片落位时的收尾效果 —— <c>plain</c> 平滑收势 | <c>dip</c> 轻落一下（默认）。
+    /// 在「侧边布局」页选择，见 <c>SidebarLayoutPage.SettleGhost</c>。
+    /// ⚠️ 认不出的值一律当 <c>dip</c>（见 <c>SidebarLayoutPage.DropDipScale</c>）。
+    /// 2026-10-07 从上游 dv1.1.0 同步：上游 2026-10-01 加入（两种落位收尾都保留，交用户自选）。
+    /// </summary>
+    public string SidebarDropAnim { get; set; } = "dip";
+
+    /// <summary>
     /// ⚠️ **已弃用**（2026-09-29 从"一个总开关"改成"五颗各自一个开关"）：
     /// 老存档里 <c>false</c> = 五颗全隐藏。现在只用来做**一次性迁移**
     /// （见 <c>SettingsStore.MigrateSidebarFooter</c>，迁完就把它拨回 true 当"已迁"标记）。
@@ -222,6 +230,40 @@ public sealed class AppSettings
     /// false = 按规格书走「网页判断 → 桥接消息 → 原生拖动」。
     /// </summary>
     public bool NativeCaptionRegions { get; set; } = false;
+
+    /// <summary>
+    /// 本地安装包保留数量（1~10，默认 3）：启动时自动清理 <c>updates</c> 目录，
+    /// 按修改时间从新到旧留 N 个、其余删掉。留着的包给「装回旧版本」用 —— 本地有就不再下载。
+    /// 使用处会自行夹取（见 InstallerCleanup.Clean），存档里不夹是为了老档里出现怪值时也不至于越界。
+    /// </summary>
+    public int InstallerKeepCount { get; set; } = 3;
+
+    /// <summary>
+    /// 后台下载完成的更新安装包绝对路径（空 = 没有）。下载校验通过就记下，
+    /// 通知里的「稍后安装」和首页横幅都认它；装好新版本启动后由首页自检清掉。
+    /// </summary>
+    public string UpdatePendingPath { get; set; } = "";
+
+    /// <summary>后台下载完成的版本号（配 UpdatePendingPath，仅供展示）。</summary>
+    public string UpdatePendingTag { get; set; } = "";
+
+    /// <summary>GitHub 下载取用路径：auto（自动）/ selfhosted（自建加速服务）/ github（GitHub 源）。
+    /// 默认 auto，与上游设置页「GitHub 应用更新加速源」一致。由设置页选择；
+    /// <see cref="Services.GithubRoute"/> 据此把软件下载链接翻译成实际要抓的链接。</summary>
+    public string GithubDownloadRoute { get; set; } = "auto";
+
+    /// <summary>
+    /// 课堂计时器到点的自定义铃声（完整路径；空 = 用内嵌的默认铃声）。
+    /// ⚠️ 只存路径不存副本：这是本地工具，用户自己挑的文件放在他自己知道的地方；
+    ///    哪天文件没了由 <c>TimerAlarm.ResolvePath</c> 退回默认，不会静默哑掉。
+    /// </summary>
+    public string TimerAlarmPath { get; set; } = "";
+
+    /// <summary>
+    /// 全屏倒计时 / 全屏秒表的背景是否沿用「全屏时钟」那套外观（背景图、蒙版、底色、字色）。
+    /// 开着的场合，投影出来的计时盘跟教室那块全屏时钟长一样，不会一边一个画风。
+    /// </summary>
+    public bool TimerUseClockBackground { get; set; }
 }
 
 /// <summary>设置存储：%LOCALAPPDATA%\ClassSoftwareHub\settings.json</summary>

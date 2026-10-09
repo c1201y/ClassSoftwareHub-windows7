@@ -35,10 +35,12 @@ public enum DownloadState
 /// </summary>
 public sealed class DownloadTask : INotifyPropertyChanged
 {
-    public DownloadTask(string url, string? suggestedName, string? title)
+    public DownloadTask(string url, string? suggestedName, string? title,
+        DownloadRoute route = DownloadRoute.Setting)
     {
         Url = url;
         SuggestedName = suggestedName;
+        Route = route;
         Title = string.IsNullOrWhiteSpace(title)
             ? DownloadService.ResolveFileName(url, suggestedName)
             : title!.Trim();
@@ -54,6 +56,12 @@ public sealed class DownloadTask : INotifyPropertyChanged
 
     /// <summary>列表/弹窗标题（软件名，不是落盘文件名）。</summary>
     public string Title { get; }
+
+    /// <summary>
+    /// 这条任务走哪条下载路线（详情页「下载」=官方直链、「加速下载」=加速链）。
+    /// 重试时原样沿用，别让它悄悄换了路。
+    /// </summary>
+    public DownloadRoute Route { get; }
 
     /// <summary>用户点了取消 → 拿它掐断（<see cref="DownloadState.Canceled"/> 就是这么来的）。</summary>
     public CancellationTokenSource Cancellation { get; } = new();
@@ -226,9 +234,10 @@ public sealed class DownloadManager
     /// ⚠️ **必须在 UI 线程调用**：内部用 <see cref="Progress{T}"/> 捕获当前的同步上下文，
     /// 好在 UI 线程上更新 <see cref="Tasks"/>（ObservableCollection 不能跨线程改）。
     /// </summary>
-    public DownloadTask Start(string url, string? suggestedName = null, string? title = null)
+    public DownloadTask Start(string url, string? suggestedName = null, string? title = null,
+        DownloadRoute route = DownloadRoute.Setting)
     {
-        var task = new DownloadTask(url, suggestedName, title);
+        var task = new DownloadTask(url, suggestedName, title, route);
         Tasks.Insert(0, task);        // 新任务排最前，用户一眼看到刚点的那个
         Changed?.Invoke();
         _ = RunAsync(task);
@@ -249,7 +258,7 @@ public sealed class DownloadManager
         var task = Find(id);
         if (task is null || task.IsRunning) return;
         Remove(id);
-        Start(task.Url, task.SuggestedName, task.Title);
+        Start(task.Url, task.SuggestedName, task.Title, task.Route);
     }
 
     /// <summary>从列表里抹掉一条（**只删记录，不动已经下载到硬盘的文件**）。跑着的不让抹。</summary>
@@ -279,7 +288,7 @@ public sealed class DownloadManager
         try
         {
             var file = await DownloadService.DownloadAsync(
-                task.Url, task.SuggestedName, null, progress, task.Cancellation.Token);
+                task.Url, task.SuggestedName, null, progress, task.Cancellation.Token, task.Route);
 
             task.FileName = file.FileName;
             task.Path = file.Path;

@@ -82,14 +82,11 @@ public sealed class TrayIcon : IDisposable
         _taskbarCreated = NativeMethodsShell.RegisterWindowMessage("TaskbarCreated");
     }
 
-    private static readonly string LogPath = Path.Combine(SettingsStore.Dir, "tray.log");
-
     private static void Log(string message)
     {
         try
         {
-            Directory.CreateDirectory(SettingsStore.Dir);
-            File.AppendAllText(LogPath, $"[{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss}] {message}\n");
+            Core.AppLog.Info("tray", message);
         }
         catch { }
     }

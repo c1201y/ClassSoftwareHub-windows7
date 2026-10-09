@@ -93,6 +93,15 @@ public sealed partial class SidebarLayoutPage : PageBase
     private const double TileW = 96;
     private const double TileH = 56;
 
+    /// <summary>落位后"收势"的时长（装饰退场 + 「轻落一下」的收缩一起走完）。</summary>
+    private const int SettleMs = 190;
+
+    /// <summary>「轻落一下」那一下的最低点（时间进度 0~1）。</summary>
+    private const double DipAt = 0.38;
+
+    /// <summary>「轻落一下」的收缩幅度；1 = 不缩。</summary>
+    private const double DipScale = 0.972;
+
     /// <summary>当前拼好的模块 id，顺序 = 侧边栏上从上到下。</summary>
     private readonly List<string> _ids = new();
 
@@ -115,6 +124,12 @@ public sealed partial class SidebarLayoutPage : PageBase
     private double _rowsTop;                // 第一行在 PreviewPanel 里的 Y（按下那一刻量的）
     private bool _swapping;                 // ↑/↓ 的滑动动画正在进行（这段时间别再点）
     private bool _footerSync;               // 正在把设置刷进底排的那五个开关（此时 Toggled 是"回声"，别当用户拨的）
+    private bool _toolSync;                 // 同上，但针对「常用工具」与「截图」那几张卡（开关 / 下拉的"回声"）
+    private bool _edgeRebuild;              // 「贴在哪条边」下拉正在按模式重建选项（期间忽略 SelectionChanged）
+    private bool _flying;                   // 落位后的"收势"正在进行（这段时间别让新的拖动插进来）
+
+    /// <summary>落位收缩幅度：1 = 平滑收势，<see cref="DipScale"/> = 轻落一下（「动画方案」卡切）。</summary>
+    private double _dropDip = DipScale;
     private double _pageScrollOffset;       // 拖起来之前的滚动位置（拖的时候要把整页滚动锁掉）
     private double _maxMove;                // 按下之后指针走过的最大直线距离（用来看"这是想滚还是想拖"）
 
@@ -156,7 +171,12 @@ public sealed partial class SidebarLayoutPage : PageBase
         // ⚠️ 别在构造函数里就画：那会儿页面还没挂到窗口的主题树上，主题还是 Default，
         //    颜色会按"系统主题"画（= 你深色系统 → 画成深色，看着像没做浅色适配）。
         //    等挂上去（Loaded）再画，主题已经确定；以后主题一变（ActualThemeVariantChanged）也重画。
-        Loaded += (_, _) => { Services.ThemeBrush.Probe(this, "SidebarLayoutPage.Loaded"); Refresh(); };
+        Loaded += (_, _) =>
+        {
+            Services.ThemeBrush.Probe(this, "SidebarLayoutPage.Loaded");
+            InitToolSettings();
+            Refresh();
+        };
         ActualThemeVariantChanged += (_, _) => Refresh();
     }
 
@@ -188,6 +208,72 @@ public sealed partial class SidebarLayoutPage : PageBase
             SidebarButton.Content = ToolSidebarWindow.IsSidebarVisible ? "隐藏侧边栏" : "显示侧边栏";
 
         SyncFooterToggles();
+        SyncToolSettings();
+    }
+
+    /// <summary>
+    /// 「常用工具」那四张卡进页面时的**一次性**初始化（2026-10-01 从设置页搬来的那四项）：
+    /// 先修掉设置里的非法值，再按模式把「贴在哪条边」的选项建出来。
+    /// ⚠️ 只在 Loaded 跑：下拉重建会引发 SelectionChanged，页面还没挂上主题树时跑这串纯属浪费。
+    /// </summary>
+    private void InitToolSettings()
+    {
+        var s = App.Settings.Current;
+
+        // 贴靠模式只认左右两条边（Nick 2026-09-28 定：贴靠 = 左右模式）。
+        // 老设置里若留着 top/bottom，这里归到右边 —— 想贴上下边需切到自由模式。
+        if (s.SidebarEdge is not ("left" or "both" or "right"))
+        {
+            s.SidebarEdge = "right";
+            App.Settings.Save();
+        }
+
+        // 自由模式：左 / 右 / 上 / 下四条边
+        if (s.SidebarFreeEdge is not ("left" or "right" or "top" or "bottom"))
+        {
+            s.SidebarFreeEdge = "right";
+            App.Settings.Save();
+        }
+
+        RebuildEdgeCombo();
+        UpdateSidebarHints();
+    }
+
+    /// <summary>
+    /// 把「常用工具」与「截图」那几张卡的值从设置刷过来。
+    /// ⚠️ 跟 <see cref="SyncFooterToggles"/> 同一个道理：赋值会触发 Toggled / SelectionChanged，
+    ///    全程压着 <c>_toolSync</c> 挡住那声"回声"，否则每次进这一页都会白写一遍设置。
+    /// ⚠️ 只刷值，**不重建**「贴在哪条边」的选项 —— 那玩意儿重建一次下拉会闪一下，
+    ///    只在进页面（<see cref="InitToolSettings"/>）和切换放置模式时做。
+    /// </summary>
+    private void SyncToolSettings()
+    {
+        var s = App.Settings.Current;
+
+        _toolSync = true;
+        try
+        {
+            if (PaletteTopSwitch is not null) PaletteTopSwitch.IsChecked = s.PaletteOnTop;
+            if (SidebarSwitch is not null) SidebarSwitch.IsChecked = s.SidebarEnabled;
+            if (SidebarModeCombo is not null)
+            {
+                var index = s.SidebarMode == "free" ? 1 : 0;
+                if (SidebarModeCombo.SelectedIndex != index) SidebarModeCombo.SelectedIndex = index;
+            }
+
+            // 「动画方案」：拖放卡片的落位收尾用哪种（两种都保留，Nick 2026-10-01 定）
+            _dropDip = DropDipScale(s.SidebarDropAnim);
+            if (DropAnimCombo is not null)
+            {
+                var index = _dropDip < 0.999 ? 1 : 0;
+                if (DropAnimCombo.SelectedIndex != index) DropAnimCombo.SelectedIndex = index;
+            }
+
+            // 「截图」那两张卡（2026-10-01 从设置页搬来，同一套"回声"处理）
+            if (ShotAutoSaveSwitch is not null) ShotAutoSaveSwitch.IsChecked = s.ShotAutoSave;
+            if (ShotDirText is not null) RefreshShotDir();
+        }
+        finally { _toolSync = false; }
     }
 
     /// <summary>
@@ -560,6 +646,7 @@ public sealed partial class SidebarLayoutPage : PageBase
         if (InsideButton(e.Source)) return;             // 小按钮的点击自己处理，别抢
         if (sender is not Control src) return;
         if (_swapping) return;                          // ↑/↓ 正在滑动，等它落位
+        if (_flying) return;                            // 落位"收势"还没走完，等它（免得替身卡撞车/残留）
 
         Log($"按下 {id} 来源={(fromPreview ? "预览" : "模块库")} 行数={_tiles.Count} 设备={e.Pointer.Type}");
 
@@ -802,6 +889,12 @@ public sealed partial class SidebarLayoutPage : PageBase
             ? InsertIndexFromSlot(SlotFromPointer(e.GetPosition(PreviewPanel).Y))
             : -1;
 
+        // ⚠️ 拖动过（场上有替身卡）时：先**留着替身** —— 落位收势（SettleGhost）走完才撤它。
+        //    不这么做的话，"提起来"的三样装饰（蓝描边 / 投影 / Opacity 0.95）会在收尾那一帧
+        //    同时蒸发、底下的卡同时由灰变亮 —— 用户看到的就是"突变有点丑"（上游 2026-10-01 Nick 提）。
+        //    照上游的三步走：① 目标形态先就位 → ② 装饰退场 → ③ 最后才撤替身。
+        var keepGhost = dragged && _ghost is not null;
+
         // ⚠️ 释放捕获会**同步**触发 PointerCaptureLost → 我们的处理器会去 CancelDrag()，
         //    那里面又 Refresh() 重建列表 —— 等于在收尾到一半时把列表换掉，后面的 MoveTo 踩在新建的对象上。
         //    用 _ending 把这段圈起来：自己收尾的时候，CaptureLost 不参与。
@@ -809,10 +902,12 @@ public sealed partial class SidebarLayoutPage : PageBase
         _ending = true;
         try { e.Pointer.Capture(null); } catch { }
         _ending = false;
-        EndDrag();
+        EndDrag(keepGhost: keepGhost);
 
+        // ① 目标形态先就位（此刻替身还完整盖在上面，看不出底下换了什么）
         if (!dragged)
         {
+            HideGhost();
             if (!fromPreview) AddToEnd(id);             // 没拖动 = 点了一下 → 加到末尾
             return;
         }
@@ -831,6 +926,10 @@ public sealed partial class SidebarLayoutPage : PageBase
         {
             Refresh();                                  // 从库里拖到空处：当没干（顺手把视觉复原）
         }
+
+        // ② ③ 才让"提起来"的装饰退场，走完再撤替身（撤的时候两者已经长得一模一样）
+        if (keepGhost) SettleGhost(HideGhost);
+        else HideGhost();
     }
 
     /// <summary>拖到一半被系统打断（触点被抢、窗口失焦…）：收拾干净，不动数据。</summary>
@@ -844,11 +943,11 @@ public sealed partial class SidebarLayoutPage : PageBase
         Refresh();
     }
 
-    private void EndDrag(bool keepScrollLocked = false)
+    private void EndDrag(bool keepScrollLocked = false, bool keepGhost = false)
     {
         _holdTimer?.Stop();
         HintPress(false);
-        HideGhost();
+        if (!keepGhost) HideGhost();                    // keepGhost：留着替身做"落位收势"（见 SettleGhost）
         HideHole();
         RestoreHiddenRow();
         RemoveHint.IsVisible = false;
@@ -1094,6 +1193,53 @@ public sealed partial class SidebarLayoutPage : PageBase
         _ghost = null;
         _ghostCard = null;
         _ghostTile = null;
+    }
+
+    /// <summary>
+    /// 落位后的"收势"：把提起来的那几样装饰退场（透明度补满 + 可选的"轻落一下"收缩），
+    /// 走完才把替身撤掉。
+    ///
+    /// 为什么要有这一步（上游 2026-10-01 Nick 提）：落位原来是一帧里 <c>HideGhost()</c> + <c>Refresh()</c>
+    /// 直接交接 —— "提起来"的三样标记（蓝描边 1.5px、投影、Opacity 0.95）在**一帧之内**同时蒸发，
+    /// 底下的卡同时由灰变亮，就是那下突变。拆成"先就位、再收势、最后撤替身"三步才干净。
+    ///
+    /// ⚠️「轻落一下」（「动画方案」选了它才有）：替身先轻微下沉再缓出复位。
+    ///    选了「平滑收势」时 <see cref="_dropDip"/> 就是 1.0，整段跳过 —— 别起一个原地不动的动画白占资源。
+    /// ⚠️ 上游这段走 Composition 的关键帧动画（Scale.X/Y 上挂着 PopGhost 的动画，基础值会被盖住）；
+    ///    本仓库的替身没有 Composition 那层浮起动画，直接用 RenderTransform 缩放即可，观感一致。
+    /// ⚠️ 纯装饰：一律 try/catch —— 坏了顶多收势不好看，绝不能影响交接。
+    /// </summary>
+    private void SettleGhost(Action done)
+    {
+        if (_ghost is not { } g) { done(); return; }
+
+        UnhookGhostFrame();                 // 别再让它每帧跟着指针摆 —— 就定在松手那一格收势
+        _flying = true;                     // 收势期间挡住新的按下（见 BeginPress）
+
+        var fromOpacity = g.Opacity;
+
+        StartTween(g, t =>
+        {
+            try
+            {
+                g.Opacity = fromOpacity + (1.0 - fromOpacity) * t;
+
+                // 「轻落一下」：0 → 最低点（压下去）→ 缓出复位（尾巴长）
+                if (_dropDip < 0.999)
+                {
+                    var scale = t < DipAt
+                        ? 1.0 + (_dropDip - 1.0) * (t / DipAt)
+                        : _dropDip + (1.0 - _dropDip) * EaseOutCubic((t - DipAt) / (1 - DipAt));
+                    g.RenderTransformOrigin = new RelativePoint(0.5, 0.5, RelativeUnit.Relative);
+                    g.RenderTransform = new ScaleTransform(scale, scale);
+                }
+            }
+            catch { /* 纯装饰 */ }
+        }, 0, 1, SettleMs, easeInOut: false, done: () =>
+        {
+            _flying = false;                // ⚠️ 闸门等替身真的收掉再解
+            done();
+        });
     }
 
     // ── 让位：行不动位，靠每行自己的偏移；空档画在浮层上 ──────────────────────
@@ -1494,5 +1640,211 @@ public sealed partial class SidebarLayoutPage : PageBase
         App.Settings.Current.SidebarFooterHidden = hidden.ToArray();
         App.Settings.Save();
         ToolSidebarWindow.ApplyFooterSetting();
+    }
+
+    // ── 常用工具 / 侧边栏开关 ─────────────────────────────────────────────
+    // 2026-10-07 从「设置 → 常用工具」整块搬来（上游 2026-10-01 的改动：浮窗置顶 / 屏幕边缘侧边栏 /
+    // 放置模式 / 贴哪条边）。逻辑原样保留，只把"加载中"的守卫从设置页的 _loading 换成这一页的 _toolSync。
+
+    private void PaletteTopSwitch_Toggled(object? sender, RoutedEventArgs e)
+    {
+        if (_toolSync) return;
+        App.MainWindow?.SetPaletteOnTop(PaletteTopSwitch.IsChecked == true);
+    }
+
+    private void SidebarSwitch_Toggled(object? sender, RoutedEventArgs e)
+    {
+        if (_toolSync) return;
+        App.Settings.Current.SidebarEnabled = SidebarSwitch.IsChecked == true;
+        App.Settings.Save();
+        ToolSidebarWindow.ApplySetting();
+
+        // 右下角那颗按钮跟这个开关说的是同一件事（都看 SidebarEnabled），跟着换字
+        if (SidebarButton is not null)
+            SidebarButton.Content = ToolSidebarWindow.IsSidebarVisible ? "隐藏侧边栏" : "显示侧边栏";
+    }
+
+    // ── 侧边栏放置模式 / 贴在哪条边 ───────────────────────────────────────
+    // 2026-09-28 Nick：这两项本质是"多个互斥选项里选一个"，跟「颜色模式」「更新通道」同类，
+    // 一律做成下拉；不做成一排单选按钮（会把 Header 和控件挤到卡片两端，中间空出一大片）。
+
+    /// <summary>
+    /// 按当前放置模式重建「贴在哪条边」的选项：
+    /// 贴靠 = 左 / 左右两边 / 右；自由 = 左 / 右 / 上 / 下。
+    /// ⚠️ 重建期间必须挡住 SelectionChanged —— Items.Clear() 会把 SelectedIndex 打成 -1，
+    ///    不然会把设置误写成空值。
+    /// </summary>
+    private void RebuildEdgeCombo()
+    {
+        var s = App.Settings.Current;
+        var free = s.SidebarMode == "free";
+
+        _edgeRebuild = true;
+        try
+        {
+            SidebarEdgeCombo.Items.Clear();
+            if (free)
+            {
+                AddEdgeItem("左边", "left");
+                AddEdgeItem("右边", "right");
+                AddEdgeItem("上边", "top");
+                AddEdgeItem("下边", "bottom");
+                SelectEdge(s.SidebarFreeEdge);
+            }
+            else
+            {
+                AddEdgeItem("左边", "left");
+                AddEdgeItem("左右两边", "both");
+                AddEdgeItem("右边", "right");
+                SelectEdge(s.SidebarEdge);
+            }
+        }
+        finally
+        {
+            _edgeRebuild = false;
+        }
+    }
+
+    private void AddEdgeItem(string text, string tag) =>
+        SidebarEdgeCombo.Items.Add(new ComboBoxItem { Content = text, Tag = tag });
+
+    private void SelectEdge(string tag)
+    {
+        foreach (var item in SidebarEdgeCombo.Items)
+        {
+            if (item is ComboBoxItem it && it.Tag as string == tag)
+            {
+                SidebarEdgeCombo.SelectedItem = it;
+                return;
+            }
+        }
+        if (SidebarEdgeCombo.Items.Count > 0) SidebarEdgeCombo.SelectedIndex = 0;
+    }
+
+    /// <summary>说明文案随模式切换，免得对着下拉不知道是两条边还是四条边。</summary>
+    private void UpdateSidebarHints()
+    {
+        var free = App.Settings.Current.SidebarMode == "free";
+
+        ModeHint.Text = free
+            ? "侧边栏可吸附屏幕任意一条边；贴上边或下边时呈横条。"
+            : "侧边栏只吸附屏幕左右两条边，可选左右同时显示。";
+
+        EdgeHint.Text = free
+            ? "四条边均可吸附；贴上边或下边时侧边栏为横条。拖动收起状态的抓手也可改边。"
+            : "选「左右两边」时两侧同时显示，上下位置保持一致，拖动其中一条另一条同步移动。拖动收起状态的抓手也可改边。";
+    }
+
+    private void SidebarMode_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_toolSync) return;
+        if (SidebarModeCombo.SelectedItem is not ComboBoxItem item || item.Tag is not string mode) return;
+
+        App.Settings.Current.SidebarMode = mode;
+        App.Settings.Save();
+
+        // 模式变了 → 可选的边也变了，下拉要整个换一套
+        RebuildEdgeCombo();
+        UpdateSidebarHints();
+
+        if (App.Settings.Current.SidebarEnabled) ToolSidebarWindow.ApplySetting();
+    }
+
+    private void SidebarEdge_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_toolSync || _edgeRebuild) return;
+        if (SidebarEdgeCombo.SelectedItem is not ComboBoxItem item || item.Tag is not string edge) return;
+
+        var s = App.Settings.Current;
+        if (s.SidebarMode == "free") s.SidebarFreeEdge = edge;
+        else s.SidebarEdge = edge;
+        App.Settings.Save();
+
+        if (s.SidebarEnabled) ToolSidebarWindow.ApplySetting();
+    }
+
+    // ── 动画方案（2026-10-01：两种落位收尾都挺好，留给用户自己挑） ──────────
+
+    /// <summary>「动画方案」的取值 → 落位收缩幅度。认不出的值一律当「轻落一下」。</summary>
+    private static double DropDipScale(string? style) => style == "plain" ? 1.0 : DipScale;
+
+    /// <summary>
+    /// 「动画方案 → 落位收尾」切换。
+    /// ⚠️ 立即生效、**不需要重建任何东西**：<see cref="_dropDip"/> 只在下一次 <see cref="SettleGhost"/> 里被读一次。
+    /// </summary>
+    private void DropAnim_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_toolSync) return;
+        if (DropAnimCombo.SelectedItem is not ComboBoxItem item || item.Tag is not string style) return;
+
+        App.Settings.Current.SidebarDropAnim = style;
+        App.Settings.Save();
+
+        _dropDip = DropDipScale(style);
+    }
+
+    // ── 截图（2026-10-07 整组从「设置」页搬来，逻辑原样） ────────────────
+    // 守卫从设置页那套 _loading 换成 _toolSync：这页的"回声"闸门就这一个。
+
+    private void ShotAutoSave_Toggled(object? sender, RoutedEventArgs e)
+    {
+        if (_toolSync) return;
+        App.Settings.Current.ShotAutoSave = ShotAutoSaveSwitch.IsChecked == true;
+        App.Settings.Save();
+        RefreshShotDir();
+    }
+
+    /// <summary>把当前保存位置显示出来（没设 = 桌面）。</summary>
+    private void RefreshShotDir()
+    {
+        var dir = Services.ShotSaver.DirSetting();
+        var custom = !string.IsNullOrWhiteSpace(App.Settings.Current.ShotSaveDir);
+        ShotDirText.Text = custom ? dir : $"{dir}（默认：桌面，没改过）";
+        ShotDirText.Opacity = ShotAutoSaveSwitch.IsChecked == true ? 0.7 : 0.4;
+    }
+
+    private async void ShotDir_Change_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            // ⚠️ 原版 WinRT FolderPicker + InitializeWithWindow；Avalonia 走 StorageProvider。
+            var top = TopLevel.GetTopLevel(this);
+            if (top is null) return;
+
+            var folders = await top.StorageProvider.OpenFolderPickerAsync(new Avalonia.Platform.Storage.FolderPickerOpenOptions
+            {
+                AllowMultiple = false,
+            });
+            if (folders.Count == 0) return;
+
+            App.Settings.Current.ShotSaveDir = folders[0].Path.LocalPath;
+            App.Settings.Save();
+            RefreshShotDir();
+        }
+        catch (Exception ex)
+        {
+            Services.ScreenCapture.Log("选截图目录失败: " + ex.Message);
+        }
+    }
+
+    private void ShotDir_Open_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var dir = Services.ShotSaver.Dir();
+            Directory.CreateDirectory(dir);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(dir) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            Services.ScreenCapture.Log("打开截图目录失败: " + ex.Message);
+        }
+    }
+
+    private void ShotDir_Reset_Click(object? sender, RoutedEventArgs e)
+    {
+        App.Settings.Current.ShotSaveDir = "";                // 空 = 桌面
+        App.Settings.Save();
+        RefreshShotDir();
     }
 }

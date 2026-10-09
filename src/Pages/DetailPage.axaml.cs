@@ -240,8 +240,10 @@ public sealed partial class DetailPage : PageBase
 
     private void Download_Click(object? sender, RoutedEventArgs e)
     {
+        // 「下载」= 原样直连 GitHub 官方，不做任何加速改写（与网页端两个按钮的分工一致）。
+        // 想加速就点旁边那条「加速下载」—— 它才走自建节点 / 公益镜像。
         if (sender is Button b && b.Tag is string url && url.Length > 0)
-            OpenDownload(url, b);
+            OpenDownload(url, b, Services.DownloadRoute.Official);
     }
 
     /// <summary>
@@ -250,7 +252,8 @@ public sealed partial class DetailPage : PageBase
     ///   · 链接本身就是文件（.exe/.zip/…）→ 原生下载
     ///   · 链接其实是官网页面（很多软件更新频繁，站点就丢个官网地址）→ 开在浮层里，让人自己点
     /// </summary>
-    private async void OpenDownload(string url, Button? source = null)
+    private async void OpenDownload(string url, Button? source = null,
+        Services.DownloadRoute route = Services.DownloadRoute.Setting)
     {
         if (Services.StoreRepair.IsStoreItself(_app?.Id, url))
         {
@@ -259,7 +262,7 @@ public sealed partial class DetailPage : PageBase
         }
 
         if (Services.DownloadService.IsDirectFileUrl(url))
-            App.MainWindow?.DownloadFile(url, source is null ? null : DownloadNameFor(source));
+            App.MainWindow?.DownloadFile(url, source is null ? null : DownloadNameFor(source), route);
         else
             App.MainWindow?.ShowWebSheet(url, "官网下载");
     }
@@ -399,51 +402,20 @@ public sealed partial class DetailPage : PageBase
         _lastCopyButton = null;
     }
 
-    /// <summary>GitHub 直链才有的「加速下载」：列出所有镜像通道，点哪条走哪条。</summary>
+    /// <summary>
+    /// 「加速下载」：**不再让用户自己挑镜像**，点了直接开下 —— 走哪条路由程序定：
+    ///   ① 自建加速（本站 Worker 代签 → 自建节点限时直链，最快最稳）；
+    ///   ② 自建不可用 → 并行测速 4 条公益镜像，最快的先用、其余按速度兜底；
+    ///   ③ 全都不行 → GitHub 官方直链收尾（绝不把下载堵死）。
+    ///
+    /// 具体的挑选在 <see cref="Services.GithubRoute.ResolveAcceleratedAsync"/> 与
+    /// <see cref="Services.DownloadService"/> 里做（逐条候选依次重试），界面这边只负责
+    /// 把「要加速」这个意图传下去 —— 所以这里没有浮层、没有清单。
+    /// </summary>
     private void Mirror_Click(object? sender, RoutedEventArgs e)
     {
         if (sender is not Button b || b.Tag is not string url || url.Length == 0) return;
-
-        var ui = App.Content.Ui;
-        var panel = new StackPanel { Spacing = 8, MaxWidth = 380 };
-        panel.Children.Add(new TextBlock
-        {
-            Text = ui.T("detail.mirror-desc", "下列镜像站将上方链接原样转发，国内下载速度通常显著提升。"),
-            TextWrapping = TextWrapping.Wrap,
-            Opacity = 0.8,
-            FontSize = 12.5,
-        });
-
-        // ⚠️ WinUI MenuFlyout/Flyout → Avalonia.Controls.Flyout（同 ShowAt(control)）。
-        var flyout = new Flyout { Content = panel };
-        foreach (var channel in GithubMirror.Channels)
-        {
-            var target = GithubMirror.MirrorUrl(url, channel);
-            var button = new Button
-            {
-                Content = channel.Name,
-                HorizontalAlignment = HorizontalAlignment.Stretch,
-                HorizontalContentAlignment = HorizontalAlignment.Left,
-                Tag = target,
-            };
-            button.Click += (s, _) =>
-            {
-                // 加速下载也是下载：直接文件就原生下，指到官网就开浮层
-                if (((Button)s!).Tag is string u) OpenDownload(u, b);
-                flyout.Hide();
-            };
-            panel.Children.Add(button);
-        }
-
-        panel.Children.Add(new TextBlock
-        {
-            Text = ui.T("detail.mirror-note", "镜像由第三方公益提供：本站仅做跳转，不中转、不修改文件，亦不保证始终可用。"),
-            TextWrapping = TextWrapping.Wrap,
-            Opacity = 0.6,
-            FontSize = 11.5,
-        });
-
-        flyout.ShowAt(b);
+        OpenDownload(url, b, Services.DownloadRoute.Accelerated);
     }
 
     /// <summary>

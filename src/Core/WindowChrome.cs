@@ -53,13 +53,74 @@ public static class WindowChrome
     private const uint SwpNoActivate = 0x0010;
     private const uint SwpFrameChanged = 0x0020;
 
+    // ── WM_NCCALCSIZE：干掉"幻影框架"的最后一刀（2026-10-01）──────────────
+    // 实测（2026-10-01，屏幕实拍 + FrameBounds 对账）：即便 WS_POPUP 化成功，
+    // DWM 仍给窗口保留 ~2px（左/右/下）非客户区 —— GetWindowRect 比 DWM 实际可视范围
+    // 大出一圈，内容被迫往里缩，那一圈露出没压薄纱的裸亚克力/系统框，
+    // 在壁纸上就是一圈"没填充完"的灰环。关 NC 渲染、设边框色都治不了它。
+    // 标准解法：子类化窗口，WM_NCCALCSIZE(wParam=TRUE) 直接返回 0 —— 客户区=整个窗口，
+    // 非客户区彻底归零，内容铺满到边。无边框 Win32 应用的通用做法。
+    //
+    // ⚠️ 移植说明：主窗口/工具浮窗那几支走的是 <see cref="SelfDrawnFrame"/>（Avalonia 的
+    //    WndProc 钩子版，能力更全，见其注释）；这里补的是**自绘浮窗**这条 WS_POPUP 路线
+    //    —— 它们由 <see cref="RemoveBorder"/> 收尾，没有 SelfDrawnFrame，此前缺这一刀。
+
+    private const uint WmNcCalcSize = 0x0083;
+
+    private const uint NcCalcSizeSubclassId = 0x43534842;   // "CSHB"
+
+    /// <summary>给窗口装上 WM_NCCALCSIZE 处理（幂等：同 ID 重复装会替换，不会叠加）。
+    /// 必须在**拥有该窗口的线程**上调用（RemoveBorder 的调用方都在 UI 线程）。</summary>
+    private static void InstallNcCalcSizeHook(IntPtr hwnd)
+    {
+        var ok = NativeMethodsEx.SetWindowSubclass(hwnd, NcCalcSizeProc, NcCalcSizeSubclassId, IntPtr.Zero);
+        ChromeLog($"subclass hwnd={hwnd} ok={ok}");
+    }
+
+    // ⚠️ 必须留字段：委托一旦被 GC，原生回调就指向野指针，下一步直接崩。
+    private static readonly NativeMethodsEx.SubclassProc NcCalcSizeProc = OnNcCalcSize;
+
+    private static bool _ncProcLogged;
+
+    private static IntPtr OnNcCalcSize(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam,
+        uint uIdSubclass, IntPtr dwRefData)
+    {
+        if (uMsg == WmNcCalcSize && wParam != IntPtr.Zero)
+        {
+            if (!_ncProcLogged)
+            {
+                _ncProcLogged = true;
+                ChromeLog($"NCCALCSIZE fired hwnd={hWnd} → 返回0（客户区=整个窗口）");
+            }
+            return IntPtr.Zero;                            // 客户区 = 整个窗口，别给我留框
+        }
+
+        return NativeMethodsEx.DefSubclassProc(hWnd, uMsg, wParam, lParam);
+    }
+
+    private static long ReadStyle(IntPtr hwnd) =>
+        IntPtr.Size == 8
+            ? NativeMethodsEx.GetWindowLongPtrW(hwnd, NativeMethodsEx.GWL_STYLE).ToInt64()
+            : NativeMethodsEx.GetWindowLongW(hwnd, NativeMethodsEx.GWL_STYLE);
+
+    /// <summary>诊断日志（排查"幻影框架"用，只在出错/首次时写）。</summary>
+    private static void ChromeLog(string message)
+    {
+        try
+        {
+            AppLog.Info("chrome", message);
+        }
+        catch { }
+    }
+
     /// <summary>
     /// 把窗口做成真正的无边框 popup：去掉标题栏/粗边框/系统菜单，加上 WS_POPUP，
     /// 再让系统重算一次框架。做完窗口就"贴边"了，系统不再在外面画那圈线。
     /// </summary>
-    public static void MakeBorderless(IntPtr hwnd)
+    /// <returns>样式改成功与否。失败（极少）时调用方走"关 NC 渲染"的老路兜底。</returns>
+    public static bool MakeBorderless(IntPtr hwnd)
     {
-        if (hwnd == IntPtr.Zero) return;
+        if (hwnd == IntPtr.Zero) return false;
 
         try
         {
@@ -81,10 +142,12 @@ public static class WindowChrome
 
             _ = NativeMethods.SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0,
                 SwpNoMove | SwpNoSize | SwpNoZOrder | SwpNoActivate | SwpFrameChanged);
+            return true;
         }
         catch
         {
             // 改不动就算了，顶多还留一圈线，不影响用
+            return false;
         }
     }
 
@@ -97,21 +160,39 @@ public static class WindowChrome
     {
         if (hwnd == IntPtr.Zero) return;
 
+        ChromeLog($"RemoveBorder begin hwnd={hwnd}");
         try
         {
-            MakeBorderless(hwnd);        // 先把系统框架整个去掉，这是"白边"的根
+            var borderless = MakeBorderless(hwnd);   // 先把系统框架整个去掉，这是"白边"的根
+            ChromeLog($"  MakeBorderless={borderless} styleAfter=0x{ReadStyle(hwnd):X}");
+
+            // 客户区=整个窗口，杀掉幻影框架（见 WM_NCCALCSIZE 段注释）。单独兜异常：
+            // 它要是炸了不能连累后面的边框色/圆角（更不能悄悄吞掉整段流程）。
+            try { InstallNcCalcSizeHook(hwnd); }
+            catch (Exception ex) { ChromeLog("  subclass FAILED: " + ex.GetType().Name + " " + ex.Message); }
+
             SetDarkMode(hwnd, dark);
 
-            // ⚠️ **白边（那圈细白线）的真正元凶**：DWM 给窗口画的非客户区（1px 边框 + 2px 亮光）。
-            //    实测：DWMWA_BORDER_COLOR 设成"无色"它不认（回值一直是 0）；改成红色倒是会变红 —— 说明那 1px 是边框、
-            //    紧挨着的 2px 是 DWM 的框架亮光。只有把非客户区渲染整个关掉，这条线才真的没了。
-            //    代价：窗口没有系统阴影、圆角和那 3px 会变透明（所以内容看起来会往里缩 3px，但不会再看到白线）。
-            var disabled = NcRenderingDisabled;
-            if (NativeMethods.DwmSetWindowAttribute(hwnd, DwmwaNcRenderingPolicy, ref disabled, sizeof(int)) != 0)
+            if (borderless)
             {
-                // Win10 有些版本不认这个属性，那就退回"把边框设成无色"
+                // ⚠️ **WS_POPUP 成功就别再关 NC 渲染了**（2026-10-01 修"没填充完的一圈边"）：
+                //    关掉后窗口还留着 ~2px 的"幻影框架"——窗口矩形比 DWM 实际可视范围大出一圈，
+                //    内容被迫往里缩，那一圈露出的是没压薄纱的裸亚克力，在浅色壁纸上就是一圈灰环。
+                //    WS_POPUP + NCCALCSIZE 归零后已经没有非客户区可画，不再需要这个老兜底。
+                //    边框色设成"无色"防止个别系统还在外圈画 1px 线（Win11 生效，老系统自动忽略）。
                 var none = unchecked((int)ColorNone);
                 _ = NativeMethods.DwmSetWindowAttribute(hwnd, DwmwaBorderColor, ref none, sizeof(int));
+            }
+            else
+            {
+                // 老路兜底：样式改不动（或 Win10 个别版本），只好关掉 DWM 的非客户区渲染。
+                // 代价是内容往里缩 ~3px，但至少没有白线。
+                var disabled = NcRenderingDisabled;
+                if (NativeMethods.DwmSetWindowAttribute(hwnd, DwmwaNcRenderingPolicy, ref disabled, sizeof(int)) != 0)
+                {
+                    var none2 = unchecked((int)ColorNone);
+                    _ = NativeMethods.DwmSetWindowAttribute(hwnd, DwmwaBorderColor, ref none2, sizeof(int));
+                }
             }
 
             var corner = rounded ? CornerRound : CornerDoNotRound;
@@ -123,10 +204,18 @@ public static class WindowChrome
             //    具体实现和三个 GDI 坑都在 <see cref="RoundedCorners"/> 里；Win11 上它会自动让路。
             if (rounded) RoundedCorners.Apply(hwnd, RoundedCorners.DefaultRadiusDip);
             else RoundedCorners.Clear(hwnd);
+
+            // ⚠️ 移植说明：上游此处还调 SetBackgroundFallback(hwnd, dark)（把窗口类背景刷换成主题底色）。
+            //    本仓库**故意不移植**：那个修复针对的是「WinUI 3 注册窗口类时用的是黑刷」这一根因
+            //    （点开侧边栏瞬间闪纯黑框）；而 Avalonia 注册的窗口类背景刷是 NULL（见 SelfDrawnFrame 实测注释），
+            //    根本不会闪黑。反过来把类背景刷设成不透明纯色，还会盖掉浮窗的亚克力/透明底 —— 是倒退。
+            //    浮窗首帧的兜底色由 Views/FlyoutChrome.PrimeOpaqueBackdrop 负责，主窗口由 SelfDrawnFrame 的擦除负责。
+
+            ChromeLog($"  done style=0x{ReadStyle(hwnd):X} corner={(rounded ? "round" : "square")}");
         }
-        catch
+        catch (Exception ex)
         {
-            // Win10 或 DWM 不给面子：保持系统默认就行，别影响功能
+            ChromeLog("EXCEPTION: " + ex.GetType().Name + " " + ex.Message);
         }
     }
 

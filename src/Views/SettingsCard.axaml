@@ -24,7 +24,7 @@
                         BorderThickness="1"
                         Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
                         BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
-                    <Grid ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center" MinHeight="64">
+                    <Grid ColumnDefinitions="Auto,*,Auto,Auto" VerticalAlignment="Center" MinHeight="64">
 
                         <!-- 左侧图标（没有就不占位） -->
                         <ContentPresenter Grid.Column="0"
@@ -62,6 +62,13 @@
                                           HorizontalAlignment="Right"
                                           VerticalAlignment="Center"
                                           Margin="16,0,0,0" />
+
+                        <!-- 右侧 Chevron：整卡可点时出现（对应原版 IsClickEnabled 自带的那颗箭头） -->
+                        <fa:FontIcon Grid.Column="3" Name="PART_Chevron"
+                                     Glyph="&#xE76C;" FontSize="12"
+                                     IsVisible="{TemplateBinding ShowActionIcon}"
+                                     VerticalAlignment="Center" Margin="12,0,0,0"
+                                     Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
                     </Grid>
                 </Border>
             </ControlTemplate>

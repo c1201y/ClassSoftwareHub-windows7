@@ -22,7 +22,7 @@
         <DataTemplate x:Key="QuickLinkNormal">
             <!-- ⚠️ Background="Transparent" 必须有：没 Background 的 Border 不参与命中测试，
                  点卡片空白处会穿透 —— 跟设置页那一行同一个坑（2026-10-03）。 -->
-            <Border CornerRadius="8" Padding="12,10" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+            <Border CornerRadius="4" Padding="12,10" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                     Background="Transparent">
                 <StackPanel Spacing="7" HorizontalAlignment="Center" VerticalAlignment="Center">
                     <fa:FontIcon Glyph="{Binding Glyph}" FontSize="24" HorizontalAlignment="Center"
@@ -34,7 +34,7 @@
         </DataTemplate>
 
         <DataTemplate x:Key="QuickLinkAccent">
-            <Border CornerRadius="8" Padding="12,10" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+            <Border CornerRadius="4" Padding="12,10" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                     Background="{DynamicResource AccentFillColorDefaultBrush}">
                 <StackPanel Spacing="7" HorizontalAlignment="Center" VerticalAlignment="Center">
                     <fa:FontIcon Glyph="{Binding Glyph}" FontSize="24" HorizontalAlignment="Center"
@@ -66,6 +66,20 @@
 
             <StackPanel Grid.Column="1" Spacing="14">
 
+            <!-- 更新待装横幅：后台下载完成后每次进首页都提醒，装上新版本后自检清除。
+                 ⚠️ 移植说明：原版是 WinUI 的 <InfoBar> → 这里 <fa:InfoBar>；
+                    <c>InfoBar.ActionButton</c> 属性元素语法 Avalonia 侧同样可用（见 FeedbackFormPage）。
+                    原版的另一条入口「系统通知上的『现在安装』按钮」在 Avalonia 侧不存在
+                    （AppNotification 要额外注册 AUMID/COM），退化成托盘气泡——所以这条横幅
+                    是待装更新**唯一**的可见入口，别删。 -->
+            <fa:InfoBar x:Name="UpdateReadyBar" Severity="Informational" IsOpen="False"
+                        Title="新版本已下载就绪"
+                        Message="安装包已通过校验，可立即安装；继续使用当前版本也不受影响。">
+                <fa:InfoBar.ActionButton>
+                    <Button Content="立即安装" Click="InstallPending_Click" />
+                </fa:InfoBar.ActionButton>
+            </fa:InfoBar>
+
             <TextBlock Text="ClassSoftwareHub" FontSize="44" FontWeight="Bold" />
 
             <TextBlock x:Name="HomeTitleText" FontSize="24" FontWeight="Bold" TextWrapping="Wrap" />
@@ -78,7 +92,7 @@
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
 
-                <Border CornerRadius="8" BorderThickness="1"
+                <Border CornerRadius="4" BorderThickness="1"
                         BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
                         Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
                     <Image x:Name="Banner" Height="140" Stretch="Uniform" />
@@ -102,7 +116,7 @@
             <TextBlock Text="快速开始" FontSize="22" FontWeight="Bold" Margin="0,20,0,4" />
 
             <!-- 更宽的一行：体验网页版（主题色底） -->
-            <Border x:Name="WebCard" Classes="card" Tag="web" Height="60" CornerRadius="8" Padding="20,0"
+            <Border x:Name="WebCard" Classes="card" Tag="web" Height="60" CornerRadius="4" Padding="20,0"
                     Background="{DynamicResource AccentFillColorDefaultBrush}"
                     Tapped="Card_Tapped">
                 <Grid>
@@ -129,7 +143,7 @@
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
 
-                <Border Grid.Column="0" Classes="card" Tag="apps" CornerRadius="8" Padding="20,0"
+                <Border Grid.Column="0" Classes="card" Tag="apps" CornerRadius="4" Padding="20,0"
                         Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
                         BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                         Tapped="Card_Tapped">
@@ -139,7 +153,7 @@
                     </StackPanel>
                 </Border>
 
-                <Border Grid.Column="1" Margin="16,0,0,0" Classes="card" Tag="tools" CornerRadius="8" Padding="20,0"
+                <Border Grid.Column="1" Margin="16,0,0,0" Classes="card" Tag="tools" CornerRadius="4" Padding="20,0"
                         Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
                         BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                         Tapped="Card_Tapped">
@@ -157,7 +171,7 @@
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
 
-                <Border Grid.Column="0" Classes="card" Tag="sidebar" CornerRadius="8" Padding="20,0"
+                <Border Grid.Column="0" Classes="card" Tag="sidebar" CornerRadius="4" Padding="20,0"
                         Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
                         BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                         Tapped="Card_Tapped">
@@ -171,7 +185,7 @@
                   实验性功能：**故意不列它下面有什么**（Nick 2026-09-26）——
                   首页卡片只说"这里有一组还没成熟的功能"，具体内容进去看。
                 -->
-                <Border Grid.Column="1" Margin="16,0,0,0" Classes="card" Tag="experimental" CornerRadius="8" Padding="20,0"
+                <Border Grid.Column="1" Margin="16,0,0,0" Classes="card" Tag="experimental" CornerRadius="4" Padding="20,0"
                         Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
                         BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                         Tapped="Card_Tapped">
@@ -194,7 +208,7 @@
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
 
-                <Border Grid.Column="0" Classes="card" Tag="submit" CornerRadius="8" Padding="20,0"
+                <Border Grid.Column="0" Classes="card" Tag="submit" CornerRadius="4" Padding="20,0"
                         Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
                         BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                         Tapped="Card_Tapped">
@@ -205,7 +219,7 @@
                 </Border>
 
                 <!-- 反馈中心：图标口径跟导航栏那条一致（E939 = 人 + 对话泡） -->
-                <Border Grid.Column="1" Margin="16,0,0,0" Classes="card" Tag="feedback" CornerRadius="8" Padding="20,0"
+                <Border Grid.Column="1" Margin="16,0,0,0" Classes="card" Tag="feedback" CornerRadius="4" Padding="20,0"
                         Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
                         BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                         Tapped="Card_Tapped">
@@ -217,7 +231,7 @@
             </Grid>
 
             <!-- 设置：必须永远在最后一张，反馈中心进来后这一行放不下第三个，所以它单独占一行 -->
-            <Border Classes="card" Tag="settings" Height="60" CornerRadius="8" Padding="20,0"
+            <Border Classes="card" Tag="settings" Height="60" CornerRadius="4" Padding="20,0"
                     Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
                     BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                     Tapped="Card_Tapped">

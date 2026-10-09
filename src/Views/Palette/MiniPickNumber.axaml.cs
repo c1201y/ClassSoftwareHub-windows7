@@ -32,6 +32,7 @@ public sealed partial class MiniPickNumber : UserControl
     private int _ticks;
     private bool _ready;
     private bool _updating;      // 正在刷新提示（里面的夹取会触发 ValueChanged，要忽略掉）
+    private double _nameScale = 1.0;   // 结果里名字的缩放系数（2026-10-06，跟工具页共用存档）
 
     public MiniPickNumber()
     {
@@ -40,31 +41,35 @@ public sealed partial class MiniPickNumber : UserControl
         _roll = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
         _roll.Tick += (_, _) => RollTick();
 
-        // 模式切换：事件先挂（此刻 _ready 仍是 false，不会回调），选中在 Reload 里按存档设
+        // 座号 / 名单：事件先挂（此刻 _ready 仍是 false，不会回调），选中在 Reload 里按存档拨
+        // ⚠️ 移植说明：原版是 SelectorBar 的 SelectionChanged（还要等 Loaded 后排队拨档，防它自动选第一项）；
+        //    本仓库用一排同 GroupName 的 RadioButton（见 LogViewerPage 的既有约定），不存在"自动选第一项"，
+        //    Checked 直接回调即可，不需要排队拨档。
         ModeRangeRadio.Checked += (_, _) => OnPoolModeChanged();
         ModeRosterRadio.Checked += (_, _) => OnPoolModeChanged();
 
-        FromStepper.ValueChanged += (_, _) => OnSettingChanged();
-        ToStepper.ValueChanged += (_, _) => OnSettingChanged();
-        CountStepper.ValueChanged += (_, _) => OnSettingChanged();
-        NoRepeatBox.Checked += (_, _) => OnSettingChanged();
-        NoRepeatBox.Unchecked += (_, _) => OnSettingChanged();
+        ToNumberBox.ValueChanged += (_, _) => OnSettingChanged();
+        CountNumberBox.ValueChanged += (_, _) => OnSettingChanged();
+        // ⚠️ 原版 CheckBox 的 Checked/Unchecked 两个事件（上游改成 ToggleSwitch.Toggled）→
+        //    Avalonia 一个 IsCheckedChanged。走 XAML 的 IsCheckedChanged="NoRepeat_Toggled"（与本地其它页一致）。
 
         _ready = true;
         Reload();
     }
 
-    // 数字输入用 NumberStepper（大按钮、能长按连发、触屏不会全选弹复制）
-    private int From => FromStepper.Value;
-    private int To => ToStepper.Value;
-    private int Lo => Math.Min(From, To);
-    private int Hi => Math.Max(From, To);
+    // 数字输入用 NumberBox（Inline 自增钮，触屏点得到；上游 2026-10-03 换掉原来的小号自增钮）。
+    // 起始座号已砍：座号固定从 1 号开始，只留「终止范围」。
+    private const int Lo = 1;
+    private int To => double.IsNaN(ToNumberBox.Value) ? 0 : (int)Math.Floor(ToNumberBox.Value);
+    private int Hi => Math.Max(Lo, To);
     private int PoolSize => Hi - Lo + 1;
 
-    private int WantCount => Math.Max(1, CountStepper.Value);
+    private int WantCount => double.IsNaN(CountNumberBox.Value) ? 1 : Math.Max(1, (int)Math.Floor(CountNumberBox.Value));
     private bool NoRepeat => NoRepeatBox.IsChecked == true;
 
     private bool UseRoster => ModeRosterRadio.IsChecked == true;
+
+    private bool? _lastRoster;   // 上一次的模式（null=刚加载）：真换了模式才清上一把的结果
 
     private int UsedInRange => _used.Where(n => n >= Lo && n <= Hi).Distinct().Count();
 
@@ -74,9 +79,8 @@ public sealed partial class MiniPickNumber : UserControl
         var cfg = PickNumberConfig.Load();
 
         _ready = false;
-        FromStepper.Value = cfg.From;
-        ToStepper.Value = cfg.To;
-        CountStepper.Value = Math.Clamp(cfg.Count, 1, 50);
+        ToNumberBox.Value = cfg.To;                                   // 终止范围
+        CountNumberBox.Value = Math.Clamp(cfg.Count, 1, 9999);        // 先给个宽上限，精确上限交给 RefreshHints 按模式夹
         NoRepeatBox.IsChecked = cfg.NoRepeat;
         if (cfg.Mode == 1) ModeRosterRadio.IsChecked = true;
         else ModeRangeRadio.IsChecked = true;
@@ -89,6 +93,7 @@ public sealed partial class MiniPickNumber : UserControl
         _usedNames.Clear();
         _usedNames.AddRange(cfg.UsedNames);
         _rosterSource = cfg.RosterSource;
+        _nameScale = cfg.NameScale;   // 2026-10-06：名字大小跟工具页同步
 
         SyncPoolMode();
         RefreshHints();
@@ -98,26 +103,34 @@ public sealed partial class MiniPickNumber : UserControl
     {
         if (!_ready) return;
         SyncPoolMode();
+        RefreshHints();   // 先按模式把「抽取个数」的上限夹好（超了会顺手把 Value 夹进去），再存
         Save();
-        RefreshHints();
     }
 
-    /// <summary>按当前模式收起 / 放出对应的输入行。</summary>
+    /// <summary>按当前模式收起 / 放出对应的输入项。</summary>
     private void SyncPoolMode()
     {
         var roster = UseRoster;
-        RangeRow.IsVisible = !roster;
-        RosterRow.IsVisible = roster;
+        ToNumberBox.IsVisible = !roster;
+        RosterInfoText.IsVisible = roster;
+        // 抽取个数两种模式共用同一个框，只是上限不同（RefreshHints 里按模式夹）
 
         if (roster)
             RosterInfoText.Text = _roster.Count > 0 ? $"名单：{_roster.Count} 人" : "未导入名单";
-    }
 
-    /// <summary>「去导入」：名单在工具页导入，把人送过去（顺手收起浮窗）。</summary>
-    private void OpenRosterTool_Click(object? sender, RoutedEventArgs e)
-    {
-        Views.ToolPaletteWindow.HidePalette();
-        App.MainWindow?.OpenToolSettings(typeof(Pages.Tools.PickNumberToolPage));
+        // 真换了模式才清上一把的结果 —— 座号页面挂着个"李伟"会让人以为语义串了。
+        // 刚加载（_lastRoster 为 null）不清：浮窗收起再打开，上次抽的结果还在。
+        if (_lastRoster is bool prev && prev != roster)
+        {
+            // ⚠️ 2026-10-07（Nick：「字号要可以再大一点」）：原来这里无条件写死FontSize = 64，
+            //    把用户设的「名字大小」缩放系数直接盖掉 —— 在工具页把字号拖到 200%，
+            //    一进浮窗切一下模式就退回默认大小，看着像"设置没生效"。
+            //    占位符（还没抽过）才用默认 64，并且要乘上缩放系数，跟真实结果一个口径。
+            ResultText.Text = "—";
+            ResultText.FontSize = 64 * _nameScale;
+            ResultText.Opacity = 1;
+        }
+        _lastRoster = roster;
     }
 
     private void OnSettingChanged()
@@ -148,53 +161,35 @@ public sealed partial class MiniPickNumber : UserControl
         if (UseRoster)
         {
             var total = _roster.Count;
-            CountStepper.Maximum = Math.Max(1, total);
+            CountNumberBox.Maximum = Math.Max(1, total);
 
             if (total == 0)
             {
-                HintText.Text = "尚未导入名单。在随机抽号页中选择「导入名单」，导入 Excel 或 txt 文件。";
-                UsedText.Text = "";
+                HintText.Text = "尚未导入名单。在「内置工具 → 随机抽号」里导入 Excel 或 txt 文件。";
                 return;
             }
 
-            if (NoRepeat)
-            {
-                var remain = Math.Max(0, total - _usedNames.Count);
-                HintText.Text = remain > 0
-                    ? $"名单共 {total} 人，剩余 {remain} 人未抽取"
-                    : "名单人员已全部抽取，可单击「重置」重新抽取";
-                UsedText.Text = _usedNames.Count > 0 ? $"已抽取 {_usedNames.Count}" : "";
-            }
-            else
-            {
-                HintText.Text = $"名单共 {total} 人（允许重复）";
-                UsedText.Text = _usedNames.Count > 0 ? $"已抽取 {_usedNames.Count}" : "";
-            }
+            HintText.Text = NoRepeat
+                ? (total - _usedNames.Count > 0
+                    ? $"名单共 {total} 人，剩余 {total - _usedNames.Count} 人未抽取"
+                    : "名单人员已全部抽取，可点「重置」重新抽取")
+                : $"名单共 {total} 人（允许重复）";
             return;
         }
 
-        CountStepper.Maximum = Math.Max(1, PoolSize);
+        CountNumberBox.Maximum = Math.Max(1, PoolSize);
 
         if (PoolSize <= 1)
         {
-            HintText.Text = "请设置号码范围，例如 1 ~ 50";
-            UsedText.Text = "";
+            HintText.Text = "请设置座号范围，例如 1 ~ 50";
             return;
         }
 
-        if (NoRepeat)
-        {
-            var remain = Math.Max(0, PoolSize - UsedInRange);
-            HintText.Text = remain > 0
-                ? $"范围 {Lo} ~ {Hi}，剩余 {remain} 个未抽取"
-                : $"范围 {Lo} ~ {Hi} 已全部抽取，可单击「重置」重新抽取";
-            UsedText.Text = UsedInRange > 0 ? $"已抽取 {UsedInRange}" : "";
-        }
-        else
-        {
-            HintText.Text = $"范围 {Lo} ~ {Hi}（允许重复）";
-            UsedText.Text = _used.Count > 0 ? $"已抽取 {_used.Count}" : "";
-        }
+        HintText.Text = NoRepeat
+            ? (PoolSize - UsedInRange > 0
+                ? $"座号 {Lo} ~ {Hi}，剩余 {PoolSize - UsedInRange} 个未抽取"
+                : $"座号 {Lo} ~ {Hi} 已全部抽取，可点「重置」重新抽取")
+            : $"座号 {Lo} ~ {Hi}（允许重复）";
     }
 
     private static int RandInt(int n) => n <= 1 ? 0 : RandomNumberGenerator.GetInt32(n);
@@ -249,6 +244,8 @@ public sealed partial class MiniPickNumber : UserControl
         }
         return available.Take(k).ToList();
     }
+
+    private void NoRepeat_Toggled(object? sender, RoutedEventArgs e) => OnSettingChanged();
 
     private void Draw_Click(object? sender, RoutedEventArgs e)
     {
@@ -371,7 +368,7 @@ public sealed partial class MiniPickNumber : UserControl
     private void ShowNames(IReadOnlyList<string> names, bool rolling)
     {
         ResultText.Text = string.Join("  ", names);
-        ResultText.FontSize = names.Count switch
+        var size = names.Count switch
         {
             <= 1 => 44,
             2 => 36,
@@ -379,6 +376,17 @@ public sealed partial class MiniPickNumber : UserControl
             <= 8 => 24,
             _ => 18,
         };
+
+        // ⚠️ 2026-10-06：单个**长名字**（少数民族姓名 / 英文名 / 手滑粘了一整行）在 44px 下
+        //    会折成好几行，把浮窗那张结果区撑满甚至顶出可视区。按字数再收一档即可。
+        if (names.Count == 1)
+        {
+            var len = names[0].Length;
+            if (len > 8) size = 26;
+            else if (len > 5) size = 34;
+        }
+
+        ResultText.FontSize = size * _nameScale;   // 2026-10-06：再乘名字大小系数
         ResultText.Opacity = rolling ? 0.72 : 1;
     }
 
@@ -395,7 +403,7 @@ public sealed partial class MiniPickNumber : UserControl
     {
         new PickNumberConfig
         {
-            From = From,
+            From = Lo,        // 起始固定 1 号（座号从 1 开始）
             To = To,
             Count = WantCount,
             NoRepeat = NoRepeat,
@@ -404,6 +412,7 @@ public sealed partial class MiniPickNumber : UserControl
             Roster = _roster,
             UsedNames = _usedNames,
             RosterSource = _rosterSource,
+            NameScale = _nameScale,
         }.Save();
     }
 }

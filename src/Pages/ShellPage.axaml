@@ -83,10 +83,13 @@
 
         <!-- ⛔ 返回按钮已挪进标题栏（见上方 TitleBarArea）——这里必须关掉，
              否则面板顶部还留着那个图标画错的 FA 返回按钮。 -->
+        <!-- 2026-10-01 Nick 反馈「页面还够宽导航栏就自动收进去了，阈值太大」：
+             CompactModeThresholdWidth 820→700、ExpandedModeThresholdWidth 1180→1008
+             （1008 = WinUI 系统默认，与 Gallery 同款）：≥1008 展开、700~1008 图标条、<700 全隐 -->
         <fa:NavigationView x:Name="Nav" Grid.Row="1" Background="{x:Null}"
                            IsBackButtonVisible="False" IsSettingsVisible="False"
                            PaneDisplayMode="Auto" OpenPaneLength="252"
-                           CompactModeThresholdWidth="820" ExpandedModeThresholdWidth="1180"
+                           CompactModeThresholdWidth="700" ExpandedModeThresholdWidth="1008"
                            BackRequested="Nav_BackRequested"
                            ItemInvoked="Nav_ItemInvoked">
 
@@ -121,12 +124,18 @@
                  同类的还有 `NavigationViewContentGridBorderBrush` / `...GridBorderThickness`
                  （内容区那一圈边框），一并交回系统。
 
-              → 结论：**这里只留 `NavigationViewContentBackground` 一条透明**。
-                 面板自然有"一整块"的底，那条分隔线也还在。
+              → 结论（2026-10-01 修订，上游对标 WinUI Gallery）：
+                 **一个键都不刷，NavigationView.Resources 整段删掉**。
+                 Gallery 的分层 = 系统默认模板：内容区默认取 LayerFillColorDefaultBrush（设计规范
+                 「内容层色」，"Used on background colors of any material to create layering"）+
+                 顶部 1px 分隔线。恢复系统默认即 Gallery 观感。
+
+              ⚠️ 移植说明（Win7）：上游是因为默认背板已是 Mica、与 Gallery 同构，才敢恢复系统默认。
+                 本移植版的窗口背板走 Platform.Backdrop，Win7 上会降级成 Aero 毛玻璃（默认
+                 Backdrop=acrylic）。删掉这条透明后，内容区会是不透明的「内容层色」，不再透出玻璃
+                 —— 这正是 WinUI 设计规范要的分层，但如果 Win7 上观感不对（内容区一片死灰），
+                 先查背板设置（MainWindow.ApplyBackdrop），⛔ 别再刷 Transparent 把分层抹掉。
             -->
-            <fa:NavigationView.Resources>
-                <SolidColorBrush x:Key="NavigationViewContentBackground" Color="Transparent" />
-            </fa:NavigationView.Resources>
             <!-- 上半区：首页 / 软件下载 / 内置工具 / 侧边布局 / 实验性功能（实验性功能永远排最后）
                  ⚠️ 图标别撞脸：E719（购物袋）＝软件商店，E896（下载箭头）留给「任务进行」，
                     E7F4（显示器）＝本机核实，EA80（灯泡）＝实验性功能。
@@ -134,22 +143,75 @@
             <fa:NavigationView.MenuItems>
                 <fa:NavigationViewItem Content="首页" Tag="home">
                     <fa:NavigationViewItem.IconSource>
-                        <fa:FontIconSource FontFamily="{DynamicResource SymbolThemeFontFamily}" Glyph="&#xE80F;" />
+                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE80F;" />
                     </fa:NavigationViewItem.IconSource>
                 </fa:NavigationViewItem>
                 <fa:NavigationViewItem Content="软件下载" Tag="apps">
                     <fa:NavigationViewItem.IconSource>
-                        <fa:FontIconSource FontFamily="{DynamicResource SymbolThemeFontFamily}" Glyph="&#xE719;" />
+                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE719;" />
                     </fa:NavigationViewItem.IconSource>
                 </fa:NavigationViewItem>
-                <fa:NavigationViewItem Content="内置工具" Tag="tools">
+                <!--
+                  内置工具：和「实验性功能」一样是分组父项 —— 点它 = 进工具索引页 + 展开/收起分组，
+                  子项（图片取色 / 随机抽号 / 课堂计时器 / 全屏时钟 / 桌面留言 / 编码哈希 / 系统镜像）
+                  直达各自页面。父项自己也是入口（进 ToolsPage）。
+
+                  ⚠️ 2026-10-07（Nick 反复反馈「导航栏左边跟随页面切换的那根带颜色的竖线哪去了，
+                     二级菜单里尤其明显」）：**子项必须在 XAML 里声明**，不能改成"代码往 MenuItems 里 Add"。
+                     FluentAvalonia 2.4.1 的导航选中模型只认 XAML 里一次声明的子项 ——
+                     代码后加的子项它能渲染出来，但选中时认不到：SelectedItem 落到子项上会**退回父项**，
+                     竖线就压在「内置工具」上（实测；「实验性功能」的 XAML 子项则完全正常）。
+                     整组建、重挂父项等做法都试过，无效，只有 XAML 声明管用。
+
+                  ⛔ 改工具清单时**两处一起改**（Tag 必须与 ToolCatalog 的 Id 完全一致）：
+                     ① 这里（导航子项）  ② Data/ToolDef.cs 的 ToolCatalog.All（工具索引页卡片 + 页面映射）。
+                     启动时会校验两边是否一一对应，对不上会在 port.log 里留一条 Warn（见 ShellPage 构造）。
+                -->
+                <fa:NavigationViewItem x:Name="ToolsNav" Content="内置工具" Tag="tools">
                     <fa:NavigationViewItem.IconSource>
-                        <fa:FontIconSource FontFamily="{DynamicResource SymbolThemeFontFamily}" Glyph="&#xE71D;" />
+                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE71D;" />
                     </fa:NavigationViewItem.IconSource>
+                    <fa:NavigationViewItem.MenuItems>
+                        <fa:NavigationViewItem Content="图片取色" Tag="image-color">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE790;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
+                        <fa:NavigationViewItem Content="随机抽号" Tag="pick-number">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE716;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
+                        <fa:NavigationViewItem Content="课堂计时器" Tag="timer">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE916;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
+                        <fa:NavigationViewItem Content="全屏时钟" Tag="clock">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE740;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
+                        <fa:NavigationViewItem Content="桌面留言" Tag="message">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE8BD;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
+                        <fa:NavigationViewItem Content="编码 / 哈希工具" Tag="encoding">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE943;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
+                        <fa:NavigationViewItem Content="系统镜像下载" Tag="mirror-download">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE896;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
+                    </fa:NavigationViewItem.MenuItems>
                 </fa:NavigationViewItem>
                 <fa:NavigationViewItem Content="侧边布局" Tag="sidebar">
                     <fa:NavigationViewItem.IconSource>
-                        <fa:FontIconSource FontFamily="{DynamicResource SymbolThemeFontFamily}" Glyph="&#xE8A0;" />
+                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE8A0;" />
                     </fa:NavigationViewItem.IconSource>
                 </fa:NavigationViewItem>
                 <!--
@@ -167,7 +229,7 @@
                 -->
                 <fa:NavigationViewItem x:Name="ExperimentalNav" Content="实验性功能" Tag="experimental">
                     <fa:NavigationViewItem.IconSource>
-                        <fa:FontIconSource FontFamily="{DynamicResource SymbolThemeFontFamily}" Glyph="&#xEA80;" />
+                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xEA80;" />
                     </fa:NavigationViewItem.IconSource>
                     <fa:NavigationViewItem.MenuItems>
                         <!--
@@ -178,7 +240,7 @@
                         -->
                         <fa:NavigationViewItem Content="本机核实" Tag="machinecheck">
                             <fa:NavigationViewItem.IconSource>
-                                <fa:FontIconSource FontFamily="{DynamicResource SymbolThemeFontFamily}" Glyph="&#xE7F4;" />
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE7F4;" />
                             </fa:NavigationViewItem.IconSource>
                         </fa:NavigationViewItem>
                         <!--
@@ -190,7 +252,7 @@
                         -->
                         <fa:NavigationViewItem Content="白板专杀" Tag="easiguard">
                             <fa:NavigationViewItem.IconSource>
-                                <fa:FontIconSource FontFamily="{DynamicResource SymbolThemeFontFamily}" Glyph="&#xEA99;" />
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xEA99;" />
                             </fa:NavigationViewItem.IconSource>
                         </fa:NavigationViewItem>
                         <!--
@@ -199,7 +261,7 @@
                         -->
                         <fa:NavigationViewItem Content="程序专杀" Tag="procguard">
                             <fa:NavigationViewItem.IconSource>
-                                <fa:FontIconSource FontFamily="{DynamicResource SymbolThemeFontFamily}" Glyph="&#xE7E8;" />
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE7E8;" />
                             </fa:NavigationViewItem.IconSource>
                         </fa:NavigationViewItem>
                         <!--
@@ -211,9 +273,14 @@
                         -->
                         <fa:NavigationViewItem Content="虚拟键盘" Tag="virtualkeyboard">
                             <fa:NavigationViewItem.IconSource>
-                                <fa:FontIconSource FontFamily="{DynamicResource SymbolThemeFontFamily}" Glyph="&#xE765;" />
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE765;" />
                             </fa:NavigationViewItem.IconSource>
                         </fa:NavigationViewItem>
+                        <!--
+                          日志查看：Nick 2026-10-02 拍板「不要实验性」，入口挪到 设置 → 诊断
+                          （Pages/SettingsPage.axaml）。NavigateTagCore 的 "log-viewer" case 保留，
+                          供设置页跳转（含 page=log-viewer 启动参数）用。
+                        -->
                     </fa:NavigationViewItem.MenuItems>
                 </fa:NavigationViewItem>
             </fa:NavigationView.MenuItems>
@@ -223,12 +290,12 @@
                 <!-- 下载不再占着界面：进度在这里看得到；徽标上是「正在下载几个」（0 个就把徽标摘掉） -->
                 <fa:NavigationViewItem x:Name="DownloadsNav" Content="任务进行" Tag="downloads">
                     <fa:NavigationViewItem.IconSource>
-                        <fa:FontIconSource FontFamily="{DynamicResource SymbolThemeFontFamily}" Glyph="&#xE896;" />
+                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE896;" />
                     </fa:NavigationViewItem.IconSource>
                 </fa:NavigationViewItem>
                 <fa:NavigationViewItem Content="提交软件" Tag="submit">
                     <fa:NavigationViewItem.IconSource>
-                        <fa:FontIconSource FontFamily="{DynamicResource SymbolThemeFontFamily}" Glyph="&#xE898;" />
+                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE898;" />
                     </fa:NavigationViewItem.IconSource>
                 </fa:NavigationViewItem>
                 <!--
@@ -237,24 +304,40 @@
                 -->
                 <fa:NavigationViewItem Content="反馈中心" Tag="feedback">
                     <fa:NavigationViewItem.IconSource>
-                        <fa:FontIconSource FontFamily="{DynamicResource SymbolThemeFontFamily}" Glyph="&#xE939;" />
+                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE939;" />
                     </fa:NavigationViewItem.IconSource>
                 </fa:NavigationViewItem>
                 <!-- 更新日志：E81C 是时钟/历史，跟「设置」的齿轮分得开 -->
                 <fa:NavigationViewItem Content="更新日志" Tag="changelog">
                     <fa:NavigationViewItem.IconSource>
-                        <fa:FontIconSource FontFamily="{DynamicResource SymbolThemeFontFamily}" Glyph="&#xE81C;" />
+                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE81C;" />
                     </fa:NavigationViewItem.IconSource>
                 </fa:NavigationViewItem>
                 <fa:NavigationViewItem Content="设置" Tag="settings">
                     <fa:NavigationViewItem.IconSource>
-                        <fa:FontIconSource FontFamily="{DynamicResource SymbolThemeFontFamily}" Glyph="&#xE713;" />
+                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE713;" />
                     </fa:NavigationViewItem.IconSource>
                 </fa:NavigationViewItem>
             </fa:NavigationView.FooterMenuItems>
 
-            <!-- CacheSize=0：页面不留在内存里（教学机内存小，切页就回收，别一路涨上去） -->
-            <fa:Frame x:Name="ContentFrame" CacheSize="0" />
+            <!--
+                CacheSize（2026-10-04 由 12 收紧到 2）：
+                原本是 0（页面一切走就丢，每次回来都要重新解析 XAML + 重建整棵树，切页能明显顿一下）；
+                10-01 为了消掉那个顿，一口气放到 12。Nick 现在要"回到最开始那种激进省内存的思路"，
+                所以**不再攒一堆页面** —— 只留最近 2 页（够"来回切"不重解析，又不会把十来个页面的
+                可视化树长期钉在内存里）。
+                ⛔ 没取 0：那正是 10-01 实测"切页明显顿一下"的配置，代价已经被否过一次。
+                ⛔ 没取 12：Nick 明确说"缓存各种页面…还是不够好"。
+                页面用 NavigationCacheMode="Enabled" 的才真进缓存，其余仍旧走完就丢；
+                "内存立刻降下来"主要还是靠 MemoryTrimmer 的回收时机。
+
+                ⚠️ 移植说明（切页过渡）：原版这里挂了 Frame.ContentTransitions 的
+                   NavigationThemeTransition + EntranceNavigationTransitionInfo（淡入 + 轻微上移）。
+                   FluentAvalonia 的 Frame 没有 ContentTransitions/NavigationThemeTransition，
+                   过渡改由代码后置的 FadeInContent() 逐帧淡入实现（见 ShellPage.axaml.cs），
+                   语义等价；此处只保留 CacheSize=2。
+            -->
+            <fa:Frame x:Name="ContentFrame" CacheSize="2" />
         </fa:NavigationView>
     </Grid>
 </platform:PageBase>

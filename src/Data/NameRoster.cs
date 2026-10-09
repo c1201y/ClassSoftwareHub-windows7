@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Xml.Linq;
 
@@ -176,8 +177,11 @@ public static class NameRoster
         var result = new List<string>();
         try
         {
-            // 中文 txt 在老机器上常是 GBK，让 .NET 自己嗅探 BOM；嗅不出来按 UTF-8 读
-            var text = File.ReadAllText(path, Encoding.UTF8);
+            // ⚠️ 2026-10-06 实机反馈「抽号名单中文乱码」：Windows 记事本 / Excel 另存的 txt、csv
+            //    默认是 **ANSI（简体中文即 GBK）且不带 BOM**；原先直接按 UTF-8 读，
+            //    一个汉字会变成两三个 U+FFFD，界面就成了「已抽取 1 人：������」。
+            //    改成先嗅探编码再解码 —— 见 DecodeText。
+            var text = DecodeText(File.ReadAllBytes(path));
             foreach (var line in text.Split('\n'))
             {
                 // 不按空格切：英文名 "John Smith" 会被切碎
@@ -195,6 +199,72 @@ public static class NameRoster
         }
         return result;
     }
+
+    private static readonly UTF8Encoding StrictUtf8 =
+        new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+
+    /// <summary>
+    /// 把名单文件的字节流解成文本 —— 按实际情况挑编码，而不是假定 UTF-8。
+    ///
+    /// 判定顺序（覆盖 Windows 上所有常见来源）：
+    ///   ① **有 BOM 就听 BOM 的**（UTF-8 / UTF-16 LE / UTF-16 BE）—— 这三种一定能解对；
+    ///   ② 无 BOM：先按**严格** UTF-8 解（非法字节会抛 <see cref="DecoderFallbackException"/>），
+    ///      解不动才判定它是 ANSI。GBK 的双字节序列极少能同时构成合法 UTF-8，
+    ///      所以这条判据在实践中相当可靠；纯 ASCII 两边都成立，走 UTF-8 结果一样。
+    ///   ③ 按 ANSI 解时用 <c>MultiByteToWideChar(CP_ACP)</c> 直接问系统要当前代码页
+    ///      （简体中文 = 936/GBK）—— .NET 6 **默认不带 GBK**，用 <c>Encoding.GetEncoding(936)</c>
+    ///      需要额外的 System.Text.Encoding.CodePages 包并注册提供程序，
+    ///      而本项目一直坚持零第三方依赖（见文件头的说明）。
+    /// </summary>
+    private static string DecodeText(byte[] bytes)
+    {
+        if (bytes.Length == 0) return "";
+
+        if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
+            return Encoding.UTF8.GetString(bytes, 3, bytes.Length - 3);
+        if (bytes.Length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE)
+            return Encoding.Unicode.GetString(bytes, 2, bytes.Length - 2);
+        if (bytes.Length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF)
+            return Encoding.BigEndianUnicode.GetString(bytes, 2, bytes.Length - 2);
+
+        try
+        {
+            return StrictUtf8.GetString(bytes);
+        }
+        catch (DecoderFallbackException)
+        {
+            // 不是合法 UTF-8 —— 当"老式 ANSI 文件"处理
+        }
+
+        return DecodeAnsi(bytes) ?? Encoding.UTF8.GetString(bytes);
+    }
+
+    /// <summary>按系统 ANSI 代码页解码；拿不到代码页时返回 null，由调用方兜底。</summary>
+    private static string? DecodeAnsi(byte[] bytes)
+    {
+        try
+        {
+            var codePage = GetACP();
+            var need = MultiByteToWideChar(codePage, 0, bytes, bytes.Length, null, 0);
+            if (need <= 0) return null;
+
+            var buffer = new char[need];
+            var written = MultiByteToWideChar(codePage, 0, bytes, bytes.Length, buffer, need);
+            return written > 0 ? new string(buffer, 0, written) : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetACP();
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    private static extern int MultiByteToWideChar(uint codePage, uint dwFlags,
+        [In] byte[] multiByteStr, int multiByteCount,
+        [Out] char[]? wideCharStr, int wideCharCount);
 
     // ── Excel：读第一个工作表的"内容最多的那一列" ────────────────
     private static List<string> ReadXlsx(string path)

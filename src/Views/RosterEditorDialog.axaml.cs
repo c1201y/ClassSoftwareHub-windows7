@@ -7,6 +7,8 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Styling;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using ClassSoftwareHub.Desktop.Data;
 using FluentAvalonia.UI.Controls;
@@ -79,7 +81,7 @@ public sealed class RosterEntry : System.ComponentModel.INotifyPropertyChanged
 ///
 /// 语义：**改动当场生效**（改名、删行、加行都直接反映到 <see cref="Result"/>），
 /// 所以底部只有一个「关闭」，不做"确定 / 取消"—— 免得用户改了五十个名字点取消全丢。
-/// 调用方在 ShowAsync 之后读 <see cref="Result"/> 即可。
+/// 调用方在ShowAsync 之后读 <see cref="Result"/> 即可。
 ///
 /// ⚠️ 移植说明：
 ///   · 原版 WinUI 的 ListView → Avalonia 的 ListBox（虚拟化语义一致；容器清零那条
@@ -90,6 +92,30 @@ public sealed class RosterEntry : System.ComponentModel.INotifyPropertyChanged
 /// </summary>
 public sealed partial class RosterEditorDialog : ContentDialog
 {
+    /// <summary>
+    /// ⛔ 千万别删（2026-10-07，Nick 实机报「抽号 → 查看 / 编辑名单」点了没反应、
+    /// 而且**整页变空白**）：
+    /// Avalonia 的样式查找用的键是 <see cref="IStyleable.StyleKey"/>，它默认 = **本类的类型**。
+    /// 我们继承自 <c>ContentDialog</c>，默认键就成了 <c>RosterEditorDialog</c> ——
+    /// FluentAvalonia 主题里根本没有这个键的样式，于是**模板不会被应用**。
+    ///
+    /// 后果是连锁的：模板没应用 → <c>ContentDialog.OnApplyTemplate</c> 里那句
+    /// <c>NameScope.Get("PrimaryButton")</c>（FA 2.4.1 是**无条件**取的，找不到就抛）
+    /// 抛 <see cref="System.Collections.Generic.KeyNotFoundException"/> → 异常发生在
+    /// <c>MeasureCore</c> 里 → Avalonia 只能中断整棵视觉树的布局 → **页面一片空白**。
+    /// 紧接着 Loaded 又调 <c>SetupDialog()</c>，再抛一条
+    /// "Attempted to setup ContentDialog but the template has not been applied yet"。
+    /// 两条都在 %LOCALAPPDATA%\ClassSoftwareHub\logs\crash.log 里（page=pick-number）。
+    ///
+    /// 修法就是这里：把 StyleKey 显式指回 <see cref="ContentDialog"/>，
+    /// 让主题能按 ContentDialog 找到模板（FA 上游 issue #24 记的就是这个坑）。
+    ///
+    /// ⚠️ 2026-10-07 改法二选一，这里用的是 Avalonia 11 推荐的 <c>StyleKeyOverride</c>
+    ///    （旧的 <c>IStyleable.StyleKey</c> 已过时：编译器 CS0618 提示"12.0 可能移除"）。
+    ///    语义完全相同，只是换了个不用显式实现接口的写法。
+    /// </summary>
+    protected override Type StyleKeyOverride => typeof(ContentDialog);
+
     /// <summary>
     /// 界面上的行 —— **唯一真相**。
     ///
@@ -113,9 +139,79 @@ public sealed partial class RosterEditorDialog : ContentDialog
         foreach (var name in names) _rows.Add(new RosterEntry(_rows.Count + 1, (name ?? "").Trim()));
 
         SyncResult();
+
+        // 挂上窗口之后按可用高度收一次列表高度（见「高度自适应」一节）
+        AttachedToVisualTree += (_, _) => Dispatcher.UIThread.Post(FitListHeight, DispatcherPriority.Background);
+        Loaded += (_, _) => Dispatcher.UIThread.Post(FitListHeight, DispatcherPriority.Background);
+    }
+
+    // ══════════ 高度自适应 ══════════
+    //
+    // ⚠️ 为什么要有这一段（2026-10-07 实测发现；Nick 也反馈过"编辑名单窗口有问题"）：
+    //    上游 WinUI 版把名单高度写死 380 DIP（一屏核对十几个人）。在 WinUI 里 ContentDialog
+    //    自己带一层兜底，超出窗口的部分会被压回去、按钮始终可见；
+    //    **FluentAvalonia 的 ContentDialog 没有这层兜底** —— 内容多高就铺多高，
+    //    整块溢到窗口外面（弹窗浮在覆盖层上，不会被窗口裁掉）。
+    //    实测：窗口只有 ~567 DIP 高时，底部的「关闭」被挤到窗口下方、鼠标点不到
+    //    （UIA 里能查到它，但 rect.bottom 已经超出窗口 rect.bottom）。
+    //    修法：量出"列表以外"的固定开销，把列表高度收进可用高度里（上限仍是上游的 380）。
+    //    ⚠️ 量不准（Bounds 还没算出来 / 数值离谱）就退回上游的固定 380 —— 兜底逻辑绝不能反过来把界面搞坏。
+
+    /// <summary>上游写死的列表高度，同时也是我们的上限。</summary>
+    private const double MaxListHeight = 380;
+
+    /// <summary>列表至少留这么高；再挤就让它自己滚（否则连名字都看不见）。</summary>
+    private const double MinListHeight = 140;
+
+    /// <summary>列表以外（标题 / 页头 / 页脚 / 按钮 / 留白）的总高。量到一次就记住。</summary>
+    private double _chromeHeight;
+
+    private bool _chromeMeasured;
+
+    private void FitListHeight()
+    {
+        try
+        {
+            if (TopLevel.GetTopLevel(this) is not { } top) return;
+
+            var avail = top.Bounds.Height;
+            if (avail <= 0) return;
+
+            if (!_chromeMeasured)
+            {
+                var need = Bounds.Height;                 // 整张弹窗此刻的高度（列表 = 380）
+                var listH = RosterList.Bounds.Height;
+                if (need <= 0 || listH <= 0) return;      // 还没布局完，等下一次回调
+
+                var chrome = need - listH;
+                // 合理性检查：列表以外的部分应在 100~460 之间，离谱就当量失败（维持上游固定值）
+                if (chrome is not (> 100 and < 460)) return;
+
+                _chromeHeight = chrome;
+                _chromeMeasured = true;
+            }
+
+            var target = Math.Clamp(avail - _chromeHeight - 16, MinListHeight, MaxListHeight);
+            if (Math.Abs(RosterList.Height - target) > 1) RosterList.Height = target;
+        }
+        catch
+        {
+            // 纯兜底：出任何意外都保持上游的固定高度
+        }
     }
 
     // ══════════ 增 / 删 / 改 ══════════
+
+    /// <summary>
+    /// 原版 ListView 用 <c>SelectionMode="None"</c> 关掉选择；<b>Avalonia 没有这一档</b>
+    /// （<c>SelectionMode</c> 是 [Flags] 枚举，<c>Single = 0</c> 就是默认值，"None" 编译不过）。
+    /// 名字那一格本身就是输入框，点它只为改名，不该在背后再选出一行强调色高亮 ——
+    /// 于是选中就当场清掉。⚠️ 在同一次输入处理里同步清掉，渲染还没轮到，看不到闪烁。
+    /// </summary>
+    private void RosterList_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (RosterList.SelectedIndex >= 0) RosterList.SelectedIndex = -1;
+    }
 
     /// <summary>
     /// 在末尾加一行，并把键盘焦点直接送进新行的输入框 —— 点完就能打字，不用再找一次该点哪儿。

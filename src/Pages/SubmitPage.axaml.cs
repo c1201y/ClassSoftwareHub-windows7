@@ -465,13 +465,22 @@ public sealed partial class SubmitPage : PageBase
             ["store"] = (StoreBox.Text ?? "").Trim(),
             ["downloads"] = downloads,
             // 下划线开头 = 只给审核工单看的元数据，合并时会被剥掉，不会发布到站点
-            ["_联系方式"] = (ContactBox.Text ?? "").Trim(),
+            ["_联系方式"] = EncryptContact(),
         };
 
         var sortText = (SortBox.Text ?? "").Trim();
         if (sortText.Length > 0 && long.TryParse(sortText, out var sort)) payload["sort"] = sort;
 
         return payload;
+    }
+
+    /// <summary>联系方式字段：本地加密成 ASCII armor 密文；留空或加密失败返回空串，由必填校验兜底。</summary>
+    private string EncryptContact()
+    {
+        var contact = (ContactBox.Text ?? "").Trim();
+        if (contact.Length == 0) return "";
+        try { return Services.AgeEncryption.EncryptToArmor(contact); }
+        catch { return ""; } // 公钥是编译期常量、已随实现验证，失败视同未填，走必填提示
     }
 
     /// <summary>必填校验 + 校验值格式检查；返回要显示的错误，null 表示没问题。</summary>

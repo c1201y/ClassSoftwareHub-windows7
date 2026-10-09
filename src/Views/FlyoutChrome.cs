@@ -199,6 +199,18 @@ public sealed class FlyoutChrome
             }
             catch { }
             _window.Show();
+
+            // ⚠️ 2026-10-06（用户「首次启动悬浮窗白底白字，切一下深浅色就好了」）：
+            //    构造函数里那次 ApplyMaterial 读到的还是尚未传播的默认浅色变体 → 白面板，
+            //    而窗口里的文字/图标资源却按深色渲染（白底白字）。窗口进了视觉树之后
+            //    主题才真正传播到位 —— 这里立刻补刷材质 + 窗口框，再 Dispatcher 补一拍兜底。
+            ApplyMaterial();
+            try { Finish(_root.ActualThemeVariant == ThemeVariant.Dark); } catch { }
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                ApplyMaterial();
+                try { Finish(_root.ActualThemeVariant == ThemeVariant.Dark); } catch { }
+            }, Avalonia.Threading.DispatcherPriority.Loaded);
         }
 
         MoveResize(start, width, height);
@@ -457,18 +469,22 @@ public static class EdgeGeometry
 
     /// <summary>
     /// 挨着锚点（边条 / 主音量浮窗）往屏幕**里侧**排：
-    /// 进退方向贴住锚点的内侧，沿边方向跟锚点**对齐居中**，最后夹进工作区别跑出屏幕。
-    /// 返回（滑入起点 = 往边外退半块，最终位置）。
+    /// 进退方向贴住锚点的内侧；沿边方向默认跟锚点**对齐居中**，
+    /// <paramref name="alignStart"/> 为 true 时改**顶对齐**（左右边）/**左对齐**（上下边）——
+    /// 链上两个高矮不一的浮窗（主音量 + 合成器）顶对齐排出来才像一个整齐的块，
+    /// 居中会让高窗口两头都冒出来，看着像叠在一起（2026-10-01）。
+    /// 最后夹进工作区别跑出屏幕。返回（滑入起点 = 往边外退半块，最终位置）。
     /// </summary>
     public static (PixelPoint Start, PixelPoint Final) BesideAnchor(
-        string edge, PixelRect anchor, PixelRect work, int w, int h, double scale)
+        string edge, PixelRect anchor, PixelRect work, int w, int h, double scale, bool alignStart = false)
     {
         var gap = (int)Math.Round(GapDip * scale);
         var flat = IsFlat(edge);
 
-        // 沿边方向：以锚点这条边的中点为基准，浮窗自己居中
-        var anchorCenter = flat ? anchor.X + anchor.Width / 2 : anchor.Y + anchor.Height / 2;
-        var along = anchorCenter - (flat ? w : h) / 2;
+        // 沿边方向：默认以锚点中线为基准居中；alignStart 则与锚点的起点边对齐
+        var along = alignStart
+            ? (flat ? anchor.X : anchor.Y)
+            : (flat ? anchor.X + anchor.Width / 2 : anchor.Y + anchor.Height / 2) - (flat ? w : h) / 2;
 
         var final = edge switch
         {
@@ -525,6 +541,12 @@ public static class FlyoutFade
 {
     private static DispatcherTimer? _timer;
 
+    /// <summary>把内容压到透明（不播动画）。用在"窗口露脸之前"——先压透明再淡入，免得先闪一帧再淡。</summary>
+    public static void Prepare(Control? element)
+    {
+        try { if (element is not null) element.Opacity = 0f; } catch { }
+    }
+
     public static void In(Control element, double ms)
     {
         try
@@ -551,6 +573,33 @@ public static class FlyoutFade
         catch
         {
             try { element.Opacity = 1.0; } catch { }
+        }
+    }
+
+    /// <summary>内容淡出，播完回调 <paramref name="done"/>（用于"淡出后再藏窗"，别让窗口先消失动画没得播）。</summary>
+    public static void Out(Control element, double ms, Action? done = null)
+    {
+        try
+        {
+            Stop();
+            var sw = Stopwatch.StartNew();
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
+            timer.Tick += (_, _) =>
+            {
+                var t = Math.Clamp(sw.Elapsed.TotalMilliseconds / ms, 0, 1);
+                element.Opacity = 1 - t;                  // 线性淡出（原版近似贝塞尔，观感一致）
+                if (t < 1) return;
+                element.Opacity = 0;
+                Stop();
+                done?.Invoke();
+            };
+            _timer = timer;
+            timer.Start();
+        }
+        catch
+        {
+            try { element.Opacity = 0.0; } catch { }
+            done?.Invoke();
         }
     }
 

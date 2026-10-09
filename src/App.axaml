@@ -121,6 +121,63 @@
         <Style Selector="Button.caption.close:pressed Path">
             <Setter Property="Stroke" Value="White" />
         </Style>
+
+        <!--
+          ═══════════════════════════════════════════════════════════════════════════════
+          卡片容器统一样式（上游 App.xaml 的 CshCardStyle，2026-10-02 建；同日二改：圆角 8→4、
+          补统一内边距 16,12）。全站内容卡片统一走这一套「4px 圆角 + 系统卡片底 + 系统描边 +
+          16,12 内边距」，别再每页手写 CornerRadius/Background/BorderBrush/BorderThickness 四件套。
+
+          ⛔⛔ 圆角必须是 4，不是 8（Nick 2026-10-02 抓的「劣质第三方绘制」根源）：
+              - 4 = 系统 ControlCornerRadius —— 原生 SettingsCard / Button / ComboBox 全是 4；
+              - 8 = OverlayCornerRadius —— 那是**浮层/弹窗**该用的值，不是卡片。
+
+          ⚠️ 移植说明：原版是 `Style x:Key="CshCardStyle" TargetType="Border"`，
+             用 `Classes="cshCard"` 施加。Avalonia 的 Border **没有可赋值的
+             Style 属性**（StyledElement 只暴露 Styles 集合 / Classes，没有单个 Style），
+             故改成 Class 选择器等价物：**用法 `Classes="cshCard"`**，效果逐条对齐原版。
+          ═══════════════════════════════════════════════════════════════════════════════
+        -->
+        <Style Selector="Border.cshCard">
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="Padding" Value="16,12" />
+            <Setter Property="Background" Value="{DynamicResource CardBackgroundFillColorDefaultBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource CardStrokeColorDefaultBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+
+        <!--
+          只读结果行（编码 / 哈希工具的四条哈希值，上游 App.xaml 的 CshResultRowStyle）。
+          2026-10-02 建（Nick：「用 Border 堆叠的表单表格，所有块都是方块包方块」）：
+          这类"一行一条结果"的内容改用 ListView 承载 —— 每一行自带系统悬停底色、
+          圆角走 ControlCornerRadius，不再需要外面再套一张大卡片。
+
+          ⚠️ 移植说明：原版是 `Style x:Key="CshResultRowStyle" TargetType="ListViewItem"`，
+             用 `ItemContainerStyle="{StaticResource CshResultRowStyle}"` 施加（WinUI 的 ListViewItem
+             = Avalonia 的 ListBoxItem）。Avalonia 里改用「给承载它的 ListView 打标记 Class +
+             后代类型选择器」的等价写法，**用法 `Classes="cshResultRows"`**（见 EncodingToolPage）。
+             ⛔ 不要做成 ControlTheme：那会连默认模板一起换掉，最要紧的「系统悬停底色」就没了；
+                这里只设属性、保留 ListBoxItem 的默认外观（悬停 / 圆角照旧由系统给）。
+          ⛔ 配合 ListView 用：SelectionMode=None、ScrollViewer.VerticalScrollBarVisibility=Disabled
+             （它本来就待在外层滚动区里，不禁用会出现内外两层滚动条）。
+        -->
+        <Style Selector="ListBox.cshResultRows ListBoxItem">
+            <Setter Property="MinHeight" Value="0" />
+            <!-- 左右 14 = 与同页其它内容（拖拽区、核对行）同一条内缩线；
+                 ⛔ 别靠给 ListView 加负 Margin 去"让悬停铺满" —— 那会把行内容顶出 960 内容列。 -->
+            <Setter Property="Padding" Value="14,8" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        </Style>
+
+        <!--
+          ⚠️ 只读结果列表：上游是 `ListView SelectionMode=None`（点它不该有"选中"的观感）。
+             Avalonia 的 SelectionMode 枚举只有 Single / Multiple / Toggle / AlwaysSelected，**没有 None**，
+             所以取 Single + 把「选中」那层底色抹平 —— 效果等价，而系统悬停底色 / 圆角（:pointerover
+             与默认模板）原样保留。
+        -->
+        <Style Selector="ListBox.cshResultRows ListBoxItem:selected /template/ ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
     </Application.Styles>
 
     <Application.Resources>
@@ -309,10 +366,15 @@
             </ControlTheme>
 
             <!--
-              ⚠️ 原版 App.xaml 里还有两段**无法 1:1 移植**的资源，这里说明去路（不是漏掉）：
+              ⚠️ 原版 App.xaml 里还有两段资源，这里说明去路（不是漏掉）：
                 · 给 ContentDialog 设 CornerRadius=8 的隐式 Style ——
-                  FluentAvalonia 的 ContentDialog 没有 CornerRadius 这个可写属性（实测导出成员里没有），
-                  圆角由它自己的模板决定，故不再覆盖。
+                  ⛔ 2026-10-07 更正：本条原来写的是「FluentAvalonia 的 ContentDialog 没有
+                     CornerRadius 这个可写属性」。**这个结论没有被核实、而且很可能不对** ——
+                     现在两个对话框（RosterEditorDialog / RosterSampleDialog）各自**直接在根节点上
+                     写 CornerRadius="8"**（照上游 WinUI 版），**能正常编译、运行也不报错**。
+                     所以这里不再做隐式 Style，圆角写在各个对话框自己身上。
+                     （同一段注释里原来关于 ContentDialogMaxWidth 的结论也已被证伪 ——
+                      那个资源键**是存在的**，宽度就是靠它覆盖，见 RosterEditorDialog.axaml。）
                 · 一排 GridViewItem* 刷子（GridViewItemBackground 等）——
                   Avalonia 没有 GridViewItem 这个类型，键无处挂载；容器 chrome 的关闭已由
                   上面的 CshCardItemStyle 承担。

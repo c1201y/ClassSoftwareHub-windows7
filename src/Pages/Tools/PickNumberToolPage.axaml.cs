@@ -9,6 +9,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
@@ -36,6 +37,7 @@ public sealed partial class PickNumberToolPage : PageBase
     private List<int> _pending = new();
     private int _ticks;
     private bool _ready;
+    private bool _updating;   // RefreshHints 正在改控件（改 Maximum 会连带触发 ValueChanged，得挡掉）
 
     // ── 名单模式（2026-09-27 Nick 提）──
     private readonly List<string> _roster = new();
@@ -44,6 +46,10 @@ public sealed partial class PickNumberToolPage : PageBase
     private string _rosterSource = "";   // 导入时的文件名，只用来显示
     private int _savedMode;              // 从存档读出来的模式，铺完控件才生效
     private string _groupText = "";      // 最近一次分组结果的纯文本（给「复制结果」用）
+
+    private double _nameScale = 1.0;     // 结果字号的缩放系数（2026-10-06 滑块可调；2026-10-07 上限提到 3.0，号码也吃它）
+    private List<string>? _lastNames;     // 最近一次（非滚动中）展示的名单，滑块改字号时重绘用
+    private List<int>? _lastNumbers;     // 同上，号码模式（2026-10-07：号码也吃缩放）
 
     public PickNumberToolPage()
     {
@@ -152,6 +158,23 @@ public sealed partial class PickNumberToolPage : PageBase
         RangePanel.IsVisible = !roster;
         RosterPanel.IsVisible = roster;
 
+        // ⚠️ 2026-10-07：切了抽取对象就把另一模式的"上次结果"清掉 ——
+        //    否则拖「结果字号」滑块时，ShowNames / ShowResult 会把**两种**结果都重绘出来，
+        //    结果区里会同时出现号码和名字（而且那个号码早就不是当前模式抽的了）。
+        if (roster) _lastNumbers = null;
+        else _lastNames = null;
+
+        // 「抽取数量 / 不重复」两种模式共用（上游 dv1.1.1）：旧版它俩锁在「号码」那一组里，
+        // 名单模式一整组被收起来，于是名单模式压根没有"抽几个"（2026-10-05 反馈）。
+        // 两种模式的摆位不同：
+        //   · 号码模式：并到第一行右边 ⇒ 整条参数带仍是一行，与旧版一致；
+        //   · 名单模式：自己占第二行 ⇒ 名单那一排（标签 + 四个按钮）本来就长，
+        //     同一行再塞数量框，窗口一窄就会被裁掉。见 ParamGrid 上的注释。
+        //   上游靠 Grid 的 ColumnSpacing="22" 拉开间距，Avalonia 这边用 Margin 模拟。
+        Grid.SetRow(BatchPanel, roster ? 1 : 0);
+        Grid.SetColumn(BatchPanel, roster ? 0 : 1);
+        BatchPanel.Margin = roster ? new Thickness(0, 8, 0, 0) : new Thickness(22, 0, 0, 0);
+
         // 2026-09-29：勾选框挤在控制行里，文案只能短 —— "抽过的名字不再出现"这种补充说明挪到悬停提示
         ToolTip.SetTip(NoRepeatBox, roster ? "抽过的名字不再出现" : "抽过的不再出现");
         RefreshRosterText();
@@ -248,7 +271,9 @@ public sealed partial class PickNumberToolPage : PageBase
 
     private void OnSettingChanged()
     {
-        if (!_ready) return;
+        // ⚠️ _updating：RefreshHints 改 CountBox.Maximum 时会把超标的 Value 夹回来，
+        //    那一下也会走到这里 —— 那不是"用户改了设置"，别再存一遍、也别再刷一次提示（会形成回环）。
+        if (!_ready || _updating) return;
         SaveConfig();
         RefreshHints();
     }
@@ -257,6 +282,25 @@ public sealed partial class PickNumberToolPage : PageBase
 
     private void RefreshHints()
     {
+        // ⚠️ 下面第一件事就是改 CountBox.Maximum —— 而改上限会把超标的 Value 夹进来、
+        //    触发一次 ValueChanged；用 _updating 挡掉，免得被当成"用户改了设置"再存一遍
+        //    （上游 dv1.1.1 同款写法）。
+        _updating = true;
+        try { RefreshHintsCore(); }
+        finally { _updating = false; }
+    }
+
+    /// <summary>
+    /// 提示 + 「抽取数量」的上限。
+    ///
+    /// ⚠️ 上限按当前池子走（与浮窗版 MiniPickNumber 同一套规则）：名单模式跟人数、号码模式跟号码范围 ——
+    ///    名单只有 10 人时，框里就不该填得出 11。旧版这个框的 Maximum 在 XAML 里写死 50，
+    ///    名单超过 50 人的班就一次抽不完（2026-10-05 顺带修掉）。
+    /// </summary>
+    private void RefreshHintsCore()
+    {
+        CountBox.Maximum = Math.Max(1, UseRoster ? _roster.Count : PoolSize);
+
         if (UseRoster) { RefreshRosterHints(); return; }
 
         SummaryText.Text = $"本次设置：从 {Lo} ~ {Hi} 中抽取 {WantCount} 个号" + (NoRepeat ? "，抽过的不再出现" : "");
@@ -400,8 +444,42 @@ public sealed partial class PickNumberToolPage : PageBase
     }
 
     // ── 结果格尺寸：原版由 VariableSizedWrapGrid 的 ItemWidth/ItemHeight 定格 ──
-    private const double NumberCellWidth = 150;
-    private const double NumberCellHeight = 92;
+    //
+    // ⚠️ 2026-10-06（Nick 实机反馈「抽号字多显示不开」）：
+    //    原来是「宽 150 × **高 92**」的硬格子 + 写死字号。号码只有 1~4 位数看不出问题，
+    //    但名单模式抽到 4 个字以上的名字时，42px 的字折成两行就有 100+ 高 —— 超出的部分
+    //    被格子直接裁掉，屏幕上看到的就是「字显示不开 / 半截字」。
+    //    现在改成：
+    //      · 宽度**钉住**（150 → 176），保证多个人并排时列宽整齐；
+    //      · 高度只给 **MinHeight**（不再是 Height）—— 内容高就让它自己长，WrapPanel 里
+    //        这一行跟着高，外层 ScrollViewer 负责滚动，**永远不裁字**；
+    //      · 名字字号按字数收档（见 <see cref="NameFontSize"/>），长名字先折行、再收字号；
+    //      · 号码字号对齐上游 dv1.1.0 的 72（结果区是这一页的主角）。
+    // 2026-10-08（Nick）：100% 基准 72 → 96（"字号还是太小了"）；上限档显示不全改由
+    //    <see cref="ShowResult"/> 的**自动收字号**根治（放不下就缩，绝不裁半截字）。
+    private const double NumberCellWidth = 176;
+    private const double NumberCellMinHeight = 120;
+    private const double NumberBaseFontSize = 96;
+
+    /// <summary>结果字号的行高估算系数（给"按高度收字号"用，宁可比真实行高略大也别裁字）。</summary>
+    private const double LineHeightFactor = 1.4;
+
+    /// <summary>
+    /// 名单模式的名字字号：**按字数收档**。
+    ///
+    /// 目标：在 176 宽（可用 164）的格子里，最多折成两行就把人名字放下 ——
+    /// 中文一个字约占 1 个字宽，所以「一行放得下几个字」≈ 164 / 字号。
+    /// 三字名（最常见）保持 44 不缩；越长的名字字号越小，宁可字小也不要折成四五行。
+    /// </summary>
+    private static double NameFontSize(string name)
+    {
+        var len = name.Length;
+        if (len <= 3) return 44;
+        if (len <= 5) return 34;
+        if (len <= 8) return 26;
+        if (len <= 12) return 20;
+        return 16;
+    }
 
     private void RollTick()
     {
@@ -442,48 +520,144 @@ public sealed partial class PickNumberToolPage : PageBase
     private void ShowResult(IReadOnlyList<int> numbers, bool rolling)
     {
         ResultHost.Children.Clear();
+
+        // ⚠️ 2026-10-08（Nick 截图：300% 时数字上半截被裁）：
+        //    号码字号 = 基准 × 滑块，300% 就是 288px —— 塞在 176 宽的格子里必然超界，
+        //    超界部分在不同容器上表现成"上半截被裁"。根治办法与名单模式一致：
+        //      · 单抽 = 铺满整张结果卡（不进 176 小格子），宽、高放不下都自动收字号；
+        //      · 多抽 = 仍是 176 格子，字号放不下就收 —— 收完也比旧版 100% 大得多。
+        //    口径：**宁可字小一点，也绝不出半截字**。
+        var single = numbers.Count == 1;
+        var cardW = ResultCard.Bounds.Width;
+        if (cardW <= 0) cardW = 460;              // 结果卡还没量过尺寸时的兜底
+        var cardH = ResultCard.Bounds.Height;
+        if (cardH <= 0) cardH = 320;
+
         foreach (var n in numbers)
         {
-            ResultHost.Children.Add(new TextBlock
+            var text = n.ToString();
+            var size = NumberBaseFontSize * _nameScale;
+
+            if (single)
             {
-                Text = n.ToString(),
-                // 2026-09-29：右栏成了结果专用空间，字号跟着放大一档 —— 抽出来的号是这一页的主角
-                FontSize = 52,
-                FontWeight = FontWeight.SemiBold,
-                Opacity = rolling ? 0.72 : 1,
-                Width = NumberCellWidth,
-                Height = NumberCellHeight,
-                TextAlignment = TextAlignment.Center,
-                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
-                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
-            });
+                // 单抽：可用宽 = 结果卡内容宽（Padding 20 左右各一）；高同理（上下各留 20）
+                var availW = Math.Max(NumberCellWidth - 12, cardW - 40);
+                var availH = Math.Max(NumberCellMinHeight, cardH - 40);
+
+                var est = EstimateTextWidth(text, size);
+                if (est > availW) size = Math.Max(11, size * availW / est);
+                if (size * LineHeightFactor > availH) size = Math.Max(11, availH / LineHeightFactor);
+
+                var tb = new TextBlock
+                {
+                    Text = text,
+                    FontSize = size,
+                    FontWeight = FontWeight.SemiBold,
+                    Opacity = rolling ? 0.72 : 1,
+                    MaxWidth = availW,
+                    TextAlignment = TextAlignment.Center,
+                    HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                    VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                };
+                // 不钉宽度，让结果卡有多宽就用多宽（WrapPanel 居中 → 数字居中）
+                ResultHost.Children.Add(new Grid { MinHeight = NumberCellMinHeight, Margin = new Thickness(4, 6, 4, 6), Children = { tb } });
+            }
+            else
+            {
+                // 多抽：176 格子，宽（164 可用）放不下就收字号；行高再兜一道，别让一行字超出结果卡
+                var availW = NumberCellWidth - 12;
+                var est = EstimateTextWidth(text, size);
+                if (est > availW) size = Math.Max(11, size * availW / est);
+                if (size * LineHeightFactor > NumberCellMinHeight * 2)
+                    size = Math.Max(11, NumberCellMinHeight * 2 / LineHeightFactor);
+
+                ResultHost.Children.Add(Cell(new TextBlock
+                {
+                    Text = text,
+                    FontSize = size,
+                    FontWeight = FontWeight.SemiBold,
+                    Opacity = rolling ? 0.72 : 1,
+                    TextAlignment = TextAlignment.Center,
+                    HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                    VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                }));
+            }
         }
         ResultHint.IsVisible = numbers.Count == 0;
+        if (!rolling) _lastNumbers = numbers.ToList();
     }
 
-    /// <summary>名单模式的结果：名字比号码长，字号收一档，太长了就折行。</summary>
+    /// <summary>
+    /// 名单模式的结果：名字比号码长 —— 字号按字数收档（<see cref="NameFontSize"/>），
+    /// 太长就折行；格子只钉宽度、不钉高度，所以折几行都不会被裁。
+    /// </summary>
     private void ShowNames(IReadOnlyList<string> names, bool rolling)
     {
         ResultHost.Children.Clear();
+
+        // ⚠️ 2026-10-07（Nick 实机反馈「抽号那么大的地方，还要用 … 显示不开」）：
+        //    只抽 1 人时，别再把名字塞进 176 宽的小格子里 —— 那样结果卡里明明空着一大片，
+        //    长一点的名字还是被 164 的 MaxWidth 截成「华风夏韵洛…」。
+        //    单抽 = 名字横跨整个结果卡（居中、不折行），并且放不下就**自动收字号**，宁可小一点也要看全。
+        var single = names.Count == 1;
+        var cardW = ResultCard.Bounds.Width;
+        if (cardW <= 0) cardW = 460;              // 结果卡还没量过尺寸时的兜底
+
         foreach (var name in names)
         {
-            ResultHost.Children.Add(new TextBlock
+            // 单抽：可用宽度 = 结果卡内容宽（Padding 20 左右各一）；多抽：仍旧按 176 格子算
+            var allowed = single ? Math.Max(NumberCellWidth - 12, cardW - 40)
+                                 : NumberCellWidth - 12;
+
+            var size = NameFontSize(name) * _nameScale;
+            var est = EstimateTextWidth(name, size);
+            if (est > allowed) size = Math.Max(11, size * allowed / est);   // 放不下就收字号，不出现 …
+
+            var tb = new TextBlock
             {
                 Text = name,
-                FontSize = 42,
+                FontSize = size,
                 FontWeight = FontWeight.SemiBold,
                 Opacity = rolling ? 0.72 : 1,
-                Width = NumberCellWidth,
-                Height = NumberCellHeight,
-                MaxWidth = 138,
-                TextWrapping = TextWrapping.Wrap,
+                MaxWidth = allowed,
+                TextWrapping = TextWrapping.NoWrap,   // 单行显示（折行是上一版被否掉的观感）
+                TextTrimming = TextTrimming.CharacterEllipsis,
                 TextAlignment = TextAlignment.Center,
                 HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
                 VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
-            });
+            };
+
+            ResultHost.Children.Add(single
+                // 单抽：不钉宽度，让结果卡有多宽就用多宽（WrapPanel 居中 → 名字居中）
+                ? new Grid { MinHeight = NumberCellMinHeight, Margin = new Thickness(4, 6, 4, 6), Children = { tb } }
+                : Cell(tb));
         }
+
         ResultHint.IsVisible = names.Count == 0;
+        if (!rolling) _lastNames = names.ToList();
     }
+
+    /// <summary>粗略估一行文字的像素宽（中日韩字 ≈ 1 个字宽，其它 ≈ 0.56）—— 给「自动收字号」用。</summary>
+    private static double EstimateTextWidth(string s, double fontSize)
+    {
+        double units = 0;
+        foreach (var ch in s) units += ch > 0x2E7F ? 1.0 : 0.56;
+        return units * fontSize;
+    }
+
+    /// <summary>
+    /// 一个结果格：宽度钉死、高度只给下限。
+    ///
+    /// ⛔ 别把 <c>MinHeight</c> 改回 <c>Height</c> —— 那正是 2026-10-06「字显示不开」的成因：
+    ///    写了 Height 就等于告诉布局「内容只能这么高」，多出来的字会被裁掉且不会报错。
+    /// </summary>
+    private static Grid Cell(Control content) => new Grid
+    {
+        Width = NumberCellWidth,
+        MinHeight = NumberCellMinHeight,
+        Margin = new Thickness(4, 6, 4, 6),
+        Children = { content },
+    };
 
     private void ResetUsed_Click(object? sender, RoutedEventArgs e)
     {
@@ -747,6 +921,14 @@ public sealed partial class PickNumberToolPage : PageBase
         _usedNames.AddRange(cfg.UsedNames ?? new List<string>());
         _rosterSource = cfg.RosterSource ?? "";
         _savedMode = cfg.Mode;
+
+        // 2026-10-06：名字大小（滑块还没挂事件，这里设值不会触发回调；_ready 也还是 false）
+        _nameScale = cfg.NameScale;
+        if (NameScaleSlider is not null)
+        {
+            NameScaleSlider.Value = _nameScale;
+            NameScaleText.Text = $"{Math.Round(_nameScale * 100)}%";
+        }
     }
 
     private void SaveConfig()
@@ -763,7 +945,25 @@ public sealed partial class PickNumberToolPage : PageBase
             Roster = _roster,
             UsedNames = _usedNames,
             RosterSource = _rosterSource,
+            NameScale = _nameScale,
         }.Save();
+    }
+
+    /// <summary>滑块改字号：记下来、存盘、把当前结果按新字号重绘一遍。</summary>
+    private void NameScaleSlider_Changed(object? sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (!_ready) return;
+
+        // ⚠️ Avalonia 没有 StepFrequency：先吸附到 0.1 的整数倍，写回滑块（会再进来一圈，那一圈值已对齐）。
+        var v = Math.Round(e.NewValue / 0.1) * 0.1;
+        if (Math.Abs(NameScaleSlider.Value - v) > 0.001) { NameScaleSlider.Value = v; return; }
+
+        _nameScale = v;
+        NameScaleText.Text = $"{Math.Round(_nameScale * 100)}%";
+        SaveConfig();
+        // 两种结果都重绘：滑块叫「结果字号」了，号码和名字都该跟着变
+        if (_lastNames is not null) ShowNames(_lastNames, rolling: false);
+        if (_lastNumbers is not null) ShowResult(_lastNumbers, rolling: false);
     }
 
     // ══════════ 示例名单 ══════════

@@ -113,8 +113,9 @@ public sealed partial class VolumeMixerWindow : Window
     {
         try
         {
-            // ⚠️ mainScope: true —— 合成器浮窗跟主界面的颜色模式走（与主音量浮窗同一口径，2026-10-03）。
-            ThemeCompat.Apply(Root, mainScope: true);
+            // ⚠️ mainScope: false（2026-10-08 口径变更，与主音量浮窗同步）：
+            //    合成器浮窗改跟「外部组件」作用域 —— 分体开着跟外部外观，没开跟主界面。
+            ThemeCompat.Apply(Root);
             VolumeFlyoutGroup.MixerHwnd = _chrome.Hwnd;
 
             Deactivated += (_, _) => VolumeFlyoutGroup.EnsureMouseWatch();   // 收窗判据是鼠标不是焦点，见 VolumeFlyoutGroup
@@ -162,9 +163,11 @@ public sealed partial class VolumeMixerWindow : Window
             var h = (int)Math.Round(dip.Y * scale);
             var work = WorkArea();
 
-            // 锚点 = 主音量浮窗（贴着它往屏幕里侧排）；拿不到就当成贴屏幕边
-            var anchor = VolumeWindow.CurrentRect ?? EdgeGeometry.EdgeBar(VolumeWindow.Edge, work);
-            var (start, final) = EdgeGeometry.BesideAnchor(VolumeWindow.Edge, anchor, work, w, h, scale);
+            // 锚点 = 主音量浮窗的**最终落点**（不是半路上的实时位置 —— 主音量还在滑入时
+            //    点「展开」，锚实时位置会让主音量随后滑进来正好压住合成器，2026-10-01 修）。
+            //    沿边方向与主音量**顶对齐**（左右边）/左对齐（上下边）：两个高矮不一的窗排成一列整齐的块。
+            var anchor = VolumeWindow.AnchorRect ?? EdgeGeometry.EdgeBar(VolumeWindow.Edge, work);
+            var (start, final) = EdgeGeometry.BesideAnchor(VolumeWindow.Edge, anchor, work, w, h, scale, alignStart: true);
 
             Start();                                    // 先把条目建好再显形
             _chrome.Present(start, w, h);
@@ -226,8 +229,8 @@ public sealed partial class VolumeMixerWindow : Window
             var h = (int)Math.Round(dip.Y * scale);
             var work = WorkArea();
 
-            var anchor = VolumeWindow.CurrentRect ?? EdgeGeometry.EdgeBar(VolumeWindow.Edge, work);
-            var (_, final) = EdgeGeometry.BesideAnchor(VolumeWindow.Edge, anchor, work, w, h, scale);
+            var anchor = VolumeWindow.AnchorRect ?? EdgeGeometry.EdgeBar(VolumeWindow.Edge, work);
+            var (_, final) = EdgeGeometry.BesideAnchor(VolumeWindow.Edge, anchor, work, w, h, scale, alignStart: true);
 
             _chrome.MoveResize(final, w, h);
         }

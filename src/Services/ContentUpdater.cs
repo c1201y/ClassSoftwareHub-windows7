@@ -46,7 +46,10 @@ public static class ContentUpdater
     {
         var handler = new HttpClientHandler { AllowAutoRedirect = true };
         var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(60) };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("ClassSoftwareHub/1.2 content-sync");
+        // ⚠️ 版本别写死：这里原来是 "ClassSoftwareHub/1.2"，而 ShellConfig.ShellVersion 早就是 1.1.0 ——
+        //    同步客户端向内容服务器自报了一个**不存在的版本**，排查服务端日志时会误导人。
+        client.DefaultRequestHeaders.UserAgent.ParseAdd(
+            $"ClassSoftwareHub/{ShellConfig.ShellVersion} content-sync");
         return client;
     }
 
@@ -106,6 +109,9 @@ public static class ContentUpdater
         Directory.CreateDirectory(Dir);
 
         var downloaded = 0;
+        // 坏条目记下来继续跑：**不能因为一个文件失败就中止整份清单**
+        // （清单下次不变，同一条目会永久堵死内容更新 —— 见报告 MEDIUM-13）
+        var failed = new List<string>();
         try
         {
             foreach (var file in manifest.Files)
@@ -123,16 +129,43 @@ public static class ContentUpdater
                 if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
 
                 var part = target + ".part";
-                await using (var source = await Http.GetStreamAsync(baseUrl + file.Path, ct).ConfigureAwait(false))
-                await using (var sink = new FileStream(part, FileMode.Create, FileAccess.Write, FileShare.None))
+                try
                 {
-                    await source.CopyToAsync(sink, ct).ConfigureAwait(false);
+                    await using (var source = await Http.GetStreamAsync(baseUrl + file.Path, ct).ConfigureAwait(false))
+                    await using (var sink = new FileStream(part, FileMode.Create, FileAccess.Write, FileShare.None))
+                    {
+                        await source.CopyToAsync(sink, ct).ConfigureAwait(false);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    DeletePart(part);
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    // 网络断在半路：走这条兜底通道（站点网盘）时往往正是 GitHub 被墙、网络最不稳的时候。
+                    // 原来这里**没有任何 catch** —— CopyToAsync 一抛，part 残片就永久留在
+                    // %LOCALAPPDATA%\ClassSoftwareHub\content 里，没有任何回收路径。
+                    DeletePart(part);
+                    failed.Add($"{file.Path}（下载失败：{ex.Message}）");
+                    continue;
                 }
 
-                if (Sha256Of(part) != file.Sha256.ToLowerInvariant())
+                // 读不出刚写完的 .part（被杀软锁住 → I/O 失败）与"哈希真的不符"必须能分开：
+                // 原来的 Sha256Of 吞掉所有异常返回 ""，两种情况都走同一条"校验失败"，
+                // 排查时完全看不出到底是哪一种。
+                if (!TrySha256(part, out var actual))
                 {
-                    try { File.Delete(part); } catch { }
-                    return new ContentSyncResult(false, downloaded, manifest.Files.Count, $"校验失败，已丢弃：{file.Path}", baseUrl);
+                    DeletePart(part);
+                    failed.Add($"{file.Path}（读取失败，无法校验）");
+                    continue;
+                }
+                if (!string.Equals(actual, file.Sha256.ToLowerInvariant(), StringComparison.Ordinal))
+                {
+                    DeletePart(part);
+                    failed.Add($"{file.Path}（校验失败，已丢弃）");
+                    continue;
                 }
 
                 File.Move(part, target, overwrite: true);
@@ -146,6 +179,15 @@ public static class ContentUpdater
         catch (Exception ex)
         {
             return new ContentSyncResult(downloaded > 0, downloaded, manifest.Files.Count, "同步出错：" + ex.Message, baseUrl);
+        }
+
+        if (failed.Count > 0)
+        {
+            // 失败条目可能很多，提示里只列前 3 条，别把对话框撑爆
+            var shown = failed.Count > 3 ? failed.GetRange(0, 3) : failed;
+            var more = failed.Count > shown.Count ? " …" : "";
+            return new ContentSyncResult(downloaded > 0, downloaded, manifest.Files.Count,
+                $"有 {failed.Count} 个文件没同步成功：{string.Join("；", shown)}{more}", baseUrl);
         }
 
         return new ContentSyncResult(downloaded > 0, downloaded, manifest.Files.Count, null, baseUrl);
@@ -195,6 +237,11 @@ public static class ContentUpdater
         }
     }
 
+    /// <summary>
+    /// 算 SHA256，读不出来（文件被占用 / 权限不足）时返回 ""。
+    /// 用于**已存在的目标文件**的快速比对（对不上就重下，无所谓原因）。
+    /// 需要区分"I/O 失败"与"哈希不符"的场景请用 <see cref="TrySha256"/>。
+    /// </summary>
     private static string Sha256Of(string file)
     {
         try
@@ -207,5 +254,28 @@ public static class ContentUpdater
         {
             return "";
         }
+    }
+
+    /// <summary>算 SHA256；<paramref name="hash"/> 为 null 表示**读不出来**，与"哈希真的不符"区分开。</summary>
+    private static bool TrySha256(string file, out string? hash)
+    {
+        hash = null;
+        try
+        {
+            using var stream = File.OpenRead(file);
+            using var sha = SHA256.Create();
+            hash = Convert.ToHexString(sha.ComputeHash(stream)).ToLowerInvariant();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>删掉半截的 <c>.part</c>；删不掉就留着（下次同步会覆盖），别让它把异常顶出去。</summary>
+    private static void DeletePart(string part)
+    {
+        try { File.Delete(part); } catch { }
     }
 }

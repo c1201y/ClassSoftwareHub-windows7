@@ -70,6 +70,15 @@ public sealed partial class ToolSidebarWindow : Window
     private const int PanelLengthFlatDip = 470;     // 上/下边时：展开面板长度的**下限**（真实宽度按内容算，见 PlannedSize）
 
     /// <summary>
+    /// 收起动画的第二段：面板滑出屏幕之后，**抓手从屏幕外滑回贴边位**要花的毫秒（2026-10-01）。
+    /// 第一段是 <see cref="SlideOutToEdge"/> 的 240ms（整个面板推出屏幕）。两段加起来 ≈ 430ms。
+    /// 抓手的行程很短（只有自身厚度 20dip + 2px ≈ 27px），所以这段比第一段快一些才跟得上。
+    /// ⚠️ 移植说明：上游改用渲染回调驱动；本仓库沿用 16ms <see cref="DispatcherTimer"/>（见 TweenWindow），
+    ///    时长这个"行为参数"照搬。
+    /// </summary>
+    private const double CollapseSlideMs = 190;
+
+    /// <summary>
     /// 底部按钮那一排在竖条里的高度增量 —— <b>五颗全显</b>时的经验值（2026-09-27 定的）。
     /// 注意它**不是**五颗的真实高度（那是 5×44 + 4×2 = 228）：面板高度基数
     /// <see cref="PanelLengthDip"/>（450）里本来就已经含了标题和一段留白，这 94 只是把五颗"补齐"。
@@ -121,8 +130,15 @@ public sealed partial class ToolSidebarWindow : Window
 
     private readonly DispatcherTimer _idle;
 
-    /// <summary>展开滑动用的按帧计时器（滑完置空）。</summary>
+    /// <summary>展开滑动用的按帧计时器（滑完置空）。
+    /// ⚠️ 移植说明：上游 dv1.1.0 起改用 <c>CompositionTarget.Rendering</c> 渲染回调 + 兜底 watchdog 驱动
+    ///    （嫌 16ms 计时器精度低、忙时会合并 tick）；本仓库既有约定是 15~16ms <see cref="DispatcherTimer"/>
+    ///    （见 SidebarLayoutPage 的 HookGhostFrame 注释），这里**保持本仓库写法不动**。</summary>
     private DispatcherTimer? _slideTimer;
+
+    /// <summary>滑动的**落点存档**（目标位置）。滑动进行中 <see cref="CurrentRect"/> 返回它，
+    /// 别让锚定方（音量浮窗）读到半路上的实时位置 —— 锚到半路的位置，等边条滑到位两个就叠上了（2026-10-01 修）。</summary>
+    private PixelRect? _restRect;
 
     /// <summary>
     /// 滑动动画的"代次"。每次状态变化（收起/展开/拖动/隐藏）都 +1，让**还在跑的那一波动画立刻作废**。
@@ -177,6 +193,10 @@ public sealed partial class ToolSidebarWindow : Window
             if (w is null) return null;
             try
             {
+                // 滑动进行中：返回落点存档（动画的目标位置）。实时位置还在半路上，
+                // 锚定方拿到它会把自己的落座点算歪，等边条滑到位就叠上了。
+                if (w._slideTimer is not null && w._restRect is { } rest) return rest;
+
                 var pos = w.WinPos();
                 var size = w.WinSizePx();
                 return new PixelRect(pos.X, pos.Y, size.Width, size.Height);
@@ -216,6 +236,35 @@ public sealed partial class ToolSidebarWindow : Window
     /// </summary>
     public static string? AnchorEdge => AnchorInstance()?._edge;
 
+    /// <summary>
+    /// 侧边栏**当前实际**贴的那条边（音量浮窗按它决定往哪边排）。
+    ///
+    /// ⚠️ 绝不能用 <c>App.Settings.Current.SidebarEdge</c> 代替：那条是**停靠模式**的设置，
+    ///    **自由模式**下它可能还是老值（`SidebarFreeEdge` 才是真身），用户还能把边条拖到任意一边。
+    ///    读错方向的后果（2026-10-01 踩到）：浮窗被摆到边条的**另一侧**（等于屏幕外）→
+    ///    又被 ClampToWork 夹回屏幕边缘 → 正好压在边条（乃至合成器）身上，看着就是"三个窗叠一起"。
+    /// ⚠️ 移植说明：上游 2026-10-01 新增；逻辑照搬（本仓库自由模式的真身在 SidebarFreeEdge / 实例 _edge）。
+    /// </summary>
+    public static string CurrentEdge
+    {
+        get
+        {
+            try
+            {
+                var inst = AnchorInstance();
+                if (inst is not null) return inst._edge;
+
+                // 没有可见实例：按设置推一个（音量浮窗一直挂右边，双双模式也取右）
+                var want = DesiredEdges();
+                return want.Contains("right") ? "right" : want[0];
+            }
+            catch
+            {
+                return "right";
+            }
+        }
+    }
+
     // ⚠️⚠️ 2026-10-04（用户第 17 轮，第三次反馈同一条）：
     //    收起条的**拖拽整条撤除** —— 用户原话「不要拖动了，点击就展开」。
     //
@@ -243,6 +292,9 @@ public sealed partial class ToolSidebarWindow : Window
         _idle.Tick += (_, _) => { if (_expanded && !App.Settings.Current.SidebarPinned && !SuppressAutoCollapse) Collapse(); };
 
         Configure();
+
+        Core.AppLog.Info("exit", $"侧边栏实例已建 edge={_edge}");
+        Closed += (_, _) => Core.AppLog.Info("exit", $"侧边栏 Closed edge={_edge}");
     }
 
     // ── 对外入口 ─────────────────────────────────────────────
@@ -261,6 +313,21 @@ public sealed partial class ToolSidebarWindow : Window
     public static void HideSidebar()
     {
         foreach (var w in _pool.Values) w.HideSelf();
+    }
+
+    /// <summary>
+    /// 退出应用时把实例池里的窗口**真正关掉**（平时只是显隐，从不销毁）。
+    /// ⛔ 为什么必须有：desktop.Shutdown() 会漏窗口 —— 2026-10-04 实测，
+    ///    托盘「退出」后侧边栏常常是唯一活下来的那个窗口，把消息循环撑住、进程退不掉。
+    /// </summary>
+    public static void CloseForExit()
+    {
+        foreach (var w in _pool.Values.ToList())
+        {
+            try { w.Close(); } catch { }
+        }
+        _pool.Clear();
+        Core.AppLog.Info("exit", "侧边栏实例已请求 Close");
     }
 
     /// <summary>
@@ -411,10 +478,16 @@ public sealed partial class ToolSidebarWindow : Window
             Topmost = true;                 // 全屏播放时也要显示在上面
             CanResize = false;
 
+            // 退出追踪：上游原版挂在 AppWindow.Closing 上；本仓库无 AppWindow，挂 Avalonia 窗口的 Closing。
+            Closing += (_, _) => Core.AppLog.Info("exit", $"侧边栏 Closing edge={_edge}");
+
             // 亚克力底（模糊背后的画面）；机器不支持的话会自动退回纯色，不会崩。
             // ⚠️ 材质要等窗口真显示出来再上（Present 里走 Backdrop.Apply），构造期拿不到 HWND。
-            ApplyPanelBrush();
+            // ⚠️ 2026-10-06（用户「首次启动侧边栏白底白字」）：Apply 必须排在 ApplyPanelBrush
+            //    **前面** —— 面板底色是按 ActualThemeVariant 取的，先取色后设主题的话，
+            //    取到的是还没传播的默认浅色（白面板），而文字/图标资源却按深色渲染 → 白底白字。
             ThemeCompat.Apply(Root);                        // 跟「设置」里的深浅色走（不只是跟系统走）
+            ApplyPanelBrush();
             BuildToolButtons();                             // 按「侧边布局」的模块清单生成工具按钮
             Root.PointerMoved += (_, _) => Touch();
             Root.PointerPressed += (_, _) => Touch();
@@ -428,6 +501,7 @@ public sealed partial class ToolSidebarWindow : Window
             Root.ActualThemeVariantChanged += (_, _) =>
             {
                 ApplyPanelBrush();
+                UpdatePinVisual();                         // 常驻块的图标颜色也跟主题（钉住=主题色，松开=默认前景）
                 // 窗口那圈边的颜色也是跟着深浅色走的，换主题得重画一次
                 try
                 {
@@ -461,6 +535,21 @@ public sealed partial class ToolSidebarWindow : Window
                 // 每次弹出都白闪一下（用户 2026-10-02 反馈的"显示和隐藏时会闪一下白色"）。
                 PrimeOpaqueBackdrop();
                 Show();
+
+                // ⚠️ 2026-10-06（用户「首次启动悬浮窗和展开侧边栏白色看不清字，切一下深浅色就好了」）：
+                //    Configure 里那次主题/取色发生在窗口还没显示时 —— RequestedThemeVariant 刚设上，
+                //    ActualThemeVariant 未必传播到位，面板可能按默认浅色画成白的，而文字/图标资源
+                //    却按深色渲染（白底白字）。现在窗口已进视觉树，重设主题会真正触发
+                //    ActualThemeVariantChanged → 整套配色（面板、钉住图标、窗口边）跟着重刷；
+                //    再 Dispatcher 补一拍，兜住"变体传播要等一轮布局"的情况。
+                ThemeCompat.Apply(Root);
+                ApplyPanelBrush();
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    ThemeCompat.Apply(Root);
+                    ApplyPanelBrush();
+                    PrimeOpaqueBackdrop();
+                }, Avalonia.Threading.DispatcherPriority.Loaded);
             }
             else
             {
@@ -608,21 +697,42 @@ public sealed partial class ToolSidebarWindow : Window
         ExpandedView.IsVisible = false;
         CollapsedView.IsVisible = true;
 
-        // 一次到位：收起尺寸 + 贴边位置。
+        // 一次到位：收起尺寸 + 位置。
         // 滑出动画已经把**整个窗口**推出屏幕外了，所以这一步的"变身"（尺寸 92×450 → 20×110、
         // 内容换视图）用户在屏幕上看不到 —— 不会再出现"没滑出去就突然缩一下"（2026-09-26 修）。
+        //
+        // ⚠️ fadeIn 的落点是**屏幕外的抓手起点**，不是贴边位（2026-10-01 改）：
+        //    面板滑出去之后，抓手再从屏幕外滑回贴边（见下面的 TweenWindow）——
+        //    "大块滑走 + 小条滑回"一口气看完，比"大块滑走 + 小条原地淡入"连贯。
+        //    起点在屏幕外，所以尺寸变身依旧藏得住。
+        PixelPoint? slideFrom = null, slideTo = null;
         try
         {
             var size = CollapsedSize();
             var pos = EdgePosition(size.Width, size.Height);
-            MoveResizeWin(pos, size.Width, size.Height);
+            var startPos = fadeIn
+                ? OutwardOffset(pos, (IsFlat ? size.Height : size.Width) + 2)   // 整个抓手推到屏幕外 + 2px 余量
+                : pos;
+
+            MoveResizeWin(startPos, size.Width, size.Height);
+
+            if (fadeIn)
+            {
+                slideFrom = startPos;
+                slideTo = pos;
+                _restRect = new PixelRect(pos.X, pos.Y, size.Width, size.Height);  // 滑动期间 CurrentRect 返回它
+            }
         }
         catch (Exception ex)
         {
             Log("收尾落位失败: " + ex.Message);
         }
 
-        if (fadeIn) FadePanelToOpaque(150);
+        if (fadeIn)
+        {
+            FadePanelToOpaque(CollapseSlideMs);
+            if (slideFrom is { } f && slideTo is { } t) TweenWindow(f, t, CollapseSlideMs);
+        }
         else ResetPanelOpacity();
 
         ReassertCollapsed();
@@ -699,6 +809,11 @@ public sealed partial class ToolSidebarWindow : Window
             {
                 if (_expanded) return;
 
+                // ⚠️ 抓手正在从屏幕外滑入时**别纠位**：这一帧它本来就还在路上，
+                //    抢先挪到贴边位会把滑入动画打断成"闪一下就到了"（2026-10-01）。
+                //    落位交给动画自己的最后一帧（TweenWindow 里那次 MoveWin）。
+                if (_slideTimer is not null) return;
+
                 // ⚠️ 已经落对了就**什么都别做**。多挪一次窗口就多一帧重绘 ——
                 //    动画刚结束那一下最容易看出抖，这里不能无脑再摆一次（2026-09-26 优化）。
                 var size = CollapsedSize();
@@ -750,11 +865,20 @@ public sealed partial class ToolSidebarWindow : Window
             if (_pinIcon is not null)
             {
                 _pinIcon.Glyph = pinned ? "\uE840" : "\uE718";      // Pinned / Pin
-                _pinIcon.Foreground = pinned
-                    ? new SolidColorBrush(AccentColor())
-                    : (Root.ActualThemeVariant == ThemeVariant.Dark
-                        ? new SolidColorBrush(Colors.White)
-                        : new SolidColorBrush(Color.FromArgb(255, 30, 30, 30)));
+                if (pinned)
+                {
+                    _pinIcon.Foreground = new SolidColorBrush(AccentColor());
+                }
+                else
+                {
+                    // ⚠️ 松开状态**清掉本地值、跟着主题走**（2026-10-01 修「亮色模式下钉子白得看不见」）：
+                    //    以前这里写死成 SolidColorBrush（暗色给白、亮色给黑）—— 可换主题时只有面板底色会重刷
+                    //    （ActualThemeVariantChanged 里只调了 ApplyPanelBrush），这个写死的颜色不会跟着变：
+                    //    暗色下启动过再切亮色，就成了「白钉子压白底」，整颗图标消失。
+                    //    清掉本地值后它回到 IconElement 默认前景（主题画刷），深浅色都自动对。
+                    // ⚠️ 移植说明：FontIcon（FluentAvalonia）继承 IconElement，ForegroundProperty 走同一个。
+                    _pinIcon.ClearValue(FontIcon.ForegroundProperty);
+                }
             }
 
             if (PinButton is not null)
@@ -1414,6 +1538,7 @@ public sealed partial class ToolSidebarWindow : Window
 
         var size = PlannedSize();                        // 展开尺寸（此处 _expanded 已经置为 true）
         var finalPos = EdgePosition(size.Width, size.Height);
+        _restRect = new PixelRect(finalPos.X, finalPos.Y, size.Width, size.Height);   // 滑动期间 CurrentRect 返回它
 
         // 起步只推"半块"：保证窗口还有一半留在屏幕里。整块挪到屏幕外的窗口
         // DWM 常常不给它刷帧，那滑进来的第一帧会发虚（见方法注释）。
@@ -1452,6 +1577,7 @@ public sealed partial class ToolSidebarWindow : Window
             if (t < 1) return;
             StopSlide();
             MoveWin(to);                                  // 最后一帧对到准确位置
+            try { var sz = WinSizePx(); _restRect = new PixelRect(to.X, to.Y, sz.Width, sz.Height); } catch { }
             if (done is not null) done();                 // 滑完了再收尾（收起就是靠它）
         };
 
@@ -2013,14 +2139,12 @@ public sealed partial class ToolSidebarWindow : Window
 
     // ── 日志 ─────────────────────────────────────────────────
 
-    private static string LogPath => System.IO.Path.Combine(SettingsStore.Dir, "sidebar.log");
-
     private static void Log(string message)
     {
         try
         {
-            System.IO.Directory.CreateDirectory(SettingsStore.Dir);
-            System.IO.File.AppendAllText(LogPath, $"[{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss}] {message}\n");
+            // 移植说明：上游 dv1.1.0 起日志统一走 Core.AppLog（带级别、写 logs\ 子目录）。
+            Core.AppLog.Info("sidebar", message);
         }
         catch { }
     }

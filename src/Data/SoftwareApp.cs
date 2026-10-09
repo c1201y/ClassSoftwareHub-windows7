@@ -205,7 +205,13 @@ public sealed class SoftwareApp : System.ComponentModel.INotifyPropertyChanged
                     // TODO(win7): 日后若引入 Avalonia.Svg.Skia，这里换成 SvgImageSource 的等价物。
                     if (!uri.AbsolutePath.EndsWith(".svg", StringComparison.OrdinalIgnoreCase))
                     {
-                        _ = LoadIconAsync(uri);
+                        // ⚠️ 必须丢到线程池：LoadIconAsync 的**第一个 await 在很后面**，
+                        //    前面"内置图标 / 本地缓存"两条路径是 File.OpenRead + Bitmap.DecodeToWidth
+                        //    **同步**跑完的。而本 getter 是绑定在 UI 线程上调的，
+                        //    直接 `_ = LoadIconAsync(uri)` 就等于把整页几十个图标的解码
+                        //    全压在 UI 线程上 —— Win7 教室机首屏/刷新明显卡顿。
+                        //    （方法内部的 UI 更新本来就是 Dispatcher.UIThread.Post，换线程不影响。）
+                        _ = Task.Run(() => LoadIconAsync(uri));
                     }
                 }
             }

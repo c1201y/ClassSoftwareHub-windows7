@@ -1,5 +1,8 @@
+using System;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 
 namespace ClassSoftwareHub.Desktop.Views;
 
@@ -64,5 +67,81 @@ public class SettingsCard : ContentControl
     {
         get => GetValue(IconSourceProperty);
         set => SetValue(IconSourceProperty, value);
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // 整卡可点（对应 WinUI Toolkit SettingsCard 的 IsClickEnabled / Click / IsActionIconVisible）
+    //   原版「设置 → 诊断 → 日志查看」「设置 → 回声洞」都是整卡可点（悬停底色铺满整行），
+    //   ToolTipService.ToolTip 也照原样接（XAML 侧换成 ToolTip.Tip）。
+    // ════════════════════════════════════════════════════════════════
+
+    /// <summary>整卡是否可点。为真时右侧显示一颗 Chevron，并接管指针点击。</summary>
+    public static readonly StyledProperty<bool> IsClickEnabledProperty =
+        AvaloniaProperty.Register<SettingsCard, bool>(nameof(IsClickEnabled));
+
+    /// <summary>右侧 Chevron 是否显示（默认 true；仅当 <see cref="IsClickEnabled"/> 为真时才有意义）。</summary>
+    public static readonly StyledProperty<bool> IsActionIconVisibleProperty =
+        AvaloniaProperty.Register<SettingsCard, bool>(nameof(IsActionIconVisible), defaultValue: true);
+
+    /// <summary>
+    /// 模板里那颗 Chevron 的实际可见性（= IsClickEnabled &amp;&amp; IsActionIconVisible）。
+    ///
+    /// ⛔⛔ <b>字段必须是 public</b>：<c>SettingsCard.axaml</c> 的模板用
+    ///    <c>IsVisible="{TemplateBinding ShowActionIcon}"</c> 引用它，而 Avalonia 的**编译 XAML**
+    ///    会把 TemplateBinding 直接编译成对 <c>ShowActionIconProperty</c> **字段**的 IL 访问。
+    ///    写成 private 时编译期不报错，**运行期**才抛 <c>FieldAccessException</c>：
+    ///     <c>Attempt by method 'CompiledAvaloniaXaml...Build_2' to access field
+    ///     'SettingsCard.ShowActionIconProperty' failed</c> —— 而且它发生在模板构建时，
+    ///     <c>SettingsCard</c> 出现在任何页面都会让**整个进程**被未处理异常带走
+    ///     （2026-10-06 实测：进「实验性功能 → 虚拟键盘」直接闪退，crash.log 还是空的）。
+    ///    这份程序集里**只有 DirectProperty 这一个**曾写成 private，其余 StyledProperty 都是 public。
+    /// </summary>
+    public static readonly DirectProperty<SettingsCard, bool> ShowActionIconProperty =
+        AvaloniaProperty.RegisterDirect<SettingsCard, bool>(
+            nameof(ShowActionIcon), o => o.ShowActionIcon);
+
+    /// <summary>整卡被点击（仅当 <see cref="IsClickEnabled"/> 为真时触发）。</summary>
+    public event EventHandler<RoutedEventArgs>? Click;
+
+    static SettingsCard()
+    {
+        IsClickEnabledProperty.Changed.AddClassHandler<SettingsCard>((card, _) => card.UpdateClickable());
+        IsActionIconVisibleProperty.Changed.AddClassHandler<SettingsCard>((card, _) => card.UpdateClickable());
+    }
+
+    public bool IsClickEnabled
+    {
+        get => GetValue(IsClickEnabledProperty);
+        set => SetValue(IsClickEnabledProperty, value);
+    }
+
+    public bool IsActionIconVisible
+    {
+        get => GetValue(IsActionIconVisibleProperty);
+        set => SetValue(IsActionIconVisibleProperty, value);
+    }
+
+    private bool _showActionIcon;
+
+    /// <summary>模板里那颗 Chevron 的实际可见性（= IsClickEnabled &amp;&amp; IsActionIconVisible）。</summary>
+    public bool ShowActionIcon
+    {
+        get => _showActionIcon;
+        private set => SetAndRaise(ShowActionIconProperty, ref _showActionIcon, value);
+    }
+
+    private void UpdateClickable()
+    {
+        ShowActionIcon = IsClickEnabled && IsActionIconVisible;
+        Cursor = IsClickEnabled ? new Cursor(StandardCursorType.Hand) : Cursor.Default;
+    }
+
+    protected override void OnPointerPressed(PointerPressedEventArgs e)
+    {
+        base.OnPointerPressed(e);
+        if (!IsClickEnabled) return;
+        if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
+        Click?.Invoke(this, new RoutedEventArgs());
+        e.Handled = true;
     }
 }

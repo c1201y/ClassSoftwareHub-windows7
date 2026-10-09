@@ -645,9 +645,7 @@ public static class TeachingActions
     {
         try
         {
-            var path = System.IO.Path.Combine(SettingsStore.Dir, "teaching.log");
-            System.IO.Directory.CreateDirectory(SettingsStore.Dir);
-            System.IO.File.AppendAllText(path, $"[{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss}] {message}\n");
+            Core.AppLog.Info("teaching", message);
         }
         catch { }
     }

@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Media.Imaging;
+using Avalonia.Styling;
 using ClassSoftwareHub.Desktop.Services;
 using FluentAvalonia.UI.Controls;
 
@@ -26,6 +27,17 @@ namespace ClassSoftwareHub.Desktop.Views;
 /// </summary>
 public sealed partial class RosterSampleDialog : ContentDialog
 {
+    /// <summary>
+    /// ⛔ 千万别删（2026-10-07，与 <see cref="RosterEditorDialog"/> 同一个坑）：
+    /// Avalonia 按 StyleKey 找样式，它默认 = 本类类型（<c>RosterSampleDialog</c>）。
+    /// FluentAvalonia 主题里没有这个键 → 模板不应用 →
+    /// <c>ContentDialog.OnApplyTemplate</c> 无条件 <c>NameScope.Get("PrimaryButton")</c> 抛
+    /// <see cref="System.Collections.Generic.KeyNotFoundException"/> → 布局中断 → 整页空白。
+    /// 显式指回 <see cref="ContentDialog"/> 即可（FA 上游 issue #24）。
+    /// ⚠️ 用 Avalonia 11 推荐的 <c>StyleKeyOverride</c>（旧的 <c>IStyleable.StyleKey</c> 已过时，CS0618）。
+    /// </summary>
+    protected override Type StyleKeyOverride => typeof(ContentDialog);
+
     /// <summary>用户点了「用示例名单试一下」——由调用方据此把示例装进抽取池。</summary>
     public bool UseSampleRequested { get; private set; }
 

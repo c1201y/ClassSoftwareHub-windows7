@@ -66,29 +66,35 @@ public sealed class ContentStore
         Categories.Clear();
         Issues.Clear();
         Mirror.Sites.Clear();
+        Ui.All.Clear();
 
         var root = ResolveContentRoot(out var kind);
         SourceKind = kind;
-        if (root is null)
+        Source = root ?? "（无数据源）";
+
+        if (root is not null)
         {
-            Source = "（无数据源）";
-            return;
+            LoadApps(Path.Combine(root, "apps"));
+            LoadCategories(Path.Combine(root, "categories.json"));
+            ApplyCategoryDisplay();
+            LoadManifestVersion(Path.Combine(root, "manifest.json"));
         }
-        Source = root;
 
-        LoadApps(Path.Combine(root, "apps"));
-        LoadCategories(Path.Combine(root, "categories.json"));
-        ApplyCategoryDisplay();
-        LoadManifestVersion(Path.Combine(root, "manifest.json"));
-        LoadMirror(Path.Combine(root, "text", "mirror-sites.json"));
+        // ⚠️ text/（镜像清单、界面文案）**不能挂在 apps 数据源上**。
+        //   2026-10-06 复现：「系统镜像下载」整页只剩标题 —— 便携包自带的内容**只有 text/、没有 apps/**，
+        //   所以 ResolveContentRoot（判据是"目录下有没有 apps/"）永远不会把安装目录认成数据源；
+        //   而 GitHub 内容同步一旦失败（国内校园网常态）就不会往缓存里补 text/，
+        //   于是 root 直接是 null → 老代码在这里 return → 镜像页文案与站点列表全空。
+        //   现在：先按数据源读，读不到就**无条件**退回安装目录自带的那份（与 root 是否为 null 无关）。
+        var textDir = root is null ? null : Path.Combine(root, "text");
+        LoadMirror(textDir is null ? "" : Path.Combine(textDir, "mirror-sites.json"));
+        LoadUi(textDir is null ? "" : Path.Combine(textDir, "ui.json"));
 
-        // ⚠️ 2026-10-02 实机反馈「系统镜像下载没有数据」：内容包同步只拉 apps/ 一类大文件，
-        //    text/ 里的清单不一定跟过来 → 缓存目录里没有 mirror-sites.json，镜像页就空了。
-        //    镜像清单为空时再读一遍**安装目录自带**的那份（content\text\mirror-sites.json，随包发布）。
-        if (Mirror.Sites.Count == 0 && root != ShellConfig.BundledContentDir)
-            LoadMirror(Path.Combine(ShellConfig.BundledContentDir, "text", "mirror-sites.json"));
-
-        LoadUi(Path.Combine(root, "text", "ui.json"));
+        var bundledText = Path.Combine(ShellConfig.BundledContentDir, "text");
+        if (Mirror.Sites.Count == 0)
+            LoadMirror(Path.Combine(bundledText, "mirror-sites.json"));
+        if (Ui.All.Count == 0)
+            LoadUi(Path.Combine(bundledText, "ui.json"));
     }
 
     /// <summary>站点文字（拿不到就留空，界面用兜底文案）。</summary>

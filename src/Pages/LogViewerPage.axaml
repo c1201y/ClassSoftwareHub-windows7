@@ -1,0 +1,262 @@
+<platform:PageBase
+    x:Class="ClassSoftwareHub.Desktop.Pages.LogViewerPage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:fa="using:FluentAvalonia.UI.Controls"
+    xmlns:local="using:ClassSoftwareHub.Desktop.Pages"
+    Background="{x:Null}">
+
+    <!--
+      日志查看（2026-10-02 四改）。
+
+      骨架 = 「工具条 → 内容卡片」两层：
+        · 工具条：左边「看哪个文件」（收紧靠左），右边动作按钮 + 「文件说明」；
+          每个文件是干嘛的不单独占一行（Nick：太浪费空间），点「文件说明」弹窗里看；
+        · 卡片：筛选 / 列头 / 表格 / 状态行全部关进同一张卡片，
+          用 CardBackgroundFillColorDefaultBrush + 8px 圆角从背景里"浮"出来（与全站其它卡片同款）。
+
+      其它约束：
+        · 本页不套 ScrollViewer —— 表格自己滚，页面空间全给正文；
+        · 级别颜色不能写在 XAML 里（SystemFillColor* 这批画刷 XAML 取不到，§D-3），
+          统一在 ContainerContentChanging 里按项查表赋值；
+        · 级别筛选用系统原生 SelectorBar（单选的段控），不再用一排 ToggleButton。
+
+      ⚠️ 移植说明（WinUI → Avalonia/FluentAvalonia）：
+        · 根元素 Page → platform:PageBase；原版 NavigationCacheMode="Enabled" 由 ShellPage 的
+          <fa:Frame CacheSize="0"/> 统一承担（本页不缓存，切走即丢弃，等价于原版 OnNavigatingFrom 里停表）。
+        · 版式：原版「外列 24/*/24 + 内层 Grid MaxWidth=960」→ 本仓库统一的三列版式
+          `1* / 998* MaxWidth=960 / 1*`（与设置页/软件下载页同一套，内容钉在中间 960 宽）。
+          ⚠️ 不要给内层 Grid 写 HorizontalAlignment="Center"：Avalonia 里 Center 会「缩成内容宽再居中」，
+             空状态下整页会挤在屏幕中间一条窄带里（见 DownloadsPage.axaml 的注释）。
+        · Visibility="Collapsed"/"Visible" → IsVisible="False"/"True"（本页 XAML 未用到，全部由代码控制）。
+        · ListView → ListBox（SelectionMode：Extended → Multiple，Avalonia 只有 Single/Multiple/Toggle/AlwaysSelected）。
+        · Grid 无 RowSpacing/ColumnSpacing → 用子元素 Margin 模拟（间距值照搬原版）。
+        · Grid 无 Padding → 列头那行把 Padding="0,9" 并入 Margin（14,9）。
+        · ThemeResource → DynamicResource；x:Bind → {Binding}。
+        · AutoSuggestBox（Avalonia 无对应控件）→ TextBox + 左侧叠加放大镜 FontIcon（与软件下载页同一手法）。
+        · SelectorBar（Avalonia/FluentAvalonia 均无）→ 一排同 GroupName 的 RadioButton 还原单选段控
+          （与更新日志页的版本筛选同一写法）。
+        · TextBlock.IsTextSelectionEnabled → SelectableTextBlock（Avalonia 里 TextBlock 不支持选中文字）。
+        · 级别颜色：Avalonia 无 ContainerContentChanging（容器复用事件），改为在 LogEntry 上暴露
+          LevelBrush（按级别查主题画刷缓存），模板里用 {Binding LevelBrush} 绑定。
+    -->
+
+    <platform:PageBase.Resources>
+        <!--
+          ⚠️ 模板里两个元素的 x:Name 不能跟 x:Bind 的路径同名（2026-10-02 踩过）：
+             叫 LevelText 时 XamlCompiler 在 codegen 阶段直接崩，报出来的却是"资源缺失"这种假错误。
+             所以元素名一律带 Label/Icon 后缀，与数据属性错开。
+          ⚠️ 移植后改走反射 {Binding}，已无 codegen 环节；此处保留原 x:Name，仅作历史说明。
+        -->
+        <DataTemplate x:Key="LogRowTemplate">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="160" />
+                    <ColumnDefinition Width="68" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <!-- 时间：等宽且纯 ASCII（不触发字体回退），三列才能对齐 -->
+                <TextBlock Text="{Binding Time}" FontSize="12" FontFamily="Consolas"
+                           VerticalAlignment="Top" Margin="0,2,8,0"
+                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="5"
+                            VerticalAlignment="Top" Margin="0,1,0,0">
+                    <fa:FontIcon x:Name="LevelIcon" Glyph="{Binding LevelGlyph}" FontSize="12"
+                                 Foreground="{Binding LevelBrush}" />
+                    <TextBlock x:Name="LevelLabel" Text="{Binding LevelText}" FontSize="12"
+                               Foreground="{Binding LevelBrush}" />
+                </StackPanel>
+
+                <!-- 内容用系统 UI 字体：日志以中文为主，Consolas 没有汉字会触发字体回退，字重字距都会错位 -->
+                <SelectableTextBlock Grid.Column="2" Text="{Binding Message}" FontSize="13"
+                                     TextWrapping="Wrap"
+                                     Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+            </Grid>
+        </DataTemplate>
+    </platform:PageBase.Resources>
+
+    <!-- 日志行容器：原版 ListView.ItemContainerStyle（Style TargetType=ListViewItem）→ Avalonia 的
+         Style 叠加在 ListBoxItem 上（只设属性、不换模板，容器的悬停/选中反馈照旧）。
+         左边距必须跟上面列头的 Margin 一致，否则表头和内容会错开。 -->
+    <platform:PageBase.Styles>
+        <Style Selector="ListBox#LogList ListBoxItem">
+            <Setter Property="MinHeight" Value="28" />
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="Padding" Value="14,3" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        </Style>
+    </platform:PageBase.Styles>
+
+    <!-- 根 Grid 不带 Margin：间距放进中间列，让表格拿到整页高度约束。
+         ⛔ 中间列底部间距分两种写法（2026-10-03 定）：最后一行是自滚容器（`*` + 自带
+            Padding 底部 44）→ 写 0；最后一行是页脚 / 卡片等非自滚元素 → 写 44。
+         本页最后一行是日志内容卡片（自带边框）→ 写 44，否则卡片外框贴到窗口下边框。 -->
+    <!-- 三列钉宽版式（原版 24/*/24 + 内层 MaxWidth=960 的等价写法） -->
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="1*" />
+            <ColumnDefinition Width="998*" MaxWidth="960" />
+            <ColumnDefinition Width="1*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- 原版 RowSpacing="12" → 第 1、2 行各加 Margin="0,12,0,0" -->
+        <Grid Grid.Column="1" Margin="0,36,0,44">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />  <!-- 0 标题 -->
+                <RowDefinition Height="Auto" />  <!-- 1 工具条 -->
+                <RowDefinition Height="*" />     <!-- 2 内容卡片 -->
+            </Grid.RowDefinitions>
+
+            <!-- ===== 0 标题 ===== -->
+            <StackPanel Grid.Row="0" Spacing="6">
+                <TextBlock Text="日志查看" FontSize="28" FontWeight="Bold" />
+                <!-- 原版 Style="{StaticResource CaptionTextBlockStyle}"（WinUI 样式键，FA 里没有）→ 内联 FontSize="12" -->
+                <TextBlock Text="查看应用运行日志。本页只读，不会写入、删除或清空任何日志。"
+                           FontSize="12"
+                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+            </StackPanel>
+
+            <!--
+              ===== 1 工具条：左=看哪个文件（收紧靠左），右=动作 =====
+              ⚠️ 外列必须保持「* + Auto」：若整条改「Auto + *」且下拉项很长（如 clock-presets.log
+                 全屏时钟预设），右对齐的按钮组溢出时是从**左边**裁 —— 表现就是"刷新"被切成"新"。
+              下拉框自身 HorizontalAlignment=Left 才是收紧靠左（Nick 点名）：跟着内容走，
+              不许在 * 列里 Stretch 撑满。
+            -->
+            <!-- 原版 ColumnSpacing="12" → 第 1 列加 12 左 Margin -->
+            <Grid Grid.Row="1" Margin="0,12,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <ComboBox x:Name="FileBox" MinWidth="180"
+                          HorizontalAlignment="Left" VerticalAlignment="Center"
+                          SelectionChanged="FileBox_SelectionChanged" />
+
+                <StackPanel Grid.Column="1" Margin="12,0,0,0" Orientation="Horizontal" Spacing="8"
+                            HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <Button Content="刷新" Click="Refresh_Click" />
+
+                    <!-- 两个复制动作合成一个下拉，避免工具栏堆同权重的按钮 -->
+                    <!-- 原版 MenuFlyout / MenuFlyoutItem → Avalonia 的 MenuFlyout / MenuItem -->
+                    <DropDownButton Content="复制">
+                        <DropDownButton.Flyout>
+                            <MenuFlyout>
+                                <MenuItem Header="复制选中行" Click="CopySelected_Click" />
+                                <MenuItem Header="复制筛选结果" Click="CopyFiltered_Click" />
+                            </MenuFlyout>
+                        </DropDownButton.Flyout>
+                    </DropDownButton>
+
+                    <Button Content="导出全部日志" Click="Export_Click" />
+                    <Button Content="打开日志文件夹" Click="OpenFolder_Click" />
+
+                    <!-- 自动刷新是"模式开关"，做成 ToggleButton 才能跟旁边按钮同高同款
+                         ⚠️ IsChecked 初值改到 code-behind 赋（原版写在 XAML 里；Avalonia 里
+                            RadioButton/ToggleButton 的 XAML IsChecked 会提前触发事件，统一放构造期更稳） -->
+                    <ToggleButton x:Name="AutoToggle" Content="自动刷新"
+                                  MinWidth="0"
+                                  IsCheckedChanged="AutoToggle_Toggled" />
+
+                    <!-- 文件说明：弹窗逐个讲每个 log 是干嘛的（Nick：不单独占一行，太浪费空间） -->
+                    <Button Content="文件说明" Click="FilesHelp_Click" />
+                </StackPanel>
+            </Grid>
+
+            <!-- ===== 2 内容卡片 ===== -->
+            <Border Grid.Row="2" Margin="0,12,0,0" CornerRadius="4"
+                    Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />  <!-- 筛选行 -->
+                        <RowDefinition Height="Auto" />  <!-- 分隔线 -->
+                        <RowDefinition Height="Auto" />  <!-- 列头 -->
+                        <RowDefinition Height="Auto" />  <!-- 分隔线 -->
+                        <RowDefinition Height="*" />     <!-- 日志表格 -->
+                        <RowDefinition Height="Auto" />  <!-- 分隔线 -->
+                        <RowDefinition Height="Auto" />  <!-- 状态行（卡片脚） -->
+                    </Grid.RowDefinitions>
+
+                    <!-- 筛选行：左=级别（原生段控），右=内容搜索。原版 ColumnSpacing="12" → 第 1 列加 12 左 Margin -->
+                    <Grid Grid.Row="0" Margin="14,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <!-- 原版 SelectorBar（单选的段控）→ Avalonia 无对应控件，用一排同 GroupName 的
+                             RadioButton 还原单选语义（Tag 值与原版一致：all/debug/info/warning/error）。 -->
+                        <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                            <RadioButton x:Name="LevelAllRadio" GroupName="LogLevelFilter"
+                                         Content="全部" Tag="all" MinWidth="0"
+                                         Checked="LevelBar_SelectionChanged" />
+                            <RadioButton x:Name="LevelDebugRadio" GroupName="LogLevelFilter"
+                                         Content="调试" Tag="debug" MinWidth="0"
+                                         Checked="LevelBar_SelectionChanged" />
+                            <RadioButton x:Name="LevelInfoRadio" GroupName="LogLevelFilter"
+                                         Content="信息" Tag="info" MinWidth="0"
+                                         Checked="LevelBar_SelectionChanged" />
+                            <RadioButton x:Name="LevelWarningRadio" GroupName="LogLevelFilter"
+                                         Content="警告" Tag="warning" MinWidth="0"
+                                         Checked="LevelBar_SelectionChanged" />
+                            <RadioButton x:Name="LevelErrorRadio" GroupName="LogLevelFilter"
+                                         Content="错误" Tag="error" MinWidth="0"
+                                         Checked="LevelBar_SelectionChanged" />
+                        </StackPanel>
+
+                        <!-- 原版 AutoSuggestBox（含 QueryIcon="Find"）在 Avalonia 里没有对应控件 →
+                             改用 TextBox + 左侧叠加一枚放大镜 FontIcon（视觉等价），事件仍是 TextChanged。 -->
+                        <Grid Grid.Column="1" Width="260" Margin="12,0,0,0"
+                              HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <TextBox x:Name="FilterBox" Watermark="按内容筛选"
+                                     Padding="34,0,12,0" VerticalContentAlignment="Center"
+                                     TextChanged="FilterBox_TextChanged" />
+                            <fa:FontIcon Glyph="&#xE721;" FontSize="14" Margin="12,0,0,0"
+                                         HorizontalAlignment="Left" VerticalAlignment="Center"
+                                         Opacity="0.6" IsHitTestVisible="False" />
+                        </Grid>
+                    </Grid>
+
+                    <Rectangle Grid.Row="1" Height="1" Fill="{DynamicResource CardStrokeColorDefaultBrush}" />
+
+                    <!-- 列头：表格感的来源。列宽必须跟 LogRowTemplate 保持一致
+                         原版 Grid.Padding="0,9"（Avalonia Grid 无 Padding）→ 并入 Margin="14,9" -->
+                    <Grid Grid.Row="2" Margin="14,9">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="160" />
+                            <ColumnDefinition Width="68" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="时间" FontSize="12"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                        <TextBlock Grid.Column="1" Text="级别" FontSize="12"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                        <TextBlock Grid.Column="2" Text="内容" FontSize="12"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                    </Grid>
+
+                    <Rectangle Grid.Row="3" Height="1" Fill="{DynamicResource CardStrokeColorDefaultBrush}" />
+
+                    <!-- 原版 ListView（ContainerContentChanging 里按级别上色）→ Avalonia ListBox，
+                         颜色改由模板 {Binding LevelBrush} 绑定（Avalonia 无容器复用事件）。 -->
+                    <ListBox Grid.Row="4" x:Name="LogList" SelectionMode="Multiple"
+                             Background="Transparent"
+                             ItemTemplate="{StaticResource LogRowTemplate}" />
+
+                    <Rectangle Grid.Row="5" Height="1" Fill="{DynamicResource CardStrokeColorDefaultBrush}" />
+
+                    <TextBlock Grid.Row="6" x:Name="StatusText" Margin="14,9" TextWrapping="Wrap"
+                               FontSize="12"
+                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                </Grid>
+            </Border>
+
+        </Grid>
+    </Grid>
+</platform:PageBase>

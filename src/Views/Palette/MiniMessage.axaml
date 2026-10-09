@@ -1,0 +1,72 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:fa="using:FluentAvalonia.UI.Controls"
+             x:Class="ClassSoftwareHub.Desktop.Views.Palette.MiniMessage">
+
+    <!--
+      浮窗版「桌面留言」：写一句话 + 字号 + 颜色，一键丢到桌面上（悬浮窗）或全屏展示。
+      与「内置工具 → 桌面留言」共用同一份存档（%LOCALAPPDATA%\ClassSoftwareHub\message.json），
+      所以两边改的完全是同一个东西；要调底色 / 全屏倍数就去完整页（这颗「更多」按钮直达）。
+
+      ⚠️ 移植说明（WinUI → Avalonia）：
+        · 原版 ToggleSwitch / SelectorBar 那一套在本仓库用不上 —— 这里就是 TextBox + NumberBox + 色卡；
+        · 色卡（一排小色块）在 code-behind 里铺，不在 XAML 手写七个 Button；
+        · Grid 的 RowSpacing / ColumnSpacing → 子元素 Margin。
+    -->
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBox x:Name="ContentBox" Height="76" AcceptsReturn="True" TextWrapping="Wrap"
+                 VerticalContentAlignment="Top"
+                 Watermark="输入要展示的留言…" TextChanged="Content_Changed" />
+
+        <!-- 字号 + 文字颜色（色卡在 code-behind 里铺） -->
+        <Grid Grid.Row="1" Margin="0,8,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="字号" FontSize="12" Opacity="0.65" VerticalAlignment="Center"
+                           Margin="0,0,6,0" />
+                <fa:NumberBox x:Name="FontSizeBox" Value="48" Minimum="12" Maximum="300"
+                              SmallChange="2" SpinButtonPlacementMode="Compact" Width="104" />
+            </StackPanel>
+            <WrapPanel x:Name="ColorHost" Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center" />
+        </Grid>
+
+        <!-- 迷你预览：真实字号在浮窗里放不下（最大 300 号），这里按比例缩着画 -->
+        <Border x:Name="PreviewCard" Grid.Row="2" Margin="0,8,0,0" CornerRadius="4"
+                Padding="10,8" BorderThickness="1"
+                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
+            <TextBlock x:Name="PreviewText" TextWrapping="Wrap" TextAlignment="Center"
+                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Border>
+
+        <Grid Grid.Row="3" Margin="0,8,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Button x:Name="FloatButton" Content="悬浮" Theme="{StaticResource AccentButtonStyle}"
+                    HorizontalAlignment="Stretch" Padding="0,6" MinWidth="0" Click="Float_Click"
+                    ToolTip.Tip="把留言钉在桌面上（置顶、可拖动）" />
+            <Button Grid.Column="1" Margin="6,0,0,0" Content="全屏" HorizontalAlignment="Stretch"
+                    Padding="0,6" MinWidth="0" Click="Fullscreen_Click"
+                    ToolTip.Tip="铺满整块屏幕展示留言" />
+            <Button x:Name="HideButton" Grid.Column="2" Margin="6,0,0,0" Content="收起" HorizontalAlignment="Stretch"
+                    Padding="0,6" MinWidth="0" Click="Hide_Click"
+                    ToolTip.Tip="收起桌面上的留言悬浮窗" />
+            <Button Grid.Column="3" Margin="6,0,0,0" Content="更多" HorizontalAlignment="Stretch"
+                    Padding="0,6" MinWidth="0" Click="Details_Click"
+                    ToolTip.Tip="打开完整页面：可调背景底色、全屏放大倍数等" />
+        </Grid>
+    </Grid>
+</UserControl>

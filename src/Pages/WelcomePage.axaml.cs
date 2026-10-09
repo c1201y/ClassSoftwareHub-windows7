@@ -3,12 +3,14 @@ using System.Collections.Generic;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using ClassSoftwareHub.Desktop.Core;
 using ClassSoftwareHub.Desktop.Platform;
 using ClassSoftwareHub.Desktop.Services;
+using ClassSoftwareHub.Desktop.Services.Updating;
 using FluentAvalonia.UI.Controls;
 
 namespace ClassSoftwareHub.Desktop.Pages;
@@ -25,7 +27,57 @@ public sealed partial class WelcomePage : PageBase
     public WelcomePage()
     {
         InitializeComponent();
-        Loaded += (_, _) => Populate();
+        // ⚠️ 与 Populate 分开调：横幅要在**每次进首页**时都复核一遍（Frame 缓存了页面实例，
+        //    回到首页只是重新挂上可视树 → Avalonia 会再次触发 Loaded）。
+        Loaded += (_, _) => { Populate(); RefreshUpdateReadyBar(); };
+    }
+
+    // ── 更新待装横幅 ────────────────────────────────────────────────
+
+    /// <summary>
+    /// 后台下载完成 → 存档里有待装标记 → 顶部 InfoBar 提醒（用户选了「稍后安装」或没点通知都算）。
+    /// 装上新版本再进来时，待装 tag 与当前版本一致 → 自检清档；安装包被清理了也顺手清，不摆死横幅。
+    ///
+    /// ⚠️ 幂等，可以从多处调：本页 <c>Loaded</c>（原版就是这么接的）、ShellPage 的
+    ///    <c>ContentFrame.Navigated</c>、以及后台下完更新时的 <c>MainWindow.NotifyUpdateReady</c>。
+    /// </summary>
+    internal void RefreshUpdateReadyBar()
+    {
+        var s = App.Settings.Current;
+        var path = s.UpdatePendingPath ?? "";
+
+        if (path.Length == 0 || !System.IO.File.Exists(path))
+        {
+            // 标记悬空（包被清了 / 档是手抄的）：清掉别让它永久挂着
+            if (path.Length > 0)
+            {
+                s.UpdatePendingPath = "";
+                s.UpdatePendingTag = "";
+                App.Settings.Save();
+            }
+            UpdateReadyBar.IsOpen = false;
+            return;
+        }
+
+        // 待装 tag == 当前版本（VersionPrefix + ShellVersion）= 已经装上了，待装周期结束
+        if (s.UpdatePendingTag == ShellConfig.VersionPrefix + ShellConfig.ShellVersion)
+        {
+            s.UpdatePendingPath = "";
+            s.UpdatePendingTag = "";
+            App.Settings.Save();
+            UpdateReadyBar.IsOpen = false;
+            return;
+        }
+
+        UpdateReadyBar.Title = $"{(s.UpdatePendingTag.Length > 0 ? s.UpdatePendingTag : "新版本")} 已下载就绪";
+        UpdateReadyBar.IsOpen = true;
+    }
+
+    private async void InstallPending_Click(object? sender, RoutedEventArgs e)
+    {
+        // 防连点：安装会退出应用，多点只会并发起安装器
+        if (sender is Button b) b.IsEnabled = false;
+        await UpdateFlow.InstallPendingNowAsync();
     }
 
     private void Populate()
@@ -189,7 +241,9 @@ public sealed partial class WelcomePage : PageBase
                 App.MainWindow?.Shell.NavigateTo("apps");
                 break;
             case "tools":
-                App.MainWindow?.Shell.NavigateTo("tools");
+                // 走专用入口：除了切到工具索引页，还要把导航里的分组展开
+                //（否则从首页跳进来时，左侧「内置工具」是收着的，看不出里面还有子项）
+                App.MainWindow?.Shell.NavigateToTools();
                 break;
             case "sidebar":
                 App.MainWindow?.Shell.NavigateTo("sidebar");

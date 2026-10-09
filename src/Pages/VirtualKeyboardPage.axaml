@@ -31,8 +31,8 @@
                 <!-- 标题 + 实验性标记 -->
                 <StackPanel Spacing="6">
                     <StackPanel Orientation="Horizontal" Spacing="10">
-                        <TextBlock Text="虚拟键盘" FontSize="30" FontWeight="Bold" />
-                        <Border CornerRadius="5" Padding="8,3" Margin="0,0,0,6" VerticalAlignment="Bottom"
+                        <TextBlock Text="虚拟键盘" FontSize="28" FontWeight="Bold" />
+                        <Border CornerRadius="4" Padding="8,3" Margin="0,0,0,6" VerticalAlignment="Bottom"
                                 BorderThickness="1"
                                 BorderBrush="{DynamicResource SystemFillColorCautionBrush}">
                             <StackPanel Orientation="Horizontal" Spacing="5">
