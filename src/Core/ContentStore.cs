@@ -104,6 +104,9 @@ public sealed class ContentStore
         if (root is null)
         {
             Source = "（无数据源）";
+            // 镜像清单有安装包内置兜底（见 LoadMirror 的说明）：清单基本不变，
+            // 就算一次网都没连上也不能让「系统镜像下载」页开天窗（用户 2026-10-11 定案）。
+            LoadMirror(BundledMirrorFile);
             Changed?.Invoke();          // 让"正在获取 / 没取到"的空清单提示能立刻刷出来
             return;
         }
@@ -147,11 +150,24 @@ public sealed class ContentStore
         catch { /* 文字读不到不影响使用 */ }
     }
 
+    /// <summary>
+    /// 安装包内置的镜像清单（随包发布 <c>content/text/mirror-sites.json</c>，见 csproj 的 Content 项）。
+    ///
+    /// 为什么镜像要留内置兜底而软件清单不留：站点仓库的「软件数据/」里**从来没有**
+    /// <c>text/mirror-sites.json</c>（上游 WinUI 版同样没有 —— UiText.cs 的注释原以为有），
+    /// 纯联网模式下两版的镜像页都会开天窗；而这份清单基本不更新（2026-10-11 用户定案），
+    /// 内置进应用、同步到了就用网上的即可。
+    /// </summary>
+    private static string BundledMirrorFile =>
+        Path.Combine(AppContext.BaseDirectory, "content", "text", "mirror-sites.json");
+
     /// <summary>系统镜像下载清单（读不到就留空，页面显示一条提示）。</summary>
     private void LoadMirror(string file)
     {
         try
         {
+            // 同步下来的优先；没同步到（首次启动还没联网 / 站点仓库没这份文件）用安装包内置的兜底
+            if (!File.Exists(file)) file = BundledMirrorFile;
             if (!File.Exists(file)) return;
             using var doc = JsonDocument.Parse(File.ReadAllText(file));
             var root = doc.RootElement;
