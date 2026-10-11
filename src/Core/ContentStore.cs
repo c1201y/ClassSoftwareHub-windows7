@@ -13,9 +13,10 @@ namespace ClassSoftwareHub.Desktop.Core;
 ///   逐文件容错解析 → 坏文件跳过并记一条 DataIssue → 必填 id/name 校验
 ///   → id 重复跳过 → 按 JSON 里的 sort 排序 → 分类读取（坏了就从软件里现推）
 ///
-/// 数据来源：
-///   1) 开发/本机：ShellConfig.DevContentDir（站点工程 dist/content/，跑过 build-content.mjs 就有）
-///   2) 正式：%LOCALAPPDATA%\ClassSoftwareHub\content（由 ContentUpdater 从站点 manifest 增量同步）
+/// 数据来源（**只有网络这一条**，安装包不自带内容包）：
+///   1) 正式：%LOCALAPPDATA%\ClassSoftwareHub\content（由 GithubContentSync 从站点仓库同步下来）
+///   2) 开发：ShellConfig.DevContentDir（站点工程产物目录，仅本机存在）
+/// 所以新装的机器首次启动必须联网 —— 拿不到就是空清单，界面会给出引导与重试入口。
 /// </summary>
 public sealed class ContentStore
 {
@@ -35,19 +36,47 @@ public sealed class ContentStore
     /// <summary>站点文字（text/ui.json 里桌面版需要的标题 / 版本号）。</summary>
     public UiText Ui { get; } = new();
 
+    /// <summary>
+    /// 内容被重新加载了（同步完成 / 手动刷新后触发）。界面订阅它就能在数据到手时立刻重建列表，
+    /// 而不是等用户切页 —— ⛔ 别去掉：安装包不再自带清单后，首启的"空 → 有"全靠这个通知。
+    /// ⚠️ 事件在 UI 线程上触发（Load 的调用点都在 UI 线程），订阅方若不确定请自行用 Dispatcher 兜一层。
+    /// </summary>
+    public event Action? Changed;
+
+    /// <summary>是否正在从网络同步内容（首启空清单时用来区分"正在获取"和"没取到"）。</summary>
+    public bool IsSyncing { get; private set; }
+
+    /// <summary>
+    /// 内容被重新读了几次。<see cref="Load"/> 每跑一次 +1。
+    ///
+    /// ⛔ 给界面做"内容真的变了没有"的判据用，别拿 <see cref="ContentVersion"/> 或
+    /// <see cref="Source"/> 代替（上游 2026-10-05 踩到）：manifest.json 不再同步，ContentVersion 恒为空；
+    /// Source 又永远是同一个目录路径 —— 两者组合根本判不出"同步把 16 个补成了 84 个"，
+    /// 于是首启时页面会一直停在旧列表上，非等用户切页才刷新。
+    /// ⚠️ 它只在 <see cref="Load"/> 里涨，纯粹切页不会变 —— 所以不会破坏"切回来就别重建"的优化。
+    /// </summary>
+    public int Revision { get; private set; }
+
+    /// <summary>同步状态变化（进入/退出同步中），界面据此切换"正在获取软件清单…"这类提示。</summary>
+    public void SetSyncing(bool value)
+    {
+        if (IsSyncing == value) return;
+        IsSyncing = value;
+        Changed?.Invoke();
+    }
+
     /// <summary>本次数据来自哪儿（界面上显示一下，方便确认桌面版是不是最新内容）。</summary>
     public string Source { get; private set; } = "";
 
-    /// <summary>来源类型："cache"（本地缓存 / 远端内容包） | "dev"（开发目录回退） | ""。</summary>
+    /// <summary>来源类型："cache"（联网同步下来的内容） | "dev"（开发目录） | ""（还没拿到）。</summary>
     public string SourceKind { get; private set; } = "";
 
     /// <summary>来源的中文说明（设置页显示用）。</summary>
     public string SourceLabel => SourceKind switch
     {
-        "cache" => "本地缓存（远端内容包）",
-        "dev" => "开发目录（远端内容包尚未发布，使用本机内容）",
-        "bundled" => "安装包自带的内容（离线仍可显示清单，联网后自动更新）",
-        _ => "（无数据源）",
+        "cache" => "本地内容（从站点仓库同步）",
+        "dev" => "开发目录（站点工程产物，仅本机开发用）",
+        _ => "（尚未获取到内容）",
     };
 
     public string ContentVersion { get; private set; } = "";
@@ -70,31 +99,28 @@ public sealed class ContentStore
 
         var root = ResolveContentRoot(out var kind);
         SourceKind = kind;
-        Source = root ?? "（无数据源）";
+        Revision++;                     // 先涨再读：顺序不重要，重要的是"每次 Load 都换一个值"
 
-        if (root is not null)
+        if (root is null)
         {
-            LoadApps(Path.Combine(root, "apps"));
-            LoadCategories(Path.Combine(root, "categories.json"));
-            ApplyCategoryDisplay();
-            LoadManifestVersion(Path.Combine(root, "manifest.json"));
+            Source = "（无数据源）";
+            Changed?.Invoke();          // 让"正在获取 / 没取到"的空清单提示能立刻刷出来
+            return;
         }
 
-        // ⚠️ text/（镜像清单、界面文案）**不能挂在 apps 数据源上**。
-        //   2026-10-06 复现：「系统镜像下载」整页只剩标题 —— 便携包自带的内容**只有 text/、没有 apps/**，
-        //   所以 ResolveContentRoot（判据是"目录下有没有 apps/"）永远不会把安装目录认成数据源；
-        //   而 GitHub 内容同步一旦失败（国内校园网常态）就不会往缓存里补 text/，
-        //   于是 root 直接是 null → 老代码在这里 return → 镜像页文案与站点列表全空。
-        //   现在：先按数据源读，读不到就**无条件**退回安装目录自带的那份（与 root 是否为 null 无关）。
-        var textDir = root is null ? null : Path.Combine(root, "text");
-        LoadMirror(textDir is null ? "" : Path.Combine(textDir, "mirror-sites.json"));
-        LoadUi(textDir is null ? "" : Path.Combine(textDir, "ui.json"));
+        Source = root;
+        LoadApps(Path.Combine(root, "apps"));
+        LoadCategories(Path.Combine(root, "categories.json"));
+        ApplyCategoryDisplay();
+        LoadManifestVersion(Path.Combine(root, "manifest.json"));
 
-        var bundledText = Path.Combine(ShellConfig.BundledContentDir, "text");
-        if (Mirror.Sites.Count == 0)
-            LoadMirror(Path.Combine(bundledText, "mirror-sites.json"));
-        if (Ui.All.Count == 0)
-            LoadUi(Path.Combine(bundledText, "ui.json"));
+        // 站点文字（拿不到就留空，界面用兜底文案）。
+        // ⚠️ 站点仓库现在**没有放** text/ui.json（见 Data.UiText 的说明），
+        //    所以正式环境走到这儿一定是空 —— 不是 bug，别去"修"它。
+        LoadMirror(Path.Combine(root, "text", "mirror-sites.json"));
+        LoadUi(Path.Combine(root, "text", "ui.json"));
+
+        Changed?.Invoke();
     }
 
     /// <summary>站点文字（拿不到就留空，界面用兜底文案）。</summary>
@@ -163,10 +189,10 @@ public sealed class ContentStore
     private static string Or(string a, string b) => a.Length > 0 ? a : b;
 
     /// <summary>
-    /// 按优先级找一个可用的内容目录。
-    /// ⚠️ **正式版优先本地缓存**（%LOCALAPPDATA%\ClassSoftwareHub\content，由 ContentUpdater 同步）；
-    /// 其次是**安装目录里自带的那份内容包**（{app}\content，装机就有，离线也有软件清单）；
-    /// 开发目录只是最后兜底。DEBUG 构建把开发目录放最前面，方便改站点工程立刻看效果。
+    /// 找一个可用的内容目录。**只有两个候选，没有"安装包自带"这一档**（上游 2026-10-05 定案）：
+    ///   · 正式版：本地缓存（%LOCALAPPDATA%\ClassSoftwareHub\content，由 GithubContentSync 同步）；
+    ///   · 开发机：站点工程产物目录（正式用户机器上不存在，自动跳过）。
+    /// DEBUG 把开发目录放最前面，方便改站点工程立刻看效果。
     /// </summary>
     private static string? ResolveContentRoot(out string kind)
     {
@@ -175,13 +201,11 @@ public sealed class ContentStore
         {
             (ShellConfig.DevContentDir, "dev"),
             (ShellConfig.CachedContentDir, "cache"),
-            (ShellConfig.BundledContentDir, "bundled"),
         };
 #else
         var order = new[]
         {
             (ShellConfig.CachedContentDir, "cache"),
-            (ShellConfig.BundledContentDir, "bundled"),
             (ShellConfig.DevContentDir, "dev"),
         };
 #endif

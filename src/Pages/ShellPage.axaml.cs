@@ -554,7 +554,14 @@ public sealed partial class ShellPage : PageBase
     {
         SelectTag(TagForPage(pageType) ?? "tools");
         if (viaList && ContentFrame.CurrentSourcePageType != typeof(ToolsPage))
-            ContentFrame.Navigate(typeof(ToolsPage));
+        {
+            // 铺列表页只为让工具页左上角的"返回"能退回列表 —— 这次导航要**压掉进页动画**
+            //（SuppressNavigationTransitionInfo）。否则两次连续导航各播一次入场动画，
+            // 从悬浮窗/侧边栏打开时，用户看到的就是"加载动画播了两次"（列表闪一下、工具页再闪一下）。
+            // 列表页只是垫背的，不该有存在感；工具页自己那一次动画保留。
+            ContentFrame.Navigate(typeof(ToolsPage), null,
+                new FluentAvalonia.UI.Media.Animation.SuppressNavigationTransitionInfo());
+        }
         ContentFrame.Navigate(pageType, parameter);
     }
 

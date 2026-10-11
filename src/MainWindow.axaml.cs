@@ -373,12 +373,17 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 启动后台同步内容包：远端有 content/manifest.json 就把变化的文件拖到本地缓存
-    /// （%LOCALAPPDATA%\ClassSoftwareHub\content），下次启动 ContentStore 就优先用它，
-    /// 不再依赖开发目录。远端还没发布时什么都不做。
+    /// 启动后台同步内容：从站点仓库把软件数据拖到本地缓存
+    /// （%LOCALAPPDATA%\ClassSoftwareHub\content）。
+    ///
+    /// ⚠️ 安装包不再自带内容包之后，这条路是**新装机器拿到清单的唯一途径**，所以：
+    ///   · 全程置 <see cref="Core.ContentStore.IsSyncing"/>，界面据此显示"正在获取软件清单…"，
+    ///     而不是让用户对着"清单为空"发懵；
+    ///   · 同步完 <c>Load()</c> 会触发 <c>Changed</c>，停在本页的用户也会立刻看到列表。
     /// </summary>
     private async Task SyncContentAsync()
     {
+        App.Content.SetSyncing(true);
         try
         {
             var before = App.Content.SourceKind;
@@ -386,7 +391,7 @@ public sealed partial class MainWindow : Window
 
             if (!result.Updated && before == "cache") return;
 
-            // 有更新（或本来用的是开发目录）→ 重新读一遍，让内容源切到本地缓存
+            // 有更新（或本来还没拿到内容）→ 重新读一遍，内容源切到本地缓存
             var oldSource = App.Content.Source;
             var oldCount = App.Content.Apps.Count;
             App.Content.Load();
@@ -397,7 +402,11 @@ public sealed partial class MainWindow : Window
         }
         catch
         {
-            // 内容同步失败不打扰用户：本机数据照样能用
+            // 内容同步失败不打扰用户：界面上有"重新获取"入口
+        }
+        finally
+        {
+            App.Content.SetSyncing(false);
         }
     }
 

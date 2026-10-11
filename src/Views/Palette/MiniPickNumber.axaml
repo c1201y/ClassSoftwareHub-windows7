@@ -31,6 +31,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <!-- 抽什么：座号（数字）/ 名单（名字） -->
@@ -71,9 +72,21 @@
                        TextWrapping="Wrap" IsHitTestVisible="False" Margin="0,6,0,0" />
         </Grid>
 
+        <!-- 结果字号：与工具页「结果字号」滑块同一份存档字段（PickNumberConfig.NameScale），两边实时互通 -->
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8"
+                    HorizontalAlignment="Center" Margin="0,8,0,0">
+            <TextBlock Text="结果字号" FontSize="12" FontWeight="SemiBold"
+                       VerticalAlignment="Center" Opacity="0.75" />
+            <Slider x:Name="MiniScaleSlider" Width="120" Minimum="0.5" Maximum="3"
+                    Value="1" VerticalAlignment="Center"
+                    ValueChanged="MiniScale_Changed" />
+            <TextBlock x:Name="MiniScaleText" Width="42" FontSize="12" Opacity="0.8"
+                       TextAlignment="Right" VerticalAlignment="Center" Text="100%" />
+        </StackPanel>
+
         <!-- 重置 + 抽取 + 不重复：同一行、居中 -->
-        <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center"
-                    VerticalAlignment="Center" Margin="0,10,0,0">
+        <StackPanel Grid.Row="4" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center"
+                    VerticalAlignment="Center" Margin="0,8,0,0">
             <Button x:Name="ResetButton" Content="重置" Padding="26,7"
                     Click="Reset_Click"
                     ToolTip.Tip="清空已抽取的记录，重新开始" />

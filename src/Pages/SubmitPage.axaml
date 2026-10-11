@@ -121,6 +121,14 @@
                                 <StackPanel Spacing="6">
                                     <TextBlock Text="图标链接（选填，256×256 方图最佳）" FontSize="12.5" Opacity="0.8" />
                                     <TextBox x:Name="IconBox" Watermark="https://…/icon.png" />
+                                    <!-- 直传本站 OSS：上传前本地压到 128px，回填公开只读地址（对齐上游 dv1.1.1） -->
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <Button x:Name="IconUploadButton" Content="上传图标" MinWidth="90"
+                                                Click="IconUpload_Click" />
+                                        <TextBlock x:Name="IconUploadHint" FontSize="12" Opacity="0.7"
+                                                   TextWrapping="Wrap" VerticalAlignment="Center"
+                                                   IsVisible="False" />
+                                    </StackPanel>
                                 </StackPanel>
                                 <StackPanel Grid.Column="1" Margin="14,0,0,0" Spacing="6">
                                     <StackPanel Orientation="Horizontal">

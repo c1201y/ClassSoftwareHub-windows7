@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Security.Cryptography;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 using ClassSoftwareHub.Desktop.Data;
@@ -33,6 +34,16 @@ public sealed partial class MiniPickNumber : UserControl
     private bool _ready;
     private bool _updating;      // 正在刷新提示（里面的夹取会触发 ValueChanged，要忽略掉）
     private double _nameScale = 1.0;   // 结果里名字的缩放系数（2026-10-06，跟工具页共用存档）
+
+    // 最近一次（非滚动中）展示的结果：浮窗里的「结果字号」滑块改动时按新字号重绘用
+    private List<int>? _lastNumbers;
+    private List<string>? _lastNames;
+
+    /// <summary>
+    /// 滚动动画专用的轻量随机数：每个 tick 只负责"看起来在滚"，不产生结果，
+    /// 没必要走加密随机（<see cref="RandInt"/>）。最终抽中的结果仍然全部出自加密随机。
+    /// </summary>
+    private static readonly Random RollRandom = new();
 
     public MiniPickNumber()
     {
@@ -93,7 +104,11 @@ public sealed partial class MiniPickNumber : UserControl
         _usedNames.Clear();
         _usedNames.AddRange(cfg.UsedNames);
         _rosterSource = cfg.RosterSource;
-        _nameScale = cfg.NameScale;   // 2026-10-06：名字大小跟工具页同步
+        _nameScale = Math.Clamp(cfg.NameScale, 0.5, 3.0);   // 2026-10-06：名字大小跟工具页同步（老存档越界值夹回滑块量程）
+
+        // 滑块在 _ready=false 期间设值，不会触发保存；文本一并拨好
+        MiniScaleSlider.Value = _nameScale;
+        MiniScaleText.Text = $"{Math.Round(_nameScale * 100)}%";
 
         SyncPoolMode();
         RefreshHints();
@@ -127,8 +142,10 @@ public sealed partial class MiniPickNumber : UserControl
             //    一进浮窗切一下模式就退回默认大小，看着像"设置没生效"。
             //    占位符（还没抽过）才用默认 64，并且要乘上缩放系数，跟真实结果一个口径。
             ResultText.Text = "—";
-            ResultText.FontSize = 64 * _nameScale;
+            ResultText.FontSize = 96 * _nameScale;
             ResultText.Opacity = 1;
+            _lastNumbers = null;   // 换了模式：旧结果不参与滑块重绘，避免把另一种模式的结果画回来
+            _lastNames = null;
         }
         _lastRoster = roster;
     }
@@ -342,26 +359,31 @@ public sealed partial class MiniPickNumber : UserControl
         if (roster)
         {
             var total = _roster.Count;
-            ShowNames(Enumerable.Range(0, _pendingNames.Count).Select(_ => _roster[RandInt(total)]).ToList(), rolling: true);
+            ShowNames(Enumerable.Range(0, _pendingNames.Count).Select(_ => _roster[RollRandom.Next(total)]).ToList(), rolling: true);
         }
         else
         {
-            ShowNumbers(Enumerable.Range(0, _pending.Count).Select(_ => Lo + RandInt(PoolSize)).ToList(), rolling: true);
+            ShowNumbers(Enumerable.Range(0, _pending.Count).Select(_ => Lo + RollRandom.Next(PoolSize)).ToList(), rolling: true);
         }
     }
 
     private void ShowNumbers(IReadOnlyList<int> numbers, bool rolling)
     {
+        // ⚠️ 2026-10-10（椰汁：浮窗字号太小了，不改滑块数值也要大一点）：
+        //    各档基准字号整体上调（单抽 64→96，对齐工具页 100% 的基准档），滑块照常乘。
         ResultText.Text = string.Join("  ", numbers);
-        ResultText.FontSize = numbers.Count switch
+        var size = numbers.Count switch
         {
-            <= 1 => 64,
-            2 => 46,
-            <= 4 => 36,
-            <= 8 => 28,
-            _ => 22,
-        };
+            <= 1 => 96,
+            2 => 64,
+            <= 4 => 48,
+            <= 8 => 36,
+            _ => 26,
+        } * _nameScale;
+        // 浮窗结果区高度有限，300% 的大字号会顶出提示行 —— 封顶兜一下，宁小不裁
+        ResultText.FontSize = Math.Min(size, 180);
         ResultText.Opacity = rolling ? 0.72 : 1;
+        if (!rolling) _lastNumbers = numbers.ToList();
     }
 
     /// <summary>名字比数字占地方，字号整体收一档。</summary>
@@ -370,24 +392,47 @@ public sealed partial class MiniPickNumber : UserControl
         ResultText.Text = string.Join("  ", names);
         var size = names.Count switch
         {
-            <= 1 => 44,
-            2 => 36,
-            <= 4 => 30,
-            <= 8 => 24,
-            _ => 18,
+            <= 1 => 56,
+            2 => 44,
+            <= 4 => 36,
+            <= 8 => 28,
+            _ => 20,
         };
 
-        // ⚠️ 2026-10-06：单个**长名字**（少数民族姓名 / 英文名 / 手滑粘了一整行）在 44px 下
-        //    会折成好几行，把浮窗那张结果区撑满甚至顶出可视区。按字数再收一档即可。
+        // ⚠️ 2026-10-06：单个**长名字**（少数民族姓名 / 英文名 / 手滑粘了一整行）折成好几行
+        //    会把浮窗那张结果区撑满甚至顶出可视区。按字数再收一档即可。
         if (names.Count == 1)
         {
             var len = names[0].Length;
-            if (len > 8) size = 26;
-            else if (len > 5) size = 34;
+            if (len > 8) size = 32;
+            else if (len > 5) size = 42;
         }
 
-        ResultText.FontSize = size * _nameScale;   // 2026-10-06：再乘名字大小系数
+        // 浮窗结果区高度有限，300% 的大字号会顶出提示行 —— 封顶兜一下，宁小不裁
+        ResultText.FontSize = Math.Min(size * _nameScale, 180);   // 2026-10-06：再乘名字大小系数
         ResultText.Opacity = rolling ? 0.72 : 1;
+        if (!rolling) _lastNames = names.ToList();
+    }
+
+    /// <summary>
+    /// 浮窗里的「结果字号」滑块（2026-10-09 加）：与工具页同一份 <see cref="PickNumberConfig.NameScale"/>，
+    /// 这边拖动那边生效，反之亦然（每次显示时 Reload 重读）。
+    /// </summary>
+    private void MiniScale_Changed(object? sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (!_ready) return;
+
+        // 与工具页同一套吸附：Avalonia 没有 StepFrequency，先吸附到 0.1 的整数倍再写回滑块
+        var v = Math.Round(e.NewValue / 0.1) * 0.1;
+        if (Math.Abs(MiniScaleSlider.Value - v) > 0.001) { MiniScaleSlider.Value = v; return; }
+
+        _nameScale = v;
+        MiniScaleText.Text = $"{Math.Round(_nameScale * 100)}%";
+        Save();
+
+        // 当前结果按新字号重绘（两种模式都可能）
+        if (_lastNumbers is not null) ShowNumbers(_lastNumbers, rolling: false);
+        if (_lastNames is not null) ShowNames(_lastNames, rolling: false);
     }
 
     private void Reset_Click(object? sender, RoutedEventArgs e)

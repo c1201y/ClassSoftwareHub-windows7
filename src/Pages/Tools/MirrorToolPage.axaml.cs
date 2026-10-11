@@ -17,9 +17,32 @@ public sealed partial class MirrorToolPage : PageBase
     public MirrorToolPage()
     {
         InitializeComponent();
-        Loaded += (_, _) => Populate();
     }
 
+    public override void OnNavigatedTo(object? parameter)
+    {
+        // 清单是跟软件数据一起从网络拉的 —— 不订阅 Content.Changed 的话，
+        // 首启时先点进来会一直停在"未读取到镜像清单"（上游 2026-10-05）。
+        App.Content.Changed -= OnContentChanged;   // 先退订再订阅：重复进出也只挂一次
+        App.Content.Changed += OnContentChanged;
+        Populate();
+    }
+
+    public override void OnNavigatedFrom()
+    {
+        App.Content.Changed -= OnContentChanged;
+        base.OnNavigatedFrom();
+    }
+
+    private void OnContentChanged()
+    {
+        if (!Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+        {
+            _ = Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(OnContentChanged);
+            return;
+        }
+        Populate();
+    }
 
     private void Populate()
     {
@@ -37,6 +60,12 @@ public sealed partial class MirrorToolPage : PageBase
 
         Rows.ItemsSource = mirror.Sites;
         EmptyText.IsVisible = mirror.Sites.Count == 0;
+
+        // 空的时候说清楚是"还在拿"还是"没拿到"，别让用户以为这页坏了
+        if (mirror.Sites.Count == 0)
+            EmptyText.Text = App.Content.IsSyncing
+                ? "正在获取镜像清单…"
+                : "未读取到镜像清单：它随软件清单一并从网络获取，请先在「软件下载」页确认清单已获取到。";
     }
 
     private void Row_Click(object? sender, RoutedEventArgs e)

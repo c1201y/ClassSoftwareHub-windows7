@@ -64,6 +64,11 @@ public sealed partial class SettingsPage : PageBase
     {
         _loading = true;
 
+        // 后台同步完成时这一屏要自己更新（安装包不自带清单，首次进来多半还空着）。
+        // ⚠️ 页面实例会被框架缓存（长驻），先 -= 再 += 保证只挂一次。
+        App.Content.Changed -= OnContentChanged;
+        App.Content.Changed += OnContentChanged;
+
         var s = App.Settings.Current;
         BackdropCombo.SelectedIndex = s.Backdrop switch
         {
@@ -238,13 +243,31 @@ public sealed partial class SettingsPage : PageBase
         EchoSubmitStatus.IsVisible = true;
     }
 
+    public override void OnNavigatedFrom()
+    {
+        App.Content.Changed -= OnContentChanged;
+        base.OnNavigatedFrom();
+    }
+
+    /// <summary>内容变了 → 刷新这一组摘要（手动同步进行中就别抢它刚写上的状态行）。</summary>
+    private void OnContentChanged()
+    {
+        if (!Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+        {
+            _ = Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(OnContentChanged);
+            return;
+        }
+        if (_contentBusy) return;
+        RefreshContentInfo();
+    }
+
     private void RefreshContentInfo()
     {
         var c = App.Content;
         ContentSummary.Text = c.HasData
             ? $"{c.Apps.Count} 个软件 · {c.Categories.Count} 个分类" +
               (c.ContentVersion.Length > 0 ? $" · 内容版本 {c.ContentVersion}" : "")
-            : "没有读到内容。";
+            : (c.IsSyncing ? "正在获取软件清单…" : "还没有获取到内容 —— 需要联网。");
 
         ContentSource.Text = $"内容来源：{c.SourceLabel}\n{c.Source}";
 
@@ -371,7 +394,7 @@ public sealed partial class SettingsPage : PageBase
         if (_contentBusy) return;
         _contentBusy = true;
 
-        ContentSource.Text = "正在同步内容包…";
+        ContentSource.Text = "正在从网络获取…";
         try
         {
             var result = await Services.ContentUpdater.SyncAsync(

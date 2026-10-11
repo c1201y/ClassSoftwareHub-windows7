@@ -51,6 +51,20 @@ public sealed partial class PickNumberToolPage : PageBase
     private List<string>? _lastNames;     // 最近一次（非滚动中）展示的名单，滑块改字号时重绘用
     private List<int>? _lastNumbers;     // 同上，号码模式（2026-10-07：号码也吃缩放）
 
+    // ── 滚动性能（2026-10-09，真机反馈"抽号偶尔卡一下"）──
+    // 原实现每个 tick 都把 ResultHost 清空重建：TextBlock/Grid 全新分配 + 视觉树/逻辑树重挂 +
+    // 样式重新应用，16 个 tick 连续重建大字号结果树，是卡顿的主要来源。
+    // 现在结构不变时复用既有 TextBlock，每 tick 只改 Text / FontSize / Opacity；
+    // 结构（名单 / 号码、单抽 / 多抽、个数、单抽可用宽）变化才整组重建。
+    private readonly List<TextBlock> _resultBlocks = new();
+    private string? _resultLayoutKey;    // 当前结果区的结构签名
+
+    /// <summary>
+    /// 滚动动画专用的轻量随机数：每个 tick 只负责"看起来在滚"，不产生结果，
+    /// 没必要走加密随机。最终抽中的结果与公平性自检仍然全部出自加密随机（<see cref="RandInt"/>）。
+    /// </summary>
+    private static readonly Random RollRandom = new();
+
     public PickNumberToolPage()
     {
         InitializeComponent();
@@ -505,22 +519,20 @@ public sealed partial class PickNumberToolPage : PageBase
             return;
         }
 
-        // 滚动中：号码模式刷随机号，名单模式刷随机名字
+        // 滚动中：号码模式刷随机号，名单模式刷随机名字（轻量随机，结果与展示无关）
         if (roster)
         {
             var total = _roster.Count;
-            ShowNames(Enumerable.Range(0, _pendingNames.Count).Select(_ => _roster[RandInt(total)]).ToList(), rolling: true);
+            ShowNames(Enumerable.Range(0, _pendingNames.Count).Select(_ => _roster[RollRandom.Next(total)]).ToList(), rolling: true);
         }
         else
         {
-            ShowResult(Enumerable.Range(0, _pending.Count).Select(_ => Lo + RandInt(PoolSize)).ToList(), rolling: true);
+            ShowResult(Enumerable.Range(0, _pending.Count).Select(_ => Lo + RollRandom.Next(PoolSize)).ToList(), rolling: true);
         }
     }
 
     private void ShowResult(IReadOnlyList<int> numbers, bool rolling)
     {
-        ResultHost.Children.Clear();
-
         // ⚠️ 2026-10-08（Nick 截图：300% 时数字上半截被裁）：
         //    号码字号 = 基准 × 滑块，300% 就是 288px —— 塞在 176 宽的格子里必然超界，
         //    超界部分在不同容器上表现成"上半截被裁"。根治办法与名单模式一致：
@@ -533,9 +545,12 @@ public sealed partial class PickNumberToolPage : PageBase
         var cardH = ResultCard.Bounds.Height;
         if (cardH <= 0) cardH = 320;
 
-        foreach (var n in numbers)
+        EnsureResultBlocks(isNames: false, single: single, count: numbers.Count,
+            singleAvailW: Math.Max(NumberCellWidth - 12, cardW - 40));
+
+        for (var i = 0; i < numbers.Count; i++)
         {
-            var text = n.ToString();
+            var text = numbers[i].ToString();
             var size = NumberBaseFontSize * _nameScale;
 
             if (single)
@@ -547,20 +562,6 @@ public sealed partial class PickNumberToolPage : PageBase
                 var est = EstimateTextWidth(text, size);
                 if (est > availW) size = Math.Max(11, size * availW / est);
                 if (size * LineHeightFactor > availH) size = Math.Max(11, availH / LineHeightFactor);
-
-                var tb = new TextBlock
-                {
-                    Text = text,
-                    FontSize = size,
-                    FontWeight = FontWeight.SemiBold,
-                    Opacity = rolling ? 0.72 : 1,
-                    MaxWidth = availW,
-                    TextAlignment = TextAlignment.Center,
-                    HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
-                    VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
-                };
-                // 不钉宽度，让结果卡有多宽就用多宽（WrapPanel 居中 → 数字居中）
-                ResultHost.Children.Add(new Grid { MinHeight = NumberCellMinHeight, Margin = new Thickness(4, 6, 4, 6), Children = { tb } });
             }
             else
             {
@@ -570,21 +571,60 @@ public sealed partial class PickNumberToolPage : PageBase
                 if (est > availW) size = Math.Max(11, size * availW / est);
                 if (size * LineHeightFactor > NumberCellMinHeight * 2)
                     size = Math.Max(11, NumberCellMinHeight * 2 / LineHeightFactor);
-
-                ResultHost.Children.Add(Cell(new TextBlock
-                {
-                    Text = text,
-                    FontSize = size,
-                    FontWeight = FontWeight.SemiBold,
-                    Opacity = rolling ? 0.72 : 1,
-                    TextAlignment = TextAlignment.Center,
-                    HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
-                    VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
-                }));
             }
+
+            var tb = _resultBlocks[i];
+            tb.Text = text;
+            tb.FontSize = size;
+            tb.Opacity = rolling ? 0.72 : 1;
         }
         ResultHint.IsVisible = numbers.Count == 0;
         if (!rolling) _lastNumbers = numbers.ToList();
+    }
+
+    /// <summary>
+    /// 保证结果区里有一组与目标结构一致的控件（结构签名变了才整组重建，否则全部复用）。
+    /// 每格一个 TextBlock：单抽 = 铺满结果卡的 Grid；多抽 = 176 宽的标准格（<see cref="Cell"/>）。
+    /// 滚动动画期间结构与个数不变，因此整个滚动过程零新建、零 GC 压力。
+    /// </summary>
+    private void EnsureResultBlocks(bool isNames, bool single, int count, double singleAvailW)
+    {
+        var key = $"{isNames}|{single}|{count}|{(single ? (int)singleAvailW : 0)}";
+        if (key == _resultLayoutKey) return;
+        _resultLayoutKey = key;
+
+        ResultHost.Children.Clear();
+        _resultBlocks.Clear();
+
+        for (var i = 0; i < count; i++)
+        {
+            var tb = new TextBlock
+            {
+                FontWeight = FontWeight.SemiBold,
+                TextAlignment = TextAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+
+            if (isNames)
+            {
+                // 名字单行显示（折行是上一版被否掉的观感）：放不下按字数收字号，… 兜底
+                tb.TextWrapping = TextWrapping.NoWrap;
+                tb.TextTrimming = TextTrimming.CharacterEllipsis;
+                tb.MaxWidth = single ? singleAvailW : NumberCellWidth - 12;
+            }
+            else if (single)
+            {
+                tb.MaxWidth = singleAvailW;
+            }
+
+            if (single)
+                ResultHost.Children.Add(new Grid { MinHeight = NumberCellMinHeight, Margin = new Thickness(4, 6, 4, 6), Children = { tb } });
+            else
+                ResultHost.Children.Add(Cell(tb));
+
+            _resultBlocks.Add(tb);
+        }
     }
 
     /// <summary>
@@ -593,8 +633,6 @@ public sealed partial class PickNumberToolPage : PageBase
     /// </summary>
     private void ShowNames(IReadOnlyList<string> names, bool rolling)
     {
-        ResultHost.Children.Clear();
-
         // ⚠️ 2026-10-07（Nick 实机反馈「抽号那么大的地方，还要用 … 显示不开」）：
         //    只抽 1 人时，别再把名字塞进 176 宽的小格子里 —— 那样结果卡里明明空着一大片，
         //    长一点的名字还是被 164 的 MaxWidth 截成「华风夏韵洛…」。
@@ -603,34 +641,23 @@ public sealed partial class PickNumberToolPage : PageBase
         var cardW = ResultCard.Bounds.Width;
         if (cardW <= 0) cardW = 460;              // 结果卡还没量过尺寸时的兜底
 
-        foreach (var name in names)
+        EnsureResultBlocks(isNames: true, single: single, count: names.Count,
+            singleAvailW: Math.Max(NumberCellWidth - 12, cardW - 40));
+
+        for (var i = 0; i < names.Count; i++)
         {
             // 单抽：可用宽度 = 结果卡内容宽（Padding 20 左右各一）；多抽：仍旧按 176 格子算
             var allowed = single ? Math.Max(NumberCellWidth - 12, cardW - 40)
                                  : NumberCellWidth - 12;
 
-            var size = NameFontSize(name) * _nameScale;
-            var est = EstimateTextWidth(name, size);
+            var size = NameFontSize(names[i]) * _nameScale;
+            var est = EstimateTextWidth(names[i], size);
             if (est > allowed) size = Math.Max(11, size * allowed / est);   // 放不下就收字号，不出现 …
 
-            var tb = new TextBlock
-            {
-                Text = name,
-                FontSize = size,
-                FontWeight = FontWeight.SemiBold,
-                Opacity = rolling ? 0.72 : 1,
-                MaxWidth = allowed,
-                TextWrapping = TextWrapping.NoWrap,   // 单行显示（折行是上一版被否掉的观感）
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                TextAlignment = TextAlignment.Center,
-                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
-                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
-            };
-
-            ResultHost.Children.Add(single
-                // 单抽：不钉宽度，让结果卡有多宽就用多宽（WrapPanel 居中 → 名字居中）
-                ? new Grid { MinHeight = NumberCellMinHeight, Margin = new Thickness(4, 6, 4, 6), Children = { tb } }
-                : Cell(tb));
+            var tb = _resultBlocks[i];
+            tb.Text = names[i];
+            tb.FontSize = size;
+            tb.Opacity = rolling ? 0.72 : 1;
         }
 
         ResultHint.IsVisible = names.Count == 0;

@@ -38,6 +38,31 @@ public sealed partial class SoftwarePage : PageBase
         _loading = false;
         UpdateView();
 
+        // 内容同步好之后自己要刷新 —— 安装包不自带清单，首启就停在"正在获取"这一屏上，
+        // 用户多半不会为了看到列表专门切一次页（上游 2026-10-05）。
+        // ⚠️ 页面实例会被框架缓存（长驻），先 -= 再 += 保证只挂一次。
+        App.Content.Changed -= OnContentChanged;
+        App.Content.Changed += OnContentChanged;
+
+        BuildChips();
+        Apply();
+    }
+
+    public override void OnNavigatedFrom()
+    {
+        App.Content.Changed -= OnContentChanged;
+        base.OnNavigatedFrom();
+    }
+
+    /// <summary>内容变了（同步完成 / 同步状态变化）：重建列表，或只刷一下空清单那几句提示。</summary>
+    private void OnContentChanged()
+    {
+        if (!Avalonia.Threading.Dispatcher.UIThread.CheckAccess())
+        {
+            _ = Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(OnContentChanged);
+            return;
+        }
+
         BuildChips();
         Apply();
     }
@@ -118,8 +143,8 @@ public sealed partial class SoftwarePage : PageBase
     }
 
     /// <summary>
-    /// 空清单时别只写一句"没有匹配的软件"——要分清两种情况：
-    /// ① 搜索/分类筛掉了 ② 整体就没内容（内容包没同步下来，教学机断网最容易踩）
+    /// 空清单时别只写一句"没有匹配的软件"——要分清三种情况：
+    /// ① 搜索/分类筛掉了 ② 正在联网获取（首启最正常的状态）③ 网络取不到
     /// </summary>
     private void UpdateEmptyState(int shown)
     {
@@ -142,24 +167,35 @@ public sealed partial class SoftwarePage : PageBase
             return;
         }
 
+        EmptyRetry.IsVisible = true;
+        EmptyRetry.IsEnabled = true;
+        EmptyRetry.Content = "重新获取清单";
+
+        // 正在联网取 —— 这是最正常的首启状态（安装包不再内置清单），别吓唬用户
+        if (App.Content.IsSyncing)
+        {
+            EmptyTitle.Text = "正在获取软件清单";
+            EmptyText.Text = "正在从网络获取最新的软件清单，请稍候。";
+            EmptyRetry.IsEnabled = false;
+            EmptyRetry.Content = "正在获取";
+            return;
+        }
+
         EmptyTitle.Text = "软件清单为空";
-        EmptyText.Text = "清单位于「内容包」中：安装包内置一份，联网后自动从站点更新。" +
-                         "若始终为空，通常是内容包未同步成功（网络不可用或站点尚未发布）。";
+        EmptyText.Text = "软件清单不随安装包提供，需要联网获取。" +
+                         "若始终为空，多半是当前网络连不上（教学机、校园网常见），换个网络再点下面的按钮。";
         EmptyText.IsVisible = true;
         EmptyDetail.Text = $"当前内容来源：{App.Content.SourceLabel}" +
                            (App.Content.Issues.Count > 0 ? $"\n读取问题：{App.Content.Issues[0].Message}" : "");
-        EmptyRetry.IsVisible = true;
-        EmptyRetry.IsEnabled = true;
-        EmptyRetry.Content = "重新同步内容包";
     }
 
-    /// <summary>空状态里的「重新同步内容包」：拉一次远端内容包再重读（失败就照实说）。</summary>
+    /// <summary>空状态里的「重新获取清单」：拉一次网络内容再重读（失败就照实说）。</summary>
     private async void EmptyRetry_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
         EmptyRetry.IsEnabled = false;
-        EmptyRetry.Content = "正在同步";
-        EmptyTitle.Text = "正在同步内容包";
-        EmptyText.Text = "正在从站点获取最新清单。";
+        EmptyRetry.Content = "正在获取";
+        EmptyTitle.Text = "正在获取软件清单";
+        EmptyText.Text = "正在从网络获取最新清单。";
         EmptyDetail.Text = "";
 
         try
@@ -175,7 +211,7 @@ public sealed partial class SoftwarePage : PageBase
             if (App.Content.Apps.Count == 0)
             {
                 EmptyTitle.Text = "仍未获取到内容";
-                EmptyText.Text = "站点无法访问，或内容包尚未发布。已安装版本内置的清单可在离线时使用；" +
+                EmptyText.Text = "站点仓库与镜像通道都不可达。请检查网络（教学机、校园网常见），换个网络后再试；" +
                                  "如问题持续，请将本页截图提供给维护人员。";
                 EmptyDetail.Text = result.Message;
             }
@@ -189,7 +225,7 @@ public sealed partial class SoftwarePage : PageBase
         finally
         {
             EmptyRetry.IsEnabled = true;
-            EmptyRetry.Content = "重新同步内容包";
+            EmptyRetry.Content = "重新获取清单";
         }
     }
 

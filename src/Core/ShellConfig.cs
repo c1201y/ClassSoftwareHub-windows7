@@ -37,6 +37,11 @@ public static class ShellConfig
     // 2026-10-06：**1.0.0 → 1.1.0**（对齐 WinUI 桌面版 1.1 正式版，把 1.1 相对 1.0 新增的功能
     // 全数补进本版：日志查看 / 回声洞 / 联系方式本地加密 / 全屏秒表与全屏计时 / 到点铃声 /
     // 安装包管理等；基数按"叠加一块新功能涨一位"的规则抬到功能位）。
+    // 2026-10-10：对齐 WinUI 桌面版 dv1.1.x 功能集：提交软件 OSS 直传
+    // （OssUpload / SubmitEndpoint / DeviceFingerprint / IconResize）＋ 内容"一切从网络取"
+    // （取消安装包内置内容包，GithubContentSync 整理版本 v2）＋ 浮窗抽号结果字号整体上调 ＋
+    // 悬浮窗打开工具页动画只播一次。版本号经用户确认**留回 1.1.0**（功能并入 1.1 正式线，
+    // 不再单独抬到 1.1.1；基数不动，旧包不会被强制顶掉）。
     // 客户端据此判定 IsInsider=false → 走 stable 通道，只认非预发布的 Release。
     public const string ShellVersion = "1.1.0";
 
@@ -101,10 +106,9 @@ public static class ShellConfig
     /// 设置页「站点版本」那一行显示的全文。
     ///
     /// ⛔⛔ **不要再改回去读内容包的 <c>text/ui.json → app.version</c>**（2026-10-04 踩实了）：
-    ///   内容包里除了 <c>软件数据/apps/*.json</c>，其它文件（<c>text/</c>、<c>manifest.json</c>）**都不联网更新** ——
-    ///   <see cref="Services.GithubContentSync"/> 只拉「软件数据/」，而 <c>SeedMissingFiles</c> 又只在文件**缺失**时才从安装包补
-    ///   （<c>overwrite: false</c>）。于是装机那一刻写进缓存的那份文案就**冻结**了：
-    ///   该字段一直停在装机时那版（实测老机器上读到的是 2.3.2），怎么升级客户端都不会变，
+    ///   内容包（联网同步下来的缓存）里 <c>text/</c> 这类文件不在 GitHub 仓库的「软件数据/」维护范围内，
+    ///   同步不会更新它 —— 缓存里一旦有旧文案就**冻结**在装机/上次同步那版：
+    ///   该字段会一直停在旧值（上游实测老机器上读到的是 2.3.2），怎么升级客户端都不会变，
     ///   用户就会看到「客户端 1.6 / 站点版本 2.3.2」这种自相矛盾的搭配。
     ///
     /// 站点的真实版本只有客户端自己知道（发版时人工对齐），所以这里以**编译进程序的常量**为准，
@@ -218,11 +222,10 @@ public static class ShellConfig
     /// <summary>增量同步下来的内容缓存目录。</summary>
     public static string CachedContentDir => System.IO.Path.Combine(AppPaths.DataDir, "content");
 
-    /// <summary>
-    /// 安装包里自带的内容（安装目录\content，打包装机时塞进去的那份）。
-    /// 装机就有软件清单，离线也不空；联网后 ContentUpdater 拉到新版会覆盖优先级更高的缓存。
-    /// </summary>
-    public static string BundledContentDir => System.IO.Path.Combine(AppContext.BaseDirectory, "content");
+    // ⚠️ 「安装包自带内容包」（BundledContentDir）已随上游 2026-10-05 定案删除：
+    //    装机残留会让已下架的软件永远"删了又复活"，且自带 text/ 写进缓存后再也不更新。
+    //    现在内容**只**来自网络同步（GithubContentSync → CachedContentDir），
+    //    新装机器首次启动必须联网，拿不到就是空清单 + 重试入口。
 
     /// <summary>
     /// 开发用：直接读站点工程的内容包（跑过 scripts/build-content.mjs 就有）。

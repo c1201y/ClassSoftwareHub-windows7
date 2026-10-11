@@ -27,12 +27,27 @@ internal static class Program
     private static bool _forceSoftwareRender;
 
     /// <summary>
+    /// 放行 GPU 渲染链（命令行加 <c>--gpu-render</c>）。
+    ///
+    /// Win7 默认已压到软件渲染（见 BuildAvaloniaApp 里的降级链说明）。这个参数用于
+    /// 在 Win7 上临时恢复 ANGLE → WGL → 软件的 GPU 降级链做对比验证；
+    /// 正式使用中若 GPU 路径再出渲染问题，去掉参数即可回到默认软件渲染。
+    /// </summary>
+    private static bool _forceGpuRender;
+
+    /// <summary>
     /// 直接清场接管（命令行加 <c>--takeover</c>）。
     ///
     /// 单实例冲突时跳过"敲门等待"，只要发现现有实例拿不出一个可见的主窗口就直接结束它。
     /// 现场排障用：万一看不到界面又不想开任务管理器，加这个参数双击一下就行。
     /// </summary>
     internal static bool ForceTakeover;
+
+    /// <summary>
+    /// Win7 上 <see cref="CompositionOptions.UseSaveLayerRootClip"/> 是否注册成功
+    /// （见 Main 里的说明）。仅供诊断参考；默认软件渲染路径不依赖它。
+    /// </summary>
+    internal static bool RenderFixVerified;
 
     [STAThread]
     public static void Main(string[] args)
@@ -43,28 +58,33 @@ internal static class Program
         ForceTakeover = Array.Exists(args,
             a => a.Equals("--takeover", StringComparison.OrdinalIgnoreCase));
 
+        _forceGpuRender = Array.Exists(args,
+            a => a.Equals("--gpu-render", StringComparison.OrdinalIgnoreCase));
+
         // 排障：强制按 Win7 分支跑（开发机上复现教室机的代码路径，见 OsInfo.SimulateWin7）。
         // ⚠️ 必须排在**第一次访问 OsInfo 之前** —— 一旦有代码读过版本判定，再开就晚了。
         Platform.OsInfo.SimulateWin7 =
             Array.Exists(args, a => a.Equals("--simulate-win7", StringComparison.OrdinalIgnoreCase))
             || Environment.GetEnvironmentVariable("CSH_SIMULATE_WIN7") == "1";
 
-        // ⚠️ 2026-10-09（椰汁截图：抽号页出现随机灰色矩形，每次刷新形状都不一样，之前没有）：
-        //   Avalonia 默认走「脏矩形」局部重绘 —— 每帧只重画变化的那几块区域，其余像素依赖
-        //   显卡"保住上一帧"。Win7 的老驱动（ANGLE/D3D9、WGL，教室机清一色 Intel 老核显）
-        //   在这条路上会漏出垃圾像素：屏幕上就是几块深浅略有差别的矩形残影，位置形状每帧都变。
-        //   大字号结果区（抽号 96~288px 的数字）重绘面积大，最容易把这条路径踩出来。
-        //   这是 Skia 官方记录在案的 bug 一类（issues.skia.org/issues/327877721），
-        //   Avalonia 给的绕法就是 <see cref="CompositionOptions.UseSaveLayerRootClip"/>：
-        //   脏区内容先画进一层**中间表面**，再整体合成到画面上，不再直接往保帧表面上裁剪绘制。
-        //   代价是每帧多一次离屏合成 —— 教室软件站这种"大部分时间静止"的界面完全无感。
-        //   仅 Win7（含 --simulate-win7 模拟分支）启用；Win10/11 驱动新，维持 Avalonia 默认行为。
-        //   ⛔ 必须在第一个窗口（也就是 Compositor）创建**之前**注册进 AvaloniaLocator，
-        //      放在 Main 里 BuildAvaloniaApp() 之前是最稳的位置。
+        // ⚠️ 2026-10-08/09（抽号页随机灰矩形，真机两轮复核）：
+        //   现象：Win7 抽号页出现位置随机的浅灰矩形残影，每帧形状不同。
+        //   根因：Avalonia 组合渲染默认按脏矩形局部重绘 —— 每帧只重画变化区域，
+        //   其余像素依赖渲染表面"保住上一帧"。Win7 老显卡（WGL / 老 Intel ICD）的
+        //   表面保帧不可靠，未重绘区域会露出上一帧残留或随机垃圾像素。
+        //   UseSaveLayerRootClip（脏区先画进中间表面再合成，Skia bug
+        //   issues.skia.org/issues/327877721 的官方绕法）只解决 saveLayer 裁剪一类问题，
+        //   不改变对表面保帧的依赖 —— 2026-10-09 真机复核确认它单独启用无效。
+        //   处置：Win7（含 --simulate-win7）默认直接走软件渲染，帧缓冲在进程内存里，
+        //   保帧由进程自己保证，随机灰矩形从机制上不可能出现；需要验证 GPU 路径时
+        //   加 --gpu-render 临时放行降级链（此时仍会带 UseSaveLayerRootClip）。
+        //   软件渲染对这种"大部分时间静止"的界面开销可接受；WebView2 独立进程渲染，不受影响。
         if (Platform.OsInfo.IsWindows7)
         {
-            // ⚠️ AvaloniaLocator.CurrentMutable 在 NuGet 的 ref 程序集里被裁掉了（编译期不可见，
-            //    运行时仍全量公开），编译又不能引 lib 程序集 —— 所以这里走反射注册，一次性开销忽略不计。
+            // AvaloniaLocator.CurrentMutable 在 NuGet 的 ref 程序集里被裁掉了（编译期不可见，
+            // 运行时仍全量公开）—— 注册只能走反射，一次性开销忽略不计。
+            // 注册结果记录到 RenderFixVerified：注册失败只会表现为"还是老样子"，
+            // 排障时必须能分辨「没注册上」和「注册了但对该机器不够」这两种情况。
             try
             {
                 var locatorType = typeof(Avalonia.Media.Color).Assembly
@@ -78,8 +98,18 @@ internal static class Program
                 helper.GetType().GetMethod("ToConstant")!
                     .MakeGenericMethod(typeof(CompositionOptions))
                     .Invoke(helper, new object?[] { new CompositionOptions { UseSaveLayerRootClip = true } });
+
+                var current = locatorType.InvokeMember("Current",
+                    BindingFlags.Public | BindingFlags.Static | BindingFlags.GetProperty,
+                    null, null, Array.Empty<object>())!;
+                var readBack = current.GetType().GetMethod("GetService")!
+                    .Invoke(current, new object?[] { typeof(CompositionOptions) }) as CompositionOptions;
+                RenderFixVerified = readBack?.UseSaveLayerRootClip == true;
             }
-            catch { /* 注册不上就维持默认渲染路径 —— 这不是致命配置，别为它挡启动 */ }
+            catch
+            {
+                RenderFixVerified = false;   // 注册不上不挡启动，只影响 --gpu-render 时的渲染质量
+            }
         }
 
 #if CSH_CONSOLE
@@ -117,36 +147,36 @@ internal static class Program
             //              'Avalonia.OpenGL.OpenGlException: No adapters found'
             //     [OpenGL] Unknown requested PlatformApi 'DirectX11'
             // ANGLE(D3D11) 起不来 → 渲染器建不出来 → 窗口建不出来 → 进程随即退出。
-            // 用户看到的就是「主界面不显示 + 控制台一闪就没了」，而日志里只有一句
-            // 对普通人毫无意义的 PlatformApi 报错。
             //
-            // 所以这里把降级链**显式写死**，保证显卡再老也能落到一个能用的后端：
-            //     ANGLE(D3D11) → WGL(OpenGL) → 软件渲染
-            // 软件渲染是最后的保底。教室软件下载站这种静态 UI 用它完全够用，
-            // 而且 WebView2 是独立进程自己渲染的，不受这里影响。
-            //
-            // ⚠️ 2026-10-02 补：ANGLE 后端本身是**架在 D3D11 上**的。目标机上
-            //    D3D11CreateDevice 直接返回 0x887A0004（DXGI_ERROR_UNSUPPORTED），
-            //    那就完全没有必要去试 ANGLE —— 试了也是白等一秒多，还在控制台刷出一段
-            //    `No adapters found` / `Unknown requested PlatformApi` 的英文报错，
-            //    对现场排障的人纯粹是噪音。所以先探一下 D3D11：没有就跳过 ANGLE。
-            // 另：命令行加 --software-render 可手动压到只剩软件渲染（见 _forceSoftwareRender）。
+            // 2026-10-09 定版（真机两轮复核后）：
+            //   · Win7 默认**软件渲染**：脏矩形局部重绘依赖渲染表面保帧，老显卡驱动
+            //     （WGL / 老 Intel ICD）保帧不可靠，会产生随机灰矩形残影；
+            //     软件渲染的帧缓冲在进程内存里，保帧天然可靠，从机制上根治该问题。
+            //     实测教室机 D3D11CreateDevice 返回 DXGI_ERROR_UNSUPPORTED，
+            //     GPU 降级链本来就只能落到 WGL —— 与软件渲染相比提速有限，还带渲染缺陷。
+            //   · --gpu-render 可在 Win7 上临时恢复 GPU 降级链（对比验证用）；
+            //   · --software-render 在任何系统上都强制只剩软件渲染（现场排障用）；
+            //   · 非 Win7 系统维持 GPU 降级链：ANGLE(D3D11) → WGL(OpenGL) → 软件渲染。
+            // 另：先探 D3D11 是为了避免在没有 D3D11 的机器上白等 ANGLE 失败
+            //    （省一秒多启动时间，也少刷一段没意义的英文报错）。
             .With(new Win32PlatformOptions
             {
                 RenderingMode = _forceSoftwareRender
                     ? new[] { Win32RenderingMode.Software }
-                    : Platform.GpuInfo.IsD3D11Available
-                        ? new[]
-                        {
-                            Win32RenderingMode.AngleEgl,
-                            Win32RenderingMode.Wgl,
-                            Win32RenderingMode.Software,
-                        }
-                        : new[]
-                        {
-                            Win32RenderingMode.Wgl,
-                            Win32RenderingMode.Software,
-                        },
+                    : Platform.OsInfo.IsWindows7 && !_forceGpuRender
+                        ? new[] { Win32RenderingMode.Software }
+                        : Platform.GpuInfo.IsD3D11Available
+                            ? new[]
+                            {
+                                Win32RenderingMode.AngleEgl,
+                                Win32RenderingMode.Wgl,
+                                Win32RenderingMode.Software,
+                            }
+                            : new[]
+                            {
+                                Win32RenderingMode.Wgl,
+                                Win32RenderingMode.Software,
+                            },
             })
 #if CSH_CONSOLE
             // 诊断版把 Avalonia 内部日志放宽到 Information（默认只到 Warning）：
