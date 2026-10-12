@@ -136,6 +136,23 @@ public sealed class AppSettings
     public string SidebarDropAnim { get; set; } = "dip";
 
     /// <summary>
+    /// 「展开样式」：侧边栏展开之后用哪套外观 ——
+    ///   <c>classic</c> 工具竖排列表（原版，默认）| <c>grid</c> 图标网格（4 列一页 + 分页点 + 快捷设置行）。
+    /// 在「侧边布局」页选择。
+    /// ⚠️ 认不出的值一律当 <c>classic</c>（见 <c>ToolSidebarWindow.UseGridStyle</c>）。
+    /// 2026-10-11 加：按用户给的希沃风格参考图做的第二套展开面板。
+    /// </summary>
+    public string SidebarPanelStyle { get; set; } = "classic";
+
+    /// <summary>
+    /// 「收起样式」：侧边栏收起来之后留屏幕上那一小截长什么样 ——
+    ///   <c>grip</c> 圆角抓手（原版，默认）| <c>line</c> 细竖线（窗口本身缩成 14×220 的圆角细线）。
+    /// 在「侧边布局」页选择。
+    /// ⚠️ 认不出的值一律当 <c>grip</c>（见 <c>ToolSidebarWindow.UseLineCollapsed</c>）。
+    /// </summary>
+    public string SidebarCollapsedStyle { get; set; } = "grip";
+
+    /// <summary>
     /// ⚠️ **已弃用**（2026-09-29 从"一个总开关"改成"五颗各自一个开关"）：
     /// 老存档里 <c>false</c> = 五颗全隐藏。现在只用来做**一次性迁移**
     /// （见 <c>SettingsStore.MigrateSidebarFooter</c>，迁完就把它拨回 true 当"已迁"标记）。
@@ -246,6 +263,20 @@ public sealed class AppSettings
 
     /// <summary>后台下载完成的版本号（配 UpdatePendingPath，仅供展示）。</summary>
     public string UpdatePendingTag { get; set; } = "";
+
+    /// <summary>
+    /// 素材缓存保留数量（1~10，默认 3）：启动时自动清理 <c>cache</c> 下「按版本分的子目录」，
+    /// 按目录名里的时间从新到旧留 N 个、其余删掉。**当前正在用的那个版本目录永不删**。
+    /// 使用处会自行夹取（见 CacheHome.Clean），存档里不夹是为了老档出现怪值时不至于越界。
+    /// </summary>
+    public int CacheKeepCount { get; set; } = 3;
+
+    /// <summary>
+    /// 日志保留天数（默认 7；<c>0</c> = 永不删除）：启动时自动清理 <c>logs</c> 下
+    /// 「启动时间早于 今天-N 天」的会话目录。**当前正在运行的那个会话目录永不删**。
+    /// 会话化日志见 <see cref="LogHome"/>：一次启动一个目录，所以"过期"就是整目录一起收。
+    /// </summary>
+    public int LogKeepDays { get; set; } = 7;
 
     /// <summary>GitHub 下载取用路径：auto（自动）/ selfhosted（自建加速服务）/ github（GitHub 源）。
     /// 默认 auto，与上游设置页「GitHub 应用更新加速源」一致。由设置页选择；

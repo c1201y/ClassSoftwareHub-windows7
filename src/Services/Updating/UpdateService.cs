@@ -65,20 +65,48 @@ public sealed class UpdateService
     public async Task<UpdateCheckResult> CheckAsync(UpdateChannel channel, string currentVersion, CancellationToken ct = default)
     {
         if (!Source.IsConfigured)
+        {
+            AppLog.Warn("update", "检查更新：更新源未配置，直接放弃");
             return UpdateCheckResult.None("尚未配置更新源，暂时无法检查更新。");
+        }
 
-        var releases = await Source.GetReleasesAsync(channel, 10, ct);
+        var ch = UpdateChannels.ToDisplay(channel);
+        AppLog.Info("update", $"▶ 检查更新 · 通道={ch} · 当前版本 {currentVersion}");
+
+        // ⚠️ 记完日志**原样抛出**（不改这里的行为）：调用方本来就靠异常来区分
+        //    "网络不通"和"已是最新"，把它吞成 None 会让界面误报"已是最新"。
+        IReadOnlyList<UpdateRelease> releases;
+        try
+        {
+            releases = await Source.GetReleasesAsync(channel, 10, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Fail("update", ex, $"检查更新失败（通道={ch}）");
+            throw;
+        }
+
         if (releases.Count == 0)
-            return UpdateCheckResult.None($"{UpdateChannels.ToDisplay(channel)} 通道下暂时还没有发布。");
+        {
+            AppLog.Step("update", $"{ch} 通道下暂时没有发布");
+            return UpdateCheckResult.None($"{ch} 通道下暂时还没有发布。");
+        }
 
         var comparer = new VersionTextComparer();
         var newest = releases.OrderByDescending(r => r.Version, comparer).First();
 
         if (!VersionCompare.IsNewer(newest.Version, currentVersion))
-            return UpdateCheckResult.None($"已是最新（{UpdateChannels.ToDisplay(channel)} 通道）。");
+        {
+            AppLog.Step("update", $"已是最新（最新发布 {newest.Tag}，通道内共 {releases.Count} 条）");
+            return UpdateCheckResult.None($"已是最新（{ch} 通道）。");
+        }
 
-        return new UpdateCheckResult(true, newest,
-            $"发现新版本 {newest.Tag}（{UpdateChannels.ToDisplay(channel)} 通道）");
+        AppLog.Done("update", $"发现新版本 {newest.Tag}（{ch}），当前 {currentVersion}");
+        return new UpdateCheckResult(true, newest, $"发现新版本 {newest.Tag}（{ch} 通道）");
     }
 
     /// <summary>
@@ -136,8 +164,12 @@ public sealed class UpdateService
             expectedMd5 = "";
         }
         if (expectedMd5.Length == 0 && expectedSha.Length == 0)
-            throw new MissingChecksumException(
+        {
+            var noChecksum = new MissingChecksumException(
                 $"发布「{package.Name}」没有提供任何校验值（没有 .md5 资产，接口也没给 SHA256），已拒绝安装。");
+            AppLog.Fail("update", noChecksum, "更新中止：拿不到任何校验值");
+            throw noChecksum;
+        }
 
         // 同一个安装包同时只允许一个下载：前台「立即更新」和后台自动下载会并着走到这里，
         // 原来两条路径共用一个固定 .part 名，会互相截断、覆盖（见报告 MEDIUM-11）。
@@ -146,13 +178,20 @@ public sealed class UpdateService
         await gate.WaitAsync(ct);
         try
         {
+            // ── 链路日志（对齐上游 2026-10-11）：更新是"最不能出错"的一条链路 ——
+            //    以前它失败时界面上只有一句人话，日志里什么都查不到。 ──
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            AppLog.Begin("update", $"下载安装包「{package.Name}」· {package.Url}");
+
             // 按用户设置（自建加速 / 自动 / GitHub 源）把原始链接翻译成候选，逐个尝试：
             // 自建加速经本站 Worker 代签取限时直链，失败自动回落官方直链。
             var candidates = await GithubRoute.ResolveAsync(package.Url.AbsoluteUri, ct).ConfigureAwait(false);
+            AppLog.Step("update", $"线路候选 {candidates.Count} 条 · 落盘 {destinationFile}");
             Exception? lastError = null;
 
-            foreach (var candidate in candidates)
+            for (var candidateIndex = 0; candidateIndex < candidates.Count; candidateIndex++)
             {
+                var candidate = candidates[candidateIndex];
                 // 临时名带 GUID：就算有地方绕过了上面的 gate，也不会写到同一个 .part 上
                 var temp = destinationFile + "." + Guid.NewGuid().ToString("N") + ".part";
                 try
@@ -188,26 +227,41 @@ public sealed class UpdateService
                     var verified = false;
                     var note = "未提供校验值（已跳过校验）";
 
+                    // 校验不过就把现场记全（期望值 / 实际值 / 哪个算法）—— 这类问题必须能事后复盘，
+                    // 只往界面弹一句"校验失败"是查不出所以然的。
+                    ChecksumMismatchException Mismatch(string kind, string expected, string actual)
+                    {
+                        var bad = new ChecksumMismatchException(kind, expected, actual);
+                        TryDelete(temp);
+                        AppLog.Fail("update", bad, $"更新包「{package.Name}」校验不通过（{kind}）");
+                        return bad;
+                    }
+
                     if (expectedMd5.Length > 0)
                     {
                         if (!string.Equals(expectedMd5, actualMd5, StringComparison.OrdinalIgnoreCase))
-                            throw new ChecksumMismatchException("MD5", expectedMd5, actualMd5);
+                            throw Mismatch("MD5", expectedMd5, actualMd5);
                         verified = true;
                         note = "MD5 已校验通过";
                         // 如提供了 SHA256，一并比对
                         if (expectedSha.Length > 0 && !string.Equals(expectedSha, actualSha, StringComparison.OrdinalIgnoreCase))
-                            throw new ChecksumMismatchException("SHA256", expectedSha, actualSha);
+                            throw Mismatch("SHA256", expectedSha, actualSha);
                     }
                     else
                     {
                         if (!string.Equals(expectedSha, actualSha, StringComparison.OrdinalIgnoreCase))
-                            throw new ChecksumMismatchException("SHA256", expectedSha, actualSha);
+                            throw Mismatch("SHA256", expectedSha, actualSha);
                         verified = true;
                         note = "SHA256 已校验通过（该发布未提供 MD5）";
                     }
 
                     if (File.Exists(destinationFile)) File.Delete(destinationFile);
                     File.Move(temp, destinationFile);
+
+                    long finalSize = 0;
+                    try { finalSize = new FileInfo(destinationFile).Length; } catch { }
+                    AppLog.Done("update",
+                        $"更新包「{package.Name}」就绪 · {AppLog.Size(finalSize)} · {note}", sw.Elapsed);
 
                     return new DownloadedPackage(destinationFile, actualMd5, actualSha, verified, note);
                 }
@@ -224,11 +278,17 @@ public sealed class UpdateService
                     //    必须当场清理，否则反复更新失败会耗尽 %LOCALAPPDATA% 所在分区。
                     TryDelete(temp);
                     lastError = ex;
+                    if (candidateIndex < candidates.Count - 1)
+                        AppLog.Warn("update",
+                            $"更新包候选 {candidateIndex + 1}/{candidates.Count} 不可用（{ex.Message}）→ 换下一条");
                 }
             }
 
             // 所有候选都失败：抛出最后一条错误（没有候选时兜一个通用错误）
-            throw lastError ?? new InvalidOperationException("下载失败。");
+            var exhausted = lastError ?? new InvalidOperationException("下载失败。");
+            AppLog.Fail("update", exhausted,
+                $"更新包「{package.Name}」下载失败（{candidates.Count} 条候选全部试过）");
+            throw exhausted;
         }
         finally
         {
@@ -362,6 +422,18 @@ public sealed class UpdateService
 
         var ext = Path.GetExtension(installerPath).ToLowerInvariant();
 
+        // 记下"要装哪个包、包在不在" —— 应用**紧接着就会退出**，日志到此为止，
+        // 安装程序自己的行为不归我们管。所以这行是"点了更新之后什么都没发生"的唯一线索。
+        var sizeText = "";
+        try
+        {
+            sizeText = File.Exists(installerPath)
+                ? $"（{AppLog.Size(new FileInfo(installerPath).Length)}）"
+                : "（⚠ 文件不存在，安装必然失败）";
+        }
+        catch { }
+        AppLog.Info("update", $"▶ 拉起安装程序 · {installerPath}{sizeText}");
+
         // Inno Setup 静默参数：/SP- 不显示"准备安装"提示，/CLOSEAPPLICATIONS 自动关掉占用的应用，
         // /TASKS="desktopicon" 保证升级后桌面快捷方式还在
         const string innoArgs =
@@ -415,6 +487,7 @@ public sealed class UpdateService
             // 仅启动 cmd 进程即返回（调用方随后必须立即退出应用）；
             // 退出码由 cmd 在安装器结束后写入文件，本进程不等待。
             Process.Start(psi)?.Dispose();
+            AppLog.Info("update", "安装程序已排队（延迟约 3 秒启动，留给应用退出的窗口）");
         }
         catch (Exception ex)
         {

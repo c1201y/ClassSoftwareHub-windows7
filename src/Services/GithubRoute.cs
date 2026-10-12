@@ -143,11 +143,17 @@ public static class GithubRoute
     {
         // 只有「GitHub 上的文件地址」才谈得上换路（官网直链、网盘、商店页一律不动）
         if (!Core.GithubMirror.IsMirrorableUrl(url))
+        {
+            Core.AppLog.Step("download-route", "非 GitHub 链接 → 原样直连（不改写）");
             return new[] { url };
+        }
 
         // GitHub 源：原样直连，不做任何改写。
         if (Current == GithubRoutes.Official)
+        {
+            Core.AppLog.Step("download-route", "线路=GitHub 源 → 直连，不探测不改写");
             return new[] { url };
+        }
 
         // 节点未就绪（当前已就绪，此分支留作回退）：直接走公益镜像测速择优，末尾回官方直链。
         if (!AcceleratorReady)
@@ -158,15 +164,32 @@ public static class GithubRoute
         if (signed is null)
         {
             // 自建不可用 → ② 公益镜像测速择优 → ③ 官方直链
-            Core.AppLog.Info("download-route", "自建加速不可用：改用公益镜像（测速择优）");
-            return await MirrorChainAsync(url, probe: true, ct).ConfigureAwait(false);
+            Core.AppLog.Info("download-route", "自建加速服务：未取得签名，改用公益镜像（测速择优）");
+            var fallback = await MirrorChainAsync(url, probe: true, ct).ConfigureAwait(false);
+            LogCandidates(fallback);
+            return fallback;
         }
 
         // 自建直链优先；下载失败时按已缓存的镜像顺序回退，最后回官方直链。
         var list = new List<string> { signed };
         list.AddRange(await MirrorChainAsync(url, probe: false, ct).ConfigureAwait(false));
-        Core.AppLog.Info("download-route", $"自建加速服务：{signed}");
+        LogCandidates(list);
         return list;
+    }
+
+    /// <summary>
+    /// 一句"最后到底排成了什么样"：只取域名（日志里看"走了哪一家"就够，
+    /// 不必把带签名的整条 URL 铺进日志）。
+    /// </summary>
+    private static void LogCandidates(IReadOnlyList<string> candidates) =>
+        Core.AppLog.Step("download-route",
+            $"线路={DisplayName(Current)} · 候选 {candidates.Count} 条 → "
+            + string.Join(" > ", candidates.Select(c => HostOf(c))));
+
+    /// <summary>只取链接的域名部分。</summary>
+    private static string HostOf(string url)
+    {
+        try { return new Uri(url).Host; } catch { return url; }
     }
 
     /// <summary>

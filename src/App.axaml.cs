@@ -70,6 +70,18 @@ public partial class App : Application
         //    见 OnUnhandledException 的移植说明。这里在构造里就挂上，尽早生效。
         Dispatcher.UIThread.UnhandledException += OnUnhandledException;
 
+        // ⛔ 另外三个全局钩子（对齐上游 2026-10-11 的打点采纳）：
+        //   只挂 UI 线程的 UnhandledException 有个巨大盲区 —— **非 UI 线程崩了连 crash.log 都不留**，
+        //   而"应用突然自己消失了"恰恰是最需要日志的那类问题。
+        //   三个各有各的盲区：AppDomain = 非 UI 线程的终止级异常；UnobservedTask = 后台 Task 静默失败；
+        //   ProcessExit = 正常终止的终局标记（反过来说，"最后一行不是它"就说明上次是被杀/崩的）。
+        AppDomain.CurrentDomain.UnhandledException += OnDomainUnhandledException;
+        TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+        AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
+
+        // 让每条异常日志自动带上"当时在哪一页、窗口多大"（Core 层不引用 Pages 层，所以用委托注入）
+        Core.AppLog.ContextProvider = CurrentScene;
+
         // 单实例。这个命名的互斥体同时也是安装程序 [Setup] AppMutex 用的名字 —— 装/升级时 Inno 靠它
         // 判断"应用还在跑"，所以进程活着期间必须一直持有，不能释放。
         var mutex = new Mutex(initiallyOwned: true, Core.ShellConfig.MutexName, out var isFirstInstance);
@@ -146,7 +158,7 @@ public partial class App : Application
         catch (Exception ex)
         {
             _activateSignal = null;
-            Services.ScreenCapture.Log("[single] 叫醒事件建不出来: " + ex.Message);
+            Core.AppLog.Info("single", "叫醒事件建不出来: " + ex.Message);
         }
     }
 
@@ -291,7 +303,7 @@ public partial class App : Application
             catch (Exception ex)
             {
                 // 打不开又不是"不存在"（多半是权限）→ 放弃敲门，交给窗口判据决定
-                Services.ScreenCapture.Log("[single] 叫醒事件打不开: " + ex.Message);
+                Core.AppLog.Info("single", "叫醒事件打不开: " + ex.Message);
                 return;
             }
         }
@@ -330,14 +342,33 @@ public partial class App : Application
         // 对应原版 OnLaunched：先读设置，再建主窗口。
         Settings.Load();
 
-        // 数据目录分区：日志 → logs\，内嵌解包的图片/图标缓存 → cache\（旧版全堆在根上）。
-        // 尽早搬 —— 后面任何模块一写日志就落到新位置了。
+        // 数据目录分区（自上游 dv1.1.3 会话化体系）：
+        //   ① LegacyCleanup 收掉旧结构遗留在根上的死文件（旧素材副本 / 旧日志 / 调试 dump）；
+        //   ② LogHome 把上一版「按模块平铺的 logs\*.log」归档成 _legacy-{日期}，再定下本次运行的会话目录
+        //      （logs\{启动时间}\，见 AppLog.Dir）；
+        //   ③ CacheHome.Ensure 定下本次运作用的版本缓存目录（cache\{版本}-{…}\）。
+        // 尽早跑 —— 后面任何模块一写日志就落进本次会话目录了。
         try
         {
-            Core.AppLog.MigrateLegacyFiles();
-            Services.EmbeddedAssets.MigrateLegacyCache();
+            Services.LegacyCleanup.Run();
+            Services.LogHome.MigrateLegacy();
+            Services.LogHome.Ensure();
+            Services.CacheHome.Ensure();
+            // ⚠️ 原版这里还调 EmbeddedAssets.MigrateLegacyCache()（把旧版堆在**数据根目录**的
+            //    图片/图标搬进 cache\）。自上游 dv1.1.3 起这套搬迁已并进 LegacyCleanup.Run()：
+            //    旧素材直接收掉即可（下一次用到会重新解包进 cache\{版本}\），不必再搬。
         }
         catch { /* 迁移失败不影响启动，文件留在原地 */ }
+
+        // 异常日志的"现场"描述：当时在哪一页（Core 层不反依赖 Pages 层，走委托注入）。
+        Core.AppLog.ContextProvider = () =>
+        {
+            try
+            {
+                return "页 " + Pages.ShellPage.CurrentTag;
+            }
+            catch { return ""; }
+        };
         Telemetry = new NoopTelemetryService(Settings);
         Telemetry.Track("app_launch", new Dictionary<string, object?>
         {
@@ -422,6 +453,15 @@ public partial class App : Application
         Data.EasiNoteGuard.Start();
         Data.ProcessGuard.Start();
 
+        // 自动关机（实验性功能，自上游 dv1.1.3 移植）：总开关默认关，巡检开着也无副作用
+        // —— Enabled=false 时 Tick 第一眼就 return（见 Data.AutoShutdown）。
+        Data.AutoShutdown.Start();
+
+        // 日志 / 缓存的保留期巡检（自上游 dv1.1.3 移植）：日志留最近 N 天、缓存留最近 N 个版本；
+        // 当前正在用的会话目录 / 版本目录永远不删（见 LogHome.Clean / CacheHome.Clean）。
+        Services.CacheHome.Start();
+        Services.LogHome.Start();
+
         // 虚拟键盘（实验性功能）：总开关是单一的 —— 关着的时候 Start() 第一句就 return，
         // 触摸钩子、UIA 探测、注册表接管一个都不会上电（见 VirtualKeyboardService）。
         Services.VirtualKeyboard.VirtualKeyboardService.Start();
@@ -489,17 +529,22 @@ public partial class App : Application
                 }
 
                 // 落一条日志：这条链路出问题时，日志是唯一能分辨"根本没收到"还是"收到了但窗口没出来"的依据
-                Services.ScreenCapture.Log("[single] 收到唤醒请求，把主窗口叫出来");
+                Core.AppLog.Info("single", "收到唤醒请求，把主窗口叫出来");
 
                 Dispatcher.UIThread.Post(() =>
                 {
                     try
                     {
-                        MainWindow?.ShowFromTray();
+                        if (MainWindow is null)
+                        {
+                            Core.AppLog.Info("single", "主窗口不存在，唤醒请求无人处理（见同日的 [startup] 记录）");
+                            return;
+                        }
+                        MainWindow.ShowFromTray();
                     }
                     catch (Exception ex)
                     {
-                        Services.ScreenCapture.Log("[single] 叫醒主窗口失败: " + ex.Message);
+                        Core.AppLog.Info("single", "叫醒主窗口失败: " + ex.Message);
                     }
                 });
             }
@@ -510,6 +555,66 @@ public partial class App : Application
         };
 
         listener.Start();
+    }
+
+    /// <summary>
+    /// 「当时在哪一页、窗口多大」—— 崩溃 / 布局问题的第一现场。
+    /// 挂到 <see cref="Core.AppLog.ContextProvider"/> 上之后，**每一条异常日志都会自动带上它**。
+    /// ⚠️ 全程 try/catch：崩溃那一刻什么状态都有可能，取不到就当没有，绝不能再抛。
+    /// </summary>
+    private static string CurrentScene()
+    {
+        try
+        {
+            var s = "page=" + Pages.ShellPage.CurrentTag;
+            if (MainWindow is { } win) s += $" window={win.ClientSize.Width:0}x{win.ClientSize.Height:0}";
+            return s;
+        }
+        catch { return ""; }
+    }
+
+    /// <summary>
+    /// 非 UI 线程上没人接的异常。CLR 从 .NET Core 起**没有"忽略并继续"这回事** ——
+    /// 它一定会终止进程，所以这里做的是"临死前把现场留下来"，不是"救回来"。
+    /// </summary>
+    private static void OnDomainUnhandledException(object sender, System.UnhandledExceptionEventArgs e)
+    {
+        try
+        {
+            var tail = $"CLR 未处理异常（即将终止={e.IsTerminating}）";
+            if (e.ExceptionObject is Exception ex) Core.AppLog.Exception("crash", ex, tail);
+            else Core.AppLog.Error("crash", tail + "：" + e.ExceptionObject);
+        }
+        catch { }
+    }
+
+    /// <summary>
+    /// 后台 <see cref="Task"/> 里**没人 await** 的异常。CLR 默认既不崩也不报、直接丢掉 ——
+    /// 那是最糟的一种"功能悄悄坏了"。所以：记一条，再 <c>SetObserved</c> 免得它升级成进程级。
+    /// </summary>
+    private static void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+    {
+        try { Core.AppLog.Exception("crash", e.Exception, "后台任务未观察异常（已吞，不升级为进程级）"); }
+        catch { }
+        try { e.SetObserved(); } catch { }
+    }
+
+    /// <summary>
+    /// 进程走完了**正常终止**路径（区别于被 taskkill / 被杀软 / 被崩溃带走）。
+    /// 它的真正价值是"缺席即证据"：会话目录里最后一行不是它 ⇒ 上次没走正常流程。
+    ///
+    /// ⚠️ 单实例那条"敲门后自退"的分支（<c>Environment.Exit(0)</c>）也会触发它 ——
+    ///    用 <see cref="Services.LogHome.Established"/> 挡掉，否则用户每点一次图标就会
+    ///    多出一个只写了一行的空会话目录。
+    /// </summary>
+    private static void OnProcessExit(object? sender, EventArgs e)
+    {
+        try
+        {
+            if (!Services.LogHome.Established) return;
+            Core.AppLog.Info("exit", $"进程正常终止（退出码 {Environment.ExitCode}）");
+        }
+        catch { }
     }
 
     /// <summary>
@@ -530,18 +635,12 @@ public partial class App : Application
         {
             if (ex is not null) Telemetry.TrackException(ex, "xaml_unhandled");
 
-            // 排障信息：当时停在哪一页 + 窗口多大（只在特定尺寸下冒出来的问题，没有这两个数无从复现）
-            var where = "page=" + Pages.ShellPage.CurrentTag;
-            try
-            {
-                if (MainWindow is { } win)
-                    where += $" window={win.ClientSize.Width:0}x{win.ClientSize.Height:0}";
-            }
-            catch { /* 拿不到窗口尺寸不影响记录 */ }
-
-            // ⚠️ 移植说明：不再自己往根目录写 crash.log —— 日志统一走 Core.AppLog（logs\crash.log），
-            //    与 AppLog.MigrateLegacyFiles 的"分区"保持一致（原版同样改成 AppLog.Write）。
-            Core.AppLog.Write("crash", Core.LogLevel.Error, $"[{where}] {ex?.Message}\n{ex}");
+            // 排障信息（当时停在哪一页 + 窗口多大）由 AppLog.ContextProvider 自动附上 ——
+            // 「特定尺寸下才冒出来」这类问题，没有那两个数根本无从复现。
+            if (ex is not null)
+                Core.AppLog.Exception("crash", ex, "UI 线程未处理异常");
+            else
+                Core.AppLog.Error("crash", "UI 线程未处理异常（异常对象为空）");
         }
         catch { /* 记录失败也不影响 */ }
 

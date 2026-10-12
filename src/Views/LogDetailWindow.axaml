@@ -1,0 +1,301 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:fa="using:FluentAvalonia.UI.Controls"
+        xmlns:ctl="using:ClassSoftwareHub.Desktop.Controls"
+        x:Class="ClassSoftwareHub.Desktop.Views.LogDetailWindow"
+        Title="日志 · 详细视图"
+        Width="1280" Height="800"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource ApplicationPageBackgroundThemeBrush}">
+
+    <!--
+      日志「详细视图」（独立窗口）。
+
+      定位：**给开发者定位问题用**，跟主界面那个概览日志页是两回事。
+        · 主日志页 = 概览（够用的上下文 + 筛选 + 统计）；
+        · 本窗口   = 逐行啃（序号 / 毫秒时间 / 完整不截断 / 原始堆栈 / 全量统计）。
+      所以这里可以牺牲视觉：没有大标题、没有卡片内边距、字号压到 12，
+      把每一寸都让给正文 —— 但**排版必须是对的**（列宽对齐、能选中复制、能滚）。
+
+      列宽必须与下面 DetailRowTemplate 完全一致：
+          # 56 | 时间 168 | 级别 70 | 模块 120 | 内容 *
+      右边常驻「原文」面板：表格里看到的是解析后的字段，面板里是**文件里那一行的原文**，
+      排障时经常要的就是这个（比如把整段堆栈原样贴给上游）。
+
+      ⚠️ 移植说明（WinUI → Avalonia/FluentAvalonia）：
+        · 原版是「标准窗口 + 自绘标题栏」（ExtendsContentIntoTitleBar + SetTitleBar + AppWindow
+          的尺寸/居中/系统按钮配色）。按移植契约「Win7 上更稳的做法是保留系统边框」，
+          这里保留系统标题栏；原 AppTitleBar 那行降级成内容顶部的标识条（不再承担拖动职责），
+          AppWindow 那一整套（ResizeClient / Move / TitleBar 配色 / GetDpiForWindow）随之删掉。
+        · 尺寸/居中：原版按物理像素手算；Avalonia 一律 DIP，用 Width/Height +
+          WindowStartupLocation="CenterScreen"，并在 .cs 里按屏幕工作区夹一遍。
+        · 资源挂在**根 Grid** 上（原版注释里说 WinUI 的 Window 不是 FrameworkElement 没有 Resources；
+          Avalonia 的 Window 有 Resources，但这里保持挂根 Grid，改动最小）。
+        · Grid 无 Padding / RowSpacing / ColumnSpacing → Border Padding + 子元素 Margin 模拟。
+        · ThemeResource → DynamicResource；x:Bind → {Binding}。
+        · ListView → ListBox（Extended → Multiple）；ListView.ContextFlyout → ListBox.ContextFlyout。
+        · AutoSuggestBox → TextBox + 左侧叠加放大镜 FontIcon；MenuFlyoutItem → MenuItem（Header）。
+        · TextBlock.IsTextSelectionEnabled → SelectableTextBlock。
+        · ToolTipService.ToolTip → ToolTip.Tip。
+        · ScrollViewer 无 HorizontalScrollMode/VerticalScrollMode → 去掉这两个属性。
+        · Style TargetType="Button" + x:Key → Style Selector="Button" + x:Key。
+        · CaptionTextBlockStyle（WinUI 样式键，FA 里没有）→ 内联 FontSize="12"。
+        · ContainerContentChanging → 行模板绑 ctl:LogLevelBrushConverter。
+        · FontWeights.SemiBold（WinUI）→ Avalonia.Media.FontWeight.SemiBold。
+    -->
+
+    <Grid x:Name="Root" IsTabStop="True" KeyDown="Root_KeyDown">
+        <Grid.Resources>
+            <ctl:LogLevelBrushConverter x:Key="LevelBrush" />
+
+            <DataTemplate x:Key="DetailRowTemplate">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="56" />
+                        <ColumnDefinition Width="168" />
+                        <ColumnDefinition Width="70" />
+                        <ColumnDefinition Width="120" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+
+                    <!-- 序号：对照原文用 -->
+                    <TextBlock Text="{Binding IndexText}" FontSize="12" FontFamily="Consolas"
+                               VerticalAlignment="Top" Margin="0,2,8,0"
+                               Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
+
+                    <!-- 毫秒时间（主页面为了等宽去掉了毫秒，这里保留） -->
+                    <TextBlock Grid.Column="1" Text="{Binding Stamp}" FontSize="12" FontFamily="Consolas"
+                               VerticalAlignment="Top" Margin="0,2,8,0" TextTrimming="CharacterEllipsis"
+                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="5"
+                                VerticalAlignment="Top" Margin="0,1,0,0">
+                        <fa:FontIcon Glyph="{Binding LevelGlyph}" FontSize="12"
+                                     Foreground="{Binding Level, Converter={StaticResource LevelBrush}}" />
+                        <TextBlock Text="{Binding LevelText}" FontSize="12"
+                                   Foreground="{Binding Level, Converter={StaticResource LevelBrush}}" />
+                    </StackPanel>
+
+                    <TextBlock Grid.Column="3" Text="{Binding ModuleText}" FontSize="12" FontFamily="Consolas"
+                               VerticalAlignment="Top" Margin="0,2,8,0" TextTrimming="CharacterEllipsis"
+                               ToolTip.Tip="{Binding Module}"
+                               Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
+
+                    <SelectableTextBlock Grid.Column="4" Text="{Binding Message}" FontSize="12"
+                                         TextWrapping="Wrap"
+                                         Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                </Grid>
+            </DataTemplate>
+
+        </Grid.Resources>
+
+        <Grid.Styles>
+            <!-- 动作图标钮（原版 Style x:Key="IconActionStyle" TargetType="Button"；
+                 Avalonia 的控件没有可赋值的 Style 属性，只认 Styles 集合 → 改用 Class 选择器） -->
+            <Style Selector="Button.iconAction">
+                <Setter Property="Width" Value="32" />
+                <Setter Property="Height" Value="32" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="MinWidth" Value="0" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="HorizontalContentAlignment" Value="Center" />
+                <Setter Property="VerticalContentAlignment" Value="Center" />
+            </Style>
+
+            <!-- 详细视图的表格行容器（原版 ListView.ItemContainerStyle → ListBoxItem 属性叠加） -->
+            <Style Selector="ListBox#LogList ListBoxItem">
+                <Setter Property="MinHeight" Value="24" />
+                <Setter Property="Margin" Value="0" />
+                <Setter Property="Padding" Value="12,2" />
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            </Style>
+        </Grid.Styles>
+
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />  <!-- 0 标识条（原自绘标题栏） -->
+            <RowDefinition Height="Auto" />  <!-- 1 控制行 -->
+            <RowDefinition Height="Auto" />  <!-- 2 级别芯片 + 统计条 -->
+            <RowDefinition Height="*" />     <!-- 3 主区 -->
+        </Grid.RowDefinitions>
+
+        <!-- 原自绘标题栏（移植后为内容标识条：系统标题栏仍在最上方） -->
+        <Grid x:Name="AppTitleBar" Grid.Row="0" Height="32" Margin="12,8,0,0">
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <fa:FontIcon Glyph="&#xE9D9;" FontSize="13" Opacity="0.85" />
+                <TextBlock Text="日志 · 详细视图" FontSize="12.5" VerticalAlignment="Center" Opacity="0.85" />
+            </StackPanel>
+        </Grid>
+
+        <!-- ===== 1 控制行 =====
+             原版 Grid Padding="12,10,12,6" ColumnSpacing="12" → Border Padding + 第 1 列左 Margin -->
+        <Border Grid.Row="1" Padding="12,10,12,6">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Orientation="Horizontal" Spacing="8"
+                            HorizontalAlignment="Left" VerticalAlignment="Center">
+                    <ComboBox x:Name="SessionBox" MinWidth="168" MaxWidth="240"
+                              SelectionChanged="SessionBox_SelectionChanged" />
+                    <ComboBox x:Name="FileBox" MinWidth="108" MaxWidth="160"
+                              SelectionChanged="FileBox_SelectionChanged" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" Margin="12,0,0,0" Orientation="Horizontal" Spacing="6"
+                            HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <!-- 原版 AutoSuggestBox（QueryIcon="Find"）→ TextBox + 左侧叠加放大镜 -->
+                    <Grid Width="236" VerticalAlignment="Center">
+                        <TextBox x:Name="FilterBox" Watermark="筛选日志…"
+                                 Padding="34,0,12,0" VerticalContentAlignment="Center"
+                                 TextChanged="FilterBox_TextChanged" />
+                        <fa:FontIcon Glyph="&#xE721;" FontSize="14" Margin="12,0,0,0"
+                                     HorizontalAlignment="Left" VerticalAlignment="Center"
+                                     Opacity="0.6" IsHitTestVisible="False" />
+                    </Grid>
+
+                    <Button Classes="iconAction" Click="Copy_Click"
+                            ToolTip.Tip="复制筛选结果（整段原文）">
+                        <fa:FontIcon Glyph="&#xE8C8;" FontSize="14" />
+                    </Button>
+                    <Button Classes="iconAction" Click="Export_Click"
+                            ToolTip.Tip="把本机全部会话日志打成一个压缩包">
+                        <fa:FontIcon Glyph="&#xE896;" FontSize="14" />
+                    </Button>
+                    <Button Classes="iconAction" Click="OpenFolder_Click"
+                            ToolTip.Tip="打开日志根目录，每个子文件夹就是一次运行">
+                        <fa:FontIcon Glyph="&#xE8B7;" FontSize="14" />
+                    </Button>
+                    <Button Classes="iconAction" Click="Refresh_Click"
+                            ToolTip.Tip="重新读取当前文件">
+                        <fa:FontIcon Glyph="&#xE72C;" FontSize="14" />
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- ===== 2 级别芯片 + 全量统计 =====
+             芯片列 `*`、统计列 `Auto`：
+               · 窗口宽 ⇒ 芯片靠左、统计靠右，中间留白（工具栏的正常观感）；
+               · 窗口窄 ⇒ **芯片列自己缩、里面横向滚**，⛔ 不是芯片被裁掉；
+               · 统计用**可换行**的富文本（不是一排小 StackPanel）：数字一多就折行，
+                 ⛔ 不会像右对齐的 StackPanel 那样把最左边那组数字顶出可视区。
+             原版 Grid Padding="12,0,12,8" ColumnSpacing="16" → Border Padding + 第 1 列左 Margin -->
+        <Border Grid.Row="2" Padding="12,0,12,8">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                              VerticalScrollBarVisibility="Disabled">
+                    <StackPanel x:Name="ChipHost" Orientation="Horizontal" Spacing="4"
+                                VerticalAlignment="Center" />
+                </ScrollViewer>
+
+                <TextBlock x:Name="MetricBar" Grid.Column="1" Margin="16,0,0,0" MaxWidth="860"
+                           TextWrapping="Wrap"
+                           TextAlignment="Right" VerticalAlignment="Center" />
+            </Grid>
+        </Border>
+
+        <Rectangle Grid.Row="2" Height="1" VerticalAlignment="Bottom"
+                   Fill="{DynamicResource CardStrokeColorDefaultBrush}" />
+
+        <!-- ===== 3 主区：表格 | 原文 ===== -->
+        <Grid Grid.Row="3">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="400" />
+            </Grid.ColumnDefinitions>
+
+            <!-- 表格 -->
+            <Grid Grid.Column="0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <!-- 原版 Grid Padding="12,7"（Avalonia Grid 无 Padding）→ Margin="12,7" -->
+                <Grid Grid.Row="0" Margin="12,7">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="56" />
+                        <ColumnDefinition Width="168" />
+                        <ColumnDefinition Width="70" />
+                        <ColumnDefinition Width="120" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="#" FontSize="12"
+                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                               ToolTip.Tip="本视图内的行序号（文件被截断时，不等于文件的真实行号）" />
+                    <TextBlock Grid.Column="1" Text="时间" FontSize="12"
+                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                    <TextBlock Grid.Column="2" Text="级别" FontSize="12"
+                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                    <TextBlock Grid.Column="3" Text="模块" FontSize="12"
+                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                    <TextBlock Grid.Column="4" Text="内容" FontSize="12"
+                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                </Grid>
+
+                <Rectangle Grid.Row="1" Height="1" Fill="{DynamicResource CardStrokeColorDefaultBrush}" />
+
+                <ListBox Grid.Row="2" x:Name="LogList" SelectionMode="Multiple"
+                         Background="Transparent"
+                         ItemTemplate="{StaticResource DetailRowTemplate}"
+                         SelectionChanged="LogList_SelectionChanged"
+                         KeyDown="LogList_KeyDown">
+                    <ListBox.ContextFlyout>
+                        <MenuFlyout>
+                            <MenuItem Header="复制选中行（原文）" Click="CopySelected_Click" />
+                            <MenuItem Header="复制筛选结果（原文）" Click="Copy_Click" />
+                        </MenuFlyout>
+                    </ListBox.ContextFlyout>
+                </ListBox>
+            </Grid>
+
+            <Rectangle Grid.Column="1" Width="1" VerticalAlignment="Stretch"
+                       Fill="{DynamicResource CardStrokeColorDefaultBrush}" />
+
+            <!-- 原文面板：原版 Grid Padding="12,10,12,12" RowSpacing="8" → Margin 分给各行 -->
+            <Grid Grid.Column="2" Margin="12,10,12,12">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <Grid Grid.Row="0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="RawTitle" Text="原文" FontSize="13" FontWeight="SemiBold"
+                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                    <Button Grid.Column="1" Content="复制原文" Click="CopyRaw_Click" Padding="10,3,10,3" />
+                </Grid>
+
+                <Border Grid.Row="1" Margin="0,8,0,0" CornerRadius="4" BorderThickness="1"
+                        Background="{DynamicResource SubtleFillColorSecondaryBrush}"
+                        BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                                  Padding="10,8">
+                        <SelectableTextBlock x:Name="RawText" FontFamily="Consolas" FontSize="12" LineHeight="18"
+                                             TextWrapping="Wrap"
+                                             Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                                             Text="在上面的表格里选中一条日志，这里会显示它在文件里的原始内容。" />
+                    </ScrollViewer>
+                </Border>
+
+                <TextBlock Grid.Row="2" x:Name="StatusText" Margin="0,8,0,0" TextWrapping="Wrap"
+                           FontSize="12"
+                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+            </Grid>
+        </Grid>
+    </Grid>
+</Window>

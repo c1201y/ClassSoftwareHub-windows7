@@ -42,8 +42,15 @@ public static class ShellConfig
     // （取消安装包内置内容包，GithubContentSync 整理版本 v2）＋ 浮窗抽号结果字号整体上调 ＋
     // 悬浮窗打开工具页动画只播一次。版本号经用户确认**留回 1.1.0**（功能并入 1.1 正式线，
     // 不再单独抬到 1.1.1；基数不动，旧包不会被强制顶掉）。
+    // 2026-10-11：**1.1.0 → 1.1.1**（对齐 WinUI 桌面版 dv1.1.2 + dv1.1.3-insider1.1 的功能集：
+    // 日志「启动一次一个目录」+ 按版本分的素材缓存 + 日志页重写与详细视图 + 设置页「存储」区
+    // 与列表分页 + 全屏时钟/秒表等宽数字（修数字左右抖）+ 实验页「自动关机」+ 安装程序条款页；
+    // 本轮是一次成规模的功能追加，按"叠加一块新功能涨一位"的规则抬到 1.1.1）。
     // 客户端据此判定 IsInsider=false → 走 stable 通道，只认非预发布的 Release。
-    public const string ShellVersion = "1.1.0";
+    // 2026-10-12：**1.1.1 → 1.1.1-insider1.0**（进入 1.1.1 预览线：本轮补齐上游
+    // dv1.1.2 → dv1.1.3-insider1.1 的服务层链路日志采纳，随后按用户要求转入预览版发布；
+    // 客户端据此判定 IsInsider=true → 默认走 insider 通道，可同时看到预发布与正式版）。
+    public const string ShellVersion = "1.1.1-insider1.0";
 
     /// <summary>当前是不是预览（内测）构建 —— 版本号里带 <c>insider</c> 即为真。</summary>
     public static bool IsInsider =>

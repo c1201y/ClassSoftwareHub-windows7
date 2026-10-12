@@ -571,6 +571,28 @@ public static class SystemInfo
     public static string OsDisplay() => OsNameText();
 
     /// <summary>
+    /// 一行「显示器 / DPI」摘要（2026-10-11 加，日志横幅用；自上游 dv1.1.3 移植）。
+    ///
+    /// ⚠️ 为什么要它：界面"错位 / 被截断 / 缩放发虚"这类问题**十有八九跟 DPI 和显示器数有关**，
+    ///    而这两个数用户从来不主动说 —— 每次启动自己记一行，出问题时就不用再问一遍。
+    /// </summary>
+    public static string DisplaySummary()
+    {
+        try
+        {
+            var monitors = NativeMethods.GetSystemMetrics(80);   // SM_CMONITORS：当前接了几台
+            var w = NativeMethods.GetSystemMetrics(0);           // SM_CXSCREEN
+            var h = NativeMethods.GetSystemMetrics(1);           // SM_CYSCREEN
+            uint dpi;
+            try { dpi = NativeMethods.GetDpiForSystem(); }       // Win7 没这个导出 → 缩放记 0%
+            catch (EntryPointNotFoundException) { dpi = 0; }
+            var scale = dpi > 0 ? (int)(dpi * 100 / 96) : 0;
+            return $"{monitors} 台／{w}x{h}／缩放 {scale}%";
+        }
+        catch { return "—"; }
+    }
+
+    /// <summary>
     /// **具体**的内部版本号：<c>CurrentBuildNumber</c> + <c>UBR</c>（如 <c>26220.1234</c>）。
     /// ⚠️ 只给 <c>CurrentBuildNumber</c>（26220）是不够的 —— 同一个 build 上装没装某个累积更新
     ///    就靠 UBR 区分，排查"打了某补丁之后才出问题"时缺了它根本对不上。

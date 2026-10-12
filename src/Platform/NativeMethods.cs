@@ -145,6 +145,11 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     internal static extern int GetSystemMetrics(int nIndex);
 
+    /// <summary>最低 Win8.1（Win7 上没有这个导出，调用方必须 catch EntryPointNotFoundException）。
+    /// 系统当前 DPI（96 = 100%）。</summary>
+    [DllImport("user32.dll")]
+    internal static extern uint GetDpiForSystem();
+
     internal const int SM_XVIRTUALSCREEN = 76;
     internal const int SM_YVIRTUALSCREEN = 77;
     internal const int SM_CXVIRTUALSCREEN = 78;

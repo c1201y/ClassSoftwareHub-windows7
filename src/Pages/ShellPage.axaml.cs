@@ -4,9 +4,11 @@ using System.IO;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Media;
 using Avalonia.Styling;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using ClassSoftwareHub.Desktop.Core;
 using ClassSoftwareHub.Desktop.Platform;
 using FluentAvalonia.UI.Controls;
@@ -469,16 +471,47 @@ public sealed partial class ShellPage : PageBase
         //    此刻往**折叠的分组**里塞 SelectedItem，FA 的选中指示条（那根竖线）找不到落点，
         //    整条就不画；IsExpanded 也可能被随后的首次布局冲掉。
         //    所以布局停稳之后再补钉一次（详见 ReassertNavSelection）。
-        Dispatcher.UIThread.Post(ReassertNavSelection, DispatcherPriority.Loaded);
+        Dispatcher.UIThread.Post(() => { ReassertNavSelection(); FixGroupFlyoutPlacement(); }, DispatcherPriority.Loaded);
 
         // 再补一发延时兜底：NavigationView 的项容器是**懒 realize** 的，Loaded 那一发常常还是太早
         // （实测：起始页是二级页时，分组仍旧不展开、竖线仍旧不画）。450ms 后容器已就绪，这一发能钉住。
         var navFix = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
-        navFix.Tick += (_, _) => { navFix.Stop(); ReassertNavSelection(); };
+        navFix.Tick += (_, _) => { navFix.Stop(); ReassertNavSelection(); FixGroupFlyoutPlacement(); };
         navFix.Start();
 
         UpdateThemeButton();
         Platform.PortLog.Step("ShellPage.Init: 全部完成");
+    }
+
+    /// <summary>
+    /// 修复 FA 2.4.1 分组浮层定位：窄条（Compact）模式下点「内置工具」「实验性功能」图标，
+    /// 子项浮层应贴在图标右侧（RightEdgeAlignedTop），实测却掉到窗口左缘。
+    /// 根因（FA 2.4.1 NavigationViewItem.OnNavigationViewItemBasePositionChanged）：
+    /// Position 变化时控件模板尚未应用（_rootGrid == null），AttachedFlyout 的 Placement
+    /// 从未被设置，浮层回退默认定位，且 FA 事后不会再补。
+    /// 这里在项容器就绪后手动补设一次；幂等，可随兜底计时器重复调用。
+    /// </summary>
+    private void FixGroupFlyoutPlacement()
+    {
+        FixFlyoutPlacement(ToolsNav);
+        FixFlyoutPlacement(ExperimentalNav);
+
+        static void FixFlyoutPlacement(NavigationViewItem item)
+        {
+            var root = item.GetVisualDescendants()
+                           .OfType<Grid>()
+                           .FirstOrDefault(g => g.Name == "NVIRootGrid");
+            if (root is null)
+            {
+                Platform.PortLog.Step("NavFlyout: " + item.Tag + " 模板未就绪，本轮跳过");
+                return;
+            }
+            if (FlyoutBase.GetAttachedFlyout(root) is PopupFlyoutBase flyout)
+            {
+                flyout.Placement = PlacementMode.RightEdgeAlignedTop;
+                Platform.PortLog.Step("NavFlyout: " + item.Tag + " Placement=RightEdgeAlignedTop");
+            }
+        }
     }
 
     /// <summary>
@@ -645,6 +678,9 @@ public sealed partial class ShellPage : PageBase
                 return;
             case "virtualkeyboard":
                 ContentFrame.Navigate(typeof(VirtualKeyboardPage));
+                return;
+            case "autoshutdown":
+                ContentFrame.Navigate(typeof(AutoShutdownPage));
                 return;
             case "experimental":
                 // 「实验性功能」分组的父项**自己就是总览入口**：点它 = 展开/收起分组 + 进这一页。

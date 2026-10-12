@@ -64,7 +64,7 @@
         <!-- 结果区：这一页的主角，吃掉中间剩下的全部高度 -->
         <Grid Grid.Row="2" MinHeight="96" Margin="0,10,0,0">
             <TextBlock x:Name="ResultText" Text="—" FontSize="64" FontWeight="SemiBold"
-                       FontFamily="Bahnschrift" HorizontalAlignment="Center" VerticalAlignment="Center"
+                       FontFamily="Bahnschrift" FontFeatures="+tnum" HorizontalAlignment="Center" VerticalAlignment="Center"
                        TextAlignment="Center" TextWrapping="Wrap" />
             <!-- 提示与池子状态：贴在大字底下，小字退成配角 -->
             <TextBlock x:Name="HintText" FontSize="11.5" Opacity="0.6"

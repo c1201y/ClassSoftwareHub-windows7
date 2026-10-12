@@ -10,12 +10,22 @@
           PointerMoved="Root_PointerMoved" PointerPressed="Root_PointerPressed"
           Tapped="Root_Tapped">
         <Border x:Name="Veil" />
+        <!--
+          ⚠️ FontFeatures="+tnum" 是**必须**的，不是装饰（自上游 dv1.1.3 移植，Nick 2026-10-11 反馈
+             "秒数跳的时候整行一直抖"）：大号时间居中排，字体默认是比例字宽 —— Bahnschrift 里
+             `1` 只有 `4` 的一半宽，秒数一跳整行宽度就变一次，居中的结果就是数字左右横跳。
+             打开 tnum（等宽数字）后每个数字占同样宽度，整行宽度恒定 ⇒ 完全不抖。
+             三个全屏窗口 + 工具页预览 + 浮窗挂件，凡显示时间的都要带这个属性。
+          ⚠️ 移植说明：WinUI 的 Typography.NumeralAlignment="Tabular"（附加属性）在 Avalonia 里
+             对应 TextElement.FontFeatures（OpenType 特性集合）—— 一个 tnum 特性就够，
+             不依赖字体本身是否等宽（Georgia 那种 tnum 无效的字体见 ClockRender.NormalizeFont）。
+        -->
         <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                 <TextBlock x:Name="TimeText" Text="00:00" FontSize="220" FontWeight="Bold"
-                           FontFamily="Bahnschrift" />
+                           FontFamily="Bahnschrift" FontFeatures="+tnum" />
                 <TextBlock x:Name="SecText" Text=":00" FontSize="90" FontWeight="SemiBold"
-                           Opacity="0.85" VerticalAlignment="Bottom" />
+                           Opacity="0.85" VerticalAlignment="Bottom" FontFeatures="+tnum" />
             </StackPanel>
             <TextBlock x:Name="DateText" FontSize="40" Opacity="0.9" HorizontalAlignment="Center" />
         </StackPanel>

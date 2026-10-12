@@ -27,7 +27,7 @@
 
         <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="18">
             <TextBlock x:Name="TimeText" Text="00:00" FontSize="300" FontWeight="Bold"
-                       FontFamily="Bahnschrift" Foreground="#FFF2F4F7" HorizontalAlignment="Center" />
+                       FontFamily="Bahnschrift" Foreground="#FFF2F4F7" HorizontalAlignment="Center" FontFeatures="+tnum" />
             <!-- 进度条：剩余时间的直觉读法（满 → 空） -->
             <!-- TODO(win7): 原版 CornerRadius="3" 在 Avalonia 的 ProgressBar 上不存在（模板自带圆角），已去掉 -->
             <ProgressBar x:Name="Bar" Width="620" Minimum="0" Maximum="100" Value="100"

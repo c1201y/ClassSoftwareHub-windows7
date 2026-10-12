@@ -235,6 +235,19 @@ public sealed partial class SidebarLayoutPage : PageBase
             App.Settings.Save();
         }
 
+        // 「侧边栏样式」两套外观：认不出的值一律归到经典那套（老存档 / 手改坏的 settings.json）。
+        // ⚠️ 跟上面两条同一个路子：进页面先修值再同步给下拉，免得下拉停在一个没有对应项的索引上。
+        if (s.SidebarPanelStyle is not ("classic" or "grid"))
+        {
+            s.SidebarPanelStyle = "classic";
+            App.Settings.Save();
+        }
+        if (s.SidebarCollapsedStyle is not ("grip" or "line"))
+        {
+            s.SidebarCollapsedStyle = "grip";
+            App.Settings.Save();
+        }
+
         RebuildEdgeCombo();
         UpdateSidebarHints();
     }
@@ -267,6 +280,19 @@ public sealed partial class SidebarLayoutPage : PageBase
             {
                 var index = _dropDip < 0.999 ? 1 : 0;
                 if (DropAnimCombo.SelectedIndex != index) DropAnimCombo.SelectedIndex = index;
+            }
+
+            // 「侧边栏样式」：展开 / 收起各留两套外观（2026-10-11）
+            // ⚠️ 认不出的一律回退到第一项（classic / grip），跟侧边栏那边的兜底口径一致
+            if (PanelStyleCombo is not null)
+            {
+                var index = s.SidebarPanelStyle == "grid" ? 1 : 0;
+                if (PanelStyleCombo.SelectedIndex != index) PanelStyleCombo.SelectedIndex = index;
+            }
+            if (CollapsedStyleCombo is not null)
+            {
+                var index = s.SidebarCollapsedStyle == "line" ? 1 : 0;
+                if (CollapsedStyleCombo.SelectedIndex != index) CollapsedStyleCombo.SelectedIndex = index;
             }
 
             // 「截图」那两张卡（2026-10-01 从设置页搬来，同一套"回声"处理）
@@ -1781,6 +1807,40 @@ public sealed partial class SidebarLayoutPage : PageBase
         App.Settings.Save();
 
         _dropDip = DropDipScale(style);
+    }
+
+    // ── 侧边栏样式（2026-10-11：展开 / 收起各留两套外观）───────────
+
+    /// <summary>
+    /// 「展开样式」切换：经典工具列表 / 图标网格。
+    /// ⚠️ 立即生效，走 <see cref="ToolSidebarWindow.ApplyStyle"/>（一条边一个实例，全都要重排）——
+    ///    不能只改设置就完事，不然正在展开的那条会按老样式显示，得收起再展开才变。
+    /// </summary>
+    private void PanelStyle_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_toolSync) return;
+        if (PanelStyleCombo.SelectedItem is not ComboBoxItem item || item.Tag is not string style) return;
+
+        App.Settings.Current.SidebarPanelStyle = style;
+        App.Settings.Save();
+
+        if (App.Settings.Current.SidebarEnabled) ToolSidebarWindow.ApplyStyle();
+    }
+
+    /// <summary>
+    /// 「收起样式」切换：圆角抓手 / 细竖线。
+    /// ⚠️ 换的是**窗口尺寸**（20×110 → 14×220），所以必须整套 ApplySize + MoveToEdge，
+    ///    同样走 <see cref="ToolSidebarWindow.ApplyStyle"/>。
+    /// </summary>
+    private void CollapsedStyle_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_toolSync) return;
+        if (CollapsedStyleCombo.SelectedItem is not ComboBoxItem item || item.Tag is not string style) return;
+
+        App.Settings.Current.SidebarCollapsedStyle = style;
+        App.Settings.Save();
+
+        if (App.Settings.Current.SidebarEnabled) ToolSidebarWindow.ApplyStyle();
     }
 
     // ── 截图（2026-10-07 整组从「设置」页搬来，逻辑原样） ────────────────

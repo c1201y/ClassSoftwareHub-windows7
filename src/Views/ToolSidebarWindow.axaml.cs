@@ -24,8 +24,11 @@ namespace ClassSoftwareHub.Desktop.Views;
 /// <summary>
 /// 屏幕边缘侧边栏：贴在屏幕的某一条边上（上下左右都能放）。
 /// 全屏放 PPT / 视频时够不到任务栏，从边上点一下就能用工具。
-///   · 收起 = 一小截圆角抓手（亚克力底）：点一下展开；**按住可以拖**着挪位置、或拖到别的边
-///   · 展开 = 工具 + 「收起 / 常驻 / 位置复原 / 隐藏 / 打开应用」（展开状态下不能拖，免得跟点按钮打架）
+///   · 收起 = **两套样式**（2026-10-11 加）：grip 圆角抓手（原版）｜ line 细竖线（窗口缩成 14×220 的圆角细线）。
+///     都是"点一下展开"，另外还能"朝屏幕外滑一下"展开（见 <see cref="Strip_PointerMoved"/>）。
+///     **拖拽换边已于 2026-10-04 整条撤除**（见字段区注释），要换边请到设置里选。
+///   · 展开 = **两套样式**（2026-10-11 加）：classic 工具竖排列表 + 底排五颗（原版）｜
+///     grid 图标网格（4 列一页 + 分页点）+ 快捷设置行。见 <see cref="SyncStyleViews"/>。
 /// 位置（贴哪条边 + 沿边位置）会记在设置里；「位置复原」= 回到右边的居中位置。
 /// 置顶、不进任务栏、无标题栏、不能缩放/最大化/最小化。
 ///
@@ -58,7 +61,7 @@ namespace ClassSoftwareHub.Desktop.Views;
 /// </summary>
 public sealed partial class ToolSidebarWindow : Window
 {
-    private const int CollapsedThicknessDip = 20;   // 收起时那条的厚度（竖条=宽，横条=高）
+    private const int CollapsedThicknessDip = 8;    // 收起时那条的厚度（竖条=宽，横条=高）。⚠️ 2026-10-12 用户要求"细一点的线"：20 → 8
     private const int CollapsedLengthDip = 110;     // 收起时的长度（竖条=高）
     // Win32 ShowWindow 的 nCmdShow 值（与 FlyoutChrome / ToolPaletteWindow 同一套私有常量；
     // Platform.NativeMethods 只收 int 参数，不在业务代码里另写 DllImport）
@@ -106,6 +109,32 @@ public sealed partial class ToolSidebarWindow : Window
     private const int FooterFlatSpacingDip = 8;         // 底排按钮之间的间距
     private const int FlatRowPadDip = 24;               // 横条里每一行的左右内边距 + 余量
 
+    // ── 展开样式的第二套：图标网格（grid）───────────────────────
+    // 尺寸全部按 dip 写死，算式在 GridPanelDip() 里，改这里就整块跟着变。
+    private const int GridCellWDip = 60;                // 每颗格子的宽
+    private const int GridCellHDip = 60;                // 每颗格子的高（图标 + 短名）
+    private const int GridGapDip = 6;                   // 格子之间的缝
+    private const int GridPadDip = 8;                   // 面板四周内边距（= GridPanel 的 Margin）
+    private const int GridHeaderDip = 26;               // 顶条（标题 + 四颗小图标键）的高度
+    private const int GridSectionGapDip = 6;            // 顶条 / 网格 / 分页点 / 快捷设置行 之间的间距
+    private const int GridDotsDip = 14;                 // 分页点那一行的高度（圆点 7 + 每边触摸靶 3）
+    private const int GridQuickDip = 56;                // 快捷设置行的高度
+    private const int GridColsSide = 4;                 // 贴左右边时一页几列
+    private const int GridRowsSide = 2;                 // 贴左右边时一页几行
+    private const int GridColsFlat = 8;                 // 贴上下边时一页几列（横条宽，一行铺开）
+    private const int GridRowsFlat = 1;                 // 贴上下边时一页几行
+
+    // ── 收起样式的第二套：细竖线（line）─────────────────────────
+    // ⚠️ 窗口厚度不能给到太细：RoundedCorners 的圆角半径固定 8dip，
+    //    窗口比 16 还窄的话 GDI 区域裁剪会把两端裁成尖的（椭圆比矩形宽）。
+    //    现取 6dip（药丸形，看着就是"一条线"）。⚠️ 2026-10-12 用户要求更细：14 → 6，
+    //    同日再去掉内芯——窗口本身就是那条线，悬停反馈走 LineHover 整条亮。
+    private const int LineThicknessDip = 6;             // 竖线样式：窗口厚度（竖条=宽，横条=高）
+    private const int LineLengthDip = 220;              // 竖线样式：窗口长度（竖条=高）
+
+    /// <summary>收起条上"滑动展开"的方向阈值（dip）。小于它的一律当点击（见 Strip_PointerReleased）。</summary>
+    private const double SwipeThresholdDip = 20;
+
     /// <summary>
     /// 按边缓存的窗口实例（键 = left | right | top | bottom）。
     ///
@@ -152,14 +181,41 @@ public sealed partial class ToolSidebarWindow : Window
     /// <summary>展开面板里的工具按钮（按「侧边布局」的模块清单动态生成，见 BuildToolButtons）。</summary>
     private readonly List<Button> _toolButtons = new();
 
+    /// <summary>
+    /// 「展开样式 = 图标网格」那一套的格子（模块 + 固定补的「主页 / 设置」两颗）。
+    /// ⚠️ 只建一次、之后靠 <see cref="RenderGridPage"/> 搬进搬出 <c>ToolGrid</c> 翻页 ——
+    ///    重建 Button 会让悬停动画、按住型（放大镜）的手势捕获全部断掉。
+    /// </summary>
+    private readonly List<Control> _gridCells = new();
+
+    /// <summary>网格当前在第几页（0 起）。模块清单变少时会被 <see cref="RenderGridPage"/> 归零。</summary>
+    private int _gridPage;
+
+    /// <summary>收起条现在算不算"悬停中"（鼠标 / 手指搭在上面）。只有竖线样式会用它换色。</summary>
+    private bool _hover;
+
+    /// <summary>收起条上按下 / 最近一次移动的位置（dip，Root 坐标）—— 判断"点击还是向外滑"的两点。</summary>
+    private Point _pressPos;
+    private Point _lastPos;
+
+    /// <summary>这一轮按下已经靠"向外滑"展开过了（抬起 / 丢失捕获就别再展一次）。</summary>
+    private bool _swipedOpen;
+
     /// <summary>当前那个"要先问一句"的原生 Flyout（一次只有一个）。</summary>
     private Flyout? _confirmFlyout;
+
+    /// <summary>「安全选项」菜单的 Flyout（一次只有一个）。</summary>
+    private Flyout? _securityFlyout;
 
     /// <summary>「收起」键的那个图标（内容会按贴边重建，所以要留住当前这个实例才好换箭头方向）。</summary>
     private FontIcon? _foldIcon;
 
     /// <summary>「常驻」键的图标（同上，钉住/松开要换样子）。</summary>
     private FontIcon? _pinIcon;
+
+    /// <summary>网格面板顶条上那两颗的图标（跟 <see cref="_foldIcon"/> / <see cref="_pinIcon"/> 同步换样子）。</summary>
+    private FontIcon? _gridFoldIcon;
+    private FontIcon? _gridPinIcon;
 
     /// <summary>
     /// 暂时压住"自动收起"（按住型动作、以及"还有话要问用户"的确认面板期间）。
@@ -280,6 +336,12 @@ public sealed partial class ToolSidebarWindow : Window
     //    现在只剩：按下 → 抬起 = 展开。要换贴哪条边请到设置里选（侧边栏 → 贴边 / 自由模式）。
     //    原先那一大堆拖动专用字段（_dragging / _dragOrigin / _useSnapToFinger / _winTargetX …）
     //    随拖拽一起删掉了。
+    //
+    //    ⚠️ 2026-10-11 加回**一样**东西：朝屏幕外"滑动展开"（贴左边向右滑、贴右边向左滑，上下边同理）。
+    //       它跟拖拽不是一回事，那条红线一点没松：
+    //         · 滑动只是**多开一条路**，抬手时位移不够阈值的**一律还按点击展开**；
+    //         · 唯一被挡下的是"明确朝屏幕里滑够 20dip"——手指抖动到不了这个量级。
+    //       判据全在 Strip_PointerReleased / Strip_PointerMoved 里，改动前先把这段读完。
     private bool _pressed;
 
     private ToolSidebarWindow(string edge)
@@ -455,6 +517,66 @@ public sealed partial class ToolSidebarWindow : Window
     /// <summary>横条（贴上/下边）还是竖条（贴左/右边）。</summary>
     private bool IsFlat => _edge is "top" or "bottom";
 
+    /// <summary>
+    /// 「展开样式」选的是图标网格（第二套）。⚠️ 认不出的值一律当 classic（老存档/手改坏的设置不许崩）。
+    /// </summary>
+    private static bool UseGridStyle => App.Settings.Current.SidebarPanelStyle == "grid";
+
+    /// <summary>「收起样式」选的是细竖线（第二套）。⚠️ 认不出的值一律当 grip。</summary>
+    private static bool UseLineCollapsed => App.Settings.Current.SidebarCollapsedStyle == "line";
+
+    // ── 网格面板的排版参数（都由上面那几个常量算出来）──────────
+
+    /// <summary>一页几列：贴左右边 4 列、贴上下边 8 列（横条宽，一行铺开才不浪费）。</summary>
+    private int GridCols => IsFlat ? GridColsFlat : GridColsSide;
+
+    /// <summary>一页几行。</summary>
+    private int GridRows => IsFlat ? GridRowsFlat : GridRowsSide;
+
+    /// <summary>一共几页（向上取整）。一页放得下就是 1 —— 分页点这时**不显示**。</summary>
+    private int GridPages
+    {
+        get
+        {
+            var per = GridCols * GridRows;
+            if (per <= 0) return 1;
+            var n = Math.Max(1, _gridCells.Count);
+            return (n + per - 1) / per;
+        }
+    }
+
+    /// <summary>
+    /// 网格面板该多大（dip）。
+    /// ⚠️ 宽度按"一页能铺开的列数"算死，**不随模块数变** —— 模块多了只加页，面板不会越撑越宽
+    ///    （参考图里那个面板也是固定宽度 + 分页点）。高度只在"放得下两页"时多 16 给分页点。
+    /// </summary>
+    private (double W, double H) GridPanelDip()
+    {
+        var cols = GridCols;
+        var rows = GridRows;
+
+        var w = cols * GridCellWDip + (cols - 1) * GridGapDip + GridPadDip * 2;
+        var h = GridPadDip * 2
+                + GridHeaderDip + GridSectionGapDip
+                + rows * GridCellHDip + (rows - 1) * GridGapDip + GridSectionGapDip
+                + (GridPages > 1 ? GridDotsDip + GridSectionGapDip : 0)
+                + GridQuickDip;
+
+        return (w, h);
+    }
+
+    // ── 收起态的 dip 尺寸（CollapsedSize 的 dip 版；圆角按它算）──
+
+    /// <summary>收起态窗口宽度（dip）。</summary>
+    private double CollapsedDipW => IsFlat
+        ? (UseLineCollapsed ? LineLengthDip : CollapsedLengthDip)
+        : (UseLineCollapsed ? LineThicknessDip : CollapsedThicknessDip);
+
+    /// <summary>收起态窗口高度（dip）。</summary>
+    private double CollapsedDipH => IsFlat
+        ? (UseLineCollapsed ? LineThicknessDip : CollapsedThicknessDip)
+        : (UseLineCollapsed ? LineLengthDip : CollapsedLengthDip);
+
     /// <summary>设置里选的是自由模式（能吸四条边）。⚠️ 认不出的值一律当贴靠模式。</summary>
     private static bool IsFreeMode => App.Settings.Current.SidebarMode == "free";
 
@@ -489,6 +611,17 @@ public sealed partial class ToolSidebarWindow : Window
             ThemeCompat.Apply(Root);                        // 跟「设置」里的深浅色走（不只是跟系统走）
             ApplyPanelBrush();
             BuildToolButtons();                             // 按「侧边布局」的模块清单生成工具按钮
+            BuildGridButtons();                             // 同一份清单，给「展开样式 = 图标网格」那套用
+            SyncStyleViews();                               // 两套展开样式 / 两套收起样式先摆好
+
+            // 触屏滑动翻页（2026-10-12 用户反馈）：按在格子上也能滑出去 ——
+            // ⚠️ 必须 handledEventsToo=true：格子的 PointerReleased 会被 Button 标 handled。
+            ToolGrid.AddHandler(InputElement.PointerPressedEvent,
+                new EventHandler<PointerPressedEventArgs>(ToolGrid_PointerPressed),
+                RoutingStrategies.Bubble, true);
+            ToolGrid.AddHandler(InputElement.PointerReleasedEvent,
+                new EventHandler<PointerReleasedEventArgs>(ToolGrid_PointerReleased),
+                RoutingStrategies.Bubble, true);
             Root.PointerMoved += (_, _) => Touch();
             Root.PointerPressed += (_, _) => Touch();
 
@@ -502,6 +635,11 @@ public sealed partial class ToolSidebarWindow : Window
             {
                 ApplyPanelBrush();
                 UpdatePinVisual();                         // 常驻块的图标颜色也跟主题（钉住=主题色，松开=默认前景）
+                // 收起条的悬停色、网格分页点的圆点色都是**按当时的深浅色算出来写死**的，
+                // 换主题不会自己跟着变 —— 这里重刷一遍（分页点只在真的显示着网格面板时才重建）。
+                _hover = false;
+                UpdateCollapsedLook();
+                if (UseGridStyle && GridPanel.IsVisible) RenderGridPage();
                 // 窗口那圈边的颜色也是跟着深浅色走的，换主题得重画一次
                 try
                 {
@@ -650,6 +788,7 @@ public sealed partial class ToolSidebarWindow : Window
         CollapsedView.IsVisible = false;
         ExpandedView.IsVisible = true;
         ApplyScrollLimit();                               // 先把滚动范围算好；尺寸交给滑入动画一帧设到位
+        ApplyCornerRadius();                              // 竖线样式下窗口马上要变宽，圆角得先回到 8
 
         // ⚠️ 这里**不要**再单独 ApplySize() + MoveToEdge()：
         //    那会让窗口先出现在"终点位置"并画出一帧展开态，紧接着又被滑入动画挪到起点 ——
@@ -696,6 +835,7 @@ public sealed partial class ToolSidebarWindow : Window
 
         ExpandedView.IsVisible = false;
         CollapsedView.IsVisible = true;
+        ApplyCornerRadius();                              // 竖线样式下窗口马上要缩到 14 宽，圆角得先降下来，不然两端被裁尖
 
         // 一次到位：收起尺寸 + 位置。
         // 滑出动画已经把**整个窗口**推出屏幕外了，所以这一步的"变身"（尺寸 92×450 → 20×110、
@@ -881,6 +1021,14 @@ public sealed partial class ToolSidebarWindow : Window
                 }
             }
 
+            // 网格面板顶条那颗「常驻」跟着一起换样子（两套展开样式共用同一个设置）
+            if (_gridPinIcon is not null)
+            {
+                _gridPinIcon.Glyph = pinned ? "\uE840" : "\uE718";
+                if (pinned) _gridPinIcon.Foreground = new SolidColorBrush(AccentColor());
+                else _gridPinIcon.ClearValue(FontIcon.ForegroundProperty);   // 回到主题画刷，深浅色都对
+            }
+
             if (PinButton is not null)
                 ToolTip.SetTip(PinButton, pinned
                     ? "常驻中：展开后不会自动收起（再点一下松开）"
@@ -971,6 +1119,8 @@ public sealed partial class ToolSidebarWindow : Window
         try
         {
             BuildToolButtons();
+            BuildGridButtons();
+            SyncStyleViews();
             ApplyEdgeLayout();
             ApplySize();
             MoveToEdge();
@@ -978,6 +1128,82 @@ public sealed partial class ToolSidebarWindow : Window
         catch (Exception ex)
         {
             Log("重建模块失败: " + ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// 「侧边布局」页改了**展开样式 / 收起样式** → 所有实例重排（跟换模块清单同一条路）。
+    ///
+    /// <para>
+    /// ⚠️ 收起样式换的是**窗口尺寸**（grip 20×110 → line 14×220），所以不能只换视图，
+    ///    必须走完整的 ApplySize + MoveToEdge，否则收起条会按老尺寸贴边、看着就歪。
+    /// </para>
+    /// </summary>
+    public static void ApplyStyle()
+    {
+        if (!App.Settings.Current.SidebarEnabled) return;
+        foreach (var w in _pool.Values) w.RebuildModules();
+    }
+
+    /// <summary>
+    /// 按设置把四块视图摆好：两套展开样式（经典竖排 / 图标网格）二选一，
+    /// 两套收起样式（抓手 / 细竖线）二选一。
+    ///
+    /// <para>
+    /// ⚠️ 切换是**纯 IsVisible**，不动事件接线：CollapsedView 无论哪种收起样式都是同一层、
+    ///    挂同一套按下/抬起/滑动处理器；GridPanel 与 ExpandedStack 同在一个 Grid 里，
+    ///    可见的那块盖住另一块。
+    /// </para>
+    /// </summary>
+    private void SyncStyleViews()
+    {
+        try
+        {
+            var grid = UseGridStyle;
+            var line = UseLineCollapsed;
+
+            GridPanel.IsVisible = grid;
+            ExpandedStack.IsVisible = !grid;
+
+            LineView.IsVisible = line;
+            GripStack.IsVisible = !line;
+
+            if (grid) RenderGridPage();
+            ApplyCornerRadius();
+        }
+        catch (Exception ex)
+        {
+            Log("切换样式失败: " + ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// 窗口圆角不能超过**半宽**：收起成细竖线后窗口只有 14dip 宽，
+    /// 还按 XAML 里写死的 8 裁，GDI 区域就会把两端裁成尖的（椭圆比矩形宽）。
+    /// ⚠️ 展开态一律用默认 8，别跟着网格面板的尺寸缩。
+    /// </summary>
+    private void ApplyCornerRadius()
+    {
+        try
+        {
+            double minDip;
+            if (_expanded)
+            {
+                minDip = UseGridStyle
+                    ? Math.Min(GridPanelDip().W, GridPanelDip().H)
+                    : Math.Min(PanelThicknessDip, PanelLengthDip);
+            }
+            else
+            {
+                minDip = Math.Min(CollapsedDipW, CollapsedDipH);
+            }
+
+            var r = Math.Min(RoundedCorners.DefaultCornerRadiusDip, Math.Max(1, minDip / 2.0));
+            Panel.CornerRadius = new CornerRadius(r);
+        }
+        catch (Exception ex)
+        {
+            Log("算圆角失败: " + ex.Message);
         }
     }
 
@@ -1066,6 +1292,338 @@ public sealed partial class ToolSidebarWindow : Window
         }
     }
 
+    // ── 展开样式的第二套：图标网格 ──────────────────────────
+
+    /// <summary>网格里固定补的两颗格子的 id（**不是模块 id**，只活在内存里，不进设置存档）。</summary>
+    private const string GridHomeId = "__home";
+    private const string GridSettingsId = "__settings";
+
+    /// <summary>
+    /// 「展开样式 = 图标网格」那一套的格子：**同一份模块清单**（用户在「侧边布局」勾的那些），
+    /// 末尾固定补「主页」「设置」两颗 —— 跟参考图里的 主页 / 设置 对应（用户 2026-10-11 定）。
+    ///
+    /// <para>
+    /// ⚠️ 这里只把格子建出来放进 <see cref="_gridCells"/>；摆到 <c>ToolGrid</c> 上、翻页都归
+    ///    <see cref="RenderGridPage"/> 管。为什么不每页重建 Button：重建会把按住型模块（放大镜）
+    ///    的指针捕获、以及按钮的悬停/回弹动画全部弄断。
+    /// </para>
+    /// </summary>
+    private void BuildGridButtons()
+    {
+        _gridCells.Clear();
+        _gridPage = 0;
+
+        foreach (var id in App.Settings.Current.SidebarModuleIds ?? Array.Empty<string>())
+        {
+            var m = SidebarModules.Find(id);
+            if (m is null) continue;                       // 老设置里留下的已删模块：跳过，不崩
+            _gridCells.Add(CreateGridCell(m.Id, m.Glyph, m.ShortName, m.Note ?? m.Name, m));
+        }
+
+        // 固定补两颗（放最后 —— 翻到最后一页总能找到）
+        _gridCells.Add(CreateGridCell(GridHomeId, "\uE80F", "主页", "打开应用主界面（主窗口在托盘里或最小化时，点它叫出来）", null));
+        _gridCells.Add(CreateGridCell(GridSettingsId, "\uE713", "设置", "打开应用设置页", null));
+    }
+
+    /// <summary>建一颗网格格子。<paramref name="m"/> 为 null = 固定补的那两颗（主页 / 设置）。</summary>
+    private Control CreateGridCell(string id, string glyph, string shortName, string tip, SidebarModule? m)
+    {
+        var content = new StackPanel { Spacing = 3 };
+        content.Children.Add(new FontIcon
+        {
+            Glyph = glyph,
+            FontSize = 22,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center
+        });
+        content.Children.Add(new TextBlock
+        {
+            Text = shortName,
+            FontSize = 10.5,
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center
+        });
+
+        var btn = new Button
+        {
+            Tag = id,
+            MinWidth = GridCellWDip,
+            MinHeight = GridCellHDip,
+            Padding = new Thickness(2, 6, 2, 6),
+            Background = new SolidColorBrush(Colors.Transparent),
+            BorderThickness = new Thickness(0),
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch,
+            HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+            Content = content
+        };
+        ToolTip.SetTip(btn, tip);
+
+        if (m is not null && m.Kind == SidebarModuleKinds.Action && TeachingActions.IsHold(m.Id))
+        {
+            // 按住型（放大镜）：跟经典竖排那套一模一样 —— 按下开始、松手结束，
+            // 按住期间压住自动收起，免得面板被收走把指针捕获也一起断掉。
+            var holdId = m.Id;
+            btn.AddHandler(InputElement.PointerPressedEvent,
+                new EventHandler<PointerPressedEventArgs>((_, _) =>
+                {
+                    SuppressAutoCollapse = true;
+                    TeachingActions.Begin(holdId);
+                }), RoutingStrategies.Bubble, true);
+            btn.AddHandler(InputElement.PointerReleasedEvent,
+                new EventHandler<PointerReleasedEventArgs>((_, _) => EndHold(holdId)), RoutingStrategies.Bubble, true);
+            btn.AddHandler(InputElement.PointerCaptureLostEvent,
+                new EventHandler<PointerCaptureLostEventArgs>((_, _) => EndHold(holdId)), RoutingStrategies.Bubble, true);
+        }
+        else
+        {
+            btn.Click += GridCell_Click;
+        }
+
+        return btn;
+    }
+
+    /// <summary>网格里那两颗固定格子（主页 / 设置）的动作；其余格子转给经典那套 <see cref="Tool_Click"/>。</summary>
+    private void GridCell_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button b || b.Tag is not string id) return;
+        try
+        {
+            if (id == GridHomeId)
+            {
+                // 「主页」＝底排那颗「打开应用」的等价物，所以同样**不收起**边条
+                App.MainWindow?.ShowFromTray();
+                return;
+            }
+
+            if (id == GridSettingsId)
+            {
+                // 「设置」＝跳主窗口的某一页，跟模块里 kind=page 的一样：先把边条收了，别挡着主窗口
+                Collapse();
+                App.MainWindow?.ShowFromTray();
+                App.MainWindow?.Shell.NavigateTo("settings");
+                return;
+            }
+
+            Tool_Click(sender, e);                          // 模块：跟竖排共用同一套点击逻辑
+        }
+        catch (Exception ex)
+        {
+            Log("网格格子打开失败: " + ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// 把当前页的格子摆进 <c>ToolGrid</c>，并按页数显隐 / 重建分页点。
+    ///
+    /// <para>
+    /// ⚠️ 列数会随"贴哪条边"变（左右 4 列 / 上下 8 列），所以每次都重设行列定义；
+    ///    格子本身**不重建**，只是从上一个父容器里搬过来（<c>Children.Clear()</c> 会先摘干净）。
+    /// </para>
+    /// </summary>
+    private void RenderGridPage()
+    {
+        try
+        {
+            var cols = GridCols;
+            var rows = GridRows;
+            var per = cols * rows;
+            var pages = GridPages;
+            if (_gridPage >= pages) _gridPage = 0;           // 模块变少了：这一页已经不存在
+
+            ToolGrid.Children.Clear();
+            ToolGrid.ColumnDefinitions.Clear();
+            ToolGrid.RowDefinitions.Clear();
+            for (var c = 0; c < cols; c++)
+                ToolGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            for (var r = 0; r < rows; r++)
+                ToolGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+
+            // 锁死网格区高度：外层 GridPanel 是竖排 StackPanel，ToolGrid 的期望高取自当前页
+            // 格子数 —— 翻到格子少的一页 Star 行塌下去，底下的分页点 / QuickBar 会整体上移。
+            // 按行数算死高度，翻页时快捷设置行位置纹丝不动。
+            ToolGrid.Height = rows * GridCellHDip + (rows - 1) * GridGapDip;
+
+            for (var i = 0; i < per; i++)
+            {
+                var idx = _gridPage * per + i;
+                if (idx >= _gridCells.Count) break;
+                var cell = _gridCells[idx];
+                Grid.SetRow(cell, i / cols);
+                Grid.SetColumn(cell, i % cols);
+                ToolGrid.Children.Add(cell);
+            }
+
+            BuildPagerDots(pages);
+
+            // 两侧换页小箭头：多页才露面（单页没有可翻的东西）
+            var showArrows = pages > 1;
+            GridPrevPage.IsVisible = showArrows;
+            GridNextPage.IsVisible = showArrows;
+        }
+        catch (Exception ex)
+        {
+            Log("网格翻页失败: " + ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// 分页点。一页放得下就整行收掉（面板也跟着矮一截，见 <see cref="GridPanelDip"/>）。
+    /// ⚠️ 圆点外面包一层 Button 当触摸靶（7dip 的点在触屏上根本点不中）。
+    /// </summary>
+    private void BuildPagerDots(int pages)
+    {
+        PagerDots.IsVisible = pages > 1;
+        PagerDots.Children.Clear();
+        if (pages <= 1) return;
+
+        var dark = Root.ActualThemeVariant == ThemeVariant.Dark;
+        var idle = new SolidColorBrush(dark ? Color.FromRgb(0x8A, 0x8A, 0x8A) : Color.FromRgb(0x60, 0x60, 0x60));
+        var accent = new SolidColorBrush(AccentColor());
+
+        for (var p = 0; p < pages; p++)
+        {
+            var me = p;
+            var dot = new Border
+            {
+                Width = 7,
+                Height = 7,
+                CornerRadius = new CornerRadius(3.5),
+                Opacity = p == _gridPage ? 1.0 : 0.35,
+                Background = p == _gridPage ? accent : idle,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+            };
+            var hit = new Button
+            {
+                MinWidth = 0,
+                MinHeight = 0,
+                Padding = new Thickness(5, 3),
+                Background = new SolidColorBrush(Colors.Transparent),
+                BorderThickness = new Thickness(0),
+                Content = dot
+            };
+            // ⚠️ Avalonia 的 ToolTip 是**附加属性**，C# 里只能用 SetTip 写，不能塞进对象初始化器
+            ToolTip.SetTip(hit, "第 " + (p + 1) + " / " + pages + " 页");
+            hit.Click += (_, _) =>
+            {
+                if (_gridPage == me) return;
+                _gridPage = me;
+                RenderGridPage();
+                Touch();
+            };
+            PagerDots.Children.Add(hit);
+        }
+    }
+
+    /// <summary>网格上滚滚轮翻页（触屏直接点分页点）。</summary>
+    private void GridPanel_Wheel(object? sender, PointerWheelEventArgs e)
+    {
+        try
+        {
+            if (!UseGridStyle || GridPages <= 1) return;
+            var next = _gridPage + (e.Delta.Y < 0 ? 1 : -1);
+            if (next < 0) next = GridPages - 1;
+            if (next >= GridPages) next = 0;
+            if (next == _gridPage) return;
+            _gridPage = next;
+            e.Handled = true;
+            RenderGridPage();
+            Touch();
+        }
+        catch (Exception ex)
+        {
+            Log("网格滚轮翻页失败: " + ex.Message);
+        }
+    }
+
+    // ── 网格换页（2026-10-12 用户反馈补）：两侧半透明小箭头 + 触屏左右滑动 ──
+
+    /// <summary>翻一页（dir = +1 下一页 / -1 上一页，循环）。滚轮、箭头、触屏滑动共用这一个入口。</summary>
+    private void FlipPage(int dir)
+    {
+        if (GridPages <= 1) return;
+        var next = (_gridPage + dir) % GridPages;
+        if (next < 0) next += GridPages;
+        if (next == _gridPage) return;
+        _gridPage = next;
+        RenderGridPage();
+        Touch();
+    }
+
+    private void GridPrevPage_Click(object? sender, RoutedEventArgs e) => FlipPage(-1);
+    private void GridNextPage_Click(object? sender, RoutedEventArgs e) => FlipPage(1);
+
+    /// <summary>触屏滑动翻页的起点（PointerPressed 时记下，Released 时算位移）。</summary>
+    private Avalonia.Point? _gridSwipeStart;
+
+    private void ToolGrid_PointerPressed(object? sender, PointerPressedEventArgs e)
+        => _gridSwipeStart = e.GetPosition(ToolGrid);
+
+    private void ToolGrid_PointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        try
+        {
+            var start = _gridSwipeStart;
+            _gridSwipeStart = null;
+            if (start is null || !UseGridStyle || GridPages <= 1) return;
+
+            var end = e.GetPosition(ToolGrid);
+            var dx = end.X - start.Value.X;
+            var dy = end.Y - start.Value.Y;
+
+            // 左右滑翻页：横向位移够大、且明显比纵向大（免得跟纵向滚动 / 斜着点格子打架）
+            if (Math.Abs(dx) >= 48 && Math.Abs(dx) > Math.Abs(dy) * 1.4)
+                FlipPage(dx < 0 ? 1 : -1);
+        }
+        catch (Exception ex)
+        {
+            Log("网格滑动翻页失败: " + ex.Message);
+        }
+    }
+
+    // ── 网格面板的「快捷」行（关机 / 锁定 / 重启 / 打开应用，2026-10-11 用户定）────────
+    //
+    // ⚠️ 关机 / 重启 = 走系统 shutdown 命令（/t 0 立即执行，不弹确认）；
+    //    锁定       = user32 LockWorkStation —— 回到登录界面，本会话和本程序都继续活着；
+    //    打开应用   = 底排「打开应用」同一条路（不收边条）。
+
+    private void QuickShutdown_Click(object? sender, RoutedEventArgs e) => RunPowerCommand("/s /t 0", "关机");
+
+    private void QuickRestart_Click(object? sender, RoutedEventArgs e) => RunPowerCommand("/r /t 0", "重启");
+
+    private void QuickLock_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Log("网格「锁定」→ LockWorkStation");
+            Platform.NativeMethodsShell.LockWorkStation();
+        }
+        catch (Exception ex)
+        {
+            Log("网格「锁定」失败: " + ex.Message);
+        }
+    }
+
+    private void QuickOpenApp_Click(object? sender, RoutedEventArgs e) => OpenApp_Click(sender, e);
+
+    /// <summary>执行 shutdown 命令（关机 / 重启共用）。Window 隐藏、不抢焦点。</summary>
+    private void RunPowerCommand(string args, string what)
+    {
+        try
+        {
+            Log("网格快捷行 → " + what);
+            using var p = new System.Diagnostics.Process();
+            p.StartInfo = new System.Diagnostics.ProcessStartInfo("shutdown", args)
+            {
+                UseShellExecute = true,
+                CreateNoWindow = true
+            };
+            p.Start();
+        }
+        catch (Exception ex)
+        {
+            Log(what + "失败: " + ex.Message);
+        }
+    }
+
     private void Tool_Click(object? sender, RoutedEventArgs e)
     {
         if (sender is not Button b || b.Tag is not string id) return;
@@ -1077,6 +1635,13 @@ public sealed partial class ToolSidebarWindow : Window
             // 讲台动作：按一下就干活（放大镜是"按住"型，走的是按下/松手那条路，不走这里）
             if (m.Kind == SidebarModuleKinds.Action)
             {
+                // 「安全选项」= 弹一个三行小菜单（锁定 / 切换用户 / 注销），不直接干活
+                if (m.Id == "security")
+                {
+                    ShowSecurityFlyout(b);
+                    return;
+                }
+
                 // ⚠️ 「要先问一句」的动作（关全部）不能按老办法在 Run 之后就还焦点：
                 //    侧边栏一失活，刚弹出来的确认面板就会被系统按"点了别处"关掉。
                 //    Run 里已经按 AsksFirst 区分过了，这里只管把面板弹出来。
@@ -1210,8 +1775,124 @@ public sealed partial class ToolSidebarWindow : Window
     /// 在边条旁边弹一个原生确认 Flyout（红底确定键）。
     /// `onClosed`：面板消失后调（不管用户是按了红键、按取消、点别处还是超时自动收）。
     /// </summary>
-    private void ShowConfirmFlyout(Button? anchor, string title, string? body, string okText, Action onConfirm,
-                                   Action? onClosed = null, bool dangerStyle = true)
+    // ── 安全选项菜单（系统快捷三件套，自上游 dv1.1.3 移植）──────────────────────
+
+    /// <summary>
+    /// 「安全选项」弹出的小菜单：锁定 / 切换用户 / 注销。
+    /// ⚠️ Ctrl+Alt+Del 的蓝色界面属系统安全桌面，普通程序调不起来 —— 这里给的是它上面的操作本身。
+    /// </summary>
+    private void ShowSecurityFlyout(Button anchor)
+    {
+        try
+        {
+            HideSecurityFlyout();
+            HideConfirmFlyout();
+
+            var panel = new StackPanel { Width = 216, Spacing = 1 };
+            panel.Children.Add(new TextBlock
+            {
+                Text = "安全选项",
+                FontSize = 12,
+                Opacity = 0.7,
+                Margin = new Thickness(12, 8, 12, 6),
+            });
+
+            void Item(string glyph, string text, Action act)
+            {
+                var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+                row.Children.Add(new FontIcon
+                {
+                    Glyph = glyph,
+                    FontSize = 16,
+                    VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                });
+                row.Children.Add(new TextBlock
+                {
+                    Text = text,
+                    FontSize = 14,
+                    VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                });
+
+                // 看着像系统菜单项：透明底、无边框、内容靠左
+                var item = new Button
+                {
+                    Content = row,
+                    MinHeight = 40,
+                    Padding = new Thickness(12, 6, 12, 6),
+                    Background = Brushes.Transparent,
+                    BorderThickness = new Thickness(0),
+                    HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+                    HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Left,
+                };
+                item.Click += (_, _) =>
+                {
+                    HideSecurityFlyout();
+                    try { act(); }
+                    catch (Exception ex) { Log("安全选项执行失败: " + ex.Message); }
+                };
+                panel.Children.Add(item);
+            }
+
+            // 锁定 / 切换用户：按下去就干，没什么可问的
+            Item("\uE72E", "锁定电脑", () => TeachingActions.Begin("lock"));
+            Item("\uE748", "切换用户", () => TeachingActions.Begin("switchuser"));
+            // 注销：会把所有程序关掉、没保存的内容会丢 → 跟「关全部」一样先问一句
+            Item("\uE7E8", "注销…", () => BeginLogout(anchor));
+
+            var flyout = new Flyout
+            {
+                Placement = ConfirmPlacement(),
+                Content = panel,
+            };
+            flyout.Closed += (_, _) =>
+            {
+                if (ReferenceEquals(_securityFlyout, flyout)) _securityFlyout = null;
+
+                // 菜单收掉 = 用户没在继续操作 → 恢复自动收起。
+                // ⚠️ 例外：点「注销」会**紧接着**弹确认面板（那时 _confirmFlyout 已经挂上了），
+                //    这种情况不能解除压制，否则确认面板当场被收起来的边条一起带走。
+                if (_confirmFlyout is null) SuppressAutoCollapse = false;
+            };
+
+            SuppressAutoCollapse = true;                // 菜单挂着的时候边条不许自己收
+            _securityFlyout = flyout;
+            flyout.ShowAt(anchor);
+            Log("安全选项：菜单已弹出");
+        }
+        catch (Exception ex)
+        {
+            Log("安全选项菜单弹出失败: " + ex.Message);
+            SuppressAutoCollapse = false;
+        }
+    }
+
+    private void HideSecurityFlyout()
+    {
+        try
+        {
+            var f = _securityFlyout;
+            _securityFlyout = null;
+            f?.Hide();
+        }
+        catch { /* 收不掉就算了，下一个会顶掉它 */ }
+    }
+
+    /// <summary>「注销」两段式：先弹确认面板（会关掉所有程序），用户点了才真注销。</summary>
+    private void BeginLogout(Button anchor)
+    {
+        var hint = TeachingActions.Begin("logout");
+        if (string.IsNullOrEmpty(hint)) return;
+
+        SuppressAutoCollapse = true;
+        var lines = hint.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        var title = lines.Length > 0 ? lines[0].Trim() : hint;
+        var body = lines.Length > 1 ? lines[1].Trim() : null;
+
+        ShowConfirmFlyout(anchor, title, body, "确定注销",
+            () => TeachingActions.ConfirmPending("logout"), dangerStyle: true);
+    }
+
+    private void ShowConfirmFlyout(Button? anchor, string title, string? body, string okText, Action onConfirm,                                   Action? onClosed = null, bool dangerStyle = true)
     {
         try
         {
@@ -1369,23 +2050,59 @@ public sealed partial class ToolSidebarWindow : Window
         StopSlide();
         _pressed = true;
         _idle.Stop();                                    // 按住期间别自动收起
+
+        // 2026-10-11 加"滑动展开"：只记起点，**不动窗口**。位移阈值判据见 Strip_PointerReleased。
+        _pressPos = e.GetPosition(Root);
+        _lastPos = _pressPos;
+        _swipedOpen = false;
+
         Log($"收起条：按下 device={e.Pointer.Type}");
-        e.Pointer.Capture(Root);
+        // ⚠️⚠️ 2026-10-11 实测（便携版跑起来看 sidebar.log 才发现）：捕获目标**必须是 CollapsedView 自己**，
+        //    首版照抄了原来的 Capture(Root)。Avalonia 的指针捕获会把后续事件**路由到被捕获的那个控件**
+        //    （Root 是 CollapsedView 的祖先，事件只会从 Root 往上冒泡，永远回不到 CollapsedView）——
+        //    结果 PointerMoved / PointerReleased 全都收不到，只有 PointerCaptureLost 会来。
+        //      · 点击展开没坏：CaptureLost 那条路把它兜住了（日志里就是「捕获丢失 → 当成单击，展开」）；
+        //      · **滑动展开则彻底失效**：它挂在 Strip_PointerMoved 上，而 Moved 根本不来。
+        //    改捕获自己之后 Moved/Released 才真正到手，滑动展开才有意义。
+        //    （SnipOverlayWindow 一直是"捕获谁就挂谁"的写法，就是这个道理；首版没跟上。）
+        e.Pointer.Capture(CollapsedView);
         e.Handled = true;
     }
 
     /// <summary>
-    /// ⚠️ 2026-10-04（第 17 轮）：收起条的拖拽已整条撤除，这里**故意什么都不做**。
+    /// 2026-10-11 加：**向外滑就地展开**（贴左边向右滑、贴右边向左滑，上下边同理）。
     ///
     /// <para>
-    /// 处理函数之所以保留，只是因为 XAML 里绑着它（删掉签名会编译不过）。
-    /// 留成空实现还顺带保证一点：按下之后手指/鼠标怎么乱动，都没有任何副作用 ——
-    /// 不会再出现"想点一下却被拖走"。
+    /// ⚠️ 只是给"点击"多开一条路，**绝不取代它**：抬手时位移不够阈值的一律还按点击处理
+    ///    （见 Strip_PointerReleased）。这是 2026-10-04 那条教训的红线 ——
+    ///    触摸屏上手指按下必带几像素抖动，只要"位移不够就什么都不做"，用户看到的就是"点了没反应"。
     /// </para>
     /// </summary>
     private void Strip_PointerMoved(object? sender, PointerEventArgs e)
     {
-        // 空实现：位置只由 Expand / Collapse / 设置 决定。
+        if (!_pressed) return;
+
+        try
+        {
+            _lastPos = e.GetPosition(Root);
+
+            // 已经展开过就别再来一遍（快速连滑会反复触发）
+            if (_swipedOpen || _expanded) return;
+
+            if (OutwardDelta(_lastPos) >= SwipeThresholdDip)
+            {
+                _swipedOpen = true;
+                _pressed = false;
+                try { e.Pointer.Capture(null); } catch { }
+                Log("收起条：向外滑动 → 展开");
+                Expand();
+                e.Handled = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            Log("收起条移动处理失败: " + ex.Message);
+        }
     }
 
     private void Strip_PointerReleased(object? sender, PointerReleasedEventArgs e)
@@ -1394,16 +2111,23 @@ public sealed partial class ToolSidebarWindow : Window
         _pressed = false;
         try { e.Pointer.Capture(null); } catch { }
 
-        // ⚠️⚠️ 2026-10-04（用户第 17 轮）：这里**不再区分「点击 / 拖动」** —— 拖动已经撤掉，
-        //    抬起就是"点了一下"，直接展开。
-        //
-        //    以前那两道判据合起来把正常点击也挡掉了，这是"点了展不开"的另一半原因：
-        //      ① 位移阈值（8px）：触摸屏上手指按下必带几像素抖动，稍一动就被判成拖动
-        //         → 松手走 DockToNearestEdge()（吸附/换边），永远走不到 Expand()；
-        //      ② 物理键复核（GetAsyncKeyState）：未激活的工具窗口常报"假抬起"，
-        //         于是这一次点击被当成"没点"，要用户再按一次 —— 感受就是"点了没反应"。
-        //    现在两条都撤了：抬起即展开。最坏情况是"多点一下"，绝不会"点了没动静"。
-        Log("收起条：单击 → 展开");
+        if (_swipedOpen) { e.Handled = true; return; }    // 滑动那一路已经展开了
+
+        // ⚠️ 判据只有一条"该不该展开"，**没有第三种"什么都不做"**：
+        //      · 向外滑够了  → 展开（滑动那条路，正常在 Moved 里就走掉了）
+        //      · 位移不够阈值 → 展开（＝点击，2026-10-04 定的老行为，原样保留）
+        //      · 朝**屏幕里**滑够了 20dip → 不展开（这是唯一被挡下的一种，
+        //        而且必须是"明确的、朝着屏幕里的滑动"，手指抖动到不了这个量级）
+        //      · 其余（沿边滑、斜着滑但没有明确向内）→ 一律展开，宁可多展一次
+        var outward = OutwardDelta(e.GetPosition(Root));
+        if (outward <= -SwipeThresholdDip)
+        {
+            Log($"收起条：向内滑动 {outward:0.#}dip，不展开（要展开请点一下或朝屏幕外滑）");
+            e.Handled = true;
+            return;
+        }
+
+        Log("收起条：单击/外滑 → 展开");
         Expand();
         e.Handled = true;
     }
@@ -1413,11 +2137,78 @@ public sealed partial class ToolSidebarWindow : Window
         if (!_pressed) return;
         _pressed = false;
 
+        if (_swipedOpen) return;
+
         // ⚠️ 2026-10-04（第 17 轮）：捕获丢失同样当成"点了一下"。
         //    未激活的工具窗口上，按下常常只换来一次捕获丢失（没有正常的 Released）——
         //    这里若不展开，那一下点击就彻底丢了。拖动已撤除，也不存在"把拖动误当点击"的问题。
+        //    2026-10-11：只有"明确朝屏幕里滑"才挡（跟 Released 同一条判据）。
+        if (OutwardDelta(_lastPos) <= -SwipeThresholdDip)
+        {
+            Log("收起条：捕获丢失，但刚才是向内滑动 → 不展开");
+            return;
+        }
+
         Log("收起条：捕获丢失 → 当成单击，展开");
         Expand();
+    }
+
+    /// <summary>
+    /// 从按下点到 <paramref name="now"/> 沿**屏幕外**方向挪了多少 dip（正 = 朝屏幕外）。
+    /// 贴左/右看 X、贴上/下看 Y —— 另一根轴的位移**不算数**（沿边上下拖不该影响展不展开）。
+    /// </summary>
+    private double OutwardDelta(Point now)
+    {
+        var dx = now.X - _pressPos.X;
+        var dy = now.Y - _pressPos.Y;
+        return _edge switch
+        {
+            "left" => dx,          // 往右 = 往屏幕外
+            "right" => -dx,        // 往左 = 往屏幕外
+            "top" => dy,           // 往下 = 往屏幕外
+            _ => -dy               // 往上 = 往屏幕外
+        };
+    }
+
+    /// <summary>收起条的悬停高亮（鼠标搭上去就亮一下，触屏不会触发）。</summary>
+    private void Strip_PointerEntered(object? sender, PointerEventArgs e)
+    {
+        _hover = true;
+        UpdateCollapsedLook();
+    }
+
+    private void Strip_PointerExited(object? sender, PointerEventArgs e)
+    {
+        // 按着的时候不熄：捕获还在手上，指针挪出条外是常事，这时熄掉看着像"闪一下"
+        if (_pressed) return;
+        _hover = false;
+        UpdateCollapsedLook();
+    }
+
+    /// <summary>
+    /// 收起条两种样式各自的悬停效果：抓手 = 那截小条亮一点；细竖线 = 整条换成强调色。
+    /// ⚠️ 只动这两个视觉，**绝不碰 Panel 底色 / 窗口背景** —— 那套是防白闪的（见 ApplyPanelBrush）。
+    /// </summary>
+    private void UpdateCollapsedLook()
+    {
+        try
+        {
+            if (UseLineCollapsed)
+            {
+                // 细竖线：内芯已去掉，悬停时整条铺一层半透明强调色当反馈；熄掉时清掉本地画刷，回到主题那支
+                LineHover.Opacity = _hover ? 1.0 : 0;
+                if (_hover) LineHover.Background = new SolidColorBrush(AccentColor(), 0.35);
+                else LineHover.ClearValue(Border.BackgroundProperty);
+            }
+            else
+            {
+                Grip.Opacity = _hover ? 1.0 : 0.6;
+            }
+        }
+        catch (Exception ex)
+        {
+            Log("收起条悬停效果失败: " + ex.Message);
+        }
     }
 
     /// <summary>
@@ -1666,6 +2457,8 @@ public sealed partial class ToolSidebarWindow : Window
             Grip.Width = flat ? 48 : 5;
             Grip.Height = flat ? 5 : 48;
 
+            // 收起状态的细竖线：内芯已去掉（2026-10-12），窗口本身即那条线，无需再量芯的尺寸
+
             // 展开面板：永远竖着排（贴上下边时就是两行）
             ExpandedStack.Orientation = Orientation.Vertical;
             TitleRow.IsVisible = !flat;
@@ -1717,18 +2510,28 @@ public sealed partial class ToolSidebarWindow : Window
             ToolsScroll.VerticalScrollBarVisibility = flat ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Auto;
             ToolsScroll.HorizontalScrollBarVisibility = flat ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled;
             ApplyScrollLimit();
-            if (_foldIcon is not null)
+
+            // ── 网格面板：顶条那四颗小键也按「侧边布局 → 侧边栏底部按钮」的开关逐颗显隐
+            //    （两套展开样式共用同一份设置，免得"设置里关掉了、网格上还在"）。
+            //    「打开应用」那颗没进来 —— 网格末尾固定补的「主页」格子干的就是同一件事。
+            if (GridResetButton is not null) GridResetButton.IsVisible = !hiddenFooter.Contains(SidebarFooterKeys.Reset);
+            if (GridHideButton is not null) GridHideButton.IsVisible = !hiddenFooter.Contains(SidebarFooterKeys.Hide);
+            if (GridPinButton is not null) GridPinButton.IsVisible = !hiddenFooter.Contains(SidebarFooterKeys.Pin);
+            if (GridFoldButton is not null) GridFoldButton.IsVisible = !hiddenFooter.Contains(SidebarFooterKeys.Fold);
+
+            // 箭头 = "点了会往哪边收"：贴着哪条边就朝哪边收（网格顶条那颗同理）
+            var dir = edge;
+            var foldGlyph = dir switch
             {
-                // 箭头 = "点了会往哪边收"：贴着哪条边就朝哪边收
-                var dir = edge;
-                _foldIcon.Glyph = dir switch
-                {
-                    "left" => "\uE76C",      // 往左收
-                    "top" => "\uE70D",       // 往下收
-                    "bottom" => "\uE70E",    // 往上收
-                    _ => "\uE76B",           // 往右收
-                };
-            }
+                "left" => "\uE76C",      // 往左收
+                "top" => "\uE70D",       // 往下收
+                "bottom" => "\uE70E",    // 往上收
+                _ => "\uE76B",           // 往右收
+            };
+            if (_foldIcon is not null) _foldIcon.Glyph = foldGlyph;
+            if (_gridFoldIcon is not null) _gridFoldIcon.Glyph = foldGlyph;
+
+            ApplyCornerRadius();
         }
         catch (Exception ex)
         {
@@ -1744,6 +2547,16 @@ public sealed partial class ToolSidebarWindow : Window
     /// </summary>
     private void ApplyFooterContent(bool flat)
     {
+        // 网格面板顶条那两颗的图标：XAML 里只把 FontIcon 当成 Content 摆着，这里把实例抓出来存住。
+        //
+        // ⚠️ 2026-10-11 首版图省事，在 FontIcon 上写了 x:Name 指望字段自动赋值 —— **不成立**。
+        //    Avalonia 的 x:Name 只往 XAML 编译出来的那个同名字段里写，跟我这里手声明的
+        //    _gridFoldIcon / _gridPinIcon 不是一个东西，结果 CS0649：两个字段永远是 null，
+        //    顶条的钉住状态、箭头方向就再也不会跟着变（按钮本身还能点，纯视觉不更新，最难发现的那种）。
+        //    改成照经典那套的路子 —— 从内容里取实例（经典那套是 SetFooterButton 的 out 参数）。
+        _gridFoldIcon = GridFoldButton?.Content as FontIcon;
+        _gridPinIcon = GridPinButton?.Content as FontIcon;
+
         SetFooterButton(FoldButton, "\uE76C", "收起", flat, out _foldIcon);
         SetFooterButton(PinButton, "\uE718", "常驻", flat, out _pinIcon);
         SetFooterButton(ResetButton, "\uE777", "位置复原", flat, out _);
@@ -1883,26 +2696,41 @@ public sealed partial class ToolSidebarWindow : Window
         int dipW, dipH;
         if (_expanded)
         {
-            var lim = ExpandedLimits();
-            if (IsFlat)
+            if (UseGridStyle)
             {
-                // 上/下边：竖着两行 —— 第一行工具、第二行底排按钮（一颗不剩就只剩第一行）。
-                // 宽度取**两行里更宽的那行**：底排是固定几颗（不被裁的硬要求），
-                // 工具行多到放不下时由 ToolsScroll 横向滚动兜底。
-                var toolsRow = count * 64 + (count - 1) * 8 + FlatRowPadDip;
-                var footerRow = footerCount > 0
-                    ? footerCount * FooterFlatButtonWidthDip
-                      + (footerCount - 1) * FooterFlatSpacingDip + FlatRowPadDip
-                    : 0;
-
-                dipW = (int)Math.Min(Math.Max(Math.Max(PanelLengthFlatDip, toolsRow), footerRow), lim.W);
-                dipH = footerCount > 0 ? PanelThicknessFlatDip : PanelThicknessFlatBareDip;
+                // 图标网格：宽按"一页铺得开的列数"算死（不随模块数变，多了只加页），
+                // 高按 顶条 + 网格 + 分页点(可选) + 快捷设置行 加起来，再夹到工作区内。
+                // ⚠️ 这条分支**不走 ExpandedLimits** —— 那套是给竖排列表定的（横条被钉死 112 高），
+                //    网格面板贴上下边时要自己的一套。
+                var g = GridPanelDip();
+                var sc = Scale();
+                var work = WorkAreaRect();
+                dipW = (int)Math.Min(g.W, work.Width / sc - 32);
+                dipH = (int)Math.Min(g.H, work.Height / sc - 32);
             }
             else
             {
-                dipW = PanelThicknessDip;
-                // 底排最多五颗（收起/常驻/位置复原/隐藏/打开应用），增量按可见颗数摊（见 FooterDipFor）
-                dipH = (int)Math.Min(Math.Max(PanelLengthDip, 200 + 55 * count) + FooterDipFor(footerCount), lim.H);
+                var lim = ExpandedLimits();
+                if (IsFlat)
+                {
+                    // 上/下边：竖着两行 —— 第一行工具、第二行底排按钮（一颗不剩就只剩第一行）。
+                    // 宽度取**两行里更宽的那行**：底排是固定几颗（不被裁的硬要求），
+                    // 工具行多到放不下时由 ToolsScroll 横向滚动兜底。
+                    var toolsRow = count * 64 + (count - 1) * 8 + FlatRowPadDip;
+                    var footerRow = footerCount > 0
+                        ? footerCount * FooterFlatButtonWidthDip
+                          + (footerCount - 1) * FooterFlatSpacingDip + FlatRowPadDip
+                        : 0;
+
+                    dipW = (int)Math.Min(Math.Max(Math.Max(PanelLengthFlatDip, toolsRow), footerRow), lim.W);
+                    dipH = footerCount > 0 ? PanelThicknessFlatDip : PanelThicknessFlatBareDip;
+                }
+                else
+                {
+                    dipW = PanelThicknessDip;
+                    // 底排最多五颗（收起/常驻/位置复原/隐藏/打开应用），增量按可见颗数摊（见 FooterDipFor）
+                    dipH = (int)Math.Min(Math.Max(PanelLengthDip, 200 + 55 * count) + FooterDipFor(footerCount), lim.H);
+                }
             }
         }
         else
@@ -1938,6 +2766,16 @@ public sealed partial class ToolSidebarWindow : Window
         try
         {
             if (!_expanded) return;
+
+            // 图标网格那套不滚动：一页几列几行是定死的，模块多了只加页（分页点切），
+            // 所以这里既不用算竖排那套 chrome，也不该把 ToolsScroll 的范围留成上一次的旧值。
+            if (UseGridStyle)
+            {
+                ToolsScroll.MaxHeight = double.PositiveInfinity;
+                ToolsScroll.MaxWidth = double.PositiveInfinity;
+                return;
+            }
+
             var scale = Scale();
             var work = WorkAreaRect();
 
@@ -1983,12 +2821,18 @@ public sealed partial class ToolSidebarWindow : Window
     private PixelSize CollapsedSize()
     {
         var scale = Scale();
-        var dipW = IsFlat ? CollapsedLengthDip : CollapsedThicknessDip;
-        var dipH = IsFlat ? CollapsedThicknessDip : CollapsedLengthDip;
-        return new PixelSize((int)Math.Round(dipW * scale), (int)Math.Round(dipH * scale));
+        // ⚠️ 两种收起样式尺寸不一样（grip 8×110 / line 6×220），换算式都收在
+        //    CollapsedDipW / CollapsedDipH 里 —— 圆角也是从那儿读的，改就一起改。
+        return new PixelSize(
+            (int)Math.Round(CollapsedDipW * scale),
+            (int)Math.Round(CollapsedDipH * scale));
     }
 
-    /// <summary>按当前贴的边算"贴边位置"（**纯计算，不动窗口**）。参数是窗口按哪套尺寸算。</summary>
+    /// <summary>收起态离屏幕边的空隙（dip）。2026-10-12 用户要求"离屏幕边缘 8px"——别再死贴在边上。</summary>
+    private const int CollapsedEdgeGapDip = 8;
+
+    /// <summary>按当前贴的边算"贴边位置"（**纯计算，不动窗口**）。参数是窗口按哪套尺寸算。
+    /// ⚠️ 收起态会往里让 <see cref="CollapsedEdgeGapDip"/>（展开态仍贴边）。</summary>
     private PixelPoint EdgePosition(int width, int height)
     {
         var work = WorkAreaRect();
@@ -2003,12 +2847,15 @@ public sealed partial class ToolSidebarWindow : Window
         var ratio = App.Settings.Current.SidebarPosRatio;
         var offset = ratio < 0 ? free / 2.0 : Math.Clamp(ratio * free, 0, free);
 
+        // 收起态离边空隙（换算成物理像素）；展开面板还是贴边
+        var gap = _expanded ? 0 : (int)Math.Round(CollapsedEdgeGapDip * Scale());
+
         return edge switch
         {
-            "left" => new PixelPoint(work.X, (int)Math.Round(work.Y + offset)),
-            "top" => new PixelPoint((int)Math.Round(work.X + offset), work.Y),
-            "bottom" => new PixelPoint((int)Math.Round(work.X + offset), work.Y + work.Height - height),
-            _ => new PixelPoint(work.X + work.Width - width, (int)Math.Round(work.Y + offset))
+            "left" => new PixelPoint(work.X + gap, (int)Math.Round(work.Y + offset)),
+            "top" => new PixelPoint((int)Math.Round(work.X + offset), work.Y + gap),
+            "bottom" => new PixelPoint((int)Math.Round(work.X + offset), work.Y + work.Height - height - gap),
+            _ => new PixelPoint(work.X + work.Width - width - gap, (int)Math.Round(work.Y + offset))
         };
     }
 

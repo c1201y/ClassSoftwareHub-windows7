@@ -20,7 +20,7 @@
         </Grid.RowDefinitions>
 
         <TextBlock x:Name="Display" Foreground="{DynamicResource TextFillColorPrimaryBrush}" Text="05:00" FontSize="56" FontWeight="SemiBold"
-                   FontFamily="Bahnschrift" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                   FontFamily="Bahnschrift" HorizontalAlignment="Center" VerticalAlignment="Center" FontFeatures="+tnum" />
 
         <ProgressBar x:Name="Bar" Grid.Row="1" Minimum="0" Maximum="100" Value="0" Height="4"
                      Margin="0,8,0,0" />

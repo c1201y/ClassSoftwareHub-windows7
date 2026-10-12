@@ -37,6 +37,49 @@ internal static class NativeMethodsShell
 
     internal const uint GA_ROOTOWNER = 3;
 
+    /// <summary>最低 Win2000。锁定本机回到登录界面（当前会话保持登录、进程继续运行）。</summary>
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern bool LockWorkStation();
+
+    /// <summary>最低 Win2000。注销 / 关机 / 重启（EWX_LOGOFF = 0 等）。</summary>
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern bool ExitWindowsEx(uint uFlags, uint dwReason);
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct LUID
+    {
+        public uint LowPart;
+        public int HighPart;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct TOKEN_PRIVILEGES
+    {
+        public uint PrivilegeCount;
+        public LUID Luid;
+        public uint Attributes;
+    }
+
+    /// <summary>最低 Win2000。拿本进程令牌（调整特权用）。</summary>
+    [DllImport("advapi32.dll", SetLastError = true)]
+    internal static extern bool OpenProcessToken(IntPtr processHandle, uint desiredAccess, out IntPtr tokenHandle);
+
+    /// <summary>最低 Win2000。把特权名换成 LUID。</summary>
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    internal static extern bool LookupPrivilegeValue(string? systemName, string name, out LUID luid);
+
+    /// <summary>最低 Win2000。调整令牌特权（拿 SeShutdownPrivilege 用）。</summary>
+    [DllImport("advapi32.dll", SetLastError = true)]
+    internal static extern bool AdjustTokenPrivileges(IntPtr tokenHandle, bool disableAll, ref TOKEN_PRIVILEGES newState, uint bufferLength, IntPtr previousState, IntPtr returnLength);
+
+    /// <summary>最低 Win2000。取伪句柄 = 本进程。</summary>
+    [DllImport("kernel32.dll")]
+    internal static extern IntPtr GetCurrentProcess();
+
+    /// <summary>最低 Win2000。关令牌句柄。</summary>
+    [DllImport("kernel32.dll", SetLastError = true)]
+    internal static extern bool CloseHandle(IntPtr handle);
+
     /// <summary>最低 Win2000。SW_MINIMIZE = 6（<see cref="NativeMethods"/> 里只备了 SW_RESTORE）。</summary>
     internal const int SW_MINIMIZE = 6;
 

@@ -47,6 +47,16 @@ public sealed partial class ExperimentalPage : PageBase
             Desc = "自绘触屏键盘：手指点在输入框上自动弹出，外观全部使用系统控件与主题色",
             Glyph = "\uE765", Tag = "virtualkeyboard"
         },
+        // ⚠️ 上游 dv1.1.3 把「虚拟键盘」这张卡换成了「自动关机」（键盘整体下线）——
+        //    本移植版**保留虚拟键盘**（Win7 教室机的既定取舍），所以是**新增**而不是替换。
+        new ExperimentalFeature
+        {
+            Id = "autoshutdown", Name = "自动关机",
+            // ⚠️ 图标用日历（E787）而不是电源（E7E8）—— 电源那个已经被「程序专杀」占了，
+            //    同一页两张卡撞脸。日历正好对上"按星期排时间表"这件事。
+            Desc = "按星期设定关机时间点，到点自动关机（可直接关，也可用系统的滑动关机）",
+            Glyph = "\uE787", Tag = "autoshutdown"
+        },
         // 日志查看已不算实验功能（Nick 2026-10-02）：入口挪到 设置 → 诊断。
     };
 

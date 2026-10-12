@@ -277,6 +277,17 @@
                             </fa:NavigationViewItem.IconSource>
                         </fa:NavigationViewItem>
                         <!--
+                          自动关机：按星期（周一~周日）设关机时间点，到点自动关机（自上游 dv1.1.3 移植）。
+                          ⚠️ 为啥塞进实验性：真会关机、且依赖本程序常驻；放学场景的误伤面还没摸清。
+                          ⚠️ 图标用日历（E787）不用电源（E7E8）—— 后者与上面「程序专杀」撞脸。
+                          ⚠️ 上游 dv1.1.3 用它**替换**了虚拟键盘；本移植版按用户 2026-10-11 决定两功能都保留。
+                        -->
+                        <fa:NavigationViewItem Content="自动关机" Tag="autoshutdown">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE787;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
+                        <!--
                           日志查看：Nick 2026-10-02 拍板「不要实验性」，入口挪到 设置 → 诊断
                           （Pages/SettingsPage.axaml）。NavigateTagCore 的 "log-viewer" case 保留，
                           供设置页跳转（含 page=log-viewer 启动参数）用。

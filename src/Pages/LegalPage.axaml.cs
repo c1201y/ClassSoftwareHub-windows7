@@ -27,9 +27,10 @@ public sealed partial class LegalPage : PageBase
         Render();
     }
 
-    private void LangSwitch_Toggled(object? sender, RoutedEventArgs e)
+    /// <summary>语言切换（图标键）：点一下在 中文 / English 之间切。</summary>
+    private void LangButton_Click(object? sender, RoutedEventArgs e)
     {
-        _english = LangSwitch.IsChecked == true;
+        _english = !_english;
         Render();
     }
 
@@ -41,5 +42,10 @@ public sealed partial class LegalPage : PageBase
         DocMeta.Text = $"{doc.Version} · 生效 {doc.Effective}";
         DocIntro.Text = lang.Intro;
         SectionList.ItemsSource = lang.Sections;
+
+        // 提示字与悬浮提示始终指向"能切过去的那门语言"
+        var target = _english ? "中文" : "English";
+        LangHint.Text = target;
+        ToolTip.SetTip(LangButton, "切换到 " + target);
     }
 }

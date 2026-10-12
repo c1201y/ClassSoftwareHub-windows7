@@ -239,7 +239,7 @@ public sealed partial class MainWindow : Window
                 NativeMethods.SetWindowPos(hwnd, IntPtr.Zero, x, y, w, h,
                     NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE);
 
-                Services.ScreenCapture.Log($"[startup] 主窗口原本不在屏幕内（{r.Left},{r.Top},{r.Right},{r.Bottom}）→ 已居中到 {x},{y} {w}×{h}");
+                Core.AppLog.Info("startup", $"主窗口原本不在屏幕内（{r.Left},{r.Top},{r.Right},{r.Bottom}）→ 已居中到 {x},{y} {w}×{h}");
                 return;
             }
 
@@ -257,7 +257,7 @@ public sealed partial class MainWindow : Window
             NativeMethods.SetWindowPos(hwnd, IntPtr.Zero, nx, ny, 0, 0,
                 NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE);
 
-            Services.ScreenCapture.Log($"[startup] 主窗口右下越界（{r.Left},{r.Top},{r.Right},{r.Bottom}）→ 已挪回 {nx},{ny}");
+            Core.AppLog.Info("startup", $"主窗口右下越界（{r.Left},{r.Top},{r.Right},{r.Bottom}）→ 已挪回 {nx},{ny}");
         }
         catch { }
     }
@@ -2091,6 +2091,7 @@ public sealed partial class MainWindow : Window
         try { Views.QqFeedbackGuideWindow.CloseForExit(); } catch { }
         try { Views.ToolSidebarWindow.CloseForExit(); } catch { }
         try { Views.MessageWindow.CloseForExit(); } catch { }   // 桌面留言悬浮窗（可拖动、置顶，同样会撑住消息循环）
+        try { Views.LogDetailWindow.CloseForExit(); } catch { } // 日志详细视图（独立窗口，开发者排障用）
 
         // 兜底扫一遍：其它自建窗口（贴纸 / 音量 / 截图 / 虚拟键盘…）一并收掉，
         // 谁家窗口忘了自己关，这里统一兜住。App.IsExiting 已经置位，拦关闭的窗口会放行。

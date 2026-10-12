@@ -58,8 +58,36 @@ public static class ClockRender
     public static readonly string[] VeilLabels = { "无", "白色蒙版", "黑色蒙版", "亚克力（Acrylic）", "云母（Mica）" };
     public static readonly string[] ToneLabels = { "跟随应用主题", "白色", "黑色" };
     public static readonly string[] InkLabels = { "自动（跟随底色）", "白色字", "黑色字" };
-    public static readonly string[] FontLabels = { "等宽 · 与课堂计时器一致", "工业风 · Bahnschrift", "现代等宽 · Cascadia", "系统 UI · Segoe", "优雅衬线 · Georgia" };
-    public static readonly string[] FontFamilies = { "Consolas", "Bahnschrift", "Cascadia Mono", "Segoe UI Variable Display", "Georgia" };
+    public static readonly string[] FontLabels = { "等宽 · 与课堂计时器一致", "工业风 · Bahnschrift", "现代等宽 · Cascadia", "系统 UI · Segoe", "优雅衬线 · Cambria" };
+    public static readonly string[] FontFamilies = { "Consolas", "Bahnschrift", "Cascadia Mono", "Segoe UI Variable Display", "Cambria" };
+
+    /// <summary>
+    /// 把一个字体名规范化成候选表里认识的那个。
+    /// 主要用来兜**旧存档**：老版本存过 <c>Georgia</c>（已剔除，见 <see cref="FontFamilies"/> 的说明），
+    /// 直接拿它去 new FontFamily 会让那台机器继续抖 —— 这里统一折成 Cambria。
+    /// 空值 / 不认识的一律回默认的 Bahnschrift。
+    ///
+    /// ⚠️ 剔除 Georgia 的原因（自上游 dv1.1.3 移植）：它的 <c>tnum</c> 只重映射货币符号、不碰数字
+    ///    （<c>1</c>=880 vs <c>0</c>=1257），靠等宽数字拉不平 ⇒ 大号时间居中排时每跳一秒整行宽度就变一次，
+    ///    看上去就是"数字一直左右抖"。换成同为"优雅衬线"、数字天生等宽的 Cambria。
+    /// </summary>
+    public static string NormalizeFont(string? family)
+    {
+        if (string.IsNullOrWhiteSpace(family)) return FontFamilies[1];
+        var f = family.Trim();
+        if (f == "Georgia") return "Cambria";
+        return Array.IndexOf(FontFamilies, f) >= 0 ? f : FontFamilies[1];
+    }
+
+    /// <summary>
+    /// 「等宽数字」的字形特性，给代码里建的时间 TextBlock 用
+    /// （XAML 那边写 <c>FontFeatures="+tnum"</c>，同一个特性的两种写法）。
+    ///
+    /// ⚠️ 打开 tnum 后每个数字占同样宽度，大号时间居中排时整行宽度恒定 ⇒ 秒数跳动时不会左右抖。
+    ///    ⛔ 这不是装饰：字体默认是比例字宽，Bahnschrift 里 <c>1</c> 只有 <c>4</c> 的一半宽。
+    /// </summary>
+    public static FontFeatureCollection TabularDigits { get; } =
+        new() { FontFeature.Parse("+tnum") };
 
     private static Color Ink => Color.FromArgb(255, 17, 17, 17);
     private static Color Paper => Color.FromArgb(255, 255, 255, 255);

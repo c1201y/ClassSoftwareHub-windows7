@@ -185,6 +185,13 @@ public static class DownloadService
 
         var fileName = ResolveFileName(url, suggestedName);
 
+        // ── 链路日志（对齐上游 2026-10-11）：下载是用户最常撞坑、也最难自证的一条链路。
+        //    以前失败时只把 ex.Message 弹到界面上，日志里一个字都没有；现在每一步都留痕。 ──
+        var label = string.IsNullOrWhiteSpace(suggestedName) ? fileName : suggestedName!.Trim();
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        Core.AppLog.Begin("download", $"下载「{label}」开始 · 线路={route}");
+        Core.AppLog.Step("download", $"原始链接 {url}");
+
         // 将原始链接翻译为候选链接，按序尝试，一条失败切换下一条（路由语义见 DownloadRoute）。
         IReadOnlyList<string> candidates = route switch
         {
@@ -194,8 +201,9 @@ public static class DownloadService
         };
 
         Exception? lastError = null;
-        foreach (var candidate in candidates)
+        for (var i = 0; i < candidates.Count; i++)
         {
+            var candidate = candidates[i];
             string? target = null;
             string? part = null;
             try
@@ -218,7 +226,16 @@ public static class DownloadService
 
                 File.Move(part, target, overwrite: true);
                 progress?.Report(new DownloadProgress(received, received, 0));
+                Core.AppLog.Done("download",
+                    $"下载「{label}」完成 · {Core.AppLog.Size(received)} · {target}", sw.Elapsed);
                 return new DownloadedFile(target, Path.GetFileName(target), received);
+            }
+            catch (OperationCanceledException)
+            {
+                // 用户主动取消不算失败，也不写失败日志
+                TryDelete(part);
+                if (target is not null) ReleaseIfEmpty(target);
+                throw;
             }
             catch (Exception ex)
             {
@@ -226,12 +243,21 @@ public static class DownloadService
                 lastError = ex;
                 TryDelete(part);
                 if (target is not null) ReleaseIfEmpty(target);
+                if (i < candidates.Count - 1)
+                {
+                    // ⚠️ 客气地叫「警告」而不是「错误」：换路是**设计内的正常降级**，
+                    //    只有全都试完还不行才是真失败（见循环外那条 Fail）。
+                    Core.AppLog.Warn("download", $"候选 {i + 1}/{candidates.Count} 不可用（{ex.Message}）→ 换下一条");
+                    progress?.Report(new DownloadProgress(0, 0, 0));
+                }
                 continue;
             }
         }
 
         // 所有候选都失败：抛出最后一条错误
-        throw lastError ?? new InvalidOperationException("下载失败。");
+        var final = lastError ?? new InvalidOperationException("下载失败。");
+        Core.AppLog.Fail("download", final, $"下载「{label}」失败（{candidates.Count} 条候选全部试过）");
+        throw final;
     }
 
     // ────────────────────────── 下载本体 ──────────────────────────

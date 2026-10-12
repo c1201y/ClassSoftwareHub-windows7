@@ -7,8 +7,13 @@
     <!--
       屏幕边缘侧边栏：贴在屏幕的某一条边上（上下左右都能放）。
       用处：老师前台全屏放 PPT / 视频时够不到任务栏，直接从边上点工具。
-        · 收起 = 一小截圆角抓手（亚克力底）：**点一下展开**（拖拽已于 2026-10-04 撤除，要换边请在设置里选）
-        · 展开 = 工具（图标 + 名字）+ 底下「收起 / 常驻 / 位置复原 / 隐藏 / 打开应用」
+        · 收起 = **两套样式二选一**（「侧边布局 → 收起样式」）：
+            grip 圆角抓手（默认，一小截圆角条）｜ line 细竖线（窗口本身缩成 14×220 的圆角细线）
+          两套都是**点一下展开**，另外还都能**朝屏幕外滑一下**展开
+          （贴左边向右滑、贴右边向左滑，贴上下边同理；拖拽换边已于 2026-10-04 撤除，要换边请到设置里选）
+        · 展开 = **两套样式二选一**（「侧边布局 → 展开样式」）：
+            classic 工具竖排列表 + 底排「收起 / 常驻 / 位置复原 / 隐藏 / 打开应用」
+            grid    图标网格（4 列一页 + 分页点）+ 快捷设置行（亮度 / 音量 / 键盘 / 设置）
         · 「音量」模块 = 弹一个竖长的主音量浮窗（VolumeWindow），浮窗里再点「展开」看合成器
       按钮都去掉自带边框（免得像一个个小方框），点击有大触屏尺寸 + 回弹动画。
 
@@ -23,17 +28,35 @@
             <Grid x:Name="BarHost">
                     <!-- 收起状态：短短一截抓手（整条窗口都是点击区）。
                          ⚠️ 2026-10-04：原来的"按住拖动换边"整条撤除（详见 code-behind 字段区注释）。 -->
+                    <!--
+                      收起状态：**两种样式二选一**（「侧边布局」页 → 收起样式）。
+                        · grip 圆角抓手（默认）＝下面 GripStack 里那截 5×48 的小条；
+                        · line 细竖线  ＝ LineView 里那条细线。选它时窗口本身会被缩成
+                          14×220 的圆角细条（见 CollapsedSize），整条窗口就是屏幕上那条线。
+                      ⚠️ 两种样式共用同一个 CollapsedView —— 所有按下/抬起/滑动手势的处理器
+                         只挂这一层，切样式不用改任何事件接线。
+                      ⚠️ 悬停高亮（PointerEntered/Exited）也是共用的，见 UpdateCollapsedLook。
+                    -->
                     <Grid x:Name="CollapsedView" Background="Transparent"
-                          ToolTip.Tip="点一下展开"
+                          ToolTip.Tip="点一下展开（或从这条向外滑开）"
                           PointerPressed="Strip_PointerPressed"
                           PointerMoved="Strip_PointerMoved"
                           PointerReleased="Strip_PointerReleased"
-                          PointerCaptureLost="Strip_PointerCaptureLost">  <!-- 指向专门的 CaptureLost 处理器（参数类型不同，不能复用 PointerReleased） -->
+                          PointerCaptureLost="Strip_PointerCaptureLost"
+                          PointerEntered="Strip_PointerEntered"
+                          PointerExited="Strip_PointerExited">  <!-- 指向专门的 CaptureLost 处理器（参数类型不同，不能复用 PointerReleased） -->
                         <StackPanel x:Name="GripStack" Orientation="Vertical" Spacing="6"
                                     HorizontalAlignment="Center" VerticalAlignment="Center">
                             <Border x:Name="Grip" Width="5" Height="48" CornerRadius="3" Opacity="0.6"
                                     Background="{DynamicResource TextFillColorSecondaryBrush}" />
                         </StackPanel>
+
+                            <!-- 细竖线样式：窗口本身就是那条线，不再画内芯；
+                                 LineHover 只在悬停时铺一层半透明强调色当高亮反馈 -->
+                            <Grid x:Name="LineView" IsVisible="False" Background="Transparent">
+                                <Border x:Name="LineHover" IsHitTestVisible="False" Opacity="0" CornerRadius="3"
+                                    Background="{DynamicResource TextFillColorSecondaryBrush}" />
+                        </Grid>
                     </Grid>
 
                     <!-- 展开状态 -->
@@ -93,6 +116,131 @@
                                         HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
                                         ToolTip.Tip="打开应用主界面（主窗口在托盘里或最小化时，点它叫出来）" />
                             </StackPanel>
+                        </StackPanel>
+
+                        <!--
+                          ══ 展开样式的第二套：图标网格（2026-10-11，按用户给的希沃风格参考图做）══
+                          与上面的 ExpandedStack 同在一个 Grid 里，靠「侧边布局 → 展开样式」二选一：
+                            classic = 上面那套竖排工具列表（默认，原样没动）
+                            grid    = 下面这块：图标网格（4 列一页 + 分页点）+ 快捷设置行
+
+                          ⚠️ 与 ExpandedStack 一样，工具格子由代码按「侧边布局」的模块清单生成
+                             （见 BuildGridButtons / RenderGridPage），XAML 里只有壳。
+                          ⚠️ 顶部那排小图标按钮**沿用底排五颗的设置 key**（SidebarFooterKeys）：
+                             设置里关掉哪颗，这里就不显示哪颗，两套样式不会"设置互相打架"。
+                             「打开应用」那颗没放进来 —— 网格里固定补了「主页」格子，干的是同一件事。
+                          ⚠️ 快捷设置行四颗都是复用已有功能，没有新造东西：
+                             亮度 / 音量 = VolumeWindow 那个贴边浮窗、键盘 = VirtualKeyboardWindow、
+                             设置 = 拉出主窗口并跳到设置页。
+                        -->
+                        <StackPanel x:Name="GridPanel" Orientation="Vertical" Spacing="6"
+                                    Margin="8,8,8,8" IsVisible="False"
+                                    HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                    PointerWheelChanged="GridPanel_Wheel">
+
+                            <!-- 顶条：标题 + 位置复原 / 隐藏 / 常驻 / 收起（图标小键，逐颗跟底排设置联动） -->
+                            <Grid x:Name="GridHeader" ColumnDefinitions="*,Auto" Height="26">
+                                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="5"
+                                            VerticalAlignment="Center" Opacity="0.7">
+                                    <fa:FontIcon Glyph="&#xE71D;" FontSize="11" VerticalAlignment="Center" />
+                                    <TextBlock Text="常用工具" FontSize="11" VerticalAlignment="Center" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2"
+                                            VerticalAlignment="Center">
+                                    <Button x:Name="GridResetButton" Click="Reset_Click" MinWidth="26" MinHeight="22"
+                                            Padding="0" Background="Transparent" BorderThickness="0"
+                                            ToolTip.Tip="回到右边的居中位置">
+                                        <fa:FontIcon Glyph="&#xE777;" FontSize="12" />
+                                    </Button>
+                                    <Button x:Name="GridHideButton" Click="Hide_Click" MinWidth="26" MinHeight="22"
+                                            Padding="0" Background="Transparent" BorderThickness="0"
+                                            ToolTip.Tip="隐藏（以后不显示，想找回来去「内置工具」页或系统托盘图标菜单）">
+                                        <fa:FontIcon Glyph="&#xED1A;" FontSize="12" />
+                                    </Button>
+                                    <Button x:Name="GridPinButton" Click="Pin_Click" MinWidth="26" MinHeight="22"
+                                            Padding="0" Background="Transparent" BorderThickness="0"
+                                            ToolTip.Tip="常驻：展开后不自动收起（手动点「收起」还是能收）">
+                                        <fa:FontIcon Glyph="&#xE718;" FontSize="12" />
+                                    </Button>
+                                    <Button x:Name="GridFoldButton" Click="Collapse_Click" MinWidth="26" MinHeight="22"
+                                            Padding="0" Background="Transparent" BorderThickness="0"
+                                            ToolTip.Tip="收起来（还能再展开）">
+                                        <fa:FontIcon Glyph="&#xE76C;" FontSize="12" />
+                                    </Button>
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- 图标网格：格子由代码填（见 RenderGridPage），列数按贴的边定（左右 4 列、上下 8 列） -->
+                            <!-- ⚠️ 外面包一层 Grid 用来叠两颗换页箭头：多页才显（代码控制），半透明小箭头不抢戏，
+                                 触屏上也可以直接在网格上左右滑翻页（见 ToolGrid_PointerPressed/Released） -->
+                            <Grid>
+                                <Grid x:Name="ToolGrid" Margin="0,0,0,0" />
+
+                                <Button x:Name="GridPrevPage" IsVisible="False" Click="GridPrevPage_Click"
+                                        MinWidth="18" MinHeight="34" Padding="0" Background="Transparent" BorderThickness="0"
+                                        Opacity="0.35" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                        ToolTip.Tip="上一页">
+                                    <fa:FontIcon Glyph="&#xE76B;" FontSize="11" />
+                                </Button>
+                                <Button x:Name="GridNextPage" IsVisible="False" Click="GridNextPage_Click"
+                                        MinWidth="18" MinHeight="34" Padding="0" Background="Transparent" BorderThickness="0"
+                                        Opacity="0.35" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                        ToolTip.Tip="下一页">
+                                    <fa:FontIcon Glyph="&#xE76C;" FontSize="11" />
+                                </Button>
+                            </Grid>
+
+                            <!-- 分页点：模块多到一页放不下时才冒出来，点一下翻页 -->
+                            <StackPanel x:Name="PagerDots" Orientation="Horizontal" HorizontalAlignment="Center"
+                                        Spacing="6" IsVisible="False" />
+
+                            <!-- 快捷设置行（参考图中间那一排） -->
+                            <Border x:Name="QuickBar" CornerRadius="8" Padding="4,4" BorderThickness="1"
+                                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                                    Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                                <!-- 四颗等分铺满整行：竖排 StackPanel 不会拉伸子项（HorizontalAlignment=Stretch 无效），
+                                     换成四等分 * 列，按钮各自占满 1/4 宽，Margin 负责彼此分开一点 -->
+                                <Grid ColumnDefinitions="*,*,*,*">
+                                    <!-- 内容跟参考图一致：图标在上、两字在下 -->
+                                    <!-- ⚠️ 四颗都必须显式 Grid.Column：缺省全落第 0 列，四颗叠成一坨（2026-10-12 用户截图实锤） -->
+                                    <Button x:Name="QuickShutdown" Grid.Column="0" Click="QuickShutdown_Click" MinWidth="0" MinHeight="46"
+                                            Padding="2,4" Margin="2,0" Background="Transparent" BorderThickness="0"
+                                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                            ToolTip.Tip="关机（立即关闭这台电脑）">
+                                        <StackPanel Spacing="2">
+                                            <fa:FontIcon Glyph="&#xE7E8;" FontSize="16" HorizontalAlignment="Center" />
+                                            <TextBlock Text="关机" FontSize="10" HorizontalAlignment="Center" />
+                                        </StackPanel>
+                                    </Button>
+                                    <Button x:Name="QuickLock" Grid.Column="1" Click="QuickLock_Click" MinWidth="0" MinHeight="46"
+                                            Padding="2,4" Margin="2,0" Background="Transparent" BorderThickness="0"
+                                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                            ToolTip.Tip="锁定这台电脑（回到登录界面，已开的程序不会关）">
+                                        <StackPanel Spacing="2">
+                                            <fa:FontIcon Glyph="&#xE72E;" FontSize="16" HorizontalAlignment="Center" />
+                                            <TextBlock Text="锁定" FontSize="10" HorizontalAlignment="Center" />
+                                        </StackPanel>
+                                    </Button>
+                                    <Button x:Name="QuickRestart" Grid.Column="2" Click="QuickRestart_Click" MinWidth="0" MinHeight="46"
+                                            Padding="2,4" Margin="2,0" Background="Transparent" BorderThickness="0"
+                                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                            ToolTip.Tip="重启这台电脑">
+                                        <StackPanel Spacing="2">
+                                            <fa:FontIcon Glyph="&#xE72C;" FontSize="16" HorizontalAlignment="Center" />
+                                            <TextBlock Text="重启" FontSize="10" HorizontalAlignment="Center" />
+                                        </StackPanel>
+                                    </Button>
+                                    <Button x:Name="QuickOpenApp" Grid.Column="3" Click="QuickOpenApp_Click" MinWidth="0" MinHeight="46"
+                                            Padding="2,4" Margin="2,0" Background="Transparent" BorderThickness="0"
+                                            HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
+                                            ToolTip.Tip="打开应用主界面（主窗口在托盘里或最小化时，点它叫出来）">
+                                        <StackPanel Spacing="2">
+                                            <fa:FontIcon Glyph="&#xE80F;" FontSize="16" HorizontalAlignment="Center" />
+                                            <TextBlock Text="打开应用" FontSize="10" HorizontalAlignment="Center" />
+                                        </StackPanel>
+                                    </Button>
+                                </Grid>
+                            </Border>
                         </StackPanel>
                     </Grid>
                 </Grid>

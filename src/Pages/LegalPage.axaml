@@ -12,15 +12,25 @@
       经 ShellPage.NavigateToLegal(key) 跳进来，参数就是这份文档的 key。
 
       版式沿用 ChangelogPage：最外层 ScrollViewer 统一滚动，内容钉在中间 960 宽。
-      右上角一个语言开关在中文 / English 之间切（两套文案都已在 LegalDocs 里备好）。
+      左上角一颗小图标键在中文 / English 之间切（两套文案都已在 LegalDocs 里备好）。
       返回走 ShellPage 左上角的返回按钮（ContentFrame.GoBack）—— 与其他子页一致，不再单独画返回键。
     -->
 
     <ScrollViewer Padding="24,28,24,44" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <StackPanel MaxWidth="960" HorizontalAlignment="Center" Spacing="8">
 
-            <ToggleSwitch x:Name="LangSwitch" OnContent="English" OffContent="中文"
-                          MinWidth="0" IsCheckedChanged="LangSwitch_Toggled" VerticalAlignment="Center" />
+            <!-- 语言切换：一颗小图标键（2026-10-12 用户反馈"开关不好看"）。
+                 图标 = 地球（Segoe MDL2 "World"），点一下在 中文 / English 之间切；
+                 键右侧的小字提示当前可切过去的目标语言，不占地方。 -->
+            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                <Button x:Name="LangButton" Click="LangButton_Click" MinWidth="0" MinHeight="0"
+                        Padding="6,4" Background="Transparent" BorderThickness="0"
+                        VerticalAlignment="Center" ToolTip.Tip="切换到 English">
+                    <fa:FontIcon Glyph="&#xE774;" FontSize="15" />
+                </Button>
+                <TextBlock x:Name="LangHint" Text="English" FontSize="12" Opacity="0.6"
+                           VerticalAlignment="Center" />
+            </StackPanel>
 
             <StackPanel Spacing="4">
                 <TextBlock x:Name="DocTitle" FontSize="26" FontWeight="Bold" />
