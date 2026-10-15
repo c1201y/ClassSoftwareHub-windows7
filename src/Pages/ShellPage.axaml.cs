@@ -54,6 +54,10 @@ public sealed partial class ShellPage : PageBase
         Services.DownloadManager.Current.Changed += UpdateDownloadBadge;
         UpdateDownloadBadge();
 
+        // 导航栏一律不弹 ToolTip（浮层会吃掉内容区控件的首击，细节见方法注释）。
+        // 关的是「服务」而非常量属性，与项容器何时 realize 无关，所以构造期设一次即可。
+        DisableNavToolTips();
+
         // 面板显示模式变了（宽 ↔ 窄）→ 重新算内容区要不要给导航按钮让位
         Nav.DisplayModeChanged += (_, _) => ApplyPaneInset();
         ApplyPaneInset();
@@ -484,6 +488,62 @@ public sealed partial class ShellPage : PageBase
     }
 
     /// <summary>
+    /// 关掉某个导航分组的子项浮层（不动 <c>IsExpanded</c>）。
+    ///
+    /// <para>⚠️ 2026-10-15（用户反馈「秒表按钮点第一次没反应，需要点第二次」）：根因是
+    /// FluentAvalonia 的导航分组浮层。FA 2.4.1 里带子项的 <c>NavigationViewItem</c>
+    /// （「内置工具」/「实验性功能」），**即使在展开（Left）模式**也把子项放在
+    /// <c>AttachedFlyout</c>（Popup）里显示。点分组项打开它、点子项导航；
+    /// 而**点完子项之后 FA 又会重建一次浮层**（实测：每次导航后残留浮层的 hwnd 都不同），
+    /// 于是它一直挂着。Avalonia 的 Popup 会把「点击外部」用于自身关闭并**消费掉那一次指针按下**，
+    /// 结果就是用户离开导航后点内容区的任何东西（模式卡、按钮…）都首击无效、第二击才生效；
+    /// 键盘输入同理被吃掉。</para>
+    ///
+    /// <para>复现与定位证据（Win11 本机 UIA 自动化）：导航到工具页后枚举本进程顶层窗口，
+    /// 会看到一条 <c>Avalonia-*</c> 无标题、rect 与导航面板重合的可见窗口；首次点击后它消失。
+    /// 逐项排除：指针先停留再按下、先移动光标、ToolTip（另见 <see cref="DisableNavToolTips"/>）
+    /// 都不是原因；手动 <c>SW_HIDE</c> 那扇原生窗口也无效（Avalonia 侧 Popup 状态照样是打开）——
+    /// 只有「先点一次别处」才能解锁下一次点击，说明被消费的是**第一次输入事件本身**。</para>
+    ///
+    /// <para>⚠️ 只关浮层、<b>不</b>碰 <c>IsExpanded</c> 会让两者失步：FA 仍以为浮层开着，
+    /// 用户下次点分组项会被它当成「折叠」，子项就再也打不开了（实测）。所以这里顺带把
+    /// <c>IsExpanded</c> 复位，保证「展开标志 ↔ 浮层开关」始终一致。</para>
+    /// </summary>
+    private void CloseGroupFlyout(NavigationViewItem group)
+    {
+        try
+        {
+            var root = group.GetVisualDescendants()
+                            .OfType<Grid>()
+                            .FirstOrDefault(g => g.Name == "NVIRootGrid");
+            if (root is null) return;
+
+            if (FlyoutBase.GetAttachedFlyout(root) is PopupFlyoutBase flyout && flyout.IsOpen)
+                flyout.Hide();
+            if (group.IsExpanded) group.IsExpanded = false;
+        }
+        catch
+        {
+            // 浮层关不掉不值得影响导航
+        }
+    }
+
+    /// <summary>
+    /// 关掉导航栏（含所有项与子项）的 ToolTip。
+    ///
+    /// <para>⚠️ 2026-10-15：导航项的 ToolTip 是独立的一条问题（与上面那组「首击被吞」的浮层问题
+    /// 不是同一个东西，但同属「Popup 遮挡 / 吃点击」这一族）。鼠标在导航项上停留到悬停延时后，
+    /// 提示浮层会弹在导航面板右侧、压到内容区上沿（真机截图已拍下），落在那一块的点击会先被浮层
+    /// 消费掉。导航项的文案在展开面板里本来就完整可见，ToolTip 纯属冗余，宁可没有提示也不能丢点击
+    /// —— 与第 14 轮「金刚按钮点了没反应」（见 <see cref="UpdateCaptionGlyphs"/> 的注释）同一取舍。</para>
+    ///
+    /// <para>⚠️ 关的是「服务」而不是逐项清 <c>Tip</c>：Avalonia 的 <c>ToolTipService.Update</c>
+    /// 是从命中元素沿 <c>VisualParent</c> 链**向上**找第一个 <c>ServiceEnabled == false</c> 的祖先
+    /// 并直接返回，所以在这里关一次即可覆盖整支子树，与项容器何时被懒 realize 无关。</para>
+    /// </summary>
+    private void DisableNavToolTips() => ToolTip.SetServiceEnabled(Nav, false);
+
+    /// <summary>
     /// 修复 FA 2.4.1 分组浮层定位：窄条（Compact）模式下点「内置工具」「实验性功能」图标，
     /// 子项浮层应贴在图标右侧（RightEdgeAlignedTop），实测却掉到窗口左缘。
     /// 根因（FA 2.4.1 NavigationViewItem.OnNavigationViewItemBasePositionChanged）：
@@ -842,5 +902,14 @@ public sealed partial class ShellPage : PageBase
         //    但**子项的高亮它靠不住**（「实验性功能 → 本机核实」这种嵌套项，选中态经常不跟着走）。
         //    显式 SelectTag 一遍，两条路径都吃到同一套高亮逻辑。
         NavigateTo(tag);
+
+        // ⚠️ 2026-10-15：点的是分组子项 → 父分组的子项浮层必须主动关掉，否则它会一直挂着，
+        //    并把用户离开导航后的**第一次点击**吃掉（用户报的「秒表按钮点第一次没反应」）。
+        //    详见 CloseGroupFlyout 的注释。
+        //    延后一帧执行：FA 在导航收尾时会重建这个浮层，得等它建完再关。
+        var group = AllTopItems()
+            .FirstOrDefault(top => top.MenuItems.OfType<NavigationViewItem>().Contains(item));
+        if (group is not null)
+            Dispatcher.UIThread.Post(() => CloseGroupFlyout(group), DispatcherPriority.Background);
     }
 }

@@ -470,6 +470,10 @@ public partial class App : Application
         // 走后台线程，不沾首帧；新版本装完后的第一次启动正好把旧包收掉。
         Services.Updating.InstallerCleanup.Start();
 
+        // 教室喊话（2026-10-12）：总开关默认关 —— 关着时 Start() 第一句就 return，
+        // 不建 HTTP 连接不占线程（见 AnnounceService）。
+        Services.AnnounceService.Start();
+
         base.OnFrameworkInitializationCompleted();
     }
 

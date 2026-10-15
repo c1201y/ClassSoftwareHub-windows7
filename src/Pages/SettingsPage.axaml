@@ -429,6 +429,17 @@
 
                 </StackPanel>
 
+                <!-- ================= 教室喊话 ================= -->
+                <!-- 2026-10-13：从设置页独立成「内置工具 → 教室喊话」页（收发一体，固定配对码），
+                     这里只留一行入口指路，设置本体全部迁走。 -->
+                <TextBlock Text="教室喊话" FontSize="14" FontWeight="SemiBold" Margin="0,24,0,8" />
+                <StackPanel Spacing="4">
+                    <views:SettingsCard Header="教室喊话已独立成页"
+                                        Description="接收与发送都在「内置工具 → 教室喊话」页，点下方按钮直达。">
+                        <Button Content="打开教室喊话" Click="AnnouncePageJump_Click" />
+                    </views:SettingsCard>
+                </StackPanel>
+
                 <!-- ================= 回声洞 ================= -->
                 <!-- 2026-10-03（原版）三次改版：**单独一块、单独一个「回声洞」标题**（不并进「软件内容」）；
                      形态对齐 ClassIsland 的「关于 → 回声洞」：一个 SettingsExpander，

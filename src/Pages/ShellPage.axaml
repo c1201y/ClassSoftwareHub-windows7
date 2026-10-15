@@ -197,6 +197,12 @@
                                 <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE8BD;" />
                             </fa:NavigationViewItem.IconSource>
                         </fa:NavigationViewItem>
+                        <!-- 教室喊话（2026-10-13 从设置页独立成页）：E720 麦克风，与「桌面留言」的对话泡分得开 -->
+                        <fa:NavigationViewItem Content="教室喊话" Tag="announce">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE720;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
                         <fa:NavigationViewItem Content="编码 / 哈希工具" Tag="encoding">
                             <fa:NavigationViewItem.IconSource>
                                 <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE943;" />

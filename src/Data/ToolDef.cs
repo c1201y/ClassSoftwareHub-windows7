@@ -129,6 +129,12 @@ public static class ToolCatalog
         },
         new ToolDef
         {
+            Id = "announce", Name = "教室喊话",
+            Desc = "接收远端喊话（全屏大字 + 可选朗读），也能从本机给同配对码下的教室机群发一句话。",
+            Glyph = "\uE720", Page = typeof(AnnouncePage)
+        },
+        new ToolDef
+        {
             Id = "encoding", Name = "编码 / 哈希工具",
             Desc = "校验文件：拖入即得 MD5 / SHA-1 / SHA-256 / SHA-512，可粘贴官方值自动核对；也可做 Base64、URL 编解码。",
             Glyph = "\uE943", Page = typeof(EncodingToolPage)

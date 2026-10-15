@@ -36,6 +36,14 @@ namespace ClassSoftwareHub.Desktop.Core;
 /// ⚠️ <b>为什么 Win11 上要躲开</b>（<see cref="Enabled"/>）：
 /// Win11 的 DWM 圆角带抗锯齿，并且和系统阴影、Aero 吸附是配套的；
 /// 到了 Win11 还去抢着设区域，等于把系统那套换成硬边，是**倒退**。
+///
+/// ⚠️ 但 2026-10-14 实测（Win11 26200 + 用户实测）：**无边框浮窗在 Win11 上 DWM 根本不给圆** ——
+/// 这类窗口（WS_POPUP + WS_EX_NOREDIRECTIONBITMAP + 每像素 alpha 内容）撞进微软文档
+/// 「即使调用选择加入 API 也永远无法圆角」的排除项（每像素 alpha 分层 / 窗口区域）：
+/// DWMWA_WINDOW_CORNER_PREFERENCE 设成 ROUND 也纹丝不动。所以浮窗家族
+/// （侧边栏 / 音量浮窗 / 虚拟键盘 / 消息浮窗）在 Win11 上**同样**得走区域裁剪 ——
+/// 用 <see cref="Attach"/> / <see cref="Apply"/> 的 <c>force: true</c> 显式开。
+/// 别一刀切改 <see cref="Enabled"/>：主窗口那类**有框架**的窗口在 Win11 上 DWM 圆角是好的。
 /// </para>
 ///
 /// <para>
@@ -79,6 +87,7 @@ public sealed class RoundedCorners
 
     private readonly Window _window;
     private readonly double _radiusDip;
+    private readonly bool _force;
     private bool _attached;
 
     private readonly struct Entry
@@ -98,10 +107,11 @@ public sealed class RoundedCorners
             => Radius == radius && Width == width && Height == height;
     }
 
-    private RoundedCorners(Window window, double radiusDip)
+    private RoundedCorners(Window window, double radiusDip, bool force)
     {
         _window = window;
         _radiusDip = radiusDip;
+        _force = force;
     }
 
     // ══════════════════════════════════════════════════════════════════
@@ -111,10 +121,12 @@ public sealed class RoundedCorners
     /// <summary>
     /// 把圆角托管给这个窗口：立刻裁一次，之后窗口 <c>Resized</c> 会自动重算。
     /// <b>必须在窗口 Show() 之后调用</b>（HWND 还不存在时无从下手）。
+    /// <paramref name="force"/> = 即使在 Win11（<see cref="Enabled"/> 为假）也强行裁：
+    /// 给无边框浮窗用的 —— 那类窗口 DWM 拒绝圆角（见类注释），区域裁剪是唯一出路。
     /// </summary>
-    public static RoundedCorners Attach(Window window, double radiusDip = DefaultCornerRadiusDip)
+    public static RoundedCorners Attach(Window window, double radiusDip = DefaultCornerRadiusDip, bool force = false)
     {
-        var corners = new RoundedCorners(window, radiusDip);
+        var corners = new RoundedCorners(window, radiusDip, force);
         if (window is not null)
         {
             window.Resized += corners.OnResized;
@@ -141,7 +153,7 @@ public sealed class RoundedCorners
             if (hwnd == IntPtr.Zero) return;
 
             var scale = _window.RenderScaling > 0 ? _window.RenderScaling : 0;
-            Apply(hwnd, _radiusDip, scale);
+            Apply(hwnd, _radiusDip, scale, _force);
         }
         catch
         {
@@ -175,10 +187,11 @@ public sealed class RoundedCorners
     /// 显示器缩放（dip → 物理像素）。传 <c>0</c>（默认）时自己问系统 DPI
     /// —— 调用方手里有 <c>Window.RenderScaling</c> 时应尽量传进来，多显示器混合 DPI 下更准。
     /// </param>
+    /// <param name="force">Win11 上也强行裁（无边框浮窗专用，见类注释）。</param>
     /// <returns>真的设置成功了才回 <c>true</c>（含"本来就已经是这个形状"）。</returns>
-    public static bool Apply(IntPtr hwnd, double radiusDip = DefaultCornerRadiusDip, double scale = 0)
+    public static bool Apply(IntPtr hwnd, double radiusDip = DefaultCornerRadiusDip, double scale = 0, bool force = false)
     {
-        if (!Enabled || hwnd == IntPtr.Zero) return false;
+        if ((!Enabled && !force) || hwnd == IntPtr.Zero) return false;
 
         try
         {

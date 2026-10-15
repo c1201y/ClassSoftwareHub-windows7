@@ -135,9 +135,17 @@ internal static class PopupSurfaceFix
             var radiusDip = ResolveCornerRadius(root);
 
             // ① 同色打底：把"露白"变成"露出同色"。必须是不透明纯色，半透明的顶不住。
+            //    ⚠️ 2026-10-15：回退底色（TransparencyBackgroundFallback）必须一起刷。
+            //    PopupRoot 也是 TopLevel，Win7 上它的实际 TransparencyLevel 同样是 None
+            //    （Avalonia 在 Win7 上没有透明窗口能力，见 Platform/Backdrop.cs 类注释），
+            //    此时窗口底由回退底色决定，而它默认是**白色** —— 只设 Background 兜不住月牙。
             var surface = ResolveSurfaceColor(root);
             if (surface is { } c)
-                root.Background = new SolidColorBrush(c);
+            {
+                var brush = new SolidColorBrush(c);
+                root.Background = brush;
+                root.TransparencyBackgroundFallback = brush;
+            }
 
             // ② 裁剪：按内容同样的圆角半径把窗口形状裁掉四角
             _ = RoundedCorners.Apply(hwnd, radiusDip, scale);

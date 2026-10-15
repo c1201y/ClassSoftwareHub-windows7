@@ -254,7 +254,8 @@ public sealed partial class VirtualKeyboardWindow : Window
 
         // 圆角区域是按当时的窗口尺寸算死的，而键盘宽度/字号在设置里能改 —— 挂上自动重算，
         // 否则改了宽度之后四角会被按旧尺寸裁歪（见 Core/RoundedCorners）。
-        try { _corners ??= RoundedCorners.Attach(this); } catch { }
+        // ⚠️ force=true：Win11 上无边框浮窗 DWM 拒绝给圆角（见 Core/RoundedCorners 类注释）。
+        try { _corners ??= RoundedCorners.Attach(this, RoundedCorners.DefaultCornerRadiusDip, force: true); } catch { }
         _corners?.Refresh();
 
         _visible = true;

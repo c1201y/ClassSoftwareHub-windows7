@@ -1034,24 +1034,21 @@ public sealed partial class PickNumberToolPage : PageBase
         HideError();
         try
         {
+            // ⚠️ Win7 走 FilePickerCompat 兜底（Avalonia 选择器在「库」里选文件会静默失败）
             var top = TopLevel.GetTopLevel(this);
             if (top is null) return;
-            var files = await top.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-            {
-                Title = "导入名单",
-                AllowMultiple = false,
-                FileTypeFilter = new List<FilePickerFileType>
+            var picked = await FilePickerCompat.PickFilesAsync(top, "导入名单", allowMultiple: false,
+                new List<FilePickerFileType>
                 {
                     new FilePickerFileType("名单文件（txt / csv / Excel）")
                     {
                         Patterns = NameRoster.TextExts.Concat(NameRoster.ExcelExts).Select(x => "*" + x).ToArray(),
                     },
-                },
-            });
-            if (files.Count == 0) return;
+                });
+            if (picked.Error is not null) { ShowError(picked.Error); return; }
+            if (picked.Files.Count == 0) return;
 
-            var file = files[0];
-            var names = NameRoster.Read(file.Path.LocalPath);
+            var names = NameRoster.Read(picked.Files[0]);
             if (names.Count == 0)
             {
                 ShowError("该文件中未读取到姓名。txt / csv 请每行一个（或用逗号分隔）；"
@@ -1062,7 +1059,7 @@ public sealed partial class PickNumberToolPage : PageBase
             _roster.Clear();
             _roster.AddRange(names);
             _usedNames.Clear();          // 名单换了，上一份名单的抽号记录就没意义了
-            _rosterSource = file.Name;
+            _rosterSource = System.IO.Path.GetFileName(picked.Files[0]);
 
             // 导完直接切到名单模式，省得再点一次
             if (!UseRoster) ModeRosterRadio.IsChecked = true;

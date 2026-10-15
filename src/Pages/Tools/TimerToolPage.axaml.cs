@@ -108,26 +108,23 @@ public sealed partial class TimerToolPage : PageBase
     {
         try
         {
-            // ⚠️ 原版 WinRT FileOpenPicker + InitializeWithWindow 绑窗口句柄；Avalonia 走 StorageProvider
-            //    （无需窗口句柄初始化），过滤扩展名照搬 Services.TimerAlarm.Extensions。
+            // ⚠️ Win7 走 FilePickerCompat 兜底（Avalonia 选择器在「库」里选文件会静默失败），
+            //    过滤扩展名照搬 Services.TimerAlarm.Extensions。
             var top = TopLevel.GetTopLevel(this);
             if (top is null) return;
 
-            var files = await top.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-            {
-                Title = "选择铃声",
-                AllowMultiple = false,
-                FileTypeFilter = new List<FilePickerFileType>
+            var r = await FilePickerCompat.PickFilesAsync(top, "选择铃声", allowMultiple: false,
+                new List<FilePickerFileType>
                 {
                     new FilePickerFileType("音频文件")
                     {
                         Patterns = Array.ConvertAll(Services.TimerAlarm.Extensions, ext => "*" + ext),
                     },
-                },
-            });
-            if (files.Count == 0) return;
+                });
+            if (r.Error is not null) { Core.AppLog.Warn("timer", "挑选铃声被拒：" + r.Error); return; }
+            if (r.Files.Count == 0) return;
 
-            Services.TimerAlarm.CustomPath = files[0].Path.LocalPath;
+            Services.TimerAlarm.CustomPath = r.Files[0];
             SyncAlarmButton();
             Services.TimerAlarm.Play();     // 挑完立刻响一下试听，省得还要等一轮倒计时才知道好不好听
         }
@@ -164,11 +161,16 @@ public sealed partial class TimerToolPage : PageBase
         App.Settings.Save();
     }
 
-    /// <summary>两张模式卡谁被选中就切到哪个模式（事件挂在 XAML 的 Checked 上）。</summary>
-    private void Mode_Changed(object? sender, RoutedEventArgs e)
+    /// <summary>
+    /// 模式卡被点（Click 而不是 Checked —— 见 axaml 里 2026-10-15 的注释）。
+    /// SetMode 是选中状态的唯一权威：先把模式落定，再由它回写两张卡的 IsChecked。
+    /// </summary>
+    private void Mode_Click(object? sender, RoutedEventArgs e)
     {
-        if (_syncingMode) return;      // SetMode 自己在回写卡片状态，别绕回来
-        SetMode(BtnCountdown.IsChecked == true ? Mode.Countdown : Mode.Stopwatch);
+        if (_syncingMode) return;
+        var mode = sender == BtnStopwatch ? Mode.Stopwatch : Mode.Countdown;
+        if (mode == _mode) return;      // 点的就是当前模式：不动计时器
+        SetMode(mode);
     }
 
     private void SetMode(Mode mode)

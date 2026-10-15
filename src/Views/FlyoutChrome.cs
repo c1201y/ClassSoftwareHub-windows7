@@ -71,7 +71,9 @@ public sealed class FlyoutChrome
 
         // 圆角：Win11 走 DWM，Win7/10 走窗口区域裁剪（见 Core/RoundedCorners）。
         // 这个窗口是"宽固定 + 高实测"的，尺寸每次都可能变 → 由 RoundedCorners 挂在 Resized 上自动重算。
-        _corners = RoundedCorners.Attach(_window);
+        // ⚠️ force=true（2026-10-14）：Win11 上无边框浮窗 DWM 拒绝给圆角（见 Core/RoundedCorners 类注释），
+        //    Win11 也得靠区域裁剪。
+        _corners = RoundedCorners.Attach(_window, RoundedCorners.DefaultCornerRadiusDip, force: true);
 
         ApplyMaterial();
 
@@ -223,6 +225,9 @@ public sealed class FlyoutChrome
         {
             _backdropApplied = true;
             try { Backdrop.Apply(_window, null, "acrylic"); } catch { }
+            // ⚠️ Win11：NOREDIRECTIONBITMAP 浮窗 DWM 不认 SetWindowRgn，圆角靠内容 alpha 抠
+            //    —— 底色全透，否则面板圆角外的月牙漏窗口白底（见 Backdrop.EnablePerPixelCorners）。
+            if (OsInfo.SupportsWindowRounding) Backdrop.EnablePerPixelCorners(_window);
         }
     }
 

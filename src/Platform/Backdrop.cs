@@ -15,8 +15,22 @@ namespace ClassSoftwareHub.Desktop.Platform;
 ///
 ///   Win11 22000+          → Mica          （DwmSetWindowAttribute / DWMSBT_MAINWINDOW）
 ///   Win10 1803+           → Acrylic       （SetWindowCompositionAttribute / ACCENT_ENABLE_ACRYLICBLURBEHIND）
-///   Win7 / Win8 / 8.1     → Aero 毛玻璃    （DwmEnableBlurBehindWindow + DwmExtendFrameIntoClientArea）
-///   以上都不可用 / Aero关闭 → 纯色底        （深浅色各一，与原版同样的色值）
+///   Win8 / 8.1            → Aero 毛玻璃    （DwmEnableBlurBehindWindow + DwmExtendFrameIntoClientArea）
+///   以上都不可用 / Win7 / Aero关闭 → 纯色底 （深浅色各一，与原版同样的色值）
+///
+/// ⚠️ **Win7 不参与「Aero 毛玻璃」这一级**（2026-10-15 收窄，原先含 Win7）。
+///    根因：Avalonia 11.2.8 在 Win7 上**没有透明窗口能力** —— <c>WindowImpl</c> 既没有
+///    <c>WS_EX_LAYERED</c> / <c>UpdateLayeredWindow</c>，<c>SetLegacyTransparency</c>
+///    （<c>DwmEnableBlurBehindWindow</c>）又显式要求 Win8+，且
+///    <c>IsSupported(Transparent) = !UseRedirectionBitmap || Version &gt;= Win8</c>
+///    在 Win7（<c>UseRedirectionBitmap</c> 恒为 true）下为 false
+///    → 实际 <c>TransparencyLevel</c> 落到 <c>None</c>。
+///    于是这一级的 <c>Background = Transparent</c> 根本透明不了，窗口底被交给
+///    <c>TransparencyBackgroundFallback</c>（默认**白色**）。叠加本级的
+///    <c>DwmExtendFrameIntoClientArea</c>（把玻璃铺满整个客户区），DWM 接管了玻璃框架之后
+///    <c>SetWindowRgn</c> 的圆角裁剪会被无视 —— 两者合起来就是用户报的
+///    「Win7 开 Aero 时圆角有白边/白角」；关掉 Aero 会落到下面的纯色分支，反而一切正常。
+///    详细判定见 <see cref="Apply"/> 里 Aero 分支前的注释。
 ///
 /// ⚠️ 与原版一致的两条纪律：
 ///   ① 上了材质就把根元素背景置空，让材质透上来；
@@ -29,6 +43,9 @@ public static class Backdrop
 
     private static SetWindowCompositionAttributeDelegate? _setComposition;
     private static bool _compositionProbed;
+
+    /// <summary>已经记过「Win7 退纯色底」那条日志了（材质会随主题/设置多次重算，只记第一条）。</summary>
+    private static bool _loggedWin7Route;
 
     /// <summary>
     /// 给窗口上背景，返回**实际生效**的 kind：<c>mica</c> / <c>acrylic</c> / <c>blur</c> / <c>solid</c>。
@@ -94,11 +111,30 @@ public static class Backdrop
                 }
             }
 
-            // ── Win7 / Win8 / 8.1：Aero 毛玻璃 ──────────────────────────────
-            // ⚠️ 只允许 Win7/8 走这条路：DWM_BLURBEHIND 是 Vista 时代的 API，
-            //    Win10/11 上客户区会直接渲染成**纯黑**（实测 2026-10-01 云桌面）。
-            //    设置里的 blur 在 Win10+ 一律转投 acrylic → mica → solid 级联。
-            var aeroAllowed = OsInfo.IsWindows7 || OsInfo.IsWindows8;
+            // ── Win8 / 8.1：Aero 毛玻璃 ───────────────────────────────────
+            // ⚠️ 只允许 Win8/8.1 走这条路（2026-10-15 从 `IsWindows7 || IsWindows8` 收窄）。
+            //    两个硬约束：
+            //    ① `DWM_BLURBEHIND` 是 Vista 时代的 API，Win10/11 上客户区会直接渲染成**纯黑**
+            //       （实测 2026-10-01 云桌面）；设置里的 blur 在 Win10+ 一律转投 acrylic → mica → solid 级联。
+            //    ② **Win7 必须排除**：Avalonia 11.2.8 在 Win7 上拿不到透明窗口
+            //       （WindowImpl 无 WS_EX_LAYERED/UpdateLayeredWindow；SetLegacyTransparency 要求 Win8+；
+            //        IsSupported(Transparent) 在 UseRedirectionBitmap=true 的 Win7 上为 false
+            //        → TransparencyLevel 恒为 None）。
+            //       这条分支依赖「窗口底透明」：`Background = Transparent` 在 Win7 上透明不了，
+            //       窗口底会落到 TransparencyBackgroundFallback（默认白）；同时
+            //       DwmExtendFrameIntoClientArea(-1,-1,-1,-1) 把玻璃铺满整个客户区，
+            //       DWM 接管玻璃框架后 SetWindowRgn 的圆角裁剪被无视（日志"裁剪成功"、像素纹丝不动）。
+            //       → 深色界面下圆角月牙一圈白，即用户报的「Win7 开 Aero 圆角有白边」。
+            //       Win7 落到下面的 Solid 分支后：底色是不透明成品色、窗口没有玻璃框架，
+            //       区域裁剪正常生效 → 圆角干净。Win7 上毛玻璃本来也无收益（内容不透明，玻璃在底下看不见）。
+            var aeroAllowed = OsInfo.IsWindows8;
+
+            // 真机排障凭证：Win7 上「开 Aero 才有白边」这个问题，看这一行就能确认代码走了纯色底。
+            if (OsInfo.IsWindows7 && !_loggedWin7Route)
+            {
+                _loggedWin7Route = true;
+                PortLog.Step("材质: Win7 不走 Aero 毛玻璃（Avalonia 在 Win7 上无法透明，玻璃只会带来白边）→ 退纯色底");
+            }
             if (aeroAllowed && OsInfo.IsDwmCompositionEnabled && TryApplyAeroBlur(hwnd))
             {
                 EnableAvaloniaTransparency(win);
@@ -212,6 +248,66 @@ public static class Backdrop
         catch { /* 平台不支持时忽略 */ }
     }
 
+    /// <summary>
+    /// Win11 浮窗专用：把窗口底色与透明回退色都压成**全透**。
+    ///
+    /// <para>
+    /// ── 为什么需要（2026-10-15 实测 Win11 26200）────────────────────────
+    /// 无边框浮窗（WS_POPUP + WS_EX_NOREDIRECTIONBITMAP）的内容由 DWM 直接合成、
+    /// **没有重定向表面，DWM 无视 SetWindowRgn**（应用日志"裁剪成功"、像素纹丝不动）——
+    /// 区域裁剪在这类窗口上是死路。同时 Avalonia 的实际透明级别落到 None 时会把
+    /// <c>TransparencyBackgroundFallback</c>（白）刷成窗口底色，面板圆角与窗口矩形
+    /// 之间的月牙缝就漏出一条白边。
+    /// </para>
+    ///
+    /// <para>
+    /// 解法 = 圆角改由**内容自身的 alpha** 完成：底色全透后月牙 alpha=0，
+    /// DWM 合成时直接露出桌面，配合面板自己的 CornerRadius 得到干净的圆角。
+    /// 只该在 Win11+ 上调（Win7/10 靠区域裁剪，底色要保住成品色防白闪）。
+    /// </para>
+    /// </summary>
+    public static void EnablePerPixelCorners(Window win)
+    {
+        try
+        {
+            win.Background = Brushes.Transparent;
+            win.TransparencyBackgroundFallback = Brushes.Transparent;
+        }
+        catch { /* 属性设不上就算了：顶多月牙还是白的，不影响功能 */ }
+
+        // accent 毛玻璃（若生效）会把整个窗口矩形垫上 60% 白的雾 —— 面板虽是实色看不见它，
+        // 四角月牙却会透出奶白。Win11 浮窗的面板全是实色，毛玻璃毫无收益，直接关掉，
+        // 月牙才是干净的「透出桌面」。
+        try
+        {
+            var hwnd = TryGetHwnd(win);
+            var fn = hwnd != IntPtr.Zero ? GetSetComposition() : null;
+            if (fn is null) return;
+            var policy = new NativeMethods.ACCENTPOLICY
+            {
+                AccentState = NativeMethods.ACCENT_DISABLED,
+                AccentFlags = 0,
+                GradientColor = 0,
+                AnimationId = 0
+            };
+            var size = Marshal.SizeOf<NativeMethods.ACCENTPOLICY>();
+            var ptr = Marshal.AllocHGlobal(size);
+            try
+            {
+                Marshal.StructureToPtr(policy, ptr, false);
+                var data = new NativeMethods.WINDOWCOMPOSITIONATTRIBDATA
+                {
+                    Attribute = NativeMethods.WCA_ACCENT_POLICY,
+                    Data = ptr,
+                    SizeOfData = size
+                };
+                fn(hwnd, ref data);
+            }
+            finally { Marshal.FreeHGlobal(ptr); }
+        }
+        catch { /* 关不掉顶多月牙带雾，不影响功能 */ }
+    }
+
     /// <summary>纯色兜底：与原版同一套色值（深 32,32,32 / 浅 243,243,243）。</summary>
     private static void Solid(Window win, Panel? root)
     {
@@ -223,6 +319,15 @@ public static class Backdrop
                 : Color.FromArgb(255, 243, 243, 243));
 
             win.Background = brush;
+
+            // ⚠️ 2026-10-15：回退底色一并刷成品色。
+            //    窗口的实际 TransparencyLevel 拿不到透明时（Win7 恒为 None），窗口底由
+            //    TransparencyBackgroundFallback 决定，而它默认是**白色** ——
+            //    圆角月牙、被内容盖不到的边缘都会露这一层白，即用户报的"白角白边"。
+            //    刷成品色后即便兜底层露出来，也是与面板同色，观感上不再是白。
+            //    本来就不透明的窗口（用户选 solid / 材质全失败）设它没有任何副作用。
+            win.TransparencyBackgroundFallback = brush;
+
             if (root is not null) root.Background = brush;
         }
         catch { }

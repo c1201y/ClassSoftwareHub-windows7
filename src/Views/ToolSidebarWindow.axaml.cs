@@ -61,7 +61,9 @@ namespace ClassSoftwareHub.Desktop.Views;
 /// </summary>
 public sealed partial class ToolSidebarWindow : Window
 {
-    private const int CollapsedThicknessDip = 8;    // 收起时那条的厚度（竖条=宽，横条=高）。⚠️ 2026-10-12 用户要求"细一点的线"：20 → 8
+    private const int CollapsedThicknessDip = 20;   // 收起时那条的厚度（竖条=宽，横条=高）—— grip 抓手样式的原版值。
+                                                    // ⚠️ 2026-10-12 误把"细一点的线"改到了这里，grip 被压成 8dip 扁条（2026-10-13 用户反馈修复）；
+                                                    //    细线样式有自己的 LineThicknessDip，两者别混。
     private const int CollapsedLengthDip = 110;     // 收起时的长度（竖条=高）
     // Win32 ShowWindow 的 nCmdShow 值（与 FlyoutChrome / ToolPaletteWindow 同一套私有常量；
     // Platform.NativeMethods 只收 int 参数，不在业务代码里另写 DllImport）
@@ -708,10 +710,16 @@ public sealed partial class ToolSidebarWindow : Window
             // 圆角：RemoveBorder 里那次是"一次性"的，而侧边栏展开/收起时宽度会变 ——
             // 区域是按当时的尺寸算死的，不重算就会裁歪（实测过：窗口 40 宽、区域还停在 59 宽）。
             // Attach 挂在 Resized 上自动重算，正好治这个。
-            try { _corners ??= RoundedCorners.Attach(this); } catch { }
+            // ⚠️ force=true（2026-10-14）：Win11 上这扇 WS_POPUP + 每像素 alpha 的浮窗 DWM 拒绝
+            //    给圆角（CORNER_PREFERENCE=ROUND 也不认，实测 26200），区域裁剪是唯一出路。
+            try { _corners ??= RoundedCorners.Attach(this, RoundedCorners.DefaultCornerRadiusDip, force: true); } catch { }
             _corners?.Refresh();
             // 亚克力底（Win7 → Aero 毛玻璃 → 纯色兜底），也是显示之后才能上
             Backdrop.Apply(this, null, "acrylic");
+            // ⚠️ Win11：这扇 NOREDIRECTIONBITMAP 浮窗 DWM 不认 SetWindowRgn（2026-10-15 实测，
+            //    日志"裁剪成功"但像素纹丝不动），圆角只能靠内容 alpha 抠 —— 底色必须全透，
+            //    否则面板圆角与窗口矩形之间的月牙缝漏出窗口白底（用户实测的"圆角没裁干净"）。
+            if (OsInfo.SupportsWindowRounding) Backdrop.EnablePerPixelCorners(this);
         }
         catch (Exception ex)
         {
@@ -1247,7 +1255,11 @@ public sealed partial class ToolSidebarWindow : Window
                 HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Center,
                 Content = content
             };
-            ToolTip.SetTip(btn, m.Note ?? m.Name);
+            // ⚠️ 2026-10-15：**故意不给模块按钮挂 ToolTip**（同第 14 轮标题栏按钮的取舍）。
+            //    展开面板上本来就看得到模块名，tooltip 纯冗余；而它是个 Popup，
+            //    悬停一秒弹出后，按下去那一下会被 Popup 的轻.dismiss 吃掉 ——
+            //    实测（Win11 自动化点击）就是用户报的「秒表按钮点第一次没反应需要点第二次」。
+            //    模块按钮是高频点击件，宁可没有提示也不能丢点击。
 
             if (m.Kind == SidebarModuleKinds.Action && TeachingActions.IsHold(m.Id))
             {
@@ -2821,14 +2833,15 @@ public sealed partial class ToolSidebarWindow : Window
     private PixelSize CollapsedSize()
     {
         var scale = Scale();
-        // ⚠️ 两种收起样式尺寸不一样（grip 8×110 / line 6×220），换算式都收在
+        // ⚠️ 两种收起样式尺寸不一样（grip 20×110 / line 6×220），换算式都收在
         //    CollapsedDipW / CollapsedDipH 里 —— 圆角也是从那儿读的，改就一起改。
         return new PixelSize(
             (int)Math.Round(CollapsedDipW * scale),
             (int)Math.Round(CollapsedDipH * scale));
     }
 
-    /// <summary>收起态离屏幕边的空隙（dip）。2026-10-12 用户要求"离屏幕边缘 8px"——别再死贴在边上。</summary>
+    /// <summary>收起态离屏幕边的空隙（dip）。2026-10-12 用户要求细线样式"离屏幕边缘 8px"。
+    /// ⚠️ 只对细线（line）样式生效 —— grip 抓手保持原版死贴边（2026-10-13 用户要求抓手"和之前一样"）。</summary>
     private const int CollapsedEdgeGapDip = 8;
 
     /// <summary>按当前贴的边算"贴边位置"（**纯计算，不动窗口**）。参数是窗口按哪套尺寸算。
@@ -2847,8 +2860,8 @@ public sealed partial class ToolSidebarWindow : Window
         var ratio = App.Settings.Current.SidebarPosRatio;
         var offset = ratio < 0 ? free / 2.0 : Math.Clamp(ratio * free, 0, free);
 
-        // 收起态离边空隙（换算成物理像素）；展开面板还是贴边
-        var gap = _expanded ? 0 : (int)Math.Round(CollapsedEdgeGapDip * Scale());
+        // 收起态离边空隙（换算成物理像素）：只有细线样式让 8dip；grip 抓手原版贴边；展开面板贴边
+        var gap = (_expanded || !UseLineCollapsed) ? 0 : (int)Math.Round(CollapsedEdgeGapDip * Scale());
 
         return edge switch
         {

@@ -1,0 +1,47 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:fa="using:FluentAvalonia.UI.Controls"
+        x:Class="ClassSoftwareHub.Desktop.Views.AnnounceWindow"
+        SystemDecorations="None" ShowInTaskbar="False" CanResize="False"
+        Background="#FF101418">
+
+    <!--
+      教室喊话窗：收到远端喊话后铺满整块屏幕的大字提醒，倒计时到点自动关。
+      结构照抄 MessageFullscreenWindow（Esc / 双击 / 右上角按钮退出），
+      差别只有两处：① 正文底下多一行署名（老师端填了才显示）；
+      ② 不等用户关 —— 播完设定时长自己收，教室里没人碰键盘也走得掉。
+
+      ⚠️ 字号由 code-behind 按屏幕尺寸与字数自适应（同 MessageFullscreenWindow.Layout），XAML 里不写。
+    -->
+    <Grid x:Name="Root" IsTabStop="True" KeyDown="Root_KeyDown" DoubleTapped="Root_DoubleTapped"
+          Background="#FF101418">
+        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="40">
+            <TextBlock x:Name="Body" TextWrapping="Wrap" TextAlignment="Center"
+                       Foreground="#FFF2F4F7" />
+            <TextBlock x:Name="FromLine" TextAlignment="Center" Margin="0,18,0,0"
+                       FontSize="20" Opacity="0.75" IsVisible="False"
+                       Foreground="#FFF2F4F7" />
+        </StackPanel>
+
+        <!--
+          退出入口：与全屏留言同一套（进来先亮几秒再淡出，鼠标一动 / 手指一碰再亮）。
+          左侧的倒计时提示也挂在这条上 —— 平时看不见，碰一下屏幕能看到还剩几秒。
+        -->
+        <Border x:Name="ExitBar" HorizontalAlignment="Right" VerticalAlignment="Top"
+                Margin="0,18,18,0" CornerRadius="8" Padding="16,6,8,6"
+                Opacity="0" IsHitTestVisible="False"
+                Background="#CC1A1A1A" BorderBrush="#40FFFFFF" BorderThickness="1">
+            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                <TextBlock x:Name="RemainText" Text="" FontSize="14"
+                           Foreground="#FFFFFFFF" VerticalAlignment="Center" />
+                <TextBlock Text="按 Esc、双击屏幕，或单击此处退出" FontSize="14"
+                           Foreground="#FFFFFFFF" VerticalAlignment="Center" />
+                <Button Click="Exit_Click" MinWidth="36" MinHeight="36" Padding="0"
+                        Background="Transparent" BorderThickness="0"
+                        ToolTip.Tip="退出喊话">
+                    <fa:FontIcon Glyph="&#xE711;" FontSize="14" Foreground="#FFFFFFFF" />
+                </Button>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

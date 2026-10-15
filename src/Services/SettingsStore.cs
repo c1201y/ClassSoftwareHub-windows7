@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -295,6 +296,46 @@ public sealed class AppSettings
     /// 开着的场合，投影出来的计时盘跟教室那块全屏时钟长一样，不会一边一个画风。
     /// </summary>
     public bool TimerUseClockBackground { get; set; }
+
+    // ── 教室喊话（2026-10-12，自建 Worker 中继，设计稿 docs/教室喊话功能设计.md）──
+    // ⚠️ 总开关默认**关**：它要后台轮询外网接口，属于"用户明确想要才开"的功能，
+    //    不能替所有人默认打开；关着的时候一行网络请求都不会发。
+
+    /// <summary>启用教室喊话（后台轮询 + 全屏弹窗）。</summary>
+    public bool AnnounceEnabled { get; set; }
+
+    /// <summary>
+    /// 兼容字段（历史遗留）：本机配对码现由设备指纹确定性导出（<see cref="AnnounceService.MyPairCode"/>），不再落盘。
+    /// </summary>
+    public string AnnouncePairCode { get; set; } = "";
+
+    /// <summary>轮询间隔秒数（10~120，默认 30；实际每次带 ±20% 抖动）。</summary>
+    public int AnnounceIntervalSec { get; set; } = 30;
+
+    /// <summary>安静模式：只展示不出声（提示音、朗读全免）。</summary>
+    public bool AnnounceQuietMode { get; set; }
+
+    /// <summary>朗读正文（非安静模式下生效；关了就只有一声提示音）。</summary>
+    public bool AnnounceSpeakText { get; set; } = true;
+
+    /// <summary>
+    /// 已配对设备（互填配对码即配对，名单与勾选状态本地持久化）：{"id":"对方 6 位配对码","name":"对方机器名"}。
+    /// 空 = 尚未添加 —— 发送须先在喊话页勾选目标设备（一码一机，无广播语义）。
+    /// </summary>
+    public List<AnnounceDevice> AnnounceDevices { get; set; } = new();
+}
+
+/// <summary>教室喊话发送端的已配对设备（一台电脑一个码）。</summary>
+public sealed class AnnounceDevice
+{
+    /// <summary>目标机的 6 位配对码。</summary>
+    public string Id { get; set; } = "";
+
+    /// <summary>目标机轮询时上报的机器名（如"教室机-01"），纯展示，可空。</summary>
+    public string Name { get; set; } = "";
+
+    /// <summary>是否勾选为本次发送目标（勾选状态也持久化 —— "下次打开勾一下就行"再进一步：连勾都记着）。</summary>
+    public bool Selected { get; set; }
 }
 
 /// <summary>设置存储：%LOCALAPPDATA%\ClassSoftwareHub\settings.json</summary>

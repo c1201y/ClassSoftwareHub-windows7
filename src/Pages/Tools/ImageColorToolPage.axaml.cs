@@ -81,21 +81,19 @@ public sealed partial class ImageColorToolPage : PageBase
         if (_busy) return;
         try
         {
+            // ⚠️ Win7 走 FilePickerCompat 兜底：Avalonia 的选择器从「库」里选文件会静默失败（见该类注释）。
             var top = TopLevel.GetTopLevel(this);
             if (top is null) return;
 
             var exts = new[] { "*.png", "*.jpg", "*.jpeg", "*.bmp", "*.gif", "*.webp", "*.tif", "*.tiff" };
-            var files = await top.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-            {
-                Title = "选择图片",
-                AllowMultiple = false,
-                FileTypeFilter = new List<FilePickerFileType>
+            var r = await FilePickerCompat.PickFilesAsync(top, "选择图片", allowMultiple: false,
+                new List<FilePickerFileType>
                 {
                     new FilePickerFileType("图片文件") { Patterns = exts },
-                },
-            });
-            if (files.Count == 0) return;
-            await LoadAsync(files[0].Path.LocalPath);
+                });
+            if (r.Error is not null) { ShowError(r.Error); return; }
+            if (r.Files.Count == 0) return;
+            await LoadAsync(r.Files[0]);
         }
         catch (Exception ex)
         {

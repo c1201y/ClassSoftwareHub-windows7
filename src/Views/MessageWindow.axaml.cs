@@ -238,7 +238,18 @@ public sealed partial class MessageWindow : Window
             else
             {
                 var back = Brush(_cfg.BackColor, Colors.White);
-                Background = back;               // 窗口底也铺同色：万一区域裁剪差一个像素，露出来的也是同色
+                if (OsInfo.SupportsWindowRounding)
+                {
+                    // ⚠️ Win11：NOREDIRECTIONBITMAP 浮窗 DWM 不认 SetWindowRgn（区域裁剪无效），
+                    //    底色铺满窗口矩形会让四角变成方角。改走内容 alpha 抠角 —— 底色只刷 Panel，
+                    //    窗口底保持全透，月牙由 DWM 合成时露出桌面（见 Backdrop.EnablePerPixelCorners）。
+                    Background = Brushes.Transparent;
+                    TransparencyBackgroundFallback = Brushes.Transparent;
+                }
+                else
+                {
+                    Background = back;           // 窗口底也铺同色：万一区域裁剪差一个像素，露出来的也是同色
+                }
                 Panel.Background = back;
                 Panel.BorderThickness = new Thickness(1);
                 // 描边用文字色兑一点透明 —— 底色换成深色时边框自动跟着变，不会出现"黑框配黑底"
@@ -250,7 +261,8 @@ public sealed partial class MessageWindow : Window
 
             // ⚠️ 不透明才裁圆角：透明窗口裁掉四角会连"圆角之外本该透出桌面"的部分一起切掉
             if (_realTransparent) return;
-            _corners ??= RoundedCorners.Attach(this);
+            // ⚠️ force=true：Win11 上无边框浮窗 DWM 拒绝给圆角（见 Core/RoundedCorners 类注释）。
+            _corners ??= RoundedCorners.Attach(this, RoundedCorners.DefaultCornerRadiusDip, force: true);
         }
         catch (Exception ex)
         {

@@ -159,6 +159,8 @@ public sealed partial class SettingsPage : PageBase
         LogKeepCombo.SelectedIndex = LogKeepIndex(s.LogKeepDays);
         UpdateCurrent.Text = $"当前版本：{ShellConfig.VersionPrefix}{ShellConfig.ShellVersion}· 更新源：{UpdateService.CreateDefault().Source.DisplayName}";
 
+        // 教室喊话已独立成页（内置工具 → 教室喊话），设置页只剩跳转按钮（AnnouncePageJump_Click）。
+
         RefreshContentInfo();
             BuildAboutHeader();
             SettingsQuickGrid.ItemsSource = Core.QuickLinks.Build(App.Content.Ui);
@@ -1333,6 +1335,13 @@ public sealed partial class SettingsPage : PageBase
         // 只要不是「GitHub 源」就给一条说明：自建节点已就绪（Worker 代签、限时直链），
         // 不可用时自动按测速挑最快公益镜像，全不可用再回 GitHub 官方直链。
         GithubRouteWarning.IsOpen = current != Services.GithubRoutes.Official;
+    }
+
+    // ── 教室喊话（2026-10-13 已独立成「内置工具 → 教室喊话」页，这里只留跳转）──────
+
+    private void AnnouncePageJump_Click(object? sender, RoutedEventArgs e)
+    {
+        App.MainWindow?.Shell.NavigateTo("announce");
     }
 
     // ── 法律条款（关于 → 用户协议 / 隐私政策 / 免责声明） ──────────

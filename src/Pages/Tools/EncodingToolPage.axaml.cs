@@ -188,15 +188,13 @@ public sealed partial class EncodingToolPage : PageBase
         {
             // 原版 FileOpenPicker(PickerViewMode.List / PickerLocationId.Downloads / "*" 全类型)
             // → Avalonia 的 IStorageProvider 没有起始位置与视图模式概念，只保留"选一个任意文件"的语义。
+            // ⚠️ Win7 走 FilePickerCompat 兜底（Avalonia 选择器在「库」里选文件会静默失败）。
             var top = TopLevel.GetTopLevel(this);
             if (top is null) return;
-            var files = await top.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-            {
-                Title = "选择文件",
-                AllowMultiple = false,
-            });
-            if (files.Count == 0) return;
-            await LoadFileAsync(files[0].Path.LocalPath);
+            var r = await FilePickerCompat.PickFilesAsync(top, "选择文件", allowMultiple: false, null);
+            if (r.Error is not null) { Toast.Text = r.Error; return; }
+            if (r.Files.Count == 0) return;
+            await LoadFileAsync(r.Files[0]);
         }
         catch (Exception ex)
         {

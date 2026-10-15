@@ -330,13 +330,15 @@ public sealed partial class SubmitPage : PageBase
                 new FilePickerFileType("文件") { Patterns = patterns },
             };
 
-        var files = await top.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        // ⚠️ Win7 走 FilePickerCompat 兜底（Avalonia 选择器在「库」里选文件会静默失败）
+        var r = await FilePickerCompat.PickFilesAsync(top, title, allowMultiple: false, filter);
+        if (r.Error is not null)
         {
-            Title = title,
-            AllowMultiple = false,
-            FileTypeFilter = filter,
-        });
-        return files.Count > 0 ? files[0].TryGetLocalPath() : null;
+            ImportErrorBar.IsOpen = true;
+            ImportErrorBar.Message = r.Error;
+            return null;
+        }
+        return r.Files.Count > 0 ? r.Files[0] : null;
     }
 
     // ══════════ 从 GitHub 一键读取 ══════════

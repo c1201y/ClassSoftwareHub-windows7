@@ -81,17 +81,21 @@
                 BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
                 Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
             <StackPanel Spacing="20" VerticalAlignment="Center" HorizontalAlignment="Center">
-                <!-- ⚠️ IsChecked 一律在代码里赋初值（见 App.axaml 的 CshModeCardStyle 注释） -->
+                <!-- ⚠️ IsChecked 一律在代码里赋初值（见 App.axaml 的 CshModeCardStyle 注释）。
+                     ⚠️ 2026-10-15：故意不挂 GroupName、事件用 Click 不用 Checked ——
+                     GroupName + 构造期赋初值在 Avalonia 11.2.8 的组管理器上会失步
+                     （实测首击被吞、第二击把旧卡解选却不选新卡，Win11 可复现）。
+                     互斥与初值统一由代码后置的 SetMode 负责，单选语义不靠组管理器。 -->
                 <StackPanel Orientation="Horizontal" Spacing="12" HorizontalAlignment="Center">
-                    <RadioButton x:Name="BtnCountdown" GroupName="TimerMode" Width="252"
-                                 Theme="{StaticResource CshModeCardStyle}" Checked="Mode_Changed">
+                    <RadioButton x:Name="BtnCountdown" Width="252"
+                                 Theme="{StaticResource CshModeCardStyle}" Click="Mode_Click">
                         <StackPanel Spacing="2">
                             <TextBlock Text="倒计时" FontSize="14" FontWeight="SemiBold" />
                             <TextBlock Text="设定时长后倒数，到点响铃。" FontSize="12" Opacity="0.65" />
                         </StackPanel>
                     </RadioButton>
-                    <RadioButton x:Name="BtnStopwatch" GroupName="TimerMode" Width="252"
-                                 Theme="{StaticResource CshModeCardStyle}" Checked="Mode_Changed">
+                    <RadioButton x:Name="BtnStopwatch" Width="252"
+                                 Theme="{StaticResource CshModeCardStyle}" Click="Mode_Click">
                         <StackPanel Spacing="2">
                             <TextBlock Text="秒表" FontSize="14" FontWeight="SemiBold" />
                             <TextBlock Text="从 0 开始正向计时，适合掐时间。" FontSize="12" Opacity="0.65" />

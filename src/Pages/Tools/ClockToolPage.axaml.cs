@@ -221,19 +221,17 @@ public sealed partial class ClockToolPage : PageBase
     {
         try
         {
+            // ⚠️ Win7 走 FilePickerCompat 兜底（Avalonia 选择器在「库」里选文件会静默失败）
             var top = TopLevel.GetTopLevel(this);
             if (top is null) return;
-            var files = await top.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-            {
-                Title = "选择背景图片",
-                AllowMultiple = false,
-                FileTypeFilter = new List<FilePickerFileType>
+            var r = await FilePickerCompat.PickFilesAsync(top, "选择背景图片", allowMultiple: false,
+                new List<FilePickerFileType>
                 {
                     new FilePickerFileType("图片文件") { Patterns = ImageExts.Select(e2 => "*" + e2).ToArray() },
-                },
-            });
-            if (files.Count == 0) return;
-            SetBackground(files[0].Path.LocalPath);
+                });
+            if (r.Error is not null) { Toast.Text = r.Error; return; }
+            if (r.Files.Count == 0) return;
+            SetBackground(r.Files[0]);
         }
         catch (Exception ex)
         {

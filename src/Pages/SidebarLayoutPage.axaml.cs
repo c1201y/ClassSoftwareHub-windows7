@@ -1868,16 +1868,15 @@ public sealed partial class SidebarLayoutPage : PageBase
         try
         {
             // ⚠️ 原版 WinRT FolderPicker + InitializeWithWindow；Avalonia 走 StorageProvider。
+            // ⚠️ Win7 走 FilePickerCompat 兜底（Avalonia 选择器在「库」里选位置会静默失败）。
             var top = TopLevel.GetTopLevel(this);
             if (top is null) return;
 
-            var folders = await top.StorageProvider.OpenFolderPickerAsync(new Avalonia.Platform.Storage.FolderPickerOpenOptions
-            {
-                AllowMultiple = false,
-            });
-            if (folders.Count == 0) return;
+            var r = await FilePickerCompat.PickFolderAsync(top, "选择截图保存目录");
+            if (r.Error is not null) { Services.ScreenCapture.Log("选截图目录被拒: " + r.Error); return; }
+            if (r.Files.Count == 0) return;
 
-            App.Settings.Current.ShotSaveDir = folders[0].Path.LocalPath;
+            App.Settings.Current.ShotSaveDir = r.Files[0];
             App.Settings.Save();
             RefreshShotDir();
         }
