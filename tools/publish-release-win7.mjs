@@ -23,6 +23,10 @@
 //   --notes      可选。更新说明文件（md/txt，原样显示在更新对话框里）
 //   --name       可选。Release 标题，默认「ClassSoftwareHub dv<版本> (Windows 7)」
 //   --draft      可选。发成草稿
+//   --update-body 可选。Release 已存在时，用 --notes 的内容覆盖现有正文。
+//                 ⚠️ 默认**不动正文**：本脚本是幂等的 —— tag 的 Release 已存在时，
+//                    复用该 Release（标题 / 正文 / 预发布标记一律保留），只把缺失的资产补上、
+//                    同名但内容变了的资产先删后传。这样工作流重跑 / 补传都不会再失败。
 //   --dry-run    可选。只打印要干什么，不碰 GitHub
 
 import { createHash } from 'node:crypto';
@@ -48,6 +52,7 @@ const portable = opt('portable');
 const imageFile = opt('image');
 const notesFile = opt('notes');
 const isDraft = args.includes('--draft');
+const updateBody = args.includes('--update-body');
 const dryRun = args.includes('--dry-run');
 const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '';
 
@@ -151,24 +156,41 @@ async function gh(url, init = {}) {
   return text ? JSON.parse(text) : null;
 }
 
-console.log('\n1/2 创建 Release…');
+console.log('\n1/2 创建 / 复用 Release…');
 const existing = await gh(`${api}/repos/${OWNER}/${REPO}/releases/tags/${encodeURIComponent(tag)}`).catch(() => null);
-if (existing) {
-  console.error(`  已经存在 tag ${tag} 的 Release 了：${existing.html_url}\n  要么版本号加一，要么去网页上删了重来。`);
-  process.exit(3);
-}
 
-const release = await gh(`${api}/repos/${OWNER}/${REPO}/releases`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    tag_name: tag,
-    name: releaseName,
-    body,
-    draft: isDraft,
-    prerelease: channel === 'insider',
-  }),
-});
+// ⚠️ 2026-10-16（dv1.1.1-insider1.0 事故）：这里原来一发现 Release 已存在就 exit 3
+//    （"要么版本号加一，要么去网页上删了重来"）。后果是 tag 推送触发的 CI 在最后一步
+//    4 秒失败，**一个资产都没传上去**，Release 里只剩手动传的便携包 —— 更新器只认
+//    .exe/.msi，于是整个预览版对客户端等于不存在。
+//    改成幂等补传：复用已有 Release，标题 / 正文 / 预发布标记一律不动（要改正文得显式
+//    加 --update-body），只补缺失资产、覆盖内容变了的同名资产。
+let release;
+if (existing) {
+  console.log(`   = 已存在 tag ${tag} 的 Release，复用并补传资产（正文保持不变）：${existing.html_url}`);
+  if (existing.prerelease !== (channel === 'insider')) {
+    console.log(`   ⚠️ 现有 Release 的 Pre-release 勾选（${existing.prerelease}）与通道（${channel}）不一致 —— 保留原样，不改。`);
+  }
+  release = updateBody
+    ? await gh(`${api}/repos/${OWNER}/${REPO}/releases/${existing.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body }),
+      })
+    : existing;
+} else {
+  release = await gh(`${api}/repos/${OWNER}/${REPO}/releases`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      tag_name: tag,
+      name: releaseName,
+      body,
+      draft: isDraft,
+      prerelease: channel === 'insider',
+    }),
+  });
+}
 console.log('   ✓ ' + release.html_url);
 
 console.log('2/2 上传资产…');
@@ -178,9 +200,21 @@ const uploads = [
   ...(portableAsset ? [portableAsset.path, portableAsset.md5Path] : []),
   ...(imagePath ? [imagePath] : []),
 ];
+// 同一个 Release 里资产名不能重复 → 已存在的同名资产：内容一致就跳过，变了就先删后传
+const existingAssets = new Map((release.assets || []).map(a => [a.name.toLowerCase(), a]));
 for (const file of uploads) {
   const data = await readFile(file);
   const name = basename(file);
+  const digest = 'sha256:' + createHash('sha256').update(data).digest('hex');
+  const prev = existingAssets.get(name.toLowerCase());
+  if (prev) {
+    if (prev.size === data.length && (!prev.digest || prev.digest === digest)) {
+      console.log(`   = ${name}（已存在且一致，跳过）`);
+      continue;
+    }
+    console.log(`   ~ ${name}（已存在但内容不同，先删后传）`);
+    await gh(`${api}/repos/${OWNER}/${REPO}/releases/assets/${prev.id}`, { method: 'DELETE' });
+  }
   const uploadUrl = `https://uploads.github.com/repos/${OWNER}/${REPO}/releases/${release.id}/assets?name=${encodeURIComponent(name)}`;
   const asset = await gh(uploadUrl, {
     method: 'POST',
