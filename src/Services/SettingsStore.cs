@@ -147,11 +147,19 @@ public sealed class AppSettings
 
     /// <summary>
     /// 「收起样式」：侧边栏收起来之后留屏幕上那一小截长什么样 ——
-    ///   <c>grip</c> 圆角抓手（原版，默认）| <c>line</c> 细竖线（窗口本身缩成 14×220 的圆角细线）。
+    ///   <c>grip</c> 圆角抓手（默认）| <c>line</c> 细竖线（窗口本身缩成 6×220 的圆角细线）。
     /// 在「侧边布局」页选择。
     /// ⚠️ 认不出的值一律当 <c>grip</c>（见 <c>ToolSidebarWindow.UseLineCollapsed</c>）。
     /// </summary>
     public string SidebarCollapsedStyle { get; set; } = "grip";
+
+    /// <summary>
+    /// 「收起条长度」（dip，竖条=高 / 横条=宽）。<c>0</c> = 按样式自带默认
+    /// （圆角抓手 110 / 细竖线 220）；&gt; 0 = 用户钉死的值，两个样式共用。
+    /// 2026-10-17 用户要求"再加个长短调整功能" —— 「侧边布局」页一个滑杆，拖动立即生效。
+    /// ⚠️ 范围 60~400（见 <c>ToolSidebarWindow.MinCollapsedLengthDip</c>），进页面时会夹回范围内。
+    /// </summary>
+    public int SidebarCollapsedLength { get; set; }
 
     /// <summary>
     /// ⚠️ **已弃用**（2026-09-29 从"一个总开关"改成"五颗各自一个开关"）：

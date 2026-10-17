@@ -187,7 +187,7 @@
                         </views:SettingsCard>
 
                         <views:SettingsCard Header="收起样式"
-                                               Description="圆角抓手：一小截圆角条（原版）。细竖线：贴边留一条更长更细的竖线，贴上下边时为横线。">
+                                               Description="圆角抓手：一小截圆角条（细，8 dip 厚）。细竖线：贴边留一条更长更细的竖线，贴上下边时为横线。">
                             <views:SettingsCard.HeaderIcon>
                                 <fa:FontIcon Glyph="&#xE8A0;" />
                             </views:SettingsCard.HeaderIcon>
@@ -196,6 +196,24 @@
                                 <ComboBoxItem Content="圆角抓手" Tag="grip" />
                                 <ComboBoxItem Content="细竖线" Tag="line" />
                             </ComboBox>
+                        </views:SettingsCard>
+
+                        <!-- 2026-10-17 用户要求"再加个长短调整功能"：收起条长度可调（两个收起样式共用） -->
+                        <views:SettingsCard Header="收起条长度"
+                                               Description="屏幕边上留的那一截有多长（60 ~ 400 dip），拖动立即生效。两种收起样式共用；点「默认」回到各自原值（抓手 110 / 细竖线 220）。">
+                            <views:SettingsCard.HeaderIcon>
+                                <fa:FontIcon Glyph="&#xE7C4;" />
+                            </views:SettingsCard.HeaderIcon>
+                            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                <Slider x:Name="CollapsedLengthSlider" MinWidth="170"
+                                        Minimum="60" Maximum="400" TickFrequency="5" IsSnapToTickEnabled="True"
+                                        ValueChanged="CollapsedLength_Changed" />
+                                <TextBlock x:Name="CollapsedLengthText" MinWidth="58" VerticalAlignment="Center"
+                                           FontSize="12.5" Opacity="0.75" />
+                                <Button x:Name="CollapsedLengthResetButton" Content="默认"
+                                        Click="CollapsedLengthReset_Click"
+                                        MinWidth="0" MinHeight="30" FontSize="12.5" />
+                            </StackPanel>
                         </views:SettingsCard>
 
                     </StackPanel>

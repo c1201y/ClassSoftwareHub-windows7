@@ -24,7 +24,7 @@ namespace ClassSoftwareHub.Desktop.Views;
 /// <summary>
 /// 屏幕边缘侧边栏：贴在屏幕的某一条边上（上下左右都能放）。
 /// 全屏放 PPT / 视频时够不到任务栏，从边上点一下就能用工具。
-///   · 收起 = **两套样式**（2026-10-11 加）：grip 圆角抓手（原版）｜ line 细竖线（窗口缩成 14×220 的圆角细线）。
+///   · 收起 = **两套样式**（2026-10-11 加）：grip 圆角抓手（8×110）｜ line 细竖线（窗口缩成 6×220 的圆角细线）。
 ///     都是"点一下展开"，另外还能"朝屏幕外滑一下"展开（见 <see cref="Strip_PointerMoved"/>）。
 ///     **拖拽换边已于 2026-10-04 整条撤除**（见字段区注释），要换边请到设置里选。
 ///   · 展开 = **两套样式**（2026-10-11 加）：classic 工具竖排列表 + 底排五颗（原版）｜
@@ -61,10 +61,14 @@ namespace ClassSoftwareHub.Desktop.Views;
 /// </summary>
 public sealed partial class ToolSidebarWindow : Window
 {
-    private const int CollapsedThicknessDip = 20;   // 收起时那条的厚度（竖条=宽，横条=高）—— grip 抓手样式的原版值。
-                                                    // ⚠️ 2026-10-12 误把"细一点的线"改到了这里，grip 被压成 8dip 扁条（2026-10-13 用户反馈修复）；
-                                                    //    细线样式有自己的 LineThicknessDip，两者别混。
-    private const int CollapsedLengthDip = 110;     // 收起时的长度（竖条=高）
+    // 收起时那条的厚度（竖条=宽，横条=高）—— 圆角抓手（grip）样式。
+    // ⚠️ 2026-10-12 用户要求"细一点的线"：20 → 8；
+    //    2026-10-16 那次"回归原版 20"是误判（以为用户说的是细线样式），
+    //    2026-10-17 用户再次明确「收起那个竖线怎么又变粗了，之前我改过了，你改回去」→ 回 8。
+    //    ⛔ 细竖线样式有自己的 LineThicknessDip，两者别混。
+    private const int CollapsedThicknessDip = 8;
+    /// <summary>圆角抓手（grip）样式收起时的长度（竖条=高）。⚠️ 用户可在「侧边布局 → 收起条长度」里改，见 <see cref="CollapsedLenDip"/>。</summary>
+    private const int CollapsedLengthDip = 110;
     // Win32 ShowWindow 的 nCmdShow 值（与 FlyoutChrome / ToolPaletteWindow 同一套私有常量；
     // Platform.NativeMethods 只收 int 参数，不在业务代码里另写 DllImport）
     private const int SW_SHOW = 5;
@@ -77,7 +81,7 @@ public sealed partial class ToolSidebarWindow : Window
     /// <summary>
     /// 收起动画的第二段：面板滑出屏幕之后，**抓手从屏幕外滑回贴边位**要花的毫秒（2026-10-01）。
     /// 第一段是 <see cref="SlideOutToEdge"/> 的 240ms（整个面板推出屏幕）。两段加起来 ≈ 430ms。
-    /// 抓手的行程很短（只有自身厚度 20dip + 2px ≈ 27px），所以这段比第一段快一些才跟得上。
+    /// 抓手的行程很短（只有自身厚度 8dip + 2px），所以这段比第一段快一些才跟得上。
     /// ⚠️ 移植说明：上游改用渲染回调驱动；本仓库沿用 16ms <see cref="DispatcherTimer"/>（见 TweenWindow），
     ///    时长这个"行为参数"照搬。
     /// </summary>
@@ -132,7 +136,30 @@ public sealed partial class ToolSidebarWindow : Window
     //    现取 6dip（药丸形，看着就是"一条线"）。⚠️ 2026-10-12 用户要求更细：14 → 6，
     //    同日再去掉内芯——窗口本身就是那条线，悬停反馈走 LineHover 整条亮。
     private const int LineThicknessDip = 6;             // 竖线样式：窗口厚度（竖条=宽，横条=高）
-    private const int LineLengthDip = 220;              // 竖线样式：窗口长度（竖条=高）
+    private const int LineLengthDip = 220;              // 竖线样式：窗口长度（竖条=高）的默认值（可被「收起条长度」覆盖）
+
+    /// <summary>
+    /// 收起条长度（dip）—— 用户可调（「侧边布局 → 收起条长度」，2026-10-17 用户要求"再加个长短调整功能"）。
+    /// 设置里 <c>SidebarCollapsedLength</c> ≤ 0 = 用样式自带默认（抓手 <see cref="CollapsedLengthDip"/> /
+    /// 细竖线 <see cref="LineLengthDip"/>）；&gt; 0 = 用户钉死的值（两个样式共用，越界值在
+    /// <see cref="MinCollapsedLengthDip"/>~<see cref="MaxCollapsedLengthDip"/> 之间夹住）。
+    /// </summary>
+    private static double CollapsedLenDip(int styleDefault)
+    {
+        var v = App.Settings.Current.SidebarCollapsedLength;
+        if (v <= 0) return styleDefault;
+        return Math.Clamp(v, MinCollapsedLengthDip, MaxCollapsedLengthDip);
+    }
+
+    /// <summary>收起条长度可调范围（dip）。60 太短会点不着、400 已经比展开面板还长，都不合适。</summary>
+    public const int MinCollapsedLengthDip = 60;
+    public const int MaxCollapsedLengthDip = 400;
+
+    /// <summary>
+    /// 某套收起样式**自带**的长度默认值（dip）——「侧边布局」页显示"默认（110）"用。
+    /// 设置里 <c>SidebarCollapsedLength</c> 为 0 时实际就是它。
+    /// </summary>
+    public static int DefaultCollapsedLengthDip(bool line) => line ? LineLengthDip : CollapsedLengthDip;
 
     /// <summary>收起条上"滑动展开"的方向阈值（dip）。小于它的一律当点击（见 Strip_PointerReleased）。</summary>
     private const double SwipeThresholdDip = 20;
@@ -571,13 +598,13 @@ public sealed partial class ToolSidebarWindow : Window
 
     /// <summary>收起态窗口宽度（dip）。</summary>
     private double CollapsedDipW => IsFlat
-        ? (UseLineCollapsed ? LineLengthDip : CollapsedLengthDip)
+        ? (UseLineCollapsed ? CollapsedLenDip(LineLengthDip) : CollapsedLenDip(CollapsedLengthDip))
         : (UseLineCollapsed ? LineThicknessDip : CollapsedThicknessDip);
 
     /// <summary>收起态窗口高度（dip）。</summary>
     private double CollapsedDipH => IsFlat
         ? (UseLineCollapsed ? LineThicknessDip : CollapsedThicknessDip)
-        : (UseLineCollapsed ? LineLengthDip : CollapsedLengthDip);
+        : (UseLineCollapsed ? CollapsedLenDip(LineLengthDip) : CollapsedLenDip(CollapsedLengthDip));
 
     /// <summary>设置里选的是自由模式（能吸四条边）。⚠️ 认不出的值一律当贴靠模式。</summary>
     private static bool IsFreeMode => App.Settings.Current.SidebarMode == "free";
@@ -843,10 +870,10 @@ public sealed partial class ToolSidebarWindow : Window
 
         ExpandedView.IsVisible = false;
         CollapsedView.IsVisible = true;
-        ApplyCornerRadius();                              // 竖线样式下窗口马上要缩到 14 宽，圆角得先降下来，不然两端被裁尖
+        ApplyCornerRadius();                              // 竖线样式下窗口马上要缩到 6 宽，圆角得先降下来，不然两端被裁尖
 
         // 一次到位：收起尺寸 + 位置。
-        // 滑出动画已经把**整个窗口**推出屏幕外了，所以这一步的"变身"（尺寸 92×450 → 20×110、
+        // 滑出动画已经把**整个窗口**推出屏幕外了，所以这一步的"变身"（尺寸 92×450 → 8×110 / 6×220、
         // 内容换视图）用户在屏幕上看不到 —— 不会再出现"没滑出去就突然缩一下"（2026-09-26 修）。
         //
         // ⚠️ fadeIn 的落点是**屏幕外的抓手起点**，不是贴边位（2026-10-01 改）：
@@ -1143,7 +1170,7 @@ public sealed partial class ToolSidebarWindow : Window
     /// 「侧边布局」页改了**展开样式 / 收起样式** → 所有实例重排（跟换模块清单同一条路）。
     ///
     /// <para>
-    /// ⚠️ 收起样式换的是**窗口尺寸**（grip 20×110 → line 14×220），所以不能只换视图，
+    /// ⚠️ 收起样式换的是**窗口尺寸**（grip 8×110 → line 6×220），所以不能只换视图，
     ///    必须走完整的 ApplySize + MoveToEdge，否则收起条会按老尺寸贴边、看着就歪。
     /// </para>
     /// </summary>
@@ -1151,6 +1178,37 @@ public sealed partial class ToolSidebarWindow : Window
     {
         if (!App.Settings.Current.SidebarEnabled) return;
         foreach (var w in _pool.Values) w.RebuildModules();
+    }
+
+    /// <summary>
+    /// 「侧边布局 → 收起条长度」滑杆动了 → 只把收起尺寸重算一遍（不重建模块按钮）。
+    ///
+    /// <para>
+    /// ⚠️ 跟 <see cref="ApplyStyle"/> 的分工：那边是换**样式**（要重建按钮、换视图），
+    ///    这边只动 <c>CollapsedDipW/H</c> 的两个长度值，滑杆拖动会连发很多次，
+    ///    所以走这条轻路子（ApplySize + MoveToEdge + 圆角，不碰视图）。
+    ///    展开态下改它没有可见变化（收起尺寸只在收起时用），但也不会出错。
+    /// </para>
+    /// </summary>
+    public static void ApplyCollapsedLength()
+    {
+        if (!App.Settings.Current.SidebarEnabled) return;
+        foreach (var w in _pool.Values) w.RefreshCollapsedMetrics();
+    }
+
+    /// <summary>收起条长度变了：重算尺寸 + 重新贴边（含圆角，长度短了圆角半径也会跟着缩）。</summary>
+    private void RefreshCollapsedMetrics()
+    {
+        try
+        {
+            ApplySize();
+            MoveToEdge();
+            ApplyCornerRadius();
+        }
+        catch (Exception ex)
+        {
+            Log("改收起条长度失败: " + ex.Message);
+        }
     }
 
     /// <summary>
@@ -1186,7 +1244,7 @@ public sealed partial class ToolSidebarWindow : Window
     }
 
     /// <summary>
-    /// 窗口圆角不能超过**半宽**：收起成细竖线后窗口只有 14dip 宽，
+    /// 窗口圆角不能超过**半宽**：收起成细竖线后窗口只有 6dip 宽，
     /// 还按 XAML 里写死的 8 裁，GDI 区域就会把两端裁成尖的（椭圆比矩形宽）。
     /// ⚠️ 展开态一律用默认 8，别跟着网格面板的尺寸缩。
     /// </summary>
@@ -2399,7 +2457,7 @@ public sealed partial class ToolSidebarWindow : Window
         // ⚠️ 必须滑到**整个窗口都在屏幕外**（推的距离 = 当前厚度 + 2px 余量）。
         //    以前只推"展开尺寸 − 收起尺寸"（92−20=72），滑完还剩 20dip 的展开态残片贴在屏幕边上，
         //    紧接着又被 Resize 成抓手 —— 肉眼看就是"没滑出去就突然变身"，很出戏（2026-09-26 修）。
-        //    现在滑到底时屏幕边缘是干净的，"变身"那一下（92×450 → 20×110）用户在屏幕外看不到，
+        //    现在滑到底时屏幕边缘是干净的，"变身"那一下（92×450 → 8×110 / 6×220）用户在屏幕外看不到，
         //    抓手再淡入接上，就顺了。
         var thickness = IsFlat ? size.Height : size.Width;
         var to = OutwardOffset(from, thickness + 2);
@@ -2833,19 +2891,25 @@ public sealed partial class ToolSidebarWindow : Window
     private PixelSize CollapsedSize()
     {
         var scale = Scale();
-        // ⚠️ 两种收起样式尺寸不一样（grip 20×110 / line 6×220），换算式都收在
+        // ⚠️ 两种收起样式尺寸不一样（grip 8×110 / line 6×220，长度可调），换算式都收在
         //    CollapsedDipW / CollapsedDipH 里 —— 圆角也是从那儿读的，改就一起改。
         return new PixelSize(
             (int)Math.Round(CollapsedDipW * scale),
             (int)Math.Round(CollapsedDipH * scale));
     }
 
-    /// <summary>收起态离屏幕边的空隙（dip）。2026-10-12 用户要求细线样式"离屏幕边缘 8px"。
-    /// ⚠️ 只对细线（line）样式生效 —— grip 抓手保持原版死贴边（2026-10-13 用户要求抓手"和之前一样"）。</summary>
+    /// <summary>收起态离屏幕边的空隙（dip，细竖线样式）。2026-10-12 用户要求细线样式"离屏幕边缘 8px"。</summary>
     private const int CollapsedEdgeGapDip = 8;
 
+    /// <summary>
+    /// 收起态离屏幕边的空隙（dip，圆角抓手样式）。
+    /// 2026-10-17 用户要求「把圆形抓手模式的悬浮窗向屏幕里移动 5px，距离屏幕边有点距离，两边都是」
+    /// —— 之前是死贴边（0），现在里让 5dip；左右两条（"both"）各自让开，贴上下边时同理。
+    /// </summary>
+    private const int GripEdgeGapDip = 5;
+
     /// <summary>按当前贴的边算"贴边位置"（**纯计算，不动窗口**）。参数是窗口按哪套尺寸算。
-    /// ⚠️ 收起态会往里让 <see cref="CollapsedEdgeGapDip"/>（展开态仍贴边）。</summary>
+    /// ⚠️ 收起态会往里让空隙（细竖线 <see cref="CollapsedEdgeGapDip"/> / 抓手 <see cref="GripEdgeGapDip"/>），展开态仍贴边。</summary>
     private PixelPoint EdgePosition(int width, int height)
     {
         var work = WorkAreaRect();
@@ -2860,8 +2924,10 @@ public sealed partial class ToolSidebarWindow : Window
         var ratio = App.Settings.Current.SidebarPosRatio;
         var offset = ratio < 0 ? free / 2.0 : Math.Clamp(ratio * free, 0, free);
 
-        // 收起态离边空隙（换算成物理像素）：只有细线样式让 8dip；grip 抓手原版贴边；展开面板贴边
-        var gap = (_expanded || !UseLineCollapsed) ? 0 : (int)Math.Round(CollapsedEdgeGapDip * Scale());
+        // 收起态离边空隙（换算成物理像素）：细竖线 8dip、圆角抓手 5dip；展开面板贴边
+        var gap = _expanded
+            ? 0
+            : (int)Math.Round((UseLineCollapsed ? CollapsedEdgeGapDip : GripEdgeGapDip) * Scale());
 
         return edge switch
         {

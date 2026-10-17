@@ -248,6 +248,17 @@ public sealed partial class SidebarLayoutPage : PageBase
             App.Settings.Save();
         }
 
+        // 「收起条长度」：0 = 按样式默认；非 0 必须落在可调范围内（老存档 / 手改坏的值一律夹回去）。
+        var collapsedLen = s.SidebarCollapsedLength;
+        if (collapsedLen != 0
+            && (collapsedLen < ToolSidebarWindow.MinCollapsedLengthDip
+                || collapsedLen > ToolSidebarWindow.MaxCollapsedLengthDip))
+        {
+            s.SidebarCollapsedLength = Math.Clamp(collapsedLen,
+                ToolSidebarWindow.MinCollapsedLengthDip, ToolSidebarWindow.MaxCollapsedLengthDip);
+            App.Settings.Save();
+        }
+
         RebuildEdgeCombo();
         UpdateSidebarHints();
     }
@@ -294,6 +305,9 @@ public sealed partial class SidebarLayoutPage : PageBase
                 var index = s.SidebarCollapsedStyle == "line" ? 1 : 0;
                 if (CollapsedStyleCombo.SelectedIndex != index) CollapsedStyleCombo.SelectedIndex = index;
             }
+
+            // 「收起条长度」滑杆：0 = 当前样式的默认值（抓手 110 / 细竖线 220）
+            RefreshCollapsedLengthUi();
 
             // 「截图」那两张卡（2026-10-01 从设置页搬来，同一套"回声"处理）
             if (ShotAutoSaveSwitch is not null) ShotAutoSaveSwitch.IsChecked = s.ShotAutoSave;
@@ -1829,7 +1843,7 @@ public sealed partial class SidebarLayoutPage : PageBase
 
     /// <summary>
     /// 「收起样式」切换：圆角抓手 / 细竖线。
-    /// ⚠️ 换的是**窗口尺寸**（20×110 → 14×220），所以必须整套 ApplySize + MoveToEdge，
+    /// ⚠️ 换的是**窗口尺寸**（grip 8×110 → line 6×220，长度还可调），所以必须整套 ApplySize + MoveToEdge，
     ///    同样走 <see cref="ToolSidebarWindow.ApplyStyle"/>。
     /// </summary>
     private void CollapsedStyle_SelectionChanged(object? sender, SelectionChangedEventArgs e)
@@ -1840,7 +1854,76 @@ public sealed partial class SidebarLayoutPage : PageBase
         App.Settings.Current.SidebarCollapsedStyle = style;
         App.Settings.Save();
 
+        // 换样式之后"默认长度"也跟着变（0 = 默认时要显示新样式的默认值）
+        RefreshCollapsedLengthUi();
+
         if (App.Settings.Current.SidebarEnabled) ToolSidebarWindow.ApplyStyle();
+    }
+
+    // ── 收起条长度（2026-10-17 用户要求"再加个长短调整功能"）────────────
+
+    /// <summary>
+    /// 收起条长度滑杆的显示值：
+    /// 设置里 <c>SidebarCollapsedLength</c> ≤ 0 = 用**当前收起样式**自带的默认（抓手 110 / 细竖线 220），
+    /// 文本显示"默认（110）"；否则显示钉死的值 + " dip"。
+    /// ⚠️ 只刷 UI，不写设置 —— 由 <see cref="SyncToolSettings"/> 在 <c>_toolSync</c> 闸门下调用。
+    /// </summary>
+    private void RefreshCollapsedLengthUi()
+    {
+        if (CollapsedLengthSlider is null) return;
+
+        var s = App.Settings.Current;
+        var line = s.SidebarCollapsedStyle == "line";
+        var isDefault = s.SidebarCollapsedLength <= 0;
+        var value = isDefault
+            ? ToolSidebarWindow.DefaultCollapsedLengthDip(line)
+            : Math.Clamp(s.SidebarCollapsedLength,
+                ToolSidebarWindow.MinCollapsedLengthDip, ToolSidebarWindow.MaxCollapsedLengthDip);
+
+        var sliderValue = Math.Clamp(value, CollapsedLengthSlider.Minimum, CollapsedLengthSlider.Maximum);
+        // ⚠️ 改 Value 会触发 ValueChanged —— 那会把"默认"误写成钉死的值（用户只是换了个收起样式而已）。
+        //    全程压着 _toolSync 闸门；调用方本来就在闸门里的场合原样还回去。
+        var prevSync = _toolSync;
+        _toolSync = true;
+        try
+        {
+            if (Math.Abs(CollapsedLengthSlider.Value - sliderValue) > 0.01) CollapsedLengthSlider.Value = sliderValue;
+        }
+        finally { _toolSync = prevSync; }
+
+        if (CollapsedLengthText is not null)
+            CollapsedLengthText.Text = isDefault ? $"默认（{value}）" : $"{value} dip";
+        if (CollapsedLengthResetButton is not null) CollapsedLengthResetButton.IsEnabled = !isDefault;
+    }
+
+    /// <summary>
+    /// 拖了「收起条长度」滑杆：写设置 + 让所有侧边栏实例立刻按新长度重排。
+    /// ⚠️ 走轻量的 <see cref="ToolSidebarWindow.ApplyCollapsedLength"/>（不重建模块按钮）——
+    ///    滑杆拖动会连发很多次 ValueChanged，重建按钮那套太重。
+    /// </summary>
+    private void CollapsedLength_Changed(object? sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_toolSync) return;
+        if (CollapsedLengthSlider is null) return;
+
+        var v = (int)Math.Round(CollapsedLengthSlider.Value);
+        App.Settings.Current.SidebarCollapsedLength = v;
+        App.Settings.Save();
+
+        if (CollapsedLengthText is not null) CollapsedLengthText.Text = $"{v} dip";
+        if (CollapsedLengthResetButton is not null) CollapsedLengthResetButton.IsEnabled = true;
+
+        if (App.Settings.Current.SidebarEnabled) ToolSidebarWindow.ApplyCollapsedLength();
+    }
+
+    /// <summary>「默认」：清掉钉死的长度，回到当前收起样式自带的值（抓手 110 / 细竖线 220）。</summary>
+    private void CollapsedLengthReset_Click(object? sender, RoutedEventArgs e)
+    {
+        App.Settings.Current.SidebarCollapsedLength = 0;
+        App.Settings.Save();
+
+        RefreshCollapsedLengthUi();
+        if (App.Settings.Current.SidebarEnabled) ToolSidebarWindow.ApplyCollapsedLength();
     }
 
     // ── 截图（2026-10-07 整组从「设置」页搬来，逻辑原样） ────────────────
