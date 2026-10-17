@@ -510,9 +510,9 @@ public sealed partial class ShellPage : PageBase
     /// 所以在**非展开模式**下顺带把 <c>IsExpanded</c> 复位，保证「展开标志 ↔ 浮层开关」始终一致。</para>
     ///
     /// <para>⚠️ 2026-10-16（用户反馈「左边大侧边栏展开后，点二级导航任意一个，一级就收起了」）：
-    /// 上面那条复位**只对窄条模式成立**。展开（大侧边栏）模式里子项是**内联**铺在面板上的，
-    /// 复位会当场把一级分组收起来 —— 用户点的明明是二级项，一级却没了。展开模式因此改为
-    /// 显式**保持展开**（能点到子项，说明分组本来就是展开的），仍然只关残留浮层。</para>
+    /// 上面那条复位**只对图标窄条成立**。大侧边栏（DisplayMode=Expanded，或窄条点开成整条面板
+    /// 即 IsPaneOpen=true）里子项是**内联**铺在面板上的，复位会当场把一级分组收起来 ——
+    /// 用户点的明明是二级项，一级却没了。所以这里改成「内联就保持展开、只关残留浮层」。</para>
     /// </summary>
     private void CloseGroupFlyout(NavigationViewItem group)
     {
@@ -526,9 +526,20 @@ public sealed partial class ShellPage : PageBase
             if (FlyoutBase.GetAttachedFlyout(root) is PopupFlyoutBase flyout && flyout.IsOpen)
                 flyout.Hide();
 
-            if (Nav.DisplayMode == NavigationViewDisplayMode.Expanded)
+            // ⚠️ 判据取「子项此刻是内联铺着、还是装在浮层里」，实测（FA 2.4.1 探针，
+            //    .workbuddy/nav-probe，见提交说明）：
+            //      · DisplayMode=Expanded  → IsPaneOpen=True，子项内联（视觉根=Window，浮层 closed）
+            //      · 图标窄条（Compact 且面板未展开）→ IsPaneOpen=False，子项在 AttachedFlyout 里
+            //      · 窄条点开成整条面板（Compact + IsPaneOpen=true）→ 子项同样内联
+            //    也就是说 Both「Expanded」与「IsPaneOpen」时子项都是内联的，绝不能复位 IsExpanded；
+            //    只有图标窄条（靠浮层显示子项）才需要复位。
+            //    探针同时确认：FA 自己**不会**在选中子项后收起分组，所以用户看到的「一级收起」
+            //    就是这里复位出来的。
+            var inlineChildren = Nav.DisplayMode == NavigationViewDisplayMode.Expanded || Nav.IsPaneOpen;
+
+            if (inlineChildren)
             {
-                // 展开模式：子项内联显示，分组必须保持展开（否则用户点二级、一级跟着消失）
+                // 内联模式：分组必须保持展开（否则用户点二级、一级跟着消失）
                 if (!group.IsExpanded) group.IsExpanded = true;
                 return;
             }
