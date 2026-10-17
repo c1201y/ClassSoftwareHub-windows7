@@ -488,7 +488,7 @@ public sealed partial class ShellPage : PageBase
     }
 
     /// <summary>
-    /// 关掉某个导航分组的子项浮层（不动 <c>IsExpanded</c>）。
+    /// 点完分组子项之后收尾：关掉可能残留的子项浮层，并按显示模式处理分组的展开标志。
     ///
     /// <para>⚠️ 2026-10-15（用户反馈「秒表按钮点第一次没反应，需要点第二次」）：根因是
     /// FluentAvalonia 的导航分组浮层。FA 2.4.1 里带子项的 <c>NavigationViewItem</c>
@@ -505,9 +505,14 @@ public sealed partial class ShellPage : PageBase
     /// 都不是原因；手动 <c>SW_HIDE</c> 那扇原生窗口也无效（Avalonia 侧 Popup 状态照样是打开）——
     /// 只有「先点一次别处」才能解锁下一次点击，说明被消费的是**第一次输入事件本身**。</para>
     ///
-    /// <para>⚠️ 只关浮层、<b>不</b>碰 <c>IsExpanded</c> 会让两者失步：FA 仍以为浮层开着，
-    /// 用户下次点分组项会被它当成「折叠」，子项就再也打不开了（实测）。所以这里顺带把
-    /// <c>IsExpanded</c> 复位，保证「展开标志 ↔ 浮层开关」始终一致。</para>
+    /// <para>⚠️ 窄条（图标）模式下只关浮层、<b>不</b>碰 <c>IsExpanded</c> 会让两者失步：
+    /// FA 仍以为浮层开着，用户下次点分组项会被它当成「折叠」，子项就再也打不开了（实测）。
+    /// 所以在**非展开模式**下顺带把 <c>IsExpanded</c> 复位，保证「展开标志 ↔ 浮层开关」始终一致。</para>
+    ///
+    /// <para>⚠️ 2026-10-16（用户反馈「左边大侧边栏展开后，点二级导航任意一个，一级就收起了」）：
+    /// 上面那条复位**只对窄条模式成立**。展开（大侧边栏）模式里子项是**内联**铺在面板上的，
+    /// 复位会当场把一级分组收起来 —— 用户点的明明是二级项，一级却没了。展开模式因此改为
+    /// 显式**保持展开**（能点到子项，说明分组本来就是展开的），仍然只关残留浮层。</para>
     /// </summary>
     private void CloseGroupFlyout(NavigationViewItem group)
     {
@@ -520,6 +525,14 @@ public sealed partial class ShellPage : PageBase
 
             if (FlyoutBase.GetAttachedFlyout(root) is PopupFlyoutBase flyout && flyout.IsOpen)
                 flyout.Hide();
+
+            if (Nav.DisplayMode == NavigationViewDisplayMode.Expanded)
+            {
+                // 展开模式：子项内联显示，分组必须保持展开（否则用户点二级、一级跟着消失）
+                if (!group.IsExpanded) group.IsExpanded = true;
+                return;
+            }
+
             if (group.IsExpanded) group.IsExpanded = false;
         }
         catch
