@@ -40,6 +40,8 @@ public sealed class LevelChipBar
         public ToggleButton Button { get; init; } = null!;
         public StackPanel Content { get; init; } = null!;
         public TextBlock CountText { get; init; } = null!;
+        public FluentAvalonia.UI.Controls.FontIcon Icon { get; init; } = null!;   // 换主题时重算前景（RefreshTheme）
+        public StyledElement? Host { get; init; }                                  // 主题画刷的查询锚点
     }
 
     private readonly List<Chip> _chips = new();
@@ -156,7 +158,7 @@ public sealed class LevelChipBar
         };
         Quiet(button);
 
-        var chip = new Chip { Level = level, Label = label, Button = button, Content = content, CountText = count };
+        var chip = new Chip { Level = level, Label = label, Button = button, Content = content, CountText = count, Icon = icon, Host = host };
 
         button.Checked += (_, _) => Sync(chip);
         button.Unchecked += (_, _) => Sync(chip);
@@ -164,6 +166,22 @@ public sealed class LevelChipBar
 
         _chips.Add(chip);
         host.Children.Add(button);
+    }
+
+    /// <summary>
+    /// 主题（深浅色）变了以后重算各芯片的颜色。
+    /// ⚠️ 2026-10-19 修（用户：日志详细窗口深浅色没适配）：构造期那次 <see cref="Quiet"/>/
+    ///    <see cref="LogReader.BrushOf"/> 查的是**当时**的主题画刷，都是写死的实例值；
+    ///    窗口开着切深浅色时不会自己跟着变，深色下就成了"灰底灰字"。
+    ///    这里把实例级资源与图标前景按**当前**主题重算一遍（选中态由 Sync 管着，不受影响）。
+    /// </summary>
+    public void RefreshTheme()
+    {
+        foreach (var c in _chips)
+        {
+            Quiet(c.Button);
+            c.Icon.Foreground = LogReader.BrushOf(c.Level, c.Host);
+        }
     }
 
     private static void Sync(Chip chip) =>
@@ -178,6 +196,14 @@ public sealed class LevelChipBar
     /// 透明本身与主题无关，不算"写死颜色"。
     /// </summary>
     private void Quiet(ToggleButton button)
+    {
+        // 实现收口到 ChipLook（2026-10-18 自上游 1.2.0 移植）：
+        // 「应用卸载」页的分类芯片与本条筛选栏共用同一套观感，两处不再各写一份。
+        ChipLook.Quiet(button);
+    }
+
+    /// <summary>[旧实现保留说明] 曾经在这里就地设一组 ToggleButton 主题资源。</summary>
+    private void QuietLegacy(ToggleButton button)
     {
         void Set(string key, IBrush? brush)
         {

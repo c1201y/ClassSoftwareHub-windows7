@@ -187,14 +187,40 @@
                         </views:SettingsCard>
 
                         <views:SettingsCard Header="收起样式"
-                                               Description="圆角抓手：一小截圆角条（细，8 dip 厚）。细竖线：贴边留一条更长更细的竖线，贴上下边时为横线。">
+                                               Description="收起后只留一条竖线（没有内芯小点）。粗 = 8 dip 好点好按；细 = 6 dip 更隐形。长度都能在下面调。">
                             <views:SettingsCard.HeaderIcon>
                                 <fa:FontIcon Glyph="&#xE8A0;" />
                             </views:SettingsCard.HeaderIcon>
                             <ComboBox x:Name="CollapsedStyleCombo" MinWidth="170"
                                       SelectionChanged="CollapsedStyle_SelectionChanged">
-                                <ComboBoxItem Content="圆角抓手" Tag="grip" />
-                                <ComboBoxItem Content="细竖线" Tag="line" />
+                                <ComboBoxItem Content="粗一点（8 dip）" Tag="grip" />
+                                <ComboBoxItem Content="细一点（6 dip）" Tag="line" />
+                            </ComboBox>
+                        </views:SettingsCard>
+
+                        <!-- 大小样式（2026-10-18 自上游 1.2.0 移植）：收起态与展开态各一套。 -->
+                        <views:SettingsCard Header="侧边栏大小样式"
+                                            Description="侧边栏收成那条小抓手时的大小样式。「标准」为默认；「紧凑」把条收细、图标与文字相应缩小，按钮的点击区域仍保持较大尺寸（不至于点不准）。">
+                            <views:SettingsCard.HeaderIcon>
+                                <fa:FontIcon Glyph="&#xE78C;" />
+                            </views:SettingsCard.HeaderIcon>
+                            <ComboBox x:Name="DensityCombo" MinWidth="170"
+                                      SelectionChanged="Density_SelectionChanged">
+                                <ComboBoxItem Content="标准" Tag="standard" />
+                                <ComboBoxItem Content="紧凑" Tag="compact" />
+                            </ComboBox>
+                        </views:SettingsCard>
+
+                        <views:SettingsCard Header="展开后的大小样式"
+                                            Description="侧边栏展开成面板后用哪套大小样式。默认「跟随收起时的样式」，即上下两态一致；也可以单独指定（例如收起时用紧凑省地方、展开后仍用标准）。">
+                            <views:SettingsCard.HeaderIcon>
+                                <fa:FontIcon Glyph="&#xE78C;" />
+                            </views:SettingsCard.HeaderIcon>
+                            <ComboBox x:Name="ExpandedDensityCombo" MinWidth="170"
+                                      SelectionChanged="ExpandedDensity_SelectionChanged">
+                                <ComboBoxItem Content="跟随收起时的样式" Tag="same" />
+                                <ComboBoxItem Content="标准" Tag="standard" />
+                                <ComboBoxItem Content="紧凑" Tag="compact" />
                             </ComboBox>
                         </views:SettingsCard>
 

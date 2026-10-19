@@ -16,6 +16,14 @@ namespace ClassSoftwareHub.Desktop.Platform;
 /// </summary>
 public abstract class PageBase : UserControl
 {
+    protected PageBase()
+    {
+        // 滚轮接力（2026-10-18 自上游 1.2.0 移植）：页面两侧留白 / 标题行上的滚轮也带动主滚动区。
+        // 上游是每个页面显式 Attach；移植版在基类统一「自动版」，免得每个页面都给滚动容器起名。
+        // ⚠️ 页面根 Grid 必须 Background="Transparent"（不画像素但参与命中测试），本仓库页面都已加。
+        Core.WheelRelay.AttachAuto(this);
+    }
+
     /// <summary>进入页面。<paramref name="parameter"/> = <c>Frame.Navigate(type, parameter)</c> 的第二个参数。</summary>
     public virtual void OnNavigatedTo(object? parameter) { }
 

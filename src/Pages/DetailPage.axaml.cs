@@ -8,6 +8,7 @@ using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using ClassSoftwareHub.Desktop.Core;
 using ClassSoftwareHub.Desktop.Data;
 using ClassSoftwareHub.Desktop.Platform;
@@ -83,12 +84,20 @@ public sealed partial class DetailPage : PageBase
             // ⚠️ Avalonia 没有 Visibility 枚举 → bool IsVisible。
             AppTagline.IsVisible = false;
             CategoryBadge.IsVisible = false;
+            HeroMeta.IsVisible = false;
             IntroTitle.IsVisible = false;
             AppDescription.IsVisible = false;
             InfoTitle.IsVisible = false;
             DownloadsTitle.IsVisible = false;
+            Rail.IsVisible = false;
+            BodyGrid.ColumnDefinitions[1].Width = new GridLength(0);
+            Hero.Opacity = 0;
             return;
         }
+
+        // 找到软件了：把上一页可能留下的"未找到"隐藏态恢复回来
+        Rail.IsVisible = true;
+        BodyGrid.ColumnDefinitions[1].Width = new GridLength(300);
 
         // ── 头部 ──
         AppName.Text = app.Name;
@@ -115,6 +124,13 @@ public sealed partial class DetailPage : PageBase
             NoticeBar.Title = ui.T("detail.notice-title", "小提示");
             NoticeBar.Message = app.Notice;
             NoticeBar.IsOpen = true;
+            NoticeBar.IsVisible = true;
+        }
+        else
+        {
+            // ⛔ 关着的 InfoBar 仍会占掉一排高度，必须显式收起
+            NoticeBar.IsOpen = false;
+            NoticeBar.IsVisible = false;
         }
 
         // ── 详细信息 ──
@@ -124,12 +140,14 @@ public sealed partial class DetailPage : PageBase
         AddInfoRow(ui.T("detail.system", "系统限制"), app.System);
         AddLinkRow(ui.T("detail.website", "官方网站"), app.Website);
         AddLinkRow(ui.T("detail.github", "GitHub"), app.Github);
+        FinishInfoRows();   // 行与行之间补细分割线（末行不画）
 
         // ── 下载 ──
+        // 商店项不进下载列表，交给上方那张商店卡（2026-10-18 对齐上游：判据是 DownloadLinkKind）
         _storeUrl = app.Store.Length > 0
             ? app.Store
-            : app.Downloads.FirstOrDefault(d => GithubMirror.IsStoreUrl(d.Url))?.Url ?? "";
-        var others = app.Downloads.Where(d => !GithubMirror.IsStoreUrl(d.Url)).ToList();
+            : app.Downloads.FirstOrDefault(d => d.Kind == DownloadKind.Store)?.Url ?? "";
+        var others = app.Downloads.Where(d => d.Kind != DownloadKind.Store).ToList();
 
         StoreCard.IsVisible = _storeUrl.Length > 0;
         StoreOnlyHint.IsVisible = _storeUrl.Length > 0 && others.Count == 0;
@@ -153,6 +171,56 @@ public sealed partial class DetailPage : PageBase
             IssueBar.Message = string.Join("\n", issues.Select(i => i.File + "：" + i.Message));
             IssueBar.IsOpen = true;
         }
+
+        // ── 顶栏副标题、推荐应用、主题色（2026-10-18 自上游 1.2.0 移植）──
+        var meta = string.Join("　·　", new[] { app.VersionText, app.Size, app.System }
+            .Where(s => !string.IsNullOrWhiteSpace(s)));
+        HeroMeta.Text = meta;
+        HeroMeta.IsVisible = meta.Length > 0;
+
+        BuildRecommendations(app);
+        _ = ApplyHeroColorAsync(app);
+    }
+
+    /// <summary>
+    /// 右栏「推荐应用」：先取同分类的，不够就用其他软件补齐（Nick：搜不到就随便推荐）。
+    /// ⛔ 标题不能叫「相似应用」—— 补齐的那部分只是别的软件，叫相似名不副实。
+    /// ⛔ 用 Id 的稳定哈希排序而不是 Random —— 同一台机器每次进来顺序一致，不会看着"跳来跳去"。
+    /// （2026-10-18 自上游 1.2.0 移植；顺带把 Core/StableRank 接上了）
+    /// </summary>
+    private void BuildRecommendations(SoftwareApp app)
+    {
+        var pool = App.Content.Apps
+            .Where(a => !string.Equals(a.Id, app.Id, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        var same = pool
+            .Where(a => string.Equals(a.Category, app.Category, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(a => StableRank.Of(a.Id))
+            .ToList();
+
+        var picks = same.Take(6).ToList();
+
+        if (picks.Count < 6)
+        {
+            picks.AddRange(pool
+                .Except(picks)
+                .OrderBy(a => StableRank.Of(a.Id + "|rest"))
+                .Take(6 - picks.Count));
+        }
+
+        RecommendList.ItemsSource = picks;
+        RecommendList.IsVisible = picks.Count > 0;
+        RailEmpty.IsVisible = picks.Count == 0;
+    }
+
+    private void Recommend_Click(object? sender, RoutedEventArgs e)
+    {
+        if ((sender as Control)?.DataContext is not SoftwareApp target) return;
+
+        // 详情页 → 详情页：走可视图树上的 ContentFrame（与搜索命中跳详情同一条路）
+        var frame = this.FindAncestorOfType<Frame>() ?? App.MainWindow?.Shell.ContentFrame;
+        frame?.Navigate(typeof(DetailPage), target.Id);
     }
 
     /// <summary>
@@ -165,6 +233,74 @@ public sealed partial class DetailPage : PageBase
         IconImage.Source = _app?.IconImage;
         IconFallback.IsVisible = _app?.IconPlaceholder ?? true;
         ApplyAvatar();
+        if (_app is { } app) _ = ApplyHeroColorAsync(app);
+    }
+
+    /// <summary>
+    /// 顶部色带（2026-10-18 自上游 1.2.0 移植）：一律等**图标主色**，颜色没就绪之前色带是透明的（等于页面底色）。
+    ///
+    /// ⛔⛔ 上游上一版先用主题强调色顶上、几百毫秒后再换成图标色，被 Nick 点名"非常割裂"。
+    /// 现在只有两种情况会立刻上色：① 列表页已经预热过（缓存命中，进页面就是最终色）；
+    /// ② 取不到色（黑白图标 / SVG / 网络失败）⇒ 才退回强调色，这是兜底、不是过渡。
+    /// 其余情况取到后再淡入，读起来像"色带浮现"，不像"颜色换了"。
+    /// </summary>
+    private async Task ApplyHeroColorAsync(SoftwareApp app)
+    {
+        if (Services.IconPalette.TryGetCached(app.Icon, out var ready))
+        {
+            PaintHero(app, ready, fade: false);
+            return;
+        }
+
+        var picked = await Services.IconPalette.PickAsync(app.Icon);
+
+        if (picked is { } color)
+        {
+            PaintHero(app, color, fade: true);
+            return;
+        }
+
+        // 兜底：没有主色可用，直接上强调色（不做淡入，免得看着像还在加载）
+        var fallback = (Services.ThemeBrush.Get(this, "AccentFillColorDefaultBrush") as SolidColorBrush)?.Color
+                       ?? Color.FromArgb(255, 0, 95, 184);
+        PaintHero(app, fallback, fade: false);
+    }
+
+    private void PaintHero(SoftwareApp app, Color color, bool fade)
+    {
+        // 期间可能已经导航到别的软件 —— 比 Id，别把 A 的颜色刷到 B 页面上
+        if (_app is null || !string.Equals(_app.Id, app.Id, StringComparison.OrdinalIgnoreCase)) return;
+
+        Hero.Background = Services.IconPalette.Gradient(color);
+
+        if (!fade)
+        {
+            Hero.Opacity = 1;
+            return;
+        }
+
+        // ⚠️ WinUI 的 Storyboard + DoubleAnimation → Avalonia 的 Animation（FillMode=Forward）。
+        var anim = new Avalonia.Animation.Animation
+        {
+            Duration = TimeSpan.FromMilliseconds(260),
+            Easing = new Avalonia.Animation.Easings.CubicEaseOut(),
+            FillMode = Avalonia.Animation.FillMode.Forward,
+            Children =
+            {
+                new Avalonia.Animation.KeyFrame
+                {
+                    Cue = new Avalonia.Animation.Cue(0d),
+                    Setters = { new Avalonia.Styling.Setter(Visual.OpacityProperty, 0d) },
+                },
+                new Avalonia.Animation.KeyFrame
+                {
+                    Cue = new Avalonia.Animation.Cue(1d),
+                    Setters = { new Avalonia.Styling.Setter(Visual.OpacityProperty, 1d) },
+                },
+            },
+        };
+
+        _ = anim.RunAsync(Hero);
     }
 
     /// <summary>
@@ -214,13 +350,45 @@ public sealed partial class DetailPage : PageBase
         InfoList.Children.Add(row);
     }
 
+    /// <summary>
+    /// 一行详细信息（2026-10-18 自上游 1.2.0 移植）。
+    /// ⛔ 不再放进灰色卡片（Nick：灰底很丑）—— 现在靠**行间细分割线 + 上下留白**分组，
+    /// 和商店里详情区的做法一致。分割线只画在行与行之间，末行不拖一条尾巴（见下面 FinishInfoRows）。
+    /// </summary>
     private static Grid NewInfoRow(string label)
     {
-        var row = new Grid();
-        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(96) });
+        var row = new Grid { Margin = new Thickness(0, 11, 0, 11) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(104) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        row.Children.Add(new TextBlock { Text = label, Opacity = 0.65, VerticalAlignment = VerticalAlignment.Center });
+        row.Children.Add(new TextBlock
+        {
+            Text = label,
+            FontSize = 13,
+            Opacity = 0.58,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
         return row;
+    }
+
+    /// <summary>给信息行之间补分割线：行与行之间画一条，末行不画。</summary>
+    private void FinishInfoRows()
+    {
+        var rows = InfoList.Children.OfType<Grid>().ToList();
+        for (var i = 0; i < rows.Count - 1; i++)
+        {
+            // 把「行 + 分割线」包进一个纵向 StackPanel 里
+            var index = InfoList.Children.IndexOf(rows[i]);
+            var wrapper = new StackPanel();
+            InfoList.Children.RemoveAt(index);
+            wrapper.Children.Add(rows[i]);
+            wrapper.Children.Add(new Border
+            {
+                Height = 1,
+                Background = Services.ThemeBrush.Get(this, "DividerStrokeColorDefaultBrush") as IBrush
+                             ?? new SolidColorBrush(Color.FromArgb(0x18, 0, 0, 0)),
+            });
+            InfoList.Children.Insert(index, wrapper);
+        }
     }
 
     private async void Store_Click(object? sender, RoutedEventArgs e)
@@ -247,10 +415,12 @@ public sealed partial class DetailPage : PageBase
     }
 
     /// <summary>
-    /// 下载按钮分流：
+    /// 下载按钮分流（2026-10-18 对齐上游 1.2.0：判据统一到 <see cref="DownloadKind"/> 四分类，
+    /// 不再保留「只看后缀」的第二套实现）：
     ///   · 微软商店本体 → 特例（商店没装的话商店链接是死的，得能把商店装回来）
-    ///   · 链接本身就是文件（.exe/.zip/…）→ 原生下载
-    ///   · 链接其实是官网页面（很多软件更新频繁，站点就丢个官网地址）→ 开在浮层里，让人自己点
+    ///   · 商店页 → 拉起「微软商店」应用
+    ///   · 文件直链 → 原生下载
+    ///   · 网盘 / 官网页面 → 开在浮层里，让人自己点
     /// </summary>
     private async void OpenDownload(string url, Button? source = null,
         Services.DownloadRoute route = Services.DownloadRoute.Setting)
@@ -261,10 +431,26 @@ public sealed partial class DetailPage : PageBase
             return;
         }
 
-        if (Services.DownloadService.IsDirectFileUrl(url))
-            App.MainWindow?.DownloadFile(url, source is null ? null : DownloadNameFor(source), route);
-        else
-            App.MainWindow?.ShowWebSheet(url, "官网下载");
+        var item = _app?.Downloads.FirstOrDefault(d => string.Equals(d.Url, url, StringComparison.OrdinalIgnoreCase));
+        var kind = item?.Kind ?? DownloadLinkKind.Of(url);
+
+        switch (kind)
+        {
+            case DownloadKind.Store:
+                App.MainWindow?.OpenStore(url);
+                return;
+
+            case DownloadKind.File:
+                App.MainWindow?.DownloadFile(url, source is null ? null : DownloadNameFor(source), route);
+                return;
+
+            case DownloadKind.Netdisk:
+                App.MainWindow?.ShowWebSheet(url, "网盘下载");
+                return;
+        }
+
+        // Page：链接是官网下载页 —— 交给网页浮层，让人自己在页面上点
+        App.MainWindow?.ShowWebSheet(url, "官网下载");
     }
 
     /// <summary>

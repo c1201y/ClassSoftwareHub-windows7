@@ -154,6 +154,31 @@ public sealed class AppSettings
     public string SidebarCollapsedStyle { get; set; } = "grip";
 
     /// <summary>
+    /// 侧边栏**收起条**的大小样式（2026-10-18 自上游 1.2.0 移植；Nick：有用户嫌默认那套悬浮按钮太大）：
+    /// <list type="bullet">
+    ///   <item><c>standard</c>（默认）= 现在这套：抓手 8×110，展开后面板宽 92 dip，按钮 52 高、图标 20、图标下面带短名。</item>
+    ///   <item><c>compact</c> = 紧凑：细条 + 小图标小字，但**按钮本身的点击区域不跟着缩到底**
+    ///         （否则细条上的键点不准，Nick 特意提的）。</item>
+    /// </list>
+    /// ⚠️ 认不出的值一律当 <c>standard</c>（见 <c>ToolSidebarWindow.CompactCollapsed</c>）。
+    ///
+    /// ⚠️ 2026-10-12 起这项**只决定收起态**（那条小抓手），展开面板改由
+    ///    <see cref="SidebarExpandedDensity"/> 决定 —— 有用户要「收起时紧凑省地方、展开后仍用标准」。
+    ///    它的默认值 <c>same</c> 会让展开面板继续跟随本项，所以老用户升上来观感不变。
+    /// </summary>
+    public string SidebarDensity { get; set; } = "standard";
+
+    /// <summary>
+    /// 侧边栏**展开后**（面板态）的大小样式（2026-10-18 自上游 1.2.0 移植）：
+    /// <list type="bullet">
+    ///   <item><c>same</c>（默认）= 跟随 <see cref="SidebarDensity"/>，上下两态一致。</item>
+    ///   <item><c>standard</c> / <c>compact</c> = 无论收起态怎么设，展开面板固定用这一套。</item>
+    /// </list>
+    /// ⚠️ 只认这三个值，别的（含 <c>null</c>）一律当 <c>same</c>（见 <c>ToolSidebarWindow.CompactBody</c>）。
+    /// </summary>
+    public string SidebarExpandedDensity { get; set; } = "same";
+
+    /// <summary>
     /// 「收起条长度」（dip，竖条=高 / 横条=宽）。<c>0</c> = 按样式自带默认
     /// （圆角抓手 110 / 细竖线 220）；&gt; 0 = 用户钉死的值，两个样式共用。
     /// 2026-10-17 用户要求"再加个长短调整功能" —— 「侧边布局」页一个滑杆，拖动立即生效。
@@ -245,6 +270,17 @@ public sealed class AppSettings
     public bool WebTransparent { get; set; } = true;
     public int WindowWidth { get; set; } = 1280;
     public int WindowHeight { get; set; } = 820;
+
+    /// <summary>
+    /// 上次退出时窗口左上角的位置（屏幕坐标）。<c>int.MinValue</c> = 没记过。
+    /// （2026-10-18 自上游 1.2.0 移植：记住窗口位置与大小，换台机器/换分辨率要按屏幕夹一趟。）
+    /// </summary>
+    public int WindowLeft { get; set; } = int.MinValue;
+    public int WindowTop { get; set; } = int.MinValue;
+
+    /// <summary>上次退出时是不是最大化（下次启动照旧最大化）。</summary>
+    public bool WindowMaximized { get; set; }
+
     public double WebZoom { get; set; } = 1.0;
     public string LastUrl { get; set; } = "";
 
@@ -291,6 +327,18 @@ public sealed class AppSettings
     /// 默认 auto，与上游设置页「GitHub 应用更新加速源」一致。由设置页选择；
     /// <see cref="Services.GithubRoute"/> 据此把软件下载链接翻译成实际要抓的链接。</summary>
     public string GithubDownloadRoute { get; set; } = "auto";
+
+    /// <summary>
+    /// 「安装或解压完成后自动删除安装包或压缩包」（2026-10-18 自上游 1.2.0 移植，默认关）。
+    /// ⚠️ 默认关：删掉的是用户刚下到硬盘上的那个文件，不能替人做主。
+    /// </summary>
+    public bool AutoDeletePackage { get; set; }
+
+    /// <summary>
+    /// 「解压完成后自动打开所在文件夹」（2026-10-18 自上游 1.2.0 移植，默认开）：
+    /// 解压这个动作的目的就是去拿里面的东西，解完直接把产物目录摆到眼前最省事。
+    /// </summary>
+    public bool AutoOpenExtractFolder { get; set; } = true;
 
     /// <summary>
     /// 课堂计时器到点的自定义铃声（完整路径；空 = 用内嵌的默认铃声）。

@@ -1,0 +1,174 @@
+<platform:PageBase
+    x:Class="ClassSoftwareHub.Desktop.Pages.UninstallPage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:fa="using:FluentAvalonia.UI.Controls">
+
+    <!--
+      应用卸载（2026-10-18 自上游 1.2.0 移植；WinUI → Avalonia）。
+
+      主题是「以软件下载起步的程序，也管卸载」—— 把本机装了什么列出来，能直接卸。
+      扫描走 Services/InstalledApps（跟「本机核实」同一套数据源），
+      卸载走 Services/AppUninstaller（调厂商自己的卸载程序，我们不删文件）。
+      卸载之后：前后浅层快照求差集 → 「卸载残留」第二屏 → 勾选 → LeftoverCleaner 先备份再删（隔离区可还原）。
+
+      ⚠️ WinUI → Avalonia 移植说明：
+        · x:Bind 行模板 → 行控件在代码里手建（与本站其它页一致，也避开模板绑定上下文问题）；
+        · InfoBar → FluentAvalonia fa:InfoBar；AutoSuggestBox → TextBox（本站统一做法）；
+        · ProgressRing → fa:ProgressRing；MenuFlyout 同名可用；
+        · Visibility → IsVisible。
+      ⚠️ Background="Transparent" 给滚轮接力用（见 Core/WheelRelay.cs）。
+    -->
+    <Grid Background="Transparent">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="24" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="24" />
+        </Grid.ColumnDefinitions>
+
+        <Grid Grid.Column="1" MaxWidth="960" Margin="0,36,0,44">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <!-- ── 标题行：左＝标题+标记+计数，右＝分类 / 搜索 / 重新扫描 / 残留入口 / 说明 / 返回列表 ── -->
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Spacing="4">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <TextBlock x:Name="TitleText" Text="应用卸载" FontSize="28" FontWeight="Bold" />
+                        <Border CornerRadius="5" Padding="8,3" Margin="0,0,0,6" VerticalAlignment="Bottom"
+                                BorderThickness="1"
+                                BorderBrush="{DynamicResource SystemFillColorCautionBrush}">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <fa:FontIcon Glyph="&#xEA80;" FontSize="11"
+                                             Foreground="{DynamicResource SystemFillColorCautionBrush}" />
+                                <TextBlock Text="实验性功能" FontSize="12"
+                                           Foreground="{DynamicResource SystemFillColorCautionBrush}" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <TextBlock x:Name="CountLine" Text="正在扫描…" FontSize="12" Opacity="0.65"
+                               TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+
+                <ComboBox x:Name="CategoryBox" Grid.Column="1" MinWidth="170"
+                          VerticalAlignment="Top" Margin="10,4,0,0"
+                          SelectionChanged="Category_Changed" />
+
+                <TextBox x:Name="SearchBox" Grid.Column="2" Width="196"
+                         VerticalAlignment="Top" Margin="8,4,0,0"
+                         Watermark="搜索名称或发布者"
+                         TextChanged="Search_Changed" />
+
+                <Button x:Name="RescanButton" Grid.Column="3" Content="重新扫描" Click="Rescan_Click"
+                        VerticalAlignment="Top" Margin="8,4,0,0" />
+
+                <Button x:Name="LeftoverEntryButton" Grid.Column="4" Content="残留与隔离区"
+                        Click="LeftoverEntry_Click"
+                        VerticalAlignment="Top" Margin="8,4,0,0" />
+
+                <Button x:Name="AboutButton" Grid.Column="5" Click="About_Click"
+                        Width="32" Height="32" Padding="0" Background="Transparent" BorderThickness="0"
+                        VerticalAlignment="Top" Margin="8,4,0,0"
+                        ToolTip.Tip="扫描范围与注意事项">
+                    <fa:FontIcon Glyph="&#xE946;" FontSize="15" />
+                </Button>
+
+                <Button x:Name="BackButton" Grid.Column="6" Content="返回列表" Click="Back_Click"
+                        IsVisible="False"
+                        VerticalAlignment="Top" Margin="8,4,0,0" />
+            </Grid>
+
+            <!-- ── 风险提示条：两态共用，只换文案 ── -->
+            <fa:InfoBar x:Name="RiskBar" Grid.Row="1" Margin="0,10,0,0"
+                        Severity="Error" IsOpen="True" IsClosable="False"
+                        Title="此操作将删除文件与注册表项"
+                        Message="清理卸载残留会移除文件与注册表项。被移除的内容均先行备份至隔离区，可在「隔离区」中查看并取回。" />
+
+            <!-- ── 内容区：两个状态各占一层，靠 IsVisible 换 ── -->
+            <Grid Grid.Row="2" Margin="0,10,0,0">
+
+                <!-- ═══════════ 状态一：应用列表 ═══════════ -->
+                <Grid x:Name="ListHost">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel x:Name="AppListPanel" Spacing="0" />
+                    </ScrollViewer>
+
+                    <!-- 扫描中 -->
+                    <StackPanel x:Name="LoadingPanel" Spacing="12" HorizontalAlignment="Center"
+                                VerticalAlignment="Center">
+                        <fa:ProgressRing IsActive="True" Width="34" Height="34" HorizontalAlignment="Center" />
+                        <TextBlock Text="正在读取本机已安装的软件" FontSize="12" Opacity="0.7"
+                                   HorizontalAlignment="Center" />
+                    </StackPanel>
+
+                    <!-- 空状态 -->
+                    <StackPanel x:Name="EmptyPanel" Spacing="10" IsVisible="False"
+                                HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <fa:FontIcon Glyph="&#xE74D;" FontSize="28" Opacity="0.45" HorizontalAlignment="Center" />
+                        <TextBlock x:Name="EmptyText" Text="没有符合条件的应用" FontSize="14" Opacity="0.7"
+                                   HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center" />
+                    </StackPanel>
+                </Grid>
+
+                <!-- ═══════════ 状态二：卸载残留确认 ═══════════ -->
+                <Grid x:Name="LeftoverHost" IsVisible="False">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel x:Name="LeftoverListPanel" Spacing="0" />
+                    </ScrollViewer>
+
+                    <!-- 空态：**主动进来**（当前没有待处理的残留）时显示。 -->
+                    <StackPanel x:Name="LeftoverEmpty" IsVisible="False" Spacing="10"
+                                HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <fa:FontIcon Glyph="&#xE8B7;" FontSize="28" Opacity="0.45"
+                                     HorizontalAlignment="Center" />
+                        <TextBlock Text="当前没有待处理的残留项" FontSize="14" Opacity="0.7"
+                                   HorizontalAlignment="Center" />
+                        <TextBlock MaxWidth="420" TextAlignment="Center" TextWrapping="Wrap"
+                                   FontSize="12" Opacity="0.55"
+                                   Text="卸载软件后会自动扫描残留并在本页列出，判定确定的项目默认勾选。" />
+                        <Button Content="查看隔离区" Click="Quarantine_Click"
+                                HorizontalAlignment="Center" />
+                    </StackPanel>
+
+                    <!-- 动作条：左＝已选统计（不粗体），右＝唯一的主按钮 + 一颗放弃钮。 -->
+                    <Grid x:Name="LeftoverBar" Grid.Row="1" Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock x:Name="LeftoverSummary" FontSize="12" Opacity="0.7"
+                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+
+                        <Button x:Name="CleanButton" Grid.Column="1" Classes="accent" Margin="10,0,0,0"
+                                Click="Clean_Click" />
+
+                        <Button x:Name="DismissButton" Grid.Column="2" Content="暂不清理" Click="Back_Click"
+                                Margin="10,0,0,0" />
+                    </Grid>
+                </Grid>
+            </Grid>
+        </Grid>
+    </Grid>
+</platform:PageBase>

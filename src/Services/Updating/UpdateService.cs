@@ -16,8 +16,24 @@ namespace ClassSoftwareHub.Desktop.Services.Updating;
 /// <summary>下载下来的包校验不过。</summary>
 public sealed class ChecksumMismatchException : Exception
 {
-    public ChecksumMismatchException(string algorithm, string expected, string actual)
-        : base($"{algorithm} 校验不通过：期望 {expected}，实际 {actual}") { }
+    /// <summary>哪个算法没过（"MD5" / "SHA256"）。</summary>
+    public string Kind { get; }
+
+    /// <summary>发布方给出的期望值。</summary>
+    public string Expected { get; }
+
+    /// <summary>这条线路上实际下到的值。</summary>
+    public string Actual { get; }
+
+    /// <param name="hint">可选：给用户看的一句处置建议（接在冒号那句后面）。</param>
+    public ChecksumMismatchException(string algorithm, string expected, string actual, string? hint = null)
+        : base($"{algorithm} 校验不通过：期望 {expected}，实际 {actual}"
+               + (string.IsNullOrEmpty(hint) ? "" : $"。{hint}"))
+    {
+        Kind = algorithm;
+        Expected = expected;
+        Actual = actual;
+    }
 }
 
 /// <summary>
@@ -142,7 +158,7 @@ public sealed class UpdateService
     /// </list>
     /// </summary>
     public async Task<DownloadedPackage> DownloadAndVerifyAsync(
-        UpdatePackage package, string destinationFile, IProgress<double>? progress = null, CancellationToken ct = default)
+        UpdatePackage package, string destinationFile, IProgress<DownloadProgress>? progress = null, CancellationToken ct = default)
     {
         EnsureInsideUpdatesDir(destinationFile);
         Directory.CreateDirectory(Path.GetDirectoryName(destinationFile)!);
@@ -186,8 +202,22 @@ public sealed class UpdateService
             // 按用户设置（自建加速 / 自动 / GitHub 源）把原始链接翻译成候选，逐个尝试：
             // 自建加速经本站 Worker 代签取限时直链，失败自动回落官方直链。
             var candidates = await GithubRoute.ResolveAsync(package.Url.AbsoluteUri, ct).ConfigureAwait(false);
+
+            // ⚠️ 最近发过坏包（校验不过）的线路排到最后（2026-10-18 自上游 1.2.0 移植）：
+            //    一次 60+ MB，明知道那条线路会发坏包还先试它纯属白费流量；
+            //    但也不能直接剔除 —— 线路可能已经修好，兜底顺序里仍保留。
+            var pending = new List<string>();
+            var demoted = new List<string>();
+            foreach (var c in candidates)
+                (IsRecentlyBad(c) ? demoted : pending).Add(c);
+            pending.AddRange(demoted);
+            candidates = pending;
+            if (demoted.Count > 0)
+                AppLog.Step("update", $"最近发过坏包的线路排到最后：{string.Join("、", demoted.Select(HostOf))}");
+
             AppLog.Step("update", $"线路候选 {candidates.Count} 条 · 落盘 {destinationFile}");
             Exception? lastError = null;
+            ChecksumMismatchException? lastMismatch = null;
 
             for (var candidateIndex = 0; candidateIndex < candidates.Count; candidateIndex++)
             {
@@ -201,10 +231,7 @@ public sealed class UpdateService
                     // 下载交由 DownloadService 并行通道（与软件下载同一策略：大文件分片）。
                     // ⚠️ 分片按偏移乱序写入，无法边下载边计算增量哈希，
                     //    因此先完整落盘，再整文件读取计算 MD5/SHA256（本地磁盘开销可忽略）。
-                    var pump = progress is null
-                        ? null
-                        : new Progress<DownloadProgress>(p =>
-                            progress.Report(p.Indeterminate ? 0 : p.Percent / 100.0));
+                    var pump = progress;   // 进度类型与上游一致（DownloadProgress：百分比 + 已收字节 + 速度）
                     await DownloadService.DownloadToFileAsync(candidate, temp, pump, ct);
 
                     using var md5 = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
@@ -278,10 +305,41 @@ public sealed class UpdateService
                     //    必须当场清理，否则反复更新失败会耗尽 %LOCALAPPDATA% 所在分区。
                     TryDelete(temp);
                     lastError = ex;
+
+                    // ⚠️ 校验不过 = **这条线路给的包是坏的**，不是"更新失败" ⇒ 换下一条重下，
+                    //    并把这条线路记成"最近发过坏包"（2026-10-18 自上游 1.2.0 移植）。
+                    //    起因：自建节点的 spool 把大包写坏 —— 字节数一样、内容块顺序错乱；
+                    //    老逻辑在这里直接抛，明明候选列表末尾还挂着 GitHub 官方直连，更新却死了。
+                    if (ex is ChecksumMismatchException mismatch)
+                    {
+                        lastMismatch = mismatch;
+                        MarkRecentlyBad(candidate);
+                        if (candidateIndex < candidates.Count - 1)
+                        {
+                            progress?.Report(new DownloadProgress(0, package.Size, 0));
+                            AppLog.Warn("update",
+                                $"更新包候选 {candidateIndex + 1}/{candidates.Count}（{HostOf(candidate)}）"
+                                + $"给的包校验不过：{mismatch.Message} → 换下一条重下");
+                        }
+                        continue;
+                    }
+
                     if (candidateIndex < candidates.Count - 1)
                         AppLog.Warn("update",
-                            $"更新包候选 {candidateIndex + 1}/{candidates.Count} 不可用（{ex.Message}）→ 换下一条");
+                            $"更新包候选 {candidateIndex + 1}/{candidates.Count}（{HostOf(candidate)}）"
+                            + $"不可用（{ex.Message}）→ 换下一条");
                 }
+            }
+
+            // 候选全部试完：能留下校验现场就报现场（诊断价值更高），否则报最后那条下载错误
+            if (lastMismatch is not null)
+            {
+                var final = new ChecksumMismatchException(
+                    lastMismatch.Kind, lastMismatch.Expected, lastMismatch.Actual,
+                    $"{candidates.Count} 条下载线路给的包都不可信；可在「设置 → 更新」把下载路径换成 GitHub 源后重试");
+                AppLog.Fail("update", final,
+                    $"更新包「{package.Name}」校验不通过（{final.Kind}）—— {candidates.Count} 条线路全部试过");
+                throw final;
             }
 
             // 所有候选都失败：抛出最后一条错误（没有候选时兜一个通用错误）
@@ -393,6 +451,32 @@ public sealed class UpdateService
         try { if (File.Exists(path)) File.Delete(path); } catch { }
     }
 
+    // ── "这条线路最近发过坏包"的记账（进程内，不落盘；2026-10-18 自上游 1.2.0 移植）──
+    //
+    // 为什么要有：坏包是**节点侧**的问题（自建节点的 spool 把大包写坏，
+    // 字节数一样、内容块顺序错乱），同一条线路重下第二遍几乎必然还是坏包 ——
+    // 一个包 60+ MB，白下一遍纯属浪费流量和时间。
+    // 所以校验不过的那条线路，本次进程内**排到候选队尾**（不是删掉：别的都挂了它还能兜底）。
+    //
+    // ⚠️ 只按**主机名**记，不按完整 URL：坏的是那台机器，不是那一个文件。
+    // ⚠️ 不落盘 + 有 TTL（重启或半小时后自动忘掉）：节点修好了不该被永久拉黑。
+
+    private static readonly Dictionary<string, DateTime> _badRouteUntil = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly TimeSpan BadRouteTtl = TimeSpan.FromMinutes(30);
+
+    /// <summary>日志里说"哪条线路"时用主机名 —— 完整 URL 太长，还带着签名参数。</summary>
+    private static string HostOf(string url)
+    {
+        try { return new Uri(url).Host; }
+        catch { return url.Length > 48 ? url[..48] + "…" : url; }
+    }
+
+    private static bool IsRecentlyBad(string url) =>
+        _badRouteUntil.TryGetValue(HostOf(url), out var until) && DateTime.Now < until;
+
+    private static void MarkRecentlyBad(string url) =>
+        _badRouteUntil[HostOf(url)] = DateTime.Now.Add(BadRouteTtl);
+
     // ── 装 ────────────────────────────────────────────────────
 
     /// <summary>
@@ -435,9 +519,16 @@ public sealed class UpdateService
         AppLog.Info("update", $"▶ 拉起安装程序 · {installerPath}{sizeText}");
 
         // Inno Setup 静默参数：/SP- 不显示"准备安装"提示，/CLOSEAPPLICATIONS 自动关掉占用的应用，
-        // /TASKS="desktopicon" 保证升级后桌面快捷方式还在
-        const string innoArgs =
-            "/SP- /SILENT /NORESTART /CLOSEAPPLICATIONS /SUPPRESSMSGBOXES /TASKS=\"desktopicon\"";
+        // Inno Setup 静默参数：/SP- 不显示"准备安装"提示，/CLOSEAPPLICATIONS 自动关掉占用的应用。
+        // ⚠️ 桌面快捷方式（desktopicon 任务）**不再强制勾选**：升级时尊重用户当前的选择 ——
+        //    桌面上还留着旧图标就带上 /TASKS="desktopicon" 保留它；用户之前删过就别再建回来。
+        //    （手动重跑安装包走交互式「附加任务」页时，.iss 的 InitializeWizard 会按同一逻辑预填。）
+        var desktopLnk = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
+            "ClassSoftwareHub.lnk");
+        var tasksArg = File.Exists(desktopLnk) ? " /TASKS=\"desktopicon\"" : "";
+        var innoArgs =
+            "/SP- /SILENT /NORESTART /CLOSEAPPLICATIONS /SUPPRESSMSGBOXES" + tasksArg;
 
         if (ext == ".msi")
         {

@@ -35,10 +35,10 @@
     <ApplicationResourceIncludeAssetsFromPackages>true</ApplicationResourceIncludeAssetsFromPackages>
 
     <!-- 版本号规则见 Core/ShellConfig.cs（ShellVersion 是唯一来源，这里只是写进 exe 的元数据） -->
-    <Version>1.1.1-insider1.0</Version>
-    <AssemblyVersion>1.1.1.0</AssemblyVersion>
-    <FileVersion>1.1.1.0</FileVersion>
-    <InformationalVersion>1.1.1-insider1.0</InformationalVersion>
+    <Version>1.2.0-insider1.0</Version>
+    <AssemblyVersion>1.2.0.0</AssemblyVersion>
+    <FileVersion>1.2.0.0</FileVersion>
+    <InformationalVersion>1.2.0-insider1.0</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Product>ClassSoftwareHub</Product>
     <AssemblyTitle>ClassSoftwareHub</AssemblyTitle>
@@ -110,7 +110,14 @@
     <EmbeddedResource Include="..\Assets\AppIcon-512.png" Link="Assets\AppIcon-512.png" />
     <EmbeddedResource Include="..\Assets\AppIcon.ico" Link="Assets\AppIcon.ico" />
     <EmbeddedResource Include="..\Assets\ToolIcon.ico" Link="Assets\ToolIcon.ico" />
-    <EmbeddedResource Include="..\Assets\dv1.1.png" Link="Assets\dv1.1.png" />
+    <EmbeddedResource Include="..\Assets\dv1.2.png" Link="Assets\dv1.2.png" />
+    <!-- 快捷入口的 SVG 图标（2026-10-18 自上游 1.2.0 移植）。
+         ⚠️ LogicalName 必须显式写成 ClassSoftwareHub.Desktop.Assets.QuickLinks.*：
+            Services/QuickLinkIconLoader 按这个名字找资源（上游根命名空间是 .Desktop，
+            本移植工程是 ClassSoftwareHub，默认生成的名字对不上）。 -->
+    <EmbeddedResource Include="..\Assets\QuickLinks\*.svg"
+                      Link="Assets\QuickLinks\%(Filename)%(Extension)"
+                      LogicalName="ClassSoftwareHub.Desktop.Assets.QuickLinks.%(Filename)%(Extension)" />
     <EmbeddedResource Include="..\Assets\feedback\report.png" Link="Assets\feedback\report.png" />
     <EmbeddedResource Include="..\Assets\feedback\suggest.png" Link="Assets\feedback\suggest.png" />
     <EmbeddedResource Include="..\Assets\feedback\qq-step-album-panel.png" Link="Assets\feedback\qq-step-album-panel.png" />

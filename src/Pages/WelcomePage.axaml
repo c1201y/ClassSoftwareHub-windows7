@@ -21,36 +21,34 @@
     </platform:PageBase.Styles>
 
     <platform:PageBase.Resources>
-        <!-- 快捷入口两套模板：颜色全走 {DynamicResource}（它认识"这棵树"的主题，浅色/深色自己会变） -->
+        <!--
+          快捷入口模板（2026-10-18 对齐上游 1.2.0）：**只有一套外观** ——
+          上游删掉了「赞助作者」那颗的主题色底（Nick 2026-10-12 嫌丑），五颗共用一套；
+          图标优先用按主题色染过的 SVG（QuickLink.IconSource），没有 SVG 的项退回 FontIcon。
+          颜色全走 {DynamicResource}（它认识"这棵树"的主题，浅色/深色自己会变）。
+        -->
         <DataTemplate x:Key="QuickLinkNormal">
             <!-- ⚠️ Background="Transparent" 必须有：没 Background 的 Border 不参与命中测试，
                  点卡片空白处会穿透 —— 跟设置页那一行同一个坑（2026-10-03）。 -->
             <Border CornerRadius="4" Padding="12,10" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                     Background="Transparent">
                 <StackPanel Spacing="7" HorizontalAlignment="Center" VerticalAlignment="Center">
-                    <fa:FontIcon Glyph="{Binding Glyph}" FontSize="24" HorizontalAlignment="Center"
-                              Foreground="{DynamicResource TextFillColorPrimaryBrush}" Opacity="0.95" />
+                    <Grid Width="24" Height="24" HorizontalAlignment="Center">
+                        <fa:FontIcon Glyph="{Binding Glyph}" FontSize="24" HorizontalAlignment="Center"
+                                     VerticalAlignment="Center"
+                                     Foreground="{DynamicResource TextFillColorPrimaryBrush}" Opacity="0.95"
+                                     IsVisible="{Binding ShowGlyph}" />
+                        <Image Source="{Binding IconSource}" Width="24" Height="24" Stretch="Uniform"
+                               IsVisible="{Binding HasIconSource}" />
+                    </Grid>
                     <TextBlock Text="{Binding Name}" FontSize="13" HorizontalAlignment="Center"
                                Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
                 </StackPanel>
             </Border>
         </DataTemplate>
 
-        <DataTemplate x:Key="QuickLinkAccent">
-            <Border CornerRadius="4" Padding="12,10" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                    Background="{DynamicResource AccentFillColorDefaultBrush}">
-                <StackPanel Spacing="7" HorizontalAlignment="Center" VerticalAlignment="Center">
-                    <fa:FontIcon Glyph="{Binding Glyph}" FontSize="24" HorizontalAlignment="Center"
-                              Foreground="{DynamicResource TextOnAccentFillColorPrimaryBrush}" Opacity="0.95" />
-                    <TextBlock Text="{Binding Name}" FontSize="13" HorizontalAlignment="Center"
-                               Foreground="{DynamicResource TextOnAccentFillColorPrimaryBrush}" />
-                </StackPanel>
-            </Border>
-        </DataTemplate>
-
         <core:QuickLinkSelector x:Key="QuickLinkSelector"
-                                Normal="{StaticResource QuickLinkNormal}"
-                                Accent="{StaticResource QuickLinkAccent}" />
+                                Normal="{StaticResource QuickLinkNormal}" />
     </platform:PageBase.Resources>
 
 
@@ -99,7 +97,7 @@
                 <!-- 应用代号：与左上角的版本号同一水平线、贴右端（左右各占一头，不打架）。
                      ⚠️ 别再往它上面补「代号」两个字 —— Nick 2026-10-06 说那行中文莫名其妙，只要英文代号本身。 -->
                 <StackPanel Grid.Column="1" Margin="20,0,0,0" VerticalAlignment="Top" HorizontalAlignment="Right">
-                    <TextBlock x:Name="CodeNameText" Text="Panorama" FontSize="28" FontWeight="Bold"
+                    <TextBlock x:Name="CodeNameText" Text="Synesthesia" FontSize="28" FontWeight="Bold"
                                Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}" />
                 </StackPanel>
             </Grid>
@@ -109,6 +107,45 @@
                  版本状态文案改在「查看更新内容」那张卡上显示。
                  ⚠️ 状态逻辑没有删！还活在 code-behind 的 RefreshUpdateCard() 里，
                     只是目标元素从 InfoBar 换成了 ChangelogCardTitle / ChangelogCardSubtitle。 -->
+
+            <!-- ===== 推荐应用（2026-10-18 自上游 1.2.0 移植；重做成 Store「精选实用软件」样式）=====
+                 一排整卡缓慢向左匀速滚动、无缝循环。每张卡是一整块圆角卡：
+                 上半 = 图标放大 + 着色底、中央叠圆角清晰图标；下半 = 加粗名称 + 一句短简介。
+                 鼠标悬停暂停，点卡片进详情页。
+                 ⚠️ 位置在「快速开始」标题正上方（Nick 指定）。
+                 ⚠️ 卡片在 code-behind 的 BuildRecommendations() 里生成（要复制一份做无缝循环，
+                    用不到 DataTemplate）；视口裁剪靠 Clip，见 LayoutRecommend()。
+                 ⚠️ 移植说明：WinUI 的 AcrylicBrush（实时毛玻璃）Avalonia 没有 → 上半部分改用
+                    「图标散列主色 + 一层半透明黑/白罩」做同样的观感。 -->
+            <Grid x:Name="RecommendSection" IsVisible="False" Margin="0,22,0,0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <Grid Grid.Row="0" Margin="0,0,0,10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="推荐应用" FontSize="20" FontWeight="Bold" VerticalAlignment="Center" />
+                    <Button Grid.Column="1" Content="换一批" Click="Recommend_Reroll"
+                            HorizontalAlignment="Right" VerticalAlignment="Center"
+                            Background="Transparent" BorderThickness="0" Padding="8,2"
+                            FontSize="12" Opacity="0.7" />
+                </Grid>
+
+                <Border Grid.Row="1" x:Name="RecommendViewport" HorizontalAlignment="Stretch"
+                        MaxWidth="960" VerticalAlignment="Top" Background="Transparent"
+                        PointerEntered="Recommend_PointerEntered" PointerExited="Recommend_PointerExited">
+                    <StackPanel x:Name="RecommendStrip" Orientation="Horizontal" Spacing="12"
+                                HorizontalAlignment="Left" VerticalAlignment="Top">
+                        <StackPanel.RenderTransform>
+                            <TranslateTransform />
+                        </StackPanel.RenderTransform>
+                    </StackPanel>
+                </Border>
+            </Grid>
 
             <TextBlock Text="快速开始" FontSize="20" FontWeight="Bold" Margin="0,20,0,4" />
 
@@ -175,6 +212,9 @@
                         <!-- 待装态：右端指示符让位给「立即安装」 -->
                         <Button x:Name="UpdateInstallButton" Grid.Column="2" Margin="18,0,0,0" VerticalAlignment="Center"
                                 Content="立即安装" IsVisible="False" Click="InstallPending_Click" />
+                        <!-- 只是查到新版本（包还没下）：给一颗「立即更新」（2026-10-18 自上游 1.2.0 移植） -->
+                        <Button x:Name="UpdateNowButton" Grid.Column="2" Margin="18,0,0,0" VerticalAlignment="Center"
+                                Content="立即更新" IsVisible="False" Click="UpdateNow_Click" />
                     </Grid>
                 </Border>
             </Grid>

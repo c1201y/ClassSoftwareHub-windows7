@@ -47,6 +47,8 @@ public sealed partial class EncodingToolPage : PageBase
     public EncodingToolPage()
     {
         InitializeComponent();
+
+        // 两侧留白 / 标题行上的滚轮也转给内容区（见 Core/WheelRelay.cs）：
         BuildHashRows(HashPanel, _fileHashTexts);
         BuildHashRows(TextHashPanel, _textHashTexts);
 

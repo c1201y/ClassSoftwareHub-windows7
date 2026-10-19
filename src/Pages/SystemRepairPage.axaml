@@ -1,0 +1,152 @@
+<platform:PageBase
+    x:Class="ClassSoftwareHub.Desktop.Pages.SystemRepairPage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:fa="using:FluentAvalonia.UI.Controls">
+
+    <!--
+      系统修复（2026-10-18 自上游 1.2.0 移植；WinUI → Avalonia）。
+
+      ⛔⛔ 这个页面只有**预设任务卡**，⛔ 没有命令输入框 —— 定位是"系统出毛病了修一下"，
+         不是"给个终端"。放开输入等于把风险全推给用户。
+
+      ⛔ 因为不建还原点，那道确认框就是**唯一的安全闸**，所以它不是一句"确定吗"：
+         具体命令、会发生什么、耗时、要不要授权全摆在同一屏。
+      两态：卡片列表 ↔ 运行中（同一页靠 IsVisible 换）。
+
+      ⚠️ WinUI → Avalonia：ProgressBar 同名；IsIndeterminate 同名；
+         TextBox 的 IsSpellCheckEnabled 无对应（省去）；ContentDialog 不带 XamlRoot。
+    -->
+    <Grid Background="Transparent">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="24" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="24" />
+        </Grid.ColumnDefinitions>
+
+        <Grid Grid.Column="1" MaxWidth="960" Margin="0,36,0,44">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <!-- ── 标题行 ── -->
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Spacing="4">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <TextBlock Text="系统修复" FontSize="28" FontWeight="Bold" />
+                        <Border CornerRadius="5" Padding="8,3" Margin="0,0,0,6" VerticalAlignment="Bottom"
+                                BorderThickness="1"
+                                BorderBrush="{DynamicResource SystemFillColorCautionBrush}">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <fa:FontIcon Glyph="&#xEA80;" FontSize="11"
+                                             Foreground="{DynamicResource SystemFillColorCautionBrush}" />
+                                <TextBlock Text="实验性功能" FontSize="12"
+                                           Foreground="{DynamicResource SystemFillColorCautionBrush}" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <TextBlock x:Name="CountLine" Text="" FontSize="12" Opacity="0.65"
+                               TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+
+                <Button x:Name="AboutButton" Grid.Column="1" Click="About_Click"
+                        Width="32" Height="32" Padding="0" Background="Transparent" BorderThickness="0"
+                        VerticalAlignment="Top" Margin="10,4,0,0"
+                        ToolTip.Tip="这些任务到底是什么、为什么都要管理员">
+                    <fa:FontIcon Glyph="&#xE946;" FontSize="15" />
+                </Button>
+            </Grid>
+
+            <!-- ── 常驻风险提示 ── -->
+            <fa:InfoBar x:Name="RiskBar" Grid.Row="1" Margin="0,10,0,0"
+                        Severity="Error" IsOpen="True" IsClosable="False"
+                        Title="这些操作会改动系统"
+                        Message="每条任务执行前都会再确认一次，并把将要执行的命令原样列出；运行中可以随时中止。中止只是停下命令，不保证把已经做出的改动回滚。" />
+
+            <!-- ══ 内容区：两态 ══ -->
+            <Grid Grid.Row="2" Margin="0,10,0,0">
+
+                <!-- ── 态一：任务卡列表 ── -->
+                <Grid x:Name="CardArea">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <Grid Margin="0,2,0,2">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+
+                            <!-- ⚠️ 两列手写：卡片宽度跟着列宽走，窗口再窄也不会掉成单列。 -->
+                            <StackPanel x:Name="CardColumnLeft" Grid.Column="0" Spacing="8" Margin="0,0,4,0" />
+                            <StackPanel x:Name="CardColumnRight" Grid.Column="1" Spacing="8" Margin="4,0,0,0" />
+                        </Grid>
+                    </ScrollViewer>
+                </Grid>
+
+                <!-- ── 态二：运行中 ── -->
+                <Grid x:Name="RunArea" IsVisible="False">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <!-- 头部：图标 + 名称 + 状态行 | 右侧动作 -->
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <fa:FontIcon x:Name="RunIcon" Glyph="&#xE9F3;" FontSize="22"
+                                     VerticalAlignment="Center" />
+
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3"
+                                    Margin="12,0,0,0">
+                            <TextBlock x:Name="RunTitle" FontSize="18" FontWeight="Bold" />
+                            <TextBlock x:Name="RunStatus" FontSize="12" Opacity="0.7"
+                                       TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+
+                        <Button x:Name="StopButton" Grid.Column="2" Content="中止任务"
+                                Click="Stop_Click" VerticalAlignment="Center" Margin="12,0,0,0" />
+
+                        <Button x:Name="BackButton" Grid.Column="3" Content="返回任务列表"
+                                Click="Back_Click" VerticalAlignment="Center" IsEnabled="False"
+                                Margin="8,0,0,0" />
+                    </Grid>
+
+                    <!-- 进度：拿不到百分比时切成不确定态（命令不一定都会报进度） -->
+                    <ProgressBar x:Name="RunProgress" Grid.Row="1" Height="4" Margin="0,10,0,0"
+                                 Minimum="0" Maximum="100" Value="0" IsIndeterminate="True" />
+
+                    <!-- 将要执行的命令原样列出 —— 透明度是这一页安全感的来源 -->
+                    <TextBlock x:Name="RunCommand" Grid.Row="2" FontSize="11.5" Opacity="0.6"
+                               FontFamily="Consolas" TextWrapping="Wrap" Margin="0,8,0,0" />
+
+                    <!-- 输出面板：标准只读 TextBox（能选中复制），等宽字体 -->
+                    <TextBox x:Name="OutputBox" Grid.Row="3" Margin="0,8,0,0"
+                             IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
+                             FontFamily="Consolas" FontSize="12"
+                             Padding="12,10" />
+
+                    <!-- 结束后的结论行 -->
+                    <fa:InfoBar x:Name="ResultBar" Grid.Row="4" Margin="0,10,0,0"
+                                Severity="Success" IsOpen="False" IsClosable="False" />
+                </Grid>
+            </Grid>
+        </Grid>
+    </Grid>
+</platform:PageBase>

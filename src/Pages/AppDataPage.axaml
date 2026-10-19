@@ -1,0 +1,137 @@
+<platform:PageBase
+    x:Class="ClassSoftwareHub.Desktop.Pages.AppDataPage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:fa="using:FluentAvalonia.UI.Controls">
+
+    <!--
+      AppData 管理（2026-10-18 自上游 1.2.0 移植；WinUI → Avalonia）。
+
+      ⛔⛔ 三层边界（界面上就是这么分的，改版式时别把它们揉回去）：
+        第 1 层 **只读体检**（概览 · 本地 / 概览 · 漫游）—— 一级目录体积排行，**没有清理入口**
+        第 2 层 **白名单清理**（可清理 · 系统临时 / 浏览器 / 商店应用 / 开发工具 / 图形）—— 永久删除
+        第 3 层 **禁碰区** —— 一级目录整目录删除这条路上的按钮**压根不存在**
+
+      ⚠️ WinUI → Avalonia：x:Bind 行模板 → 行控件代码手建；InfoBar → fa:InfoBar；
+         ProgressRing → fa:ProgressRing；Visibility → IsVisible；MenuFlyout 同名可用。
+      ⚠️ Background="Transparent" 是给滚轮接力用的（Core/WheelRelay.cs）。
+    -->
+    <Grid Background="Transparent">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="24" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="24" />
+        </Grid.ColumnDefinitions>
+
+        <Grid Grid.Column="1" MaxWidth="960" Margin="0,36,0,44">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <!-- ── 标题行：左＝标题+实验性标记+计数，右＝分类 / 重新扫描 / 说明（全部并排） ── -->
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Spacing="4">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <TextBlock Text="AppData 管理" FontSize="28" FontWeight="Bold" />
+                        <Border CornerRadius="5" Padding="8,3" Margin="0,0,0,6" VerticalAlignment="Bottom"
+                                BorderThickness="1"
+                                BorderBrush="{DynamicResource SystemFillColorCautionBrush}">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <fa:FontIcon Glyph="&#xEA80;" FontSize="11"
+                                             Foreground="{DynamicResource SystemFillColorCautionBrush}" />
+                                <TextBlock Text="实验性功能" FontSize="12"
+                                           Foreground="{DynamicResource SystemFillColorCautionBrush}" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- ⚠️ 名字必须叫 CountLine（「CountText」会撞行类型属性名，见上游注释） -->
+                    <TextBlock x:Name="CountLine" Text="" FontSize="12" Opacity="0.65"
+                               TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+
+                <ComboBox x:Name="CategoryBox" Grid.Column="1" MinWidth="200"
+                          VerticalAlignment="Top" Margin="10,4,0,0"
+                          SelectionChanged="Category_Changed" />
+
+                <Button x:Name="RescanButton" Grid.Column="2" Content="重新扫描" Click="Rescan_Click"
+                        VerticalAlignment="Top" Margin="8,4,0,0" />
+
+                <Button x:Name="AboutButton" Grid.Column="3" Click="About_Click"
+                        Width="32" Height="32" Padding="0" Background="Transparent" BorderThickness="0"
+                        VerticalAlignment="Top" Margin="8,4,0,0"
+                        ToolTip.Tip="这三层是怎么分的">
+                    <fa:FontIcon Glyph="&#xE946;" FontSize="15" />
+                </Button>
+            </Grid>
+
+            <!-- ── 常驻风险提示（永久删除类功能一律常驻红色提示、不给关） ── -->
+            <fa:InfoBar x:Name="RiskBar" Grid.Row="1" Margin="0,10,0,0"
+                        Severity="Error" IsOpen="True" IsClosable="False"
+                        Title="此操作将永久删除文件"
+                        Message="清理不会进入回收站，删除后无法恢复。仅清空缓存目录的内容，目录本身保留。" />
+
+            <!-- ── 内容区 ── -->
+            <Grid Grid.Row="2" Margin="0,10,0,0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="EntryListPanel" Spacing="0" />
+                </ScrollViewer>
+
+                <!-- 扫描中 -->
+                <StackPanel x:Name="LoadingPanel" Spacing="12" HorizontalAlignment="Center"
+                            VerticalAlignment="Center">
+                    <fa:ProgressRing IsActive="True" Width="34" Height="34" HorizontalAlignment="Center" />
+                    <TextBlock Text="正在读取 AppData 目录结构" FontSize="12" Opacity="0.7"
+                               HorizontalAlignment="Center" />
+                </StackPanel>
+
+                <!-- 空状态 -->
+                <StackPanel x:Name="EmptyPanel" Spacing="10" IsVisible="False"
+                            HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <fa:FontIcon Glyph="&#xE8B7;" FontSize="28" Opacity="0.45" HorizontalAlignment="Center" />
+                    <TextBlock x:Name="EmptyText" Text="这个分类下没有东西" FontSize="14" Opacity="0.7"
+                               HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center" />
+                </StackPanel>
+
+                <!-- ── 批量动作条 ──
+                     只在「可清理 · ×××」分类下出现（⛔ 只读体检没有删除入口）。
+                     ⛔ 这里**没有**反选：这一页的动作全是删除，少一个花样少一次误删。 -->
+                <Grid x:Name="CleanBar" Grid.Row="1" IsVisible="False" Margin="0,12,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock x:Name="CleanBarSummary" FontSize="12" Opacity="0.7"
+                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+
+                    <Button x:Name="SelectAllButton" Grid.Column="1" Content="全选" Margin="10,0,0,0"
+                            Click="SelectAll_Click" />
+
+                    <Button x:Name="ClearSelButton" Grid.Column="2" Content="清空选择" Margin="8,0,0,0"
+                            Click="ClearSel_Click" />
+
+                    <Button x:Name="CleanSelectedButton" Grid.Column="3" Content="清理选中" Margin="8,0,0,0"
+                            Classes="accent" Click="CleanSelected_Click" />
+                </Grid>
+            </Grid>
+        </Grid>
+    </Grid>
+</platform:PageBase>

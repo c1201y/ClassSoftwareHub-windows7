@@ -10,7 +10,9 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using ClassSoftwareHub.Desktop.Core;
+using ClassSoftwareHub.Desktop.Data;
 using ClassSoftwareHub.Desktop.Platform;
 using ClassSoftwareHub.Desktop.Services;
 using ClassSoftwareHub.Desktop.Services.Updating;
@@ -100,15 +102,46 @@ public sealed partial class WelcomePage : PageBase
             ChangelogCardTitle.Text = $"{tag} 已下载就绪";
             ChangelogCardSubtitle.Text = "安装包已通过校验，可立即安装";
             UpdateInstallButton.IsVisible = true;
+            UpdateNowButton.IsVisible = false;
             ChangelogChevron.IsVisible = false;
+            return;
         }
-        else
+
+        // 只是**查到**了新版本、包还没下（2026-10-18 自上游 1.2.0 移植）：
+        // 首页给一颗「立即更新」，不用让用户自己去设置页找。待装态优先级更高（上面已 return）。
+        var noticed = Services.Updating.UpdateNotice.Pending;
+        if (noticed is not null)
         {
-            ChangelogCardTitle.Text = "查看更新内容";
-            ChangelogCardSubtitle.Text =
-                $"当前版本 {ShellConfig.VersionPrefix}{ShellConfig.ShellVersion} · 已是最新版本";
+            ChangelogCardTitle.Text = $"发现新版本 {noticed.Tag}";
+            ChangelogCardSubtitle.Text = "可立即更新，或稍后在设置里下载";
             UpdateInstallButton.IsVisible = false;
-            ChangelogChevron.IsVisible = true;
+            UpdateNowButton.IsVisible = true;
+            ChangelogChevron.IsVisible = false;
+            return;
+        }
+
+        ChangelogCardTitle.Text = "查看更新内容";
+        ChangelogCardSubtitle.Text =
+            $"当前版本 {ShellConfig.VersionPrefix}{ShellConfig.ShellVersion} · 已是最新版本";
+        UpdateInstallButton.IsVisible = false;
+        UpdateNowButton.IsVisible = false;
+        ChangelogChevron.IsVisible = true;
+    }
+
+    /// <summary>「立即更新」：记着的那条可用更新 → 交给更新流程（发起检查/下载）。</summary>
+    private async void UpdateNow_Click(object? sender, RoutedEventArgs e)
+    {
+        var release = Services.Updating.UpdateNotice.Pending;
+        if (release is null) return;
+
+        try
+        {
+            await Services.Updating.UpdateFlow.AskAsync(release, TopLevel.GetTopLevel(this));
+            RefreshUpdateCard();
+        }
+        catch (Exception ex)
+        {
+            Core.AppLog.Exception("update", ex, "首页「立即更新」");
         }
     }
 
@@ -142,6 +175,270 @@ public sealed partial class WelcomePage : PageBase
         LoadBanner();
         BuildQuickInfo();
         BuildQuickLinks();
+        BuildRecommendations();
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    //  推荐应用（2026-10-18 自上游 1.2.0 移植：Store「精选实用软件」样式）
+    //
+    //  · 一排整卡缓慢向左匀速滚动、**无缝循环**：铺两组首尾相接，位移一整组宽度后画面完全重合；
+    //  · 鼠标悬停暂停、移开继续；「换一批」换个种子重挑；
+    //  · 点卡片进详情页。
+    //  ⚠️ 移植说明：WinUI 用 Storyboard + RepeatBehavior.Forever；Avalonia 的动画也能循环，
+    //     但「悬停暂停」要能停在任意位置再继续，用定时器推进位移最直接、行为也最好理解。
+    // ══════════════════════════════════════════════════════════════════
+
+    private const double RecommendCardW = 128;      // 整卡宽度（向 Store 靠）
+    private const double RecommendGap = 12;         // 卡片间距
+    private const double RecommendSpeed = 24;       // 滚动速度（px/秒），宁慢勿快
+    private const double RecommendTopH = 128;       // 上半部分（图标区）高度
+    private const double RecommendIconSize = 64;    // 中央清晰图标边长（约卡片一半）
+    private const double RecommendCardRadius = 8;   // 整卡圆角
+    private const double RecommendIconRadius = 12;  // 图标圆角
+
+    /// <summary>
+    /// 兜底色板：图标还没取到 / 没有图标地址时先用它（按 id 稳定散列，同一软件永远同色）。
+    /// </summary>
+    private static readonly Color[] RecommendTileColors =
+    {
+        Color.FromArgb(255, 0x1D, 0x9E, 0x75), // 青绿
+        Color.FromArgb(255, 0x37, 0x8A, 0xDD), // 蓝
+        Color.FromArgb(255, 0xD4, 0x53, 0x7E), // 玫红
+        Color.FromArgb(255, 0xE2, 0x4B, 0x4A), // 红
+        Color.FromArgb(255, 0x7F, 0x77, 0xDD), // 紫
+        Color.FromArgb(255, 0xBA, 0x75, 0x17), // 琥珀
+        Color.FromArgb(255, 0x18, 0x5F, 0xA5), // 深蓝
+        Color.FromArgb(255, 0x5F, 0x5E, 0x5A), // 灰
+    };
+
+    private int _recommendSeed = Random.Shared.Next();
+    private List<SoftwareApp> _recommendPicks = new();
+    private double _recommendOffset;
+    private double _recommendDistance;
+    private DispatcherTimer? _recommendTimer;
+
+    private void BuildRecommendations()
+    {
+        var apps = App.Content.Apps;
+
+        StopRecommendScroll();
+
+        _recommendPicks = apps.Count == 0
+            ? new List<SoftwareApp>()
+            : PickRecommendations(apps, 12, _recommendSeed);
+
+        if (_recommendPicks.Count == 0)
+        {
+            RecommendSection.IsVisible = false;
+            RecommendStrip.Children.Clear();
+            return;
+        }
+
+        RecommendSection.IsVisible = true;
+
+        // 面板要等一帧才拿到可用宽度 ⇒ 下一帧再决定每组几张、再铺卡片
+        Dispatcher.UIThread.Post(LayoutRecommend, DispatcherPriority.Loaded);
+
+        RecommendViewport.SizeChanged -= RecommendViewport_SizeChanged;
+        RecommendViewport.SizeChanged += RecommendViewport_SizeChanged;
+    }
+
+    private void RecommendViewport_SizeChanged(object? sender, SizeChangedEventArgs e) => LayoutRecommend();
+
+    /// <summary>
+    /// 按视口宽度铺卡片：一组 = 挑中的软件循环铺满视口（至少 picks.Count 张），
+    /// 再**复制一组**首尾相接 ⇒ 位移一整组宽度后画面完全重合，做到无缝循环。
+    /// </summary>
+    private void LayoutRecommend()
+    {
+        if (_recommendPicks.Count == 0) return;
+
+        var viewport = RecommendViewport.Bounds.Width;
+        if (viewport <= 0) return;   // 还没布局出来，等 SizeChanged 再铺
+
+        var unit = RecommendCardW + RecommendGap;
+        var perGroup = Math.Max(_recommendPicks.Count,
+            (int)Math.Ceiling((viewport + RecommendGap) / unit));
+
+        var group = new List<SoftwareApp>(perGroup);
+        for (var i = 0; i < perGroup; i++) group.Add(_recommendPicks[i % _recommendPicks.Count]);
+
+        // 视口裁剪：超出部分藏起来（Avalonia 里 Clip 是几何对象，跟 WinUI 一样）
+        RecommendViewport.Clip = new RectangleGeometry(new Rect(0, 0, viewport, RecommendTopH + 60));
+
+        RecommendStrip.Children.Clear();
+
+        // 两组首尾相接：位移一组宽度即无缝回到起点
+        for (var copy = 0; copy < 2; copy++)
+            foreach (var app in group)
+                RecommendStrip.Children.Add(BuildRecommendCard(app));
+
+        _recommendDistance = group.Count * unit;     // 一整组的位移距离
+        _recommendOffset = 0;
+        ((TranslateTransform)RecommendStrip.RenderTransform!).X = 0;
+        StartRecommendScroll();
+    }
+
+    /// <summary>定时器推进位移：每秒 RecommendSpeed 像素，越过一整组宽度就回绕（无缝）。</summary>
+    private void StartRecommendScroll()
+    {
+        StopRecommendScroll();
+        if (_recommendDistance <= 0) return;
+
+        var last = DateTime.UtcNow;
+        _recommendTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
+        _recommendTimer.Tick += (_, _) =>
+        {
+            var now = DateTime.UtcNow;
+            var delta = (now - last).TotalSeconds;
+            last = now;
+            if (_recommendPaused) return;
+
+            _recommendOffset += RecommendSpeed * delta;
+            if (_recommendOffset >= _recommendDistance) _recommendOffset -= _recommendDistance;
+            ((TranslateTransform)RecommendStrip.RenderTransform!).X = -_recommendOffset;
+        };
+        _recommendTimer.Start();
+    }
+
+    private void StopRecommendScroll()
+    {
+        _recommendTimer?.Stop();
+        _recommendTimer = null;
+    }
+
+    private bool _recommendPaused;
+
+    private void Recommend_PointerEntered(object? sender, PointerEventArgs e) => _recommendPaused = true;
+
+    private void Recommend_PointerExited(object? sender, PointerEventArgs e) => _recommendPaused = false;
+
+    private void Recommend_Reroll(object? sender, RoutedEventArgs e)
+    {
+        _recommendSeed = Random.Shared.Next();
+        BuildRecommendations();
+    }
+
+    /// <summary>
+    /// 一张推荐卡（照 Store 的画法）：**整卡圆角**，上半部分图标放大铺底 + 着色罩 + 中央圆角清晰图标；
+    /// 下半部分**加粗名称 + 一句短简介**。
+    /// ⛔ 不是把图标拉满整格。
+    /// </summary>
+    private Control BuildRecommendCard(SoftwareApp app)
+    {
+        var tint = RecommendTileColors[(int)(StableRank.Of(app.Id) % (uint)RecommendTileColors.Length)];
+
+        var card = new Border
+        {
+            Width = RecommendCardW,
+            CornerRadius = new CornerRadius(RecommendCardRadius),
+            // ⚠️ 整卡底色用**主题卡片面**，不跟图标色走 —— 下半文字区是一块统一的深色面（Store 就是这样），
+            //    图标色只留在上半的着色底里。主题画刷保证浅色主题下也不会白字配浅底。
+            Background = (Services.ThemeBrush.Get(this, "CardBackgroundFillColorDefaultBrush") as IBrush)
+                         ?? new SolidColorBrush(tint),
+            BorderThickness = new Thickness(1),
+            BorderBrush = Services.ThemeBrush.Get(this, "CardStrokeColorDefaultBrush") as IBrush,
+        };
+
+        // 上半：图标放大铺底 + 半透明主题色罩（替代 WinUI 的 AcrylicBrush 毛玻璃）+ 中央清晰图标
+        var topGrid = new Grid();
+
+        if (app.IconImage is { } backdrop)
+            topGrid.Children.Add(new Image { Source = backdrop, Stretch = Stretch.UniformToFill });
+
+        topGrid.Children.Add(new Border
+        {
+            Background = new SolidColorBrush(tint, 0.55),
+            CornerRadius = new CornerRadius(RecommendCardRadius, RecommendCardRadius, 0, 0),
+        });
+
+        if (app.IconImage is { } crisp)
+        {
+            topGrid.Children.Add(new Border
+            {
+                Width = RecommendIconSize,
+                Height = RecommendIconSize,
+                CornerRadius = new CornerRadius(RecommendIconRadius),
+                Background = new ImageBrush((IImageBrushSource)crisp)
+                {
+                    Stretch = Stretch.UniformToFill,
+                    AlignmentX = AlignmentX.Center,
+                    AlignmentY = AlignmentY.Center,
+                },
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+            });
+        }
+        else
+        {
+            // 没有图标就先摆名字首字（图标加载成功后靠绑定收掉会很啰嗦，这里直接不摆 —— 反正会重铺）
+            topGrid.Children.Add(new TextBlock
+            {
+                Text = app.AvatarText,
+                FontSize = 26,
+                FontWeight = FontWeight.SemiBold,
+                Foreground = Brushes.White,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+            });
+        }
+
+        var top = new Border
+        {
+            Height = RecommendTopH,
+            CornerRadius = new CornerRadius(RecommendCardRadius, RecommendCardRadius, 0, 0),
+            Background = new SolidColorBrush(tint),
+            Child = topGrid,
+        };
+
+        // 下半：加粗名称 + 短简介
+        var text = new StackPanel { Spacing = 3, Margin = new Thickness(10, 9, 10, 10) };
+        text.Children.Add(new TextBlock
+        {
+            Text = app.Name,
+            FontSize = 13,
+            FontWeight = FontWeight.Bold,
+            MaxLines = 1,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Foreground = Services.ThemeBrush.Get(this, "TextFillColorPrimaryBrush") as IBrush,
+        });
+        text.Children.Add(new TextBlock
+        {
+            Text = app.IntroText,
+            FontSize = 11,
+            Height = 30,
+            MaxLines = 2,
+            TextWrapping = TextWrapping.Wrap,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Foreground = Services.ThemeBrush.Get(this, "TextFillColorSecondaryBrush") as IBrush,
+        });
+
+        var content = new StackPanel();
+        content.Children.Add(top);
+        content.Children.Add(text);
+        card.Child = content;
+
+        card.Tapped += (_, _) =>
+        {
+            var frame = this.FindAncestorOfType<Frame>() ?? App.MainWindow?.Shell.ContentFrame;
+            frame?.Navigate(typeof(DetailPage), app.Id);
+        };
+        ToolTip.SetTip(card, app.Name);
+
+        return card;
+    }
+
+    /// <summary>
+    /// 挑推荐：**用 Id 的稳定哈希**排序，同一个种子每次挑出来的一样、换种子才换一批。
+    /// 优先"有图标 + 简介"的，免得一排全是灰块；不够就用其余软件补齐。
+    /// </summary>
+    private static List<SoftwareApp> PickRecommendations(List<SoftwareApp> apps, int count, int seed)
+    {
+        return apps
+            .Where(a => !string.IsNullOrWhiteSpace(a.Name))
+            .OrderBy(a => StableRank.Of(a.Id + "#" + seed))
+            .Take(count)
+            .ToList();
     }
 
     /// <summary>
@@ -180,7 +477,9 @@ public sealed partial class WelcomePage : PageBase
     /// </summary>
     private async Task RefreshTodayAddedAsync(int collected)
     {
-        var added = await NewlyAddedService.GetTodayAsync();
+        // 口径改成「最近 48 小时」（2026-10-18 自上游 1.2.0 移植）：
+        // 原来按"今天 0 点"算，一到凌晨就清零，跨午夜看不到昨天下午刚上架的软件。
+        var added = await NewlyAddedService.GetRecentAsync(TimeSpan.FromHours(48));
         if (added is null || added.Count <= 0) return;
 
         // 名字从本机清单里取（slug → 中文名）；万一清单里找不到这一条（刚加还没来得及同步？）
@@ -211,7 +510,39 @@ public sealed partial class WelcomePage : PageBase
     }
 
     /// <summary>一行快捷入口：项目仓库 / 作者主页 / 赞助作者 / 加入Q群 / 更新日志。</summary>
-    private void BuildQuickLinks() => QuickGrid.ItemsSource = QuickLinks.Build(App.Content.Ui);
+    private void BuildQuickLinks()
+    {
+        var links = QuickLinks.Build(App.Content.Ui);
+        QuickGrid.ItemsSource = links;
+        ApplyQuickLinkIcons(links);
+
+        // 主题切换后按新主题色重新染 SVG（2026-10-18 自上游 1.2.0 移植）；
+        // ⚠️ 只在页面活着的时候听，别让已离开的页面被事件勾住。
+        ActualThemeVariantChanged -= WelcomePage_ThemeChanged;
+        ActualThemeVariantChanged += WelcomePage_ThemeChanged;
+    }
+
+    private void WelcomePage_ThemeChanged(object? sender, EventArgs e)
+    {
+        if (QuickGrid.ItemsSource is IEnumerable<QuickLink> links) ApplyQuickLinkIcons(links);
+    }
+
+    /// <summary>
+    /// 把每颗入口的 SVG 染成当前主题的前景色调。
+    /// ⚠️ 颜色必须从**本页所在的树**里取（`ThemeBrush.Get(this, …)`）—— 从应用级资源取会在
+    ///    "浅色界面 + 深色系统"时染成白字色，看不见（Nick 撞过这个坑）。
+    /// </summary>
+    private void ApplyQuickLinkIcons(IEnumerable<QuickLink> links)
+    {
+        var color = (Services.ThemeBrush.Get(this, "TextFillColorPrimaryBrush") as ISolidColorBrush)?.Color
+                    ?? Colors.Black;
+        foreach (var link in links)
+        {
+            if (string.IsNullOrWhiteSpace(link.IconSvg)) continue;
+            try { link.IconSource = Services.QuickLinkIconLoader.GetIcon(link.IconSvg!, color); }
+            catch { /* 取不到就退回 FontIcon，不影响点击 */ }
+        }
+    }
 
     /// <summary>
     /// 点的路线跟原版 <c>Quick_ItemClick</c> 一致：
@@ -333,7 +664,7 @@ public sealed partial class WelcomePage : PageBase
             // 换 banner 时这里和 csproj 的 EmbeddedResource 一起改。
             // ⚠️ 缓存文件名也带上版本号：ExtractToCache 靠"长度不同"判过期，
             //    万一同尺寸换图会被判成没过期，带上版本号就不会串图。
-            var path = EmbeddedAssets.ExtractToCache("dv1.1.png", "banner-dv1.1.png");
+            var path = EmbeddedAssets.ExtractToCache("dv1.2.png", "banner-dv1.2.png");
             if (!string.IsNullOrEmpty(path) && System.IO.File.Exists(path))
                 // ⚠️ WinUI 的 BitmapImage(new Uri(path)) → Avalonia 的 Bitmap(文件名)。
                 Banner.Source = new Bitmap(path);

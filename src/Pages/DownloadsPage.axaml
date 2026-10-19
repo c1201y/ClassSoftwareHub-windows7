@@ -52,26 +52,39 @@
                                         <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
 
-                                    <fa:FontIcon Grid.Row="0" Grid.Column="0" Glyph="&#xE896;" FontSize="20"
+                                    <fa:FontIcon Grid.Row="0" Grid.Column="0" Glyph="{Binding HeaderGlyph}" FontSize="20"
                                                  VerticalAlignment="Center" />
 
-                                    <TextBlock Grid.Row="0" Grid.Column="1" Margin="16,0,0,0" Text="{Binding Title}"
-                                               FontSize="15" FontWeight="Bold" VerticalAlignment="Center"
-                                               TextTrimming="CharacterEllipsis" />
+                                    <StackPanel Grid.Row="0" Grid.Column="1" Margin="16,0,0,0" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Title}"
+                                                   FontSize="15" FontWeight="Bold"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <!-- 更新包才有的那行说明（普通下载为空整行不占位；2026-10-18 自上游 1.2.0 移植） -->
+                                        <TextBlock Text="{Binding Note}" FontSize="12" Opacity="0.6"
+                                                   TextWrapping="Wrap" IsVisible="{Binding NoteVisibility}" />
+                                    </StackPanel>
 
                                     <StackPanel Grid.Row="0" Grid.Column="2" Margin="16,0,0,0" Orientation="Horizontal" Spacing="8"
                                                 VerticalAlignment="Center">
                                         <Button Content="取消" Tag="{Binding}" Click="Cancel_Click"
                                                 IsVisible="{Binding RunningVisibility}" />
-                                        <Button Content="重试" Tag="{Binding}" Click="Retry_Click"
-                                                IsVisible="{Binding RetryVisibility}" />
+                                        <!-- 更新包：下完并校验通过 → 直接安装（先退应用、后起安装程序） -->
+                                        <Button Content="安装" Tag="{Binding}" Click="Install_Click"
+                                                IsVisible="{Binding InstallVisibility}" />
+                                        <!-- 普通下载：安装包写「安装」、压缩包写「解压」 -->
+                                        <Button Content="{Binding ActionText}" Tag="{Binding}" Click="PackageAction_Click"
+                                                IsVisible="{Binding ActionVisibility}" />
                                         <Button Content="打开" Tag="{Binding}" Click="Open_Click"
                                                 IsVisible="{Binding OpenVisibility}" />
                                         <Button Content="打开文件夹" Tag="{Binding}" Click="Reveal_Click"
-                                                IsVisible="{Binding OpenVisibility}" />
+                                                IsVisible="{Binding RevealVisibility}" />
+                                        <Button Content="打开解压目录" Tag="{Binding}" Click="ExtractFolder_Click"
+                                                IsVisible="{Binding ExtractFolderVisibility}" />
+                                        <Button Content="重试" Tag="{Binding}" Click="Retry_Click"
+                                                IsVisible="{Binding RetryVisibility}" />
                                         <Button Tag="{Binding}" Click="Remove_Click" Padding="9,5"
                                                 ToolTip.Tip="从列表移除（不删除已下载的文件）"
-                                                IsVisible="{Binding RetryVisibility}">
+                                                IsVisible="{Binding RemoveVisibility}">
                                             <fa:FontIcon Glyph="&#xE74D;" FontSize="12" />
                                         </Button>
                                     </StackPanel>
@@ -81,8 +94,13 @@
                                                      Value="{Binding BarValue}"
                                                      IsIndeterminate="{Binding BarIndeterminate}"
                                                      IsVisible="{Binding BarVisibility}" />
+                                        <!-- 解压中的不确定进度条（下载条会同时让位） -->
+                                        <ProgressBar IsIndeterminate="True" IsVisible="{Binding WorkingVisibility}" />
                                         <TextBlock Text="{Binding StatusText}" FontSize="12" Opacity="0.7"
                                                    TextWrapping="Wrap" />
+                                        <!-- 解压 / 安装的过程说明与结果 -->
+                                        <TextBlock Text="{Binding WorkText}" FontSize="12" Opacity="0.6"
+                                                   TextWrapping="Wrap" IsVisible="{Binding WorkTextVisibility}" />
                                     </StackPanel>
                                 </Grid>
                             </Border>

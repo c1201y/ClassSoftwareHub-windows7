@@ -5,6 +5,8 @@ using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Styling;
 using Avalonia.Threading;
@@ -39,6 +41,10 @@ public sealed partial class ShellPage : PageBase
     public ShellPage()
     {
         InitializeComponent();
+
+        // 全局搜索（2026-10-18 自上游 1.2.0 移植）：结果弹层挂到搜索框下面。
+        SearchPopup.PlacementTarget = SearchBox;
+        SearchPopup.Placement = Avalonia.Controls.PlacementMode.Bottom;
 
         // ⚠️ 移植新增：WinUI 的 Frame 自动接 Page 生命周期，这里必须显式挂桥（幂等，可重复调用）
         Navigation.Attach(ContentFrame);
@@ -386,7 +392,10 @@ public sealed partial class ShellPage : PageBase
     public IReadOnlyList<Control> CaptionInteractiveControls
         => _captionInteractive ??= new Control[]
         {
-            BackButton, ThemeButton, CaptionMinButton, CaptionMaxButton, CaptionCloseButton
+            BackButton, ThemeButton, CaptionMinButton, CaptionMaxButton, CaptionCloseButton,
+            // ⛔⛔ 2026-10-19：搜索框也必须列进来 —— 它整块坐在标题栏里，
+            //    不挖出来的话点它就是"系统拖动窗口"，输入框永远拿不到焦点（用户报「搜索栏点不了没有用」）。
+            SearchBox
         };
 
     /// <summary>
@@ -766,6 +775,19 @@ public sealed partial class ShellPage : PageBase
             case "autoshutdown":
                 ContentFrame.Navigate(typeof(AutoShutdownPage));
                 return;
+            // ── 上游 dv1.1.3-insider1.3 ~ dv1.2.0-insider1.1 新增的四项（2026-10-18 移植） ──
+            case "uninstall":
+                ContentFrame.Navigate(typeof(UninstallPage));
+                return;
+            case "appdata":
+                ContentFrame.Navigate(typeof(AppDataPage));
+                return;
+            case "startup":
+                ContentFrame.Navigate(typeof(StartupPage));
+                return;
+            case "systemrepair":
+                ContentFrame.Navigate(typeof(SystemRepairPage));
+                return;
             case "experimental":
                 // 「实验性功能」分组的父项**自己就是总览入口**：点它 = 展开/收起分组 + 进这一页。
                 ContentFrame.Navigate(typeof(ExperimentalPage));
@@ -935,5 +957,158 @@ public sealed partial class ShellPage : PageBase
             .FirstOrDefault(top => top.MenuItems.OfType<NavigationViewItem>().Contains(item));
         if (group is not null)
             Dispatcher.UIThread.Post(() => CloseGroupFlyout(group), DispatcherPriority.Background);
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  全局搜索（2026-10-18 自上游 1.2.0 移植）
+    //  WinUI 用 AutoSuggestBox 的原生建议列表；Avalonia 没有该控件 →
+    //  这里用 TextBox + 自绘结果弹层（Popup + StackPanel），交互对齐：
+    //  输入即查、回车进第一条、点击进对应页、Esc 收起、点外面收起。
+    // ══════════════════════════════════════════════════════════════
+
+    /// <summary>当前搜索结果（扁平化，回车取第一条）。</summary>
+    private readonly List<Data.SearchHit> _searchHits = new();
+
+    private void SearchBox_TextChanged(object? sender, TextChangedEventArgs e)
+    {
+        var query = (SearchBox.Text ?? "").Trim();
+        _searchHits.Clear();
+        SearchResults.Children.Clear();
+
+        if (query.Length == 0)
+        {
+            SearchPopup.IsOpen = false;
+            return;
+        }
+
+        foreach (var group in Data.SearchIndex.Query(query))
+        {
+            if (group.Hits.Count == 0) continue;
+
+            // 组标题（与站点一致的"软件 / 内置工具 / 页面"分组）
+            SearchResults.Children.Add(new TextBlock
+            {
+                Text = group.Title,
+                FontSize = 11,
+                Opacity = 0.5,
+                Margin = new Thickness(8, 6, 8, 2),
+            });
+
+            foreach (var hit in group.Hits)
+            {
+                _searchHits.Add(hit);
+                SearchResults.Children.Add(BuildSearchRow(hit));
+            }
+        }
+
+        SearchPopup.IsOpen = _searchHits.Count > 0;
+    }
+
+    /// <summary>一条搜索结果：图标/首字 + 标题 + 副标题 + 类型小字。</summary>
+    private Control BuildSearchRow(Data.SearchHit hit)
+    {
+        var grid = new Grid { MinHeight = 44, Margin = new Thickness(4, 0, 4, 0) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var iconHost = new Border
+        {
+            Width = 28, Height = 28, CornerRadius = new CornerRadius(6),
+            Background = Services.ThemeBrush.Get(this, "SubtleFillColorSecondaryBrush"),
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+        };
+        if (hit.Kind == Data.SearchHitKind.App)
+        {
+            iconHost.Child = new TextBlock
+            {
+                Text = hit.IconLetter, FontSize = 13, FontWeight = FontWeight.SemiBold,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+            };
+        }
+        else
+        {
+            iconHost.Child = new FontIcon
+            {
+                Glyph = hit.IconGlyph, FontSize = 14,
+                Foreground = Services.ThemeBrush.Get(this, "AccentTextFillColorPrimaryBrush"),
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+            };
+        }
+        grid.Children.Add(iconHost);
+
+        var text = new StackPanel { VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center };
+        Grid.SetColumn(text, 1);
+        text.Margin = new Thickness(10, 0, 0, 0);
+        text.Children.Add(new TextBlock
+        {
+            Text = hit.Title, FontSize = 14, TextTrimming = TextTrimming.CharacterEllipsis,
+        });
+        if (hit.Subtitle.Length > 0)
+        {
+            text.Children.Add(new TextBlock
+            {
+                Text = hit.Subtitle, FontSize = 12, Opacity = 0.7,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            });
+        }
+        grid.Children.Add(text);
+
+        var badge = new TextBlock
+        {
+            Text = hit.Badge, FontSize = 11, Opacity = 0.6,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+        };
+        Grid.SetColumn(badge, 2);
+        badge.Margin = new Thickness(10, 0, 6, 0);
+        grid.Children.Add(badge);
+
+        var row = new Button
+        {
+            Content = grid,
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(4, 2, 4, 2),
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+        };
+        row.Click += (_, _) => GoSearchHit(hit);
+        return row;
+    }
+
+    private void SearchBox_KeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape)
+        {
+            SearchPopup.IsOpen = false;
+            SearchBox.Text = "";
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == Key.Enter && _searchHits.Count > 0)
+        {
+            GoSearchHit(_searchHits[0]);
+            e.Handled = true;
+        }
+    }
+
+    /// <summary>选中一条结果：软件进详情页，工具 / 页面走导航 tag。</summary>
+    private void GoSearchHit(Data.SearchHit hit)
+    {
+        SearchPopup.IsOpen = false;
+        SearchBox.Text = "";
+
+        if (hit.Kind == Data.SearchHitKind.App)
+        {
+            // 软件直接进详情页（与 SoftwarePage 卡片点击同一条路：Frame.Navigate(DetailPage, appId)）。
+            ContentFrame.Navigate(typeof(DetailPage), hit.Key);
+            SyncNavSelectionToFrame();
+            return;
+        }
+
+        if (hit.Target.Length > 0) NavigateTo(hit.Target);
     }
 }

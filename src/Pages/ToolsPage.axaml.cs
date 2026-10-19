@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -17,7 +18,11 @@ public sealed partial class ToolsPage : PageBase
     public ToolsPage()
     {
         InitializeComponent();
-        ToolGrid.ItemsSource = ToolCatalog.All;
+
+        // 两列板式（见 .axaml：照搬首页「快速开始」）：偶数序号进左列、奇数进右列。
+        // （2026-10-18 自上游 1.2.0 移植）
+        CardColumnLeft.ItemsSource = ToolCatalog.All.Where((_, i) => i % 2 == 0).ToList();
+        CardColumnRight.ItemsSource = ToolCatalog.All.Where((_, i) => i % 2 == 1).ToList();
 
         // 这里的开关（「点关闭时收进托盘」和设置页里是同一个值）；侧边栏/置顶那些挪到「设置 → 常用工具」了
         _loading = true;
@@ -37,21 +42,27 @@ public sealed partial class ToolsPage : PageBase
         App.MainWindow?.SetCloseToTray(TraySwitch.IsChecked == true);
     }
 
-    /// <summary>
-    /// 卡片单击 → 进对应工具页。
-    /// ⚠️ 原版 <c>Frame.Navigate(def.Page)</c>（WinUI Page.Frame）；Avalonia 页面没有 Frame 属性，
-    ///    沿可视树向上找宿主 <see cref="Frame"/>。
-    /// ⚠️ 上游 dv1.1.0 改走导航栏那一套（<c>App.MainWindow?.Shell.NavigateTo(def.Id)</c>，
-    ///    让左侧「内置工具」对应子项跟着高亮）—— 那是上游 ShellPage 按 <c>ToolCatalog.All</c>
-    ///    动态生成导航子项、并按 Id 反查后才成立的；本移植版的 ShellPage 暂未接入 ToolCatalog，
-    ///    故这里用本仓已有的等价入口 <see cref="ShellPage.NavigateToTool(Type)"/>：
-    ///    它同样会高亮「内置工具」并把工具列表铺进返回栈，效果一致。
-    /// </summary>
-    private void ToolGrid_Tapped(object? sender, TappedEventArgs e)
+    // 卡片自己的悬停反馈（首页同款：卡片整张可点，反馈由 Opacity 给）
+    private void Card_PointerEntered(object? sender, PointerEventArgs e)
     {
-        if ((e.Source as StyledElement)?.DataContext is ToolDef def && def.Page is not null)
-            App.MainWindow?.Shell.NavigateToTool(def.Page);
+        if (sender is Border b) b.Opacity = 0.88;
     }
 
-    // 卡片自己的悬停反馈由 XAML 里 Class="card" 的 :pointerover 样式给出。
+    private void Card_PointerExited(object? sender, PointerEventArgs e)
+    {
+        if (sender is Border b) b.Opacity = 1.0;
+    }
+
+    /// <summary>
+    /// 卡片整张可点 → 进对应工具页。
+    /// ⚠️ 上游 1.2.0 走的是 <c>App.MainWindow?.Shell.NavigateTo(def.Id)</c>（导航栏那套，
+    ///    左侧「内置工具」子项会跟着高亮）—— 那要求 ShellPage 按 ToolCatalog 动态生成导航子项；
+    ///    本移植版的 ShellPage 暂未接入 ToolCatalog，故这里沿用本仓库已有的等价入口
+    ///    <see cref="ShellPage.NavigateToTool(Type)"/>：同样会高亮「内置工具」并把工具列表铺进返回栈。
+    /// </summary>
+    private void Card_Tapped(object? sender, TappedEventArgs e)
+    {
+        if ((sender as StyledElement)?.DataContext is ToolDef def && def.Page is not null)
+            App.MainWindow?.Shell.NavigateToTool(def.Page);
+    }
 }

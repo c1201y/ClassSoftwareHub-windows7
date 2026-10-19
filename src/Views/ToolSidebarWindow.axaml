@@ -26,37 +26,31 @@
         <Border x:Name="Panel" CornerRadius="8" BorderThickness="1"
                 BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
             <Grid x:Name="BarHost">
-                    <!-- 收起状态：短短一截抓手（整条窗口都是点击区）。
-                         ⚠️ 2026-10-04：原来的"按住拖动换边"整条撤除（详见 code-behind 字段区注释）。 -->
                     <!--
-                      收起状态：**两种样式二选一**（「侧边布局」页 → 收起样式）。
-                        · grip 圆角抓手（默认）＝下面 GripStack 里那截 5×48 的小条；
-                        · line 细竖线  ＝ LineView 里那条细线。选它时窗口本身会被缩成
-                          6×220 的圆角细条（见 CollapsedSize，长度可在「侧边布局」页调），整条窗口就是屏幕上那条线。
+                      收起状态：**两种样式二选一**（「侧边布局」页 → 收起样式）——
+                        · grip 圆角抓手（默认）＝ 8×110 的圆角条；
+                        · line 细竖线         ＝ 6×220 的圆角细条；
+                      两者都可在「侧边布局 → 收起条长度」调长短。
+                      ⚠️ 2026-10-17 用户「我只要一个竖线，把现在竖线里面的那一小点去掉」：
+                          **不再画内芯**（原 GripStack / Grip 那截 5×48 小条已删）——
+                          窗口本身就是那条线，悬停反馈走 LineHover 整条亮。
+                          （2026-10-12 的「去掉内芯」当时只做在 line 样式上，grip 还留着内芯，
+                            用户看到的就是「竖线里面有一小点」，这次两套一起干净。）
                       ⚠️ 两种样式共用同一个 CollapsedView —— 所有按下/抬起/滑动手势的处理器
                          只挂这一层，切样式不用改任何事件接线。
                       ⚠️ 悬停高亮（PointerEntered/Exited）也是共用的，见 UpdateCollapsedLook。
                     -->
                     <Grid x:Name="CollapsedView" Background="Transparent"
-                          ToolTip.Tip="点一下展开（或从这条向外滑开）"
+                          ToolTip.Tip="点一下展开（或从这条朝屏幕里滑开）"
                           PointerPressed="Strip_PointerPressed"
                           PointerMoved="Strip_PointerMoved"
                           PointerReleased="Strip_PointerReleased"
                           PointerCaptureLost="Strip_PointerCaptureLost"
                           PointerEntered="Strip_PointerEntered"
                           PointerExited="Strip_PointerExited">  <!-- 指向专门的 CaptureLost 处理器（参数类型不同，不能复用 PointerReleased） -->
-                        <StackPanel x:Name="GripStack" Orientation="Vertical" Spacing="6"
-                                    HorizontalAlignment="Center" VerticalAlignment="Center">
-                            <Border x:Name="Grip" Width="5" Height="48" CornerRadius="3" Opacity="0.6"
-                                    Background="{DynamicResource TextFillColorSecondaryBrush}" />
-                        </StackPanel>
-
-                            <!-- 细竖线样式：窗口本身就是那条线，不再画内芯；
-                                 LineHover 只在悬停时铺一层半透明强调色当高亮反馈 -->
-                            <Grid x:Name="LineView" IsVisible="False" Background="Transparent">
-                                <Border x:Name="LineHover" IsHitTestVisible="False" Opacity="0" CornerRadius="3"
-                                    Background="{DynamicResource TextFillColorSecondaryBrush}" />
-                        </Grid>
+                        <!-- 悬停高亮层：铺满整条窗口，只做视觉反馈，不吃点击 -->
+                        <Border x:Name="LineHover" IsHitTestVisible="False" Opacity="0" CornerRadius="3"
+                                Background="{DynamicResource TextFillColorSecondaryBrush}" />
                     </Grid>
 
                     <!-- 展开状态 -->

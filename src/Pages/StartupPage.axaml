@@ -1,0 +1,101 @@
+<platform:PageBase
+    x:Class="ClassSoftwareHub.Desktop.Pages.StartupPage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:fa="using:FluentAvalonia.UI.Controls">
+
+    <!--
+      开机启动项（2026-10-18 自上游 1.2.0 移植；WinUI → Avalonia）。
+
+      做的事只有一件：把「开机时会自己启动的东西」列全，并允许逐个关掉。
+      ⛔⛔ **关掉 = 写 Windows 的 StartupApproved 状态位**，不删注册表值、不移动启动文件夹里的文件
+         —— 跟任务管理器 / 设置 → 应用 → 启动 是同一套机制。
+
+      ⛔ 版式照 AppDataPage：三列 24 / * / 24、内容列锁 960、标题行右侧并排动作、
+         标题下面一行是**动态计数**、常驻红色风险条（会动系统的功能一律常驻）。
+      ⚠️ WinUI → Avalonia：ToggleSwitch.IsOn → IsChecked、Toggled → IsCheckedChanged。
+    -->
+    <Grid Background="Transparent">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="24" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="24" />
+        </Grid.ColumnDefinitions>
+
+        <Grid Grid.Column="1" MaxWidth="960" Margin="0,36,0,44">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <!-- ── 标题行：左＝标题 + 实验性标记 + 计数，右＝重新扫描 / 说明 ── -->
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Spacing="4">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <TextBlock Text="开机启动项" FontSize="28" FontWeight="Bold" />
+                        <Border CornerRadius="5" Padding="8,3" Margin="0,0,0,6" VerticalAlignment="Bottom"
+                                BorderThickness="1"
+                                BorderBrush="{DynamicResource SystemFillColorCautionBrush}">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <fa:FontIcon Glyph="&#xEA80;" FontSize="11"
+                                             Foreground="{DynamicResource SystemFillColorCautionBrush}" />
+                                <TextBlock Text="实验性功能" FontSize="12"
+                                           Foreground="{DynamicResource SystemFillColorCautionBrush}" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <TextBlock x:Name="CountLine" Text="" FontSize="12" Opacity="0.65"
+                               TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+
+                <Button x:Name="RescanButton" Grid.Column="1" Content="重新扫描" Click="Rescan_Click"
+                        VerticalAlignment="Top" Margin="10,4,0,0" />
+
+                <Button x:Name="AboutButton" Grid.Column="2" Click="About_Click"
+                        Width="32" Height="32" Padding="0" Background="Transparent" BorderThickness="0"
+                        VerticalAlignment="Top" Margin="8,4,0,0"
+                        ToolTip.Tip="扫的是哪些位置、关掉之后到底发生了什么">
+                    <fa:FontIcon Glyph="&#xE946;" FontSize="15" />
+                </Button>
+            </Grid>
+
+            <!-- ── 常驻风险提示 ── -->
+            <fa:InfoBar x:Name="RiskBar" Grid.Row="1" Margin="0,10,0,0"
+                        Severity="Error" IsOpen="True" IsClosable="False"
+                        Title="此操作会改动系统启动配置"
+                        Message="禁用后该程序不再随系统自动启动，启用状态由 Windows 统一记录，与任务管理器一致。不会删除程序或文件，随时可以在本页改回来。" />
+
+            <!-- ── 内容区 ── -->
+            <Grid Grid.Row="2" Margin="0,10,0,0">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="EntryListPanel" Spacing="0" />
+                </ScrollViewer>
+
+                <!-- 扫描中 -->
+                <StackPanel x:Name="LoadingPanel" Spacing="12" HorizontalAlignment="Center"
+                            VerticalAlignment="Center">
+                    <fa:ProgressRing IsActive="True" Width="34" Height="34" HorizontalAlignment="Center" />
+                    <TextBlock Text="正在读取开机启动项" FontSize="12" Opacity="0.7"
+                               HorizontalAlignment="Center" />
+                </StackPanel>
+
+                <!-- 空状态 -->
+                <StackPanel x:Name="EmptyPanel" Spacing="10" IsVisible="False"
+                            HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <fa:FontIcon Glyph="&#xE945;" FontSize="28" Opacity="0.45" HorizontalAlignment="Center" />
+                    <TextBlock x:Name="EmptyText" Text="没有扫描到开机启动项" FontSize="14" Opacity="0.7"
+                               HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center" />
+                </StackPanel>
+            </Grid>
+        </Grid>
+    </Grid>
+</platform:PageBase>

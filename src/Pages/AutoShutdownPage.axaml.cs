@@ -53,6 +53,7 @@ public sealed partial class AutoShutdownPage : PageBase
         EnableSwitch.IsChecked = _config.Enabled;
         _loading = false;
 
+        ShowScheduleHint("");
         BuildSchedule();
         UpdateHints();
     }
@@ -100,7 +101,17 @@ public sealed partial class AutoShutdownPage : PageBase
             for (var index = 0; index < points.Count; index++)
                 column.Children.Add(BuildPointButton(day, index, points[index]));
 
-            column.Children.Add(BuildAddButton(day));
+            // 列底：加号 + 它右边那颗「套用前一天」。
+            // ⚠️ 两颗并排放在一个横向 StackPanel 里（Nick 2026-10-12 指明"在加号右边再加一个"）。
+            var actions = new StackPanel
+            {
+                Orientation = Avalonia.Layout.Orientation.Horizontal,
+                Spacing = 6,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+            };
+            actions.Children.Add(BuildAddButton(day));
+            actions.Children.Add(BuildCopyPrevButton(day));
+            column.Children.Add(actions);
 
             Grid.SetColumn(column, day);
             ScheduleGrid.Children.Add(column);
@@ -151,17 +162,105 @@ public sealed partial class AutoShutdownPage : PageBase
         return button;
     }
 
+    /// <summary>
+    /// 加号右边那颗「套用前一天」：把**前一天**那一列整列拷到本列（周一取周日）。
+    /// （2026-10-18 自上游 1.2.0 移植。）
+    ///
+    /// ⚠️ 语义是**覆盖**不是追加 —— "套用"就是把这一天排成前一天的样子；
+    ///    本列已有关机点时先弹一句确认，不做无声覆盖。
+    /// ⚠️ 前一天是空的就只提示、不动手 —— 否则"套用"会退化成"把本列清空"，那不是用户要的。
+    /// </summary>
+    private Button BuildCopyPrevButton(int dayIndex)
+    {
+        var prev = PreviousDay(dayIndex);
+
+        var button = new Button
+        {
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+            Padding = new Thickness(0),
+            Width = 30,
+            Height = 30,
+            // E8C8（Copy）：MDL2 老码位，Win10 也有字形
+            Content = new FontIcon { Glyph = "\uE8C8", FontSize = 12 },
+        };
+        ToolTip.SetTip(button,
+            $"把{AutoShutdownConfig.DayNames[prev]}的关机点套用到{AutoShutdownConfig.DayNames[dayIndex]}（本列原有内容会被替换）");
+
+        var day = dayIndex;
+        button.Click += async (_, _) => await CopyPreviousDayAsync(day);
+        return button;
+    }
+
+    /// <summary>本列的"前一天"（周一取周日）。</summary>
+    private static int PreviousDay(int dayIndex) => (dayIndex + 6) % 7;
+
+    private async Task CopyPreviousDayAsync(int dayIndex)
+    {
+        var prev = PreviousDay(dayIndex);
+        var source = _config.Days[prev];
+        var target = _config.Days[dayIndex];
+
+        if (source.Count == 0)
+        {
+            ShowScheduleHint($"{AutoShutdownConfig.DayNames[prev]}还没有关机点，没有可以套用的内容。");
+            return;
+        }
+
+        if (target.Count > 0)
+        {
+            // ⚠️ 原版对话框带 XamlRoot；FluentAvalonia 的 ContentDialog 没有 XamlRoot，直接 ShowAsync()。
+            var confirm = new ContentDialog
+            {
+                Title = "套用前一天的关机点",
+                Content = $"{AutoShutdownConfig.DayNames[dayIndex]}现在有 {target.Count} 个关机点，"
+                          + $"套用{AutoShutdownConfig.DayNames[prev]}的 {source.Count} 个会把它们全部替换掉。",
+                PrimaryButtonText = "替换",
+                CloseButtonText = "取消",
+                DefaultButton = ContentDialogButton.Close,
+            };
+            if (await confirm.ShowAsync() != ContentDialogResult.Primary) return;
+        }
+
+        // ⚠️ 必须**深拷**：直接把同一批对象塞过去，之后改其中一天会连带改到另一天
+        target.Clear();
+        foreach (var p in source)
+            target.Add(new ShutdownPoint
+            {
+                Time = p.Time,
+                Method = p.Method,
+                DelaySeconds = p.DelaySeconds,
+            });
+
+        SaveAndRefresh();
+        ShowScheduleHint(
+            $"已把{AutoShutdownConfig.DayNames[prev]}的 {source.Count} 个关机点套用到{AutoShutdownConfig.DayNames[dayIndex]}。");
+    }
+
+    /// <summary>时间表那块自己的提示行（套用结果 / 没什么可套用）。</summary>
+    private void ShowScheduleHint(string text)
+    {
+        if (ScheduleHint is not null) ScheduleHint.Text = text;
+    }
+
     // ── 增 / 改 / 删 ────────────────────────────────────────
 
     private async Task AddPointAsync(int dayIndex)
     {
-        // 新点的默认值：放学时段 + 直接关机 + 一分钟延迟
-        var draft = new ShutdownPoint
-        {
-            Time = "17:30",
-            Method = ShutdownMethods.Shutdown,
-            DelaySeconds = 60,
-        };
+        // 新点的默认值：**上次填过的那个**（沿用上次设置）；没有历史就放学时段 + 直接关机 + 一分钟延迟。
+        // （2026-10-18 自上游 1.2.0 移植：Nick「一个一个配置太麻烦了，如果上次设置的啥，这次可以直接套用」。）
+        var draft = _config.LastPoint is { } last
+            ? new ShutdownPoint
+            {
+                Time = last.Time,
+                Method = last.Method,
+                DelaySeconds = last.DelaySeconds,
+            }
+            : new ShutdownPoint
+            {
+                Time = "17:30",
+                Method = ShutdownMethods.Shutdown,
+                DelaySeconds = 60,
+            };
 
         if (await ShowPointDialogCoreAsync(draft, isNew: true) != PointDialogOutcome.Save) return;
 
@@ -203,6 +302,19 @@ public sealed partial class AutoShutdownPage : PageBase
 
     private void SaveAndRefresh()
     {
+        // 「沿用上次设置」的落点：把这次保存的点记成下一次新增时的默认值。
+        // （2026-10-18 自上游 1.2.0 移植：只是输入助手，不参与执行/巡检。）
+        var latest = _config.Days.SelectMany(d => d).LastOrDefault();
+        if (latest is not null)
+        {
+            _config.LastPoint = new ShutdownPoint
+            {
+                Time = latest.Time,
+                Method = latest.Method,
+                DelaySeconds = latest.DelaySeconds,
+            };
+        }
+
         _config.Save();
         BuildSchedule();
         UpdateHints();

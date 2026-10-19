@@ -163,7 +163,7 @@ public sealed partial class SettingsPage : PageBase
 
         RefreshContentInfo();
             BuildAboutHeader();
-            SettingsQuickGrid.ItemsSource = Core.QuickLinks.Build(App.Content.Ui);
+            BuildQuickLinks();
             _loading = false;
 
         // GitHub 下载取用路径（软件内容 → GitHub 应用更新加速源）；与上游设置页一致，默认自动。
@@ -532,6 +532,9 @@ public sealed partial class SettingsPage : PageBase
 
             if (result is { HasUpdate: true, Release: { } release })
             {
+                // 记下"有新版本"：首页那颗「立即更新」靠它（2026-10-18 自上游 1.2.0 移植）
+                Services.Updating.UpdateNotice.Set(release);
+
                 var notes = Snip(release.Notes, 400);
                 UpdateNotes.Text = notes;
                 UpdateNotes.IsVisible = notes.Length > 0;
@@ -546,9 +549,9 @@ public sealed partial class SettingsPage : PageBase
                 if (choice == UpdateFlow.UpdateChoice.Background)
                 {
                     if (UpdateFlow.StartBackgroundDownload(_updater, release))
-                        UpdateStatus.Text = $"已转为后台下载 {release.Tag}，完成后通过系统通知提醒。";
+                        UpdateStatus.Text = $"已转入「任务进行」页下载 {release.Tag}，可在该页查看进度并安装。";
                     else
-                        UpdateStatus.Text = "已有一个更新正在后台下载，完成后会通知。";
+                        UpdateStatus.Text = "已有一个更新正在后台下载，可在「任务进行」页查看。";
                     return;
                 }
 
@@ -564,6 +567,35 @@ public sealed partial class SettingsPage : PageBase
         {
             _updateBusy = false;
             CheckButton.IsEnabled = true;
+        }
+    }
+
+    /// <summary>关于区的一行快捷入口（同首页；2026-10-18 对齐上游 1.2.0：图标改走染色 SVG）。</summary>
+    private void BuildQuickLinks()
+    {
+        var links = Core.QuickLinks.Build(App.Content.Ui);
+        SettingsQuickGrid.ItemsSource = links;
+        ApplyQuickLinkIcons(links);
+
+        ActualThemeVariantChanged -= SettingsPage_ThemeChanged;
+        ActualThemeVariantChanged += SettingsPage_ThemeChanged;
+    }
+
+    private void SettingsPage_ThemeChanged(object? sender, EventArgs e)
+    {
+        if (SettingsQuickGrid.ItemsSource is IEnumerable<Core.QuickLink> links) ApplyQuickLinkIcons(links);
+    }
+
+    /// <summary>按"本页所在的树"的主题前景色把 SVG 染色（别从应用级资源取，见首页同名方法）。</summary>
+    private void ApplyQuickLinkIcons(IEnumerable<Core.QuickLink> links)
+    {
+        var color = (Services.ThemeBrush.Get(this, "TextFillColorPrimaryBrush") as Avalonia.Media.ISolidColorBrush)?.Color
+                    ?? Avalonia.Media.Colors.Black;
+        foreach (var link in links)
+        {
+            if (string.IsNullOrWhiteSpace(link.IconSvg)) continue;
+            try { link.IconSource = Services.QuickLinkIconLoader.GetIcon(link.IconSvg!, color); }
+            catch { /* 取不到就退回 FontIcon，不影响点击 */ }
         }
     }
 
@@ -827,8 +859,7 @@ public sealed partial class SettingsPage : PageBase
     // ── 安装包自动清理（updates 目录） ─────────────────────────
 
     /// <summary>保留数量改动：存档 + 后台立刻清一轮（不用等下次启动），列表若摊开着就跟着刷新。</summary>
-    private void KeepCombo_SelectionChanged(object? sender, SelectionChangedEventArgs e)
-    {
+    private void KeepCombo_SelectionChanged(object? sender, SelectionChangedEventArgs e)    {
         if (_loading) return;
         if (KeepCombo.SelectedItem is not ComboBoxItem item || item.Tag is not string tag) return;
         if (!int.TryParse(tag, out var keep)) return;
@@ -849,6 +880,24 @@ public sealed partial class SettingsPage : PageBase
                 if (InstallerExpander.IsExpanded) RefreshInstallerList();
             });
         });
+    }
+
+    // ── 下载后动作（2026-10-18 自上游 1.2.0 移植） ───────────────────
+
+    /// <summary>「安装或解压完成后自动删除安装包或压缩包」。</summary>
+    private void AutoDeletePackage_IsCheckedChanged(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (_loading) return;
+        App.Settings.Current.AutoDeletePackage = AutoDeletePackageSwitch.IsChecked == true;
+        App.Settings.Save();
+    }
+
+    /// <summary>「解压完成后自动打开所在文件夹」。</summary>
+    private void AutoOpenExtractFolder_IsCheckedChanged(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (_loading) return;
+        App.Settings.Current.AutoOpenExtractFolder = AutoOpenExtractFolderSwitch.IsChecked == true;
+        App.Settings.Save();
     }
 
     /// <summary>「本地安装包」展开时现读目录（平时折叠，不占加载时间）。</summary>

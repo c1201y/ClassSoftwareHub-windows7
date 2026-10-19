@@ -39,7 +39,7 @@
              （2026-10-06 用户反馈"结果区那么大为什么要放两行"→ 结果改单行 + 字号可调；
               2026-10-07 Nick 反馈"字号要可以再大一点" → 上限 2.0 提到 3.0）。
              位置选在参数带右列（它本就是"参数"），不占主流程。 -->
-    <Grid Margin="24,10,24,12">
+    <Grid Background="Transparent" Margin="24,10,24,12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />

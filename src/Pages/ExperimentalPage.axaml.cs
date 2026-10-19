@@ -58,18 +58,63 @@ public sealed partial class ExperimentalPage : PageBase
             Glyph = "\uE787", Tag = "autoshutdown"
         },
         // 日志查看已不算实验功能（Nick 2026-10-02）：入口挪到 设置 → 诊断。
+
+        // ── 上游 1.1.3-insider1.3 ~ 1.2.0-insider1.1 新增（2026-10-18 移植） ──
+        // 这四个都是"会动本机状态"的实用功能，上游放在实验性功能分组下，本移植版照齐。
+        new ExperimentalFeature
+        {
+            Id = "uninstall", Name = "应用卸载",
+            Desc = "按分类列出本机已安装的软件，调用其自带卸载程序；卸载后可扫描并清理残留（进隔离区，可还原）",
+            Glyph = "\uE74D", Tag = "uninstall"
+        },
+        new ExperimentalFeature
+        {
+            Id = "appdata", Name = "AppData 管理",
+            Desc = "体检 Local / Roaming 下的一级目录体积排行；只对白名单里的缓存目录提供清理（永久删除）",
+            Glyph = "\uE8B7", Tag = "appdata"
+        },
+        new ExperimentalFeature
+        {
+            Id = "startup", Name = "开机启动项",
+            Desc = "列出开机自启项（注册表 Run + 启动文件夹），逐个启用 / 禁用；启用状态与任务管理器同源",
+            Glyph = "\uE945", Tag = "startup"
+        },
+        new ExperimentalFeature
+        {
+            Id = "systemrepair", Name = "系统修复",
+            Desc = "sfc / DISM / chkdsk / netsh 等预设修复任务，执行前二次确认并原样列出命令，运行中可中止",
+            Glyph = "\uE9F3", Tag = "systemrepair"
+        },
     };
 
     public ExperimentalPage()
     {
         InitializeComponent();
-        FeatureGrid.ItemsSource = All;
+
+        // 两列板式（见 .axaml：照搬首页「快速开始」）：偶数序号进左列、奇数进右列。
+        // （2026-10-18 自上游 1.2.0 移植）
+        var list = All;
+        CardColumnLeft.ItemsSource = System.Linq.Enumerable.ToList(
+            System.Linq.Enumerable.Where(list, (_, i) => i % 2 == 0));
+        CardColumnRight.ItemsSource = System.Linq.Enumerable.ToList(
+            System.Linq.Enumerable.Where(list, (_, i) => i % 2 == 1));
     }
 
-    private void FeatureGrid_Tapped(object? sender, TappedEventArgs e)
+    // 卡片自己的悬停反馈（首页同款：卡片整张可点，反馈由 Opacity 给）
+    private void Card_PointerEntered(object? sender, PointerEventArgs e)
+    {
+        if (sender is Avalonia.Controls.Border b) b.Opacity = 0.88;
+    }
+
+    private void Card_PointerExited(object? sender, PointerEventArgs e)
+    {
+        if (sender is Avalonia.Controls.Border b) b.Opacity = 1.0;
+    }
+
+    private void Card_Tapped(object? sender, TappedEventArgs e)
     {
         // 走导航栏那一套（不是 Frame.Navigate）：左侧「实验性功能」才会跟着高亮
-        if ((e.Source as StyledElement)?.DataContext is ExperimentalFeature f && f.Tag.Length > 0)
+        if ((sender as StyledElement)?.DataContext is ExperimentalFeature f && f.Tag.Length > 0)
             App.MainWindow?.Shell.NavigateTo(f.Tag);
     }
 }

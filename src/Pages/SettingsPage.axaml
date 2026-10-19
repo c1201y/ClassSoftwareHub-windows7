@@ -31,7 +31,8 @@
     -->
 
     <platform:PageBase.Resources>
-        <!-- 快捷入口两套模板（同首页）：颜色全走 {DynamicResource}，浅色/深色自己会变 -->
+        <!-- 快捷入口模板（2026-10-18 对齐上游 1.2.0）：只有一套外观，图标优先用染过色的 SVG，
+             没有 SVG 的项退回 FontIcon。颜色全走 {DynamicResource}，浅色/深色自己会变。 -->
         <DataTemplate x:Key="QuickLinkNormal">
             <!-- ⚠️ Background="Transparent" 必须有：Avalonia 里没 Background 的 Border **不参与命中测试**，
                  点卡片空白处（图标文字之外）事件直接穿透 —— 看起来就是"这些按钮只有赞助作者能点"
@@ -39,29 +40,22 @@
             <Border CornerRadius="4" Padding="12,10" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                     Background="Transparent">
                 <StackPanel Spacing="7" HorizontalAlignment="Center" VerticalAlignment="Center">
-                    <fa:FontIcon Glyph="{Binding Glyph}" FontSize="24" HorizontalAlignment="Center"
-                              Foreground="{DynamicResource TextFillColorPrimaryBrush}" Opacity="0.95" />
+                    <Grid Width="24" Height="24" HorizontalAlignment="Center">
+                        <fa:FontIcon Glyph="{Binding Glyph}" FontSize="24" HorizontalAlignment="Center"
+                                     VerticalAlignment="Center"
+                                     Foreground="{DynamicResource TextFillColorPrimaryBrush}" Opacity="0.95"
+                                     IsVisible="{Binding ShowGlyph}" />
+                        <Image Source="{Binding IconSource}" Width="24" Height="24" Stretch="Uniform"
+                               IsVisible="{Binding HasIconSource}" />
+                    </Grid>
                     <TextBlock Text="{Binding Name}" FontSize="12" HorizontalAlignment="Center"
                                Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
                 </StackPanel>
             </Border>
         </DataTemplate>
 
-        <DataTemplate x:Key="QuickLinkAccent">
-            <Border CornerRadius="4" Padding="12,10" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                    Background="{DynamicResource AccentFillColorDefaultBrush}">
-                <StackPanel Spacing="7" HorizontalAlignment="Center" VerticalAlignment="Center">
-                    <fa:FontIcon Glyph="{Binding Glyph}" FontSize="24" HorizontalAlignment="Center"
-                              Foreground="{DynamicResource TextOnAccentFillColorPrimaryBrush}" Opacity="0.95" />
-                    <TextBlock Text="{Binding Name}" FontSize="12" HorizontalAlignment="Center"
-                               Foreground="{DynamicResource TextOnAccentFillColorPrimaryBrush}" />
-                </StackPanel>
-            </Border>
-        </DataTemplate>
-
         <core:QuickLinkSelector x:Key="QuickLinkSelector"
-                                Normal="{StaticResource QuickLinkNormal}"
-                                Accent="{StaticResource QuickLinkAccent}" />
+                                Normal="{StaticResource QuickLinkNormal}" />
     </platform:PageBase.Resources>
 
     <!-- ⛔ 不写 Background：App.axaml 给全站 ScrollViewer 设了 Transparent（见那里的注释）——
@@ -571,6 +565,28 @@
                             <ComboBoxItem Content="9 个" Tag="9" />
                             <ComboBoxItem Content="10 个" Tag="10" />
                         </ComboBox>
+                    </views:SettingsCard>
+
+                    <!-- 下载后动作（2026-10-18 自上游 1.2.0 移植）：
+                         普通下载完成后卡片上会多一颗「安装 / 解压」，这里定那两个开关。 -->
+                    <views:SettingsCard Header="安装或解压完成后自动删除安装包 / 压缩包"
+                                           Description="在「任务进行」里点「安装」或「解压」并完成后，删除下载目录里的那个源文件。默认关闭；删除的是用户自己下到硬盘上的文件，需自行确认后再开启。">
+                        <views:SettingsCard.HeaderIcon>
+                            <fa:FontIcon Glyph="&#xE74D;" />
+                        </views:SettingsCard.HeaderIcon>
+                        <ToggleSwitch x:Name="AutoDeletePackageSwitch"
+                                      OnContent="开" OffContent="关" MinWidth="0"
+                                      IsCheckedChanged="AutoDeletePackage_IsCheckedChanged" />
+                    </views:SettingsCard>
+
+                    <views:SettingsCard Header="解压完成后自动打开所在文件夹"
+                                           Description="解压的目的就是去拿里面的东西，解完直接把产物目录摆到眼前。默认开启。">
+                        <views:SettingsCard.HeaderIcon>
+                            <fa:FontIcon Glyph="&#xE8A7;" />
+                        </views:SettingsCard.HeaderIcon>
+                        <ToggleSwitch x:Name="AutoOpenExtractFolderSwitch"
+                                      OnContent="开" OffContent="关" MinWidth="0"
+                                      IsCheckedChanged="AutoOpenExtractFolder_IsCheckedChanged" />
                     </views:SettingsCard>
 
                     <!-- 本地安装包：列表在展开时现读（平时折叠，不占加载时间）。

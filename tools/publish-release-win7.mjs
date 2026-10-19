@@ -11,7 +11,7 @@
 //   node tools/publish-release-win7.mjs --version 1.0.0 ^
 //        --installer "dist\installer\ClassSoftwareHub-Setup-win7-dv1.0.0.exe" ^
 //        --portable  "dist\ClassSoftwareHub-Portable-win7-dv1.0.0.zip" ^
-//        --image     "dist\release\dv1.0.png" ^
+//        --image     "dist\release\dv1.2.png" ^
 //        --notes     notes.md
 //
 // 参数：

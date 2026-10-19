@@ -69,6 +69,8 @@ public sealed partial class PickNumberToolPage : PageBase
     {
         InitializeComponent();
 
+        // 两侧留白 / 标题行上的滚轮也转给内容区（见 Core/WheelRelay.cs）：
+
         // 原版 DispatcherQueue.CreateTimer() + IsRepeating=true → DispatcherTimer 天生重复
         _rollTimer = new DispatcherTimer();
         _rollTimer.Interval = TimeSpan.FromMilliseconds(65);

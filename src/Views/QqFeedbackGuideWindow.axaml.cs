@@ -149,7 +149,7 @@ public sealed partial class QqFeedbackGuideWindow : Window
         }
         catch (Exception ex)
         {
-            Debug.WriteLine("[qq-guide] 尺寸设置失败: " + ex.Message);
+            Core.AppLog.Debug("port", "[qq-guide] 尺寸设置失败: " + ex.Message);
         }
     }
 
@@ -222,7 +222,7 @@ public sealed partial class QqFeedbackGuideWindow : Window
         catch (Exception ex)
         {
             // 图读不到就空着，别把整扇窗搞崩（同 FeedbackPage.LoadIcon 的处理）
-            Debug.WriteLine("[qq-guide] 截图加载失败 " + fileName + ": " + ex.Message);
+            Core.AppLog.Debug("port", "[qq-guide] 截图加载失败 " + fileName + ": " + ex.Message);
         }
     }
 

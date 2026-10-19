@@ -167,6 +167,12 @@ internal static class NativeMethods
     [DllImport("user32.dll", SetLastError = true)]
     internal static extern IntPtr GetForegroundWindow();
 
+    /// <summary>取关联窗口：<see cref="GW_OWNER"/> 拿 owner（弹层/对话框都属于"某个窗口的子窗口"）。最低 Win2000。</summary>
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
+
+    internal const uint GW_OWNER = 4;
+
     /// <summary>最低 Win2000。查询/设置窗口矩形。</summary>
     [DllImport("user32.dll", SetLastError = true)]
     internal static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
@@ -178,6 +184,30 @@ internal static class NativeMethods
         public int Width => Right - Left;
         public int Height => Bottom - Top;
     }
+
+    /// <summary>屏幕坐标点（POINT）。最低 Win2000。</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct POINT
+    {
+        public int X, Y;
+    }
+
+    /// <summary>取鼠标当前位置（屏幕像素）。最低 Win2000。</summary>
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern bool GetCursorPos(out POINT lpPoint);
+
+    /// <summary>取屏幕某点落在哪个窗口上（用于"点在哪儿"的判定）。最低 Win2000。</summary>
+    [DllImport("user32.dll")]
+    internal static extern IntPtr WindowFromPoint(POINT point);
+
+    /// <summary>
+    /// 取某个虚拟键当前是否按下（左键 = <see cref="VK_LBUTTON"/>）。
+    /// 最低 Win2000。⚠️ 返回值最高位 = 当前按着；次高位 = 自上次查询后按过。
+    /// </summary>
+    [DllImport("user32.dll")]
+    internal static extern short GetAsyncKeyState(int vKey);
+
+    internal const int VK_LBUTTON = 0x01;
 
     /// <summary>
     /// 最低 Win2000。**屏幕像素取样** —— 取色器 / 截屏取点用。
@@ -380,4 +410,92 @@ internal static class NativeMethods
     internal const uint KEYEVENTF_SCANCODE = 0x0008;
     internal const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
     internal const uint MOUSEEVENTF_LEFTUP = 0x0004;
+
+    // ══════════════════════════════════════════════════════════════════
+    //  user32 —— 自制窗口 / 隐形热区（SidebarHitPad 用）
+    //  最低 Win2000（分层窗口 SetLayeredWindowAttributes 是 Win2000 的 API，
+    //  Win7 完整可用；这里**不用** UpdateLayeredWindow，也不依赖 DWM 透明能力）
+    // ══════════════════════════════════════════════════════════════════
+
+    internal delegate IntPtr WNDPROC(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    internal struct WNDCLASSEX
+    {
+        public uint cbSize;
+        public uint style;
+        public WNDPROC? lpfnWndProc;
+        public int cbClsExtra;
+        public int cbWndExtra;
+        public IntPtr hInstance;
+        public IntPtr hIcon;
+        public IntPtr hCursor;
+        public IntPtr hbrBackground;
+        [MarshalAs(UnmanagedType.LPWStr)] public string? lpszMenuName;
+        [MarshalAs(UnmanagedType.LPWStr)] public string lpszClassName;
+        public IntPtr hIconSm;
+    }
+
+    /// <summary>最低 Win2000。</summary>
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    internal static extern ushort RegisterClassEx(ref WNDCLASSEX lpwcx);
+
+    /// <summary>最低 Win2000。</summary>
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    internal static extern IntPtr CreateWindowExW(uint dwExStyle, string lpClassName, string lpWindowName,
+        uint dwStyle, int x, int y, int nWidth, int nHeight,
+        IntPtr hWndParent, IntPtr hMenu, IntPtr hInstance, IntPtr lpParam);
+
+    /// <summary>最低 Win2000。</summary>
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern bool DestroyWindow(IntPtr hWnd);
+
+    /// <summary>最低 Win2000。</summary>
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    internal static extern IntPtr DefWindowProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    /// <summary>最低 Win2000。分层窗口 = 单独一层合成，不参与重定向表面。</summary>
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern bool SetLayeredWindowAttributes(IntPtr hWnd, uint crKey, byte bAlpha, uint dwFlags);
+
+    /// <summary>最低 Win2000。</summary>
+    [DllImport("user32.dll")]
+    internal static extern IntPtr SetCapture(IntPtr hWnd);
+
+    /// <summary>最低 Win2000。</summary>
+    [DllImport("user32.dll")]
+    internal static extern bool TrackMouseEvent(ref TRACKMOUSEEVENT lpEventTrack);
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct TRACKMOUSEEVENT
+    {
+        public uint cbSize;
+        public uint dwFlags;
+        public IntPtr hwndTrack;
+        public uint dwHoverTime;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+    internal static extern IntPtr GetModuleHandle(string? lpModuleName);
+
+    internal const uint WS_POPUP = 0x80000000;
+    internal const uint WS_EX_LAYERED = 0x00080000;
+    // WS_EX_TOOLWINDOW 已在上面（line ~141，int）定义，这里不重复
+    internal const uint WS_EX_TOPMOST = 0x00000008;
+    internal const uint WS_EX_NOACTIVATE = 0x08000000;
+    internal const uint SWP_SHOWWINDOW = 0x0040;
+    internal const uint LWA_ALPHA = 0x00000002;
+    internal const int MA_NOACTIVATE = 3;
+    internal const int HTCLIENT = 1;
+
+    internal const uint WM_PAINT = 0x000F;
+    internal const uint WM_MOUSEMOVE = 0x0200;
+    internal const uint WM_LBUTTONDOWN = 0x0201;
+    internal const uint WM_LBUTTONUP = 0x0202;
+    internal const uint WM_LBUTTONDBLCLK = 0x0203;
+    internal const uint WM_MOUSELEAVE = 0x02A3;
+    internal const uint WM_MOUSEACTIVATE = 0x0021;
+    internal const uint WM_CAPTURECHANGED = 0x0215;
+    internal const uint WM_NCHITTEST = 0x0084;
+    internal const uint TME_LEAVE = 0x00000002;
 }

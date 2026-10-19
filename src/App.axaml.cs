@@ -66,6 +66,70 @@ public partial class App : Application
 
     public App()
     {
+        // ═══════════════════════════════════════════════════════════════════════
+        //  提权助手模式（2026-10-18 自上游 1.2.0 移植）
+        //
+        //  「应用卸载」清残留 / 「系统修复」执行命令都需要管理员权限，做法是：
+        //  普通权限先跑一遍，只有**提权部分**才用 runas 起一个本程序的助手进程，
+        //  助手按传入的清单干完活、写结果文件、立刻退出。
+        //
+        //  ⛔ 必须放在**最前面**，在 InitializeComponent / 单实例 / 主窗口之前：
+        //     这是另一个进程，不建界面、不碰互斥体、不往托盘里塞图标。
+        //     放后面的话，它会因为单实例判定去"叫醒"那个非提权实例、或者弹出主窗口，
+        //     用户看到的只是一个莫名其妙的窗口闪一下。
+        // ═══════════════════════════════════════════════════════════════════════
+        var argv = Environment.GetCommandLineArgs();
+        for (var i = 0; i < argv.Length - 1; i++)
+        {
+            // 卸载残留清理的提权补刀
+            if (argv[i].Equals(Services.LeftoverCleaner.ApplySwitch, StringComparison.OrdinalIgnoreCase))
+            {
+                Services.LeftoverCleaner.ApplyManifestElevated(argv[i + 1]);
+                Environment.Exit(0);
+                return;
+            }
+
+            // 系统修复的提权执行
+            if (argv[i].Equals(Services.SystemRepair.AdminSwitch, StringComparison.OrdinalIgnoreCase))
+            {
+                Services.SystemRepair.RunElevated(argv[i + 1]);
+                Environment.Exit(0);
+                return;
+            }
+        }
+
+        // ── 开机启动项的提权助手（与上面同一个套路） ──
+        //  「所有用户」级的启动项，启用状态位在 HKLM 下，普通权限写不动。
+        //  ⛔ 同样必须在**最前面**接管：不建界面、不碰互斥体、不往托盘塞图标，干完就走。
+        for (var i = 0; i < argv.Length - 1; i++)
+        {
+            if (!argv[i].Equals(Services.StartupItems.AdminSwitch, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            Services.StartupItems.ApplyElevated(argv[i + 1]);
+            Environment.Exit(0);
+            return;
+        }
+
+        // ── 残留清理链路的无人值守体检（诊断用） ──
+        // 见 Services/LeftoverDoctor.cs 顶部的说明。⛔ 同样必须在最前面接管：
+        // 它要跑完就退出，不建窗口、不碰互斥体。
+        for (var i = 0; i < argv.Length - 1; i++)
+        {
+            var isFull = argv[i].Equals(Services.LeftoverDoctor.FullSwitch, StringComparison.OrdinalIgnoreCase);
+            var isScan = argv[i].Equals(Services.LeftoverDoctor.ScanSwitch, StringComparison.OrdinalIgnoreCase);
+            if (!isFull && !isScan) continue;
+
+            // ⛔⛔ 必须包一层 `Task.Run`：这里是构造函数的**启动线程**，
+            //    直接 .GetAwaiter().GetResult() 等一个内部有 await 的方法，
+            //    续体会被排回没人泵的消息队列 ⇒ 当场死锁。丢进线程池跑就没这个问题。
+            var code = Task.Run(() => Services.LeftoverDoctor.RunAsync(argv[i + 1], isScan))
+                           .GetAwaiter().GetResult();
+
+            Environment.Exit(code);
+            return;
+        }
+
         // ⚠️ Avalonia 的全局 UI 线程异常事件挂在 Dispatcher 上（Application 本身没有），
         //    见 OnUnhandledException 的移植说明。这里在构造里就挂上，尽早生效。
         Dispatcher.UIThread.UnhandledException += OnUnhandledException;

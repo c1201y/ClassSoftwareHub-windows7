@@ -207,10 +207,15 @@ public static class UpdateFlow
 
         try
         {
-            var progress = new Progress<double>(p =>
+            // 进度改成 DownloadProgress（2026-10-18 自上游 1.2.0 移植）：
+            // 它带已收字节 / 总字节 / 速度，任务页的卡片与普通下载是同一套快照。
+            var progress = new Progress<DownloadProgress>(p =>
             {
-                bar.Value = p * 100;
-                status.Text = $"正在下载 {release.Tag} {p:P0}";
+                bar.Value = p.Indeterminate ? 0 : p.Percent;
+                status.Text = p.Indeterminate
+                    ? $"正在下载 {release.Tag}　{p.SizeText}"
+                    : $"正在下载 {release.Tag} {p.Percent:0}%　{p.SizeText}"
+                      + (p.SpeedText.Length > 0 ? "  ·  " + p.SpeedText : "");
                 try { cts.CancelAfter(TimeSpan.FromSeconds(IdleSeconds)); } catch { /* 已取消/已释放 */ }
             });
 
@@ -295,13 +300,37 @@ public static class UpdateFlow
 
         _ = Task.Run(async () =>
         {
+            // ── 更新下载也进「任务进行」页（2026-10-18 自上游 1.2.0 移植） ──
+            // 任务页、导航徽标、完成通知这些观察者都靠 DownloadManager 的台账工作，
+            // 所以这里登记一条 DownloadTask，把进度与结局回报进去，界面一行都不用改。
+            DownloadTask? tracked = null;
+            try
+            {
+                tracked = DownloadManager.Current.TrackUpdate(
+                    $"更新 {release.Tag}", release.Tag,
+                    "正在下载更新包。下载完成后可点「安装」立即安装（安装时会先退出本程序）。",
+                    package.Url?.ToString() ?? "");
+            }
+            catch
+            {
+                // 登记失败不该影响下载本身（只是任务页上看不见这一条）
+            }
+
             try
             {
                 var destination = Path.Combine(UpdateService.UpdatesDir, package.Name);
                 using var cts = new CancellationTokenSource();
-                cts.CancelAfter(TimeSpan.FromSeconds(45));   // 空闲超时，同 RunAsync 的规矩
-                var progress = new Progress<double>(p =>
+                if (tracked is not null)
                 {
+                    // 外部托管：卡片上的「取消」必须能掐到真正在跑的那次传输
+                    tracked.AdoptCancellation(cts);
+                }
+                cts.CancelAfter(TimeSpan.FromSeconds(45));   // 空闲超时，同 RunAsync 的规矩
+                var progress = new Progress<DownloadProgress>(p =>
+                {
+                    // ① 任务页卡片：与普通下载同一套快照（百分比 / 已收 / 速度）
+                    if (tracked is not null) DownloadManager.Current.ReportProgress(tracked, p);
+                    // ② 续期空闲超时
                     try { cts.CancelAfter(TimeSpan.FromSeconds(45)); } catch { /* 已取消 */ }
                 });
 
@@ -319,14 +348,31 @@ public static class UpdateFlow
                 settings.Current.UpdatePendingTag = release.Tag;
                 settings.Save();
 
+                if (tracked is not null)
+                {
+                    var size = 0L;
+                    try { size = new FileInfo(downloaded.FilePath).Length; } catch { }
+                    RunOnUi(() => DownloadManager.Current.CompleteExternal(tracked, downloaded.FilePath, size));
+                }
+
                 RunOnUi(() => App.MainWindow?.NotifyUpdateReady(release.Tag));
             }
             catch (OperationCanceledException)
             {
-                RunOnUi(() => App.MainWindow?.NotifyBackgroundDownloadFailed(release.Tag, "下载停滞（连续 45 秒无进度）"));
+                // 用户点的取消 vs 闲置超时：两件事在日志和界面上说法完全不同（见 DownloadTask.CanceledByUser）
+                if (tracked is not null && tracked.CanceledByUser)
+                    RunOnUi(() => DownloadManager.Current.CancelExternal(tracked));
+                else
+                {
+                    if (tracked is not null)
+                        RunOnUi(() => DownloadManager.Current.FailExternal(tracked, "下载停滞（连续 45 秒无进度）"));
+                    RunOnUi(() => App.MainWindow?.NotifyBackgroundDownloadFailed(release.Tag, "下载停滞（连续 45 秒无进度）"));
+                }
             }
             catch (Exception ex)
             {
+                if (tracked is not null)
+                    RunOnUi(() => DownloadManager.Current.FailExternal(tracked, ex.Message));
                 RunOnUi(() => App.MainWindow?.NotifyBackgroundDownloadFailed(release.Tag, ex.Message));
             }
             finally
@@ -347,6 +393,28 @@ public static class UpdateFlow
 
         await Task.Delay(400);       // 让 cmd 来得及把延迟启动安排下去，再走
         ExitAppNow();
+    }
+
+    /// <summary>
+    /// 「任务进行」页的更新包点「安装」（2026-10-18 自上游 1.2.0 移植）。
+    ///
+    /// 与 <see cref="InstallPendingNowAsync"/> 是同一条路，差别只在取哪条路径：
+    /// 后者从设置里的"待装标记"拿，这里直接从**这一条任务的落盘路径**拿 ——
+    /// 用户刚从任务页点「安装」时，待装标记可能还没写（后台下载刚回报完成）。
+    ///
+    /// ⚠️ 顺序必须一致：先拉起安装器、成功之后再退应用（Inno 一启动就查 AppMutex，
+    ///    应用还在跑会被静默取消，用户端只表现为"版本没变"）。
+    /// </summary>
+    public static async Task<bool> InstallPendingFromTaskPageAsync(DownloadTask task)
+    {
+        var path = task.Path;
+        if (string.IsNullOrEmpty(path) || !File.Exists(path)) return false;
+
+        if (!await TryStartInstallerAsync(path)) return false;
+
+        await Task.Delay(400);
+        ExitAppNow();
+        return true;
     }
 
     /// <summary>

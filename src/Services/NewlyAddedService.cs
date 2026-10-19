@@ -60,20 +60,26 @@ public static class NewlyAddedService
     private static string Repo =>
         $"repos/{ShellConfig.SiteRepoOwner}/{ShellConfig.SiteRepoName}";
 
-    /// <summary>取「今天新收录的软件」。算不出来返回 <c>null</c>。</summary>
-    public static async Task<NewlyAddedResult?> GetTodayAsync(CancellationToken ct = default)
+    /// <summary>
+    /// 取「窗口内新收录的软件」（调用方传 <c>TimeSpan.FromHours(48)</c> 即「过去 48 小时」）。
+    /// 算不出来返回 <c>null</c>。
+    /// ⚠️ 2026-10-18 自上游 1.2.0 移植：口径由「今天 0 点」改成「滚动窗口」——
+    ///    原来一到凌晨就清零，教室里跨午夜的值班场景看不到昨天下午刚上架的软件。
+    /// </summary>
+    public static async Task<NewlyAddedResult?> GetRecentAsync(TimeSpan window, CancellationToken ct = default)
     {
         await Gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            var today = DateTime.Today.ToString("yyyy-MM-dd");
+            var anchor = DateTime.UtcNow;
             var head = ReadLocalHeadSha();
 
-            // ① 命中（内存 → 磁盘）：同一天 + 仓库 sha 没变 → 直接用，零请求
+            // ① 命中（内存 → 磁盘）：同一窗口锚点 + 仓库 sha 没变 → 直接用，零请求
             foreach (var entry in new[] { _memo, ReadCache() })
             {
-                if (entry is null || entry.Date != today) continue;
+                if (entry is null) continue;
                 if (head.Length > 0 && !string.Equals(entry.Head, head, StringComparison.OrdinalIgnoreCase)) continue;
+                if ((anchor - entry.Anchor) > window) continue;   // 缓存比窗口还老就废掉，重新算
                 _memo = entry;
                 return new NewlyAddedResult(entry.Ids);
             }
@@ -82,8 +88,8 @@ public static class NewlyAddedService
             var headIds = ReadLocalAppIds();
             if (headIds.Count == 0) return null;
 
-            // ③ 基准：本地今天 0 点之前，apps 目录的最后一次变更
-            var until = DateTime.Today.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'");
+            // ③ 基准：窗口起点（now − window）之前，apps 目录的最后一次变更
+            var until = anchor.Subtract(window).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'");
             var path = string.Join("/", AppsDirInRepo.Split('/').Select(Uri.EscapeDataString));
             var baseSha = ReadFirstSha(await GithubContentSync.GetApiTextAsync(
                 $"{Repo}/commits?until={until}&path={path}&per_page=1", ct).ConfigureAwait(false));
@@ -98,7 +104,7 @@ public static class NewlyAddedService
             // 清单被 GitHub 截断＝不完整，减出来的"新增"会是一堆假货 —— 宁可不报
             if (truncated)
             {
-                AppLog.Warning("ui", "今日新增：基准清单被 GitHub 截断，这次不显示");
+                AppLog.Warning("ui", "近期新增：基准清单被 GitHub 截断，这次不显示");
                 return null;
             }
 
@@ -106,12 +112,12 @@ public static class NewlyAddedService
                              .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
                              .ToList();
 
-            var fresh = new CacheEntry(today, head, ids);
+            var fresh = new CacheEntry(anchor, head, ids);
             _memo = fresh;
             WriteCache(fresh);
 
             AppLog.Info("ui",
-                $"今日新增：{ids.Count} 款（{today}，基准 {(baseSha.Length >= 7 ? baseSha[..7] : baseSha)}，"
+                $"近期新增：{ids.Count} 款（窗口 {window.TotalHours:0} 小时，排名基准 {(baseSha.Length >= 7 ? baseSha[..7] : baseSha)}，"
                 + $"清单 {baseIds.Count} → {headIds.Count}）");
             return new NewlyAddedResult(ids);
         }
@@ -209,7 +215,7 @@ public static class NewlyAddedService
 
     // ── 缓存 ────────────────────────────────────────────────────────
 
-    private sealed record CacheEntry(string Date, string Head, List<string> Ids);
+    private sealed record CacheEntry(DateTime Anchor, string Head, List<string> Ids);
 
     private static CacheEntry? ReadCache()
     {
@@ -220,16 +226,21 @@ public static class NewlyAddedService
             using var doc = JsonDocument.Parse(File.ReadAllText(CacheFile));
             var root = doc.RootElement;
 
-            var date = root.TryGetProperty("date", out var d) ? d.GetString() : null;
+            // ⚠️ 缓存格式升级（2026-10-18）：date（yyyy-MM-dd）→ anchor（UTC 时间戳）。
+            //    旧格式读不出来就当没有缓存 —— 只是多两次请求，不会算错。
+            if (!root.TryGetProperty("anchor", out var a) || a.GetString() is not { } anchorText) return null;
+            if (!DateTime.TryParse(anchorText, System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal,
+                    out var anchor)) return null;
+
             var head = root.TryGetProperty("head", out var h) ? h.GetString() : "";
-            if (string.IsNullOrEmpty(date)) return null;
 
             var ids = new List<string>();
             if (root.TryGetProperty("ids", out var arr) && arr.ValueKind == JsonValueKind.Array)
                 foreach (var item in arr.EnumerateArray())
                     if (item.GetString() is { } s) ids.Add(s);
 
-            return new CacheEntry(date, head ?? "", ids);
+            return new CacheEntry(anchor, head ?? "", ids);
         }
         catch { return null; }
     }
@@ -241,7 +252,7 @@ public static class NewlyAddedService
             Directory.CreateDirectory(ShellConfig.CachedContentDir);
             var json = JsonSerializer.Serialize(new Dictionary<string, object>
             {
-                ["date"] = entry.Date,
+                ["anchor"] = entry.Anchor.ToString("O"),
                 ["head"] = entry.Head,
                 ["ids"] = entry.Ids,
             });

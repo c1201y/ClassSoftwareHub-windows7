@@ -9,28 +9,71 @@ using Ico = ClassSoftwareHub.Desktop.Platform.NativeMethodsIcons;
 namespace ClassSoftwareHub.Desktop.Services;
 
 /// <summary>
-/// 从 exe 提取软件图标，转成 Avalonia 能直接显示的 <see cref="Bitmap"/>。
-/// 给音量合成器这类「一行一个进程、要显示它自己的图标」的地方用。
+/// 从一个文件取出能直接在界面上显示的图标。
+/// 给音量合成器（一行一个进程、要显示它自己的图标）和「应用卸载」页用。
 ///
 /// 走 Win32（<c>SHGetFileInfo</c> 拿 HICON → 复制成 32bpp ARGB → 拼成 BMP/位图），
-/// 不引 System.Drawing。提取结果按 exe 路径缓存，同一个进程反复刷新时不再重复掏图标。
+/// 不引 System.Drawing。提取结果按路径缓存，同一个进程反复刷新时不再重复掏图标。
 ///
 /// ⚠️ 移植说明：原版把像素写进 WinRT 的 <c>WriteableBitmap.PixelBuffer</c>；
 ///    Avalonia 的等价物是 <c>Avalonia.Media.Imaging.Bitmap(Stream)</c>（解码 BMP 流），
 ///    所以这里手搓一段 32bpp BMP（跟 Services/ScreenCapture 同一套 54 字节头写法）再交给它。
+///
+/// <para>2026-10-18 自上游 1.2.0 移植：
+/// ① 拆成两条路 —— exe/dll 走 Win32 提取，png/jpg 等图片（商店应用图标）直接按文件解码；
+/// ② 加 <see cref="Prewarm"/> 后台预热（「应用卸载」页几百个应用，冷路径上几十毫秒会让列表一滚就迟滞）。</para>
 /// </summary>
 public static class AppIconService
 {
     private static readonly ConcurrentDictionary<string, Bitmap?> _cache = new();
+    private static readonly ConcurrentDictionary<string, Pixels> _pixels = new();
 
-    /// <summary>拿某个 exe 的图标；拿不到（路径空 / 文件没了 / 提取失败）返回 null，调用方自会显示占位。</summary>
+    /// <summary>提取出来的原始像素（32bpp BGRA、行序自上而下）。</summary>
+    private sealed record Pixels(int W, int H, byte[] Bgra);
+
+    /// <summary>
+    /// 后台预热：先把**慢的那一半**（读 exe 图标资源 → 拷成像素）跑掉。可在任意线程调。
+    /// ⚠️ 预热只是优化，不是正确性依赖 —— 没预热到的话 <see cref="Get"/> 自己同步补上。
+    /// </summary>
+    public static void Prewarm(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return;
+        if (IsImageFile(path)) return;   // png 那条本来就只是读文件
+        _pixels.GetOrAdd(path, p => ExtractPixels(p) ?? new Pixels(0, 0, Array.Empty<byte>()));
+    }
+
+    /// <summary>拿某个文件的图标；拿不到（路径空 / 文件没了 / 提取失败）返回 null，调用方自会显示占位。</summary>
     public static Bitmap? Get(string? exePath)
     {
         if (string.IsNullOrWhiteSpace(exePath)) return null;
-        return _cache.GetOrAdd(exePath, path => Extract(path));
+        return _cache.GetOrAdd(exePath, path =>
+        {
+            if (IsImageFile(path)) return FromImageFile(path);
+
+            var px = _pixels.GetOrAdd(path, p => ExtractPixels(p) ?? new Pixels(0, 0, Array.Empty<byte>()));
+            return px.W <= 0 || px.H <= 0 ? null : DecodeBgra(px.Bgra, px.W, px.H);
+        });
     }
 
-    private static Bitmap? Extract(string exePath)
+    private static bool IsImageFile(string path)
+        => Path.GetExtension(path).ToLowerInvariant() is ".png" or ".jpg" or ".jpeg" or ".bmp" or ".gif";
+
+    /// <summary>图片文件（商店应用的 logo png）直接交给 Avalonia 的 Bitmap 解码。</summary>
+    private static Bitmap? FromImageFile(string path)
+    {
+        try
+        {
+            if (!File.Exists(path)) return null;
+            using var fs = File.OpenRead(path);
+            return new Bitmap(fs);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static Pixels? ExtractPixels(string exePath)
     {
         var hIcon = IntPtr.Zero;
         try
@@ -77,7 +120,7 @@ public static class AppIconService
                     NativeMethods.ReleaseDC(IntPtr.Zero, hdc);
                 }
 
-                return DecodeBgra(pixels, w, h);
+                return new Pixels(w, h, pixels);
             }
             finally
             {

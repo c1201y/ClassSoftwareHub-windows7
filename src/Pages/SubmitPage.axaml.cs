@@ -45,6 +45,33 @@ public sealed partial class SubmitPage : PageBase
         public string Note = "";
         public string Url = "";
         public string Hash = "";
+
+        /// <summary>用户在「下载方式」里显式选的 kind；空串＝自动识别，提交时不写这个字段。
+        /// （2026-10-18 自上游 1.2.0 移植）</summary>
+        public string Kind = "";
+    }
+
+    /// <summary>
+    /// 「下载方式」下拉的选项 —— 与网页端提交页 SubmitPage.vue 的 downloadKindItems **同一套**，
+    /// 顺序也一样：第 0 项是「自动识别」（不写 kind，交给详情页按链接推断），其余对应
+    /// Data/DownloadLinkKind.cs 里的 DownloadKind。
+    /// ⛔ 两边选项必须一致，否则同一份提交数据在网页端与桌面端会长得不一样。
+    /// </summary>
+    private static readonly (string Label, string Kind)[] DownloadKinds =
+    {
+        ("自动识别（按链接判断）", ""),
+        ("官网直链 / 直接下载", "file"),
+        ("网页跳转", "netdisk"),
+        ("应用商店", "store"),
+    };
+
+    /// <summary>kind 值 → 下拉索引；空串（自动）返回 -1，让占位文案显示出来（与网页端一致）。</summary>
+    private static int KindIndexOf(string kind)
+    {
+        if (kind.Length == 0) return -1;
+        for (var i = 1; i < DownloadKinds.Length; i++)
+            if (DownloadKinds[i].Kind == kind) return i;
+        return -1;
     }
 
     private readonly List<DownloadDraft> _downloads = new();
@@ -154,6 +181,38 @@ public sealed partial class SubmitPage : PageBase
         stack.Children.Add(urlBlock);
 
         stack.Children.Add(Field("校验值（选填，用于防篡改）", "纯十六进制，算法按位数自动识别", null, value => draft.Hash = value));
+
+        // 下载方式（对应网页端提交页同一个下拉；2026-10-18 自上游 1.2.0 移植）：
+        // 决定详情页那颗按钮写「下载」还是「前往网盘 / 前往官网 / 打开商店」。
+        // 默认 -1 ＝不选 ＝自动识别，提交时不写 kind 字段。
+        var kindCombo = new ComboBox
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            PlaceholderText = "自动识别（按链接判断）",
+        };
+        foreach (var (label, _) in DownloadKinds)
+            kindCombo.Items.Add(new ComboBoxItem { Content = label });
+        kindCombo.SelectedIndex = KindIndexOf(draft.Kind);
+        kindCombo.SelectionChanged += (_, _) =>
+        {
+            var i = kindCombo.SelectedIndex;
+            draft.Kind = i >= 0 && i < DownloadKinds.Length ? DownloadKinds[i].Kind : "";
+        };
+
+        var kindLabel = new TextBlock { Text = "下载方式（选填）", FontSize = 12.5, Opacity = 0.8 };
+        var kindHint = new TextBlock
+        {
+            FontSize = 12,
+            Opacity = 0.7,
+            TextWrapping = TextWrapping.Wrap,
+            Text = "不确定就保持「自动识别」：详情页会按链接判断该直接下载、前往官网还是打开商店。",
+        };
+
+        var kindBlock = new StackPanel { Spacing = 4 };
+        kindBlock.Children.Add(kindLabel);
+        kindBlock.Children.Add(kindCombo);
+        kindBlock.Children.Add(kindHint);
+        stack.Children.Add(kindBlock);
 
         var card = new Border
         {
@@ -623,6 +682,9 @@ public sealed partial class SubmitPage : PageBase
                 };
                 var hash = NormalizeHash(item.Hash);
                 if (hash.Length > 0) entry["hash"] = hash;
+                // 只写用户**显式选过**的 kind；自动识别不写这个字段（详情页会按链接推断）
+                // （2026-10-18 自上游 1.2.0 移植）
+                if (item.Kind.Length > 0) entry["kind"] = item.Kind;
                 return entry;
             })
             .ToList();

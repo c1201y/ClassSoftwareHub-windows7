@@ -155,6 +155,41 @@ public sealed partial class ToolSidebarWindow : Window
     public const int MinCollapsedLengthDip = 60;
     public const int MaxCollapsedLengthDip = 400;
 
+    // ── 大小样式（标准 / 紧凑；2026-10-18 自上游 1.2.0 移植）────────────
+    //
+    // 上游有两档：
+    //   · SidebarDensity（收起态）：standard = 现在这套；compact = 细条 + 小图标小字，
+    //     但**按钮点击区域不跟着缩到底**（细条上的键点不准，Nick 特意提的）。
+    //   · SidebarExpandedDensity（展开态）：same（默认）= 跟随收起态；标准 / 紧凑 = 固定。
+    // 本移植版的收起条尺寸已有自己的一套（8dip 粗条 / 6dip 细线 + 长度可调），
+    // 所以"紧凑"落地为**图标与文字缩放 + 面板厚度收窄**，点按区域仍保留原尺寸。
+
+    /// <summary>收起态是不是紧凑（认不出的值一律当 standard）。</summary>
+    public static bool CompactCollapsed =>
+        string.Equals(App.Settings.Current.SidebarDensity, "compact", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>展开态是不是紧凑。<c>same</c> = 跟随收起态。</summary>
+    public static bool CompactBody =>
+        (App.Settings.Current.SidebarExpandedDensity ?? "same").ToLowerInvariant() switch
+        {
+            "compact" => true,
+            "standard" => false,
+            _ => CompactCollapsed,   // same / 认不出的值
+        };
+
+    /// <summary>紧凑态下工具图标/文字的缩放（1 = 标准）。</summary>
+    public const double CompactScale = 0.82;
+
+    /// <summary>紧凑态下面板厚度收窄多少 dip（竖条=宽）。</summary>
+    public const int CompactPanelShrinkDip = 16;
+
+    /// <summary>
+    /// 展开面板的厚度（dip）：标准 92，紧凑档再收 <see cref="CompactPanelShrinkDip"/>。
+    /// ⚠️ 只改**厚度**、不改长度与按钮最小高度 —— 收窄是为了少占地方，不是为了把键变小。
+    /// </summary>
+    private static int ExpandedThicknessDip =>
+        Math.Max(60, PanelThicknessDip - (CompactBody ? CompactPanelShrinkDip : 0));
+
     /// <summary>
     /// 某套收起样式**自带**的长度默认值（dip）——「侧边布局」页显示"默认（110）"用。
     /// 设置里 <c>SidebarCollapsedLength</c> 为 0 时实际就是它。
@@ -188,6 +223,18 @@ public sealed partial class ToolSidebarWindow : Window
 
     private readonly DispatcherTimer _idle;
 
+    /// <summary>
+    /// 「点别处就收起」的看守计时器（2026-10-18 加）。
+    ///
+    /// 为什么不能只靠 <c>Deactivated</c>：侧边栏是 Topmost 工具窗口，点别处时常常收不到可靠的失焦通知
+    /// （或收到时 <see cref="SuppressAutoCollapse"/> 正立着），于是"没钉住"的展开面板会一直摊着 ——
+    /// 用户原话：「打开悬浮窗没钉住的情况下，点击非悬浮窗他不收缩」。
+    /// 这里每 150ms 看一眼前台窗口：只要不是自己、也不是自己的弹层（Flyout/Popup 都是
+    /// 本进程里 owner 指向本窗口的子窗口）就收起。点主界面、点桌面、点别的程序都算"别处"。
+    /// ⛔ 钉住（常驻）/ 按住不放 / 有弹层挂着时一律不动，跟 <see cref="_idle"/> 的规矩一致。
+    /// </summary>
+    private DispatcherTimer? _outsideWatch;
+
     /// <summary>展开滑动用的按帧计时器（滑完置空）。
     /// ⚠️ 移植说明：上游 dv1.1.0 起改用 <c>CompositionTarget.Rendering</c> 渲染回调 + 兜底 watchdog 驱动
     ///    （嫌 16ms 计时器精度低、忙时会合并 tick）；本仓库既有约定是 15~16ms <see cref="DispatcherTimer"/>
@@ -220,8 +267,22 @@ public sealed partial class ToolSidebarWindow : Window
     /// <summary>网格当前在第几页（0 起）。模块清单变少时会被 <see cref="RenderGridPage"/> 归零。</summary>
     private int _gridPage;
 
-    /// <summary>收起条现在算不算"悬停中"（鼠标 / 手指搭在上面）。只有竖线样式会用它换色。</summary>
+    /// <summary>收起条现在算不算"悬停中"（鼠标 / 手指搭在上面）。两套收起样式都用它换色。</summary>
     private bool _hover;
+
+    /// <summary>
+    /// 悬停的**两个来源**：直接搭在竖线上（Avalonia 指针事件）｜ 搭在隐形热区上（原生窗口，见 <see cref="_hitPad"/>）。
+    /// 取"或"再统一刷 —— 从热区挪到竖线上时两边会先后收到进入/离开，直接各写 <see cref="_hover"/>
+    /// 会让线闪一下（2026-10-17）。
+    /// </summary>
+    private bool _hoverStrip, _hoverPad;
+
+    /// <summary>
+    /// 收起条的**隐形点击/滑动热区**（2026-10-17 加）。线太细（8dip）+ 离屏幕边还留 5dip，
+    /// 鼠标/手指"差一点点"就点空。做法见 <see cref="SidebarHitPad"/>：一扇 alpha=1 的原生分层窗口，
+    /// 盖住「竖线 + 到屏幕边的空隙 + 内侧一条带」—— 看不见，但能接住点击和滑动。
+    /// </summary>
+    private SidebarHitPad? _hitPad;
 
     /// <summary>收起条上按下 / 最近一次移动的位置（dip，Root 坐标）—— 判断"点击还是向外滑"的两点。</summary>
     private Point _pressPos;
@@ -385,7 +446,12 @@ public sealed partial class ToolSidebarWindow : Window
         Configure();
 
         Core.AppLog.Info("exit", $"侧边栏实例已建 edge={_edge}");
-        Closed += (_, _) => Core.AppLog.Info("exit", $"侧边栏 Closed edge={_edge}");
+        Closed += (_, _) =>
+        {
+            Core.AppLog.Info("exit", $"侧边栏 Closed edge={_edge}");
+            try { _hitPad?.Dispose(); } catch { }
+            _hitPad = null;
+        };
     }
 
     // ── 对外入口 ─────────────────────────────────────────────
@@ -480,7 +546,7 @@ public sealed partial class ToolSidebarWindow : Window
     /// 结果就是"浮窗收了两键也缩了、边条却赖着不动"。所以在这儿显式叫它收。
     /// 钉了常驻（SidebarPinned）的不收 —— 用户明确要它留着。
     /// </summary>
-    public static void CollapseAfterVolumeFlyoutsClosed()
+    public static void CollapseAfterPopupsClosed()
     {
         foreach (var w in _pool.Values)
         {
@@ -759,6 +825,7 @@ public sealed partial class ToolSidebarWindow : Window
         if (!_visible) return;
         StopSlide();
         _visible = false;
+        HideHitPad();                                     // 整条都藏了，热区更不能留着挡点击
 
         // 音量浮窗（主音量 + 合成器）跟着一起收
         VolumeFlyoutGroup.CloseAll();
@@ -816,6 +883,7 @@ public sealed partial class ToolSidebarWindow : Window
 
     private void Expand()
     {
+        HideHitPad();                                     // 隐形热区跟收起条一起退场，别挡屏幕
         StopSlide();                                      // 掐掉上一次没跑完的（防连点/竞态）
         _collapseEpoch++;                                 // 取消可能还在跑的"收起滑出/抓手淡入"
         _expanded = true;
@@ -831,12 +899,14 @@ public sealed partial class ToolSidebarWindow : Window
         //    把"起点位置 + 展开尺寸"同时设下去（2026-09-26 优化）。
         SlideInFromEdge();
         Touch();
+        StartOutsideWatch();                              // 没钉住时：点别处要收起（见字段注释）
     }
 
     private void Collapse(bool animate = true)
     {
         StopSlide();                                      // ⚠️ 必须停：不然展开动画的后续帧还会把窗口挪回去
         _idle.Stop();
+        StopOutsideWatch();                               // 收起来就不用再看前台窗口了
 
         // 展开 → 收起给个过渡：整个窗口往贴的那条边**滑出去**（跟滑进来同一条路子，方向相反），滑完再真收。
         // animate=false 用在"要立刻消失"的场合（截图前、刚出现时），那种必须当帧就收干净。
@@ -911,6 +981,7 @@ public sealed partial class ToolSidebarWindow : Window
         else ResetPanelOpacity();
 
         ReassertCollapsed();
+        UpdateHitPad();                                   // 收好位就把隐形热区摆上（鼠标/手指的容错区）
     }
 
     private void ResetPanelOpacity() => SetPanelOpacity(1f);
@@ -1028,7 +1099,118 @@ public sealed partial class ToolSidebarWindow : Window
         _idle.Stop();                       // 先把已经排队的自动收起取消掉
         UpdatePinVisual();
         Touch();                            // 松开时重新起计时；钉住时 Touch 自己会跳过
+        if (pinned) StopOutsideWatch();      // 钉住 = 点别处也不收
+        else if (_expanded) StartOutsideWatch();
         Log(pinned ? "常驻：开" : "常驻：关");
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    //  点别处就收起（2026-10-18 加；同日二改：只认"真的点了外面"，不认焦点变化）
+    //
+    //  用户第一版反馈：「打开悬浮窗没钉住的情况下，点击非悬浮窗他不收缩」；
+    //  第二版反馈：「有点太灵敏了，打开就关，打开 3s 自动关，点击其他位置也关闭」。
+    //
+    //  ⛔ 第一版是**看前台窗口**做的 —— 但边条是 Topmost 工具窗口，点收起条展开时它
+    //    根本拿不到前台（前台还是主界面），于是刚展开就被判成"点了别处"直接收掉（打开就关）。
+    //  ✅ 现在改成只看**鼠标左键的新一次按下**：
+    //     · 展开后先给 700ms 冷静期（展开那一下的按下不能算数）；
+    //     · 之后每次检测到"左键从没按着 → 按着"，取光标下的窗口：
+    //         是自己 / 自己的弹层（owner 链）→ 不管；否则才收起；
+    //     · 光标只是移出去、或者焦点变了，都**不会**收 —— 只有真点下去才收。
+    // ══════════════════════════════════════════════════════════════════
+
+    /// <summary>展开后多久内不理会鼠标按下（dip/毫秒）：展开那一下的点击不能把自己收掉。</summary>
+    private const int OutsideWatchGraceMs = 700;
+
+    /// <summary>冷静期到期的时刻（Environment.TickCount64 毫秒）。</summary>
+    private long _outsideWatchArmedAt;
+
+    /// <summary>上一拍左键是否按着（用来识别"新的一次按下"）。</summary>
+    private bool _lastLeftDown;
+
+    private void StartOutsideWatch()
+    {
+        if (App.Settings.Current.SidebarPinned) return;   // 钉住：不看守
+
+        _outsideWatchArmedAt = Environment.TickCount64 + OutsideWatchGraceMs;
+        _lastLeftDown = IsLeftButtonDown();               // 展开时如果正按着，别把这一下算成"点外面"
+
+        if (_outsideWatch is null)
+        {
+            _outsideWatch = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
+            _outsideWatch.Tick += (_, _) => CheckOutsideClick();
+        }
+
+        _outsideWatch.Stop();
+        _outsideWatch.Start();
+    }
+
+    private void StopOutsideWatch()
+    {
+        _outsideWatch?.Stop();
+    }
+
+    private static bool IsLeftButtonDown()
+    {
+        try { return (NativeMethods.GetAsyncKeyState(NativeMethods.VK_LBUTTON) & 0x8000) != 0; }
+        catch { return false; }
+    }
+
+    /// <summary>检测"新的按下"落在外面 → 收起（钉住 / 按住 / 有弹层 / 冷静期内都不动）。</summary>
+    private void CheckOutsideClick()
+    {
+        try
+        {
+            if (!_expanded || !_visible)
+            {
+                StopOutsideWatch();
+                return;
+            }
+
+            var down = IsLeftButtonDown();
+            var freshPress = down && !_lastLeftDown;      // 这一拍刚按下去
+            _lastLeftDown = down;
+
+            if (!freshPress) return;                      // 只认真按下；移出去/焦点变化一律不管
+
+            // 钉住（常驻）/ 正按着边条 / 有弹层挂着（Flyout、确认框、模块库菜单…）→ 都不收
+            if (App.Settings.Current.SidebarPinned || _pressed || SuppressAutoCollapse) return;
+
+            // 冷静期：刚刚才展开（那一下的按下不算）
+            if (Environment.TickCount64 < _outsideWatchArmedAt) return;
+
+            var self = Backdrop.TryGetHwnd(this);
+            if (self == IntPtr.Zero) return;
+
+            if (!NativeMethods.GetCursorPos(out var pt)) return;
+
+            // 光标落在哪个窗口上：自己 → 点在面板里，不是"别处"；
+            // 自己的弹层（owner 链能走到自己）→ 也不收；其余（主界面/桌面/别的程序）才算。
+            var target = NativeMethods.WindowFromPoint(pt);
+            if (target == IntPtr.Zero) return;
+            if (IsSelfOrOwnedBy(target, self)) return;
+
+            Log("点外面 → 收起展开面板（未常驻）");
+            Collapse();
+        }
+        catch (Exception ex)
+        {
+            // 看守本身挂了不该影响边条使用：停掉它，退回原来的 10 秒自动收起
+            StopOutsideWatch();
+            Log("点别处看守异常，已停用: " + ex.Message);
+        }
+    }
+
+    /// <summary>窗口 <paramref name="hwnd"/> 是不是 <paramref name="owner"/> 自己，或者它 owner 链上的子窗口。</summary>
+    private static bool IsSelfOrOwnedBy(IntPtr hwnd, IntPtr owner)
+    {
+        var w = hwnd;
+        for (var depth = 0; depth < 8 && w != IntPtr.Zero; depth++)
+        {
+            if (w == owner) return true;
+            w = NativeMethods.GetWindow(w, NativeMethods.GW_OWNER);
+        }
+        return false;
     }
 
     /// <summary>「常驻」键的样子：钉住 = 实心钉 + 主题色；松开 = 空心钉。</summary>
@@ -1226,15 +1408,14 @@ public sealed partial class ToolSidebarWindow : Window
         try
         {
             var grid = UseGridStyle;
-            var line = UseLineCollapsed;
 
             GridPanel.IsVisible = grid;
             ExpandedStack.IsVisible = !grid;
 
-            LineView.IsVisible = line;
-            GripStack.IsVisible = !line;
-
             if (grid) RenderGridPage();
+
+            // ⚠️ 2026-10-17：收起态不再有"内芯/两种视图"之分 —— 窗口本身就是那条线，
+            //    LineHover 只是铺满整条的悬停高亮层（两套样式共用）。
             ApplyCornerRadius();
         }
         catch (Exception ex)
@@ -1257,7 +1438,7 @@ public sealed partial class ToolSidebarWindow : Window
             {
                 minDip = UseGridStyle
                     ? Math.Min(GridPanelDip().W, GridPanelDip().H)
-                    : Math.Min(PanelThicknessDip, PanelLengthDip);
+                    : Math.Min(ExpandedThicknessDip, PanelLengthDip);
             }
             else
             {
@@ -1291,13 +1472,15 @@ public sealed partial class ToolSidebarWindow : Window
             content.Children.Add(new FontIcon
             {
                 Glyph = m.Glyph,
-                FontSize = 20,
+                // 紧凑档（SidebarExpandedDensity = compact）图标按 CompactScale 缩一点；
+                // ⛔ 按钮本身的最小尺寸（MinHeight 52）不跟着缩 —— 细条上的键必须点得中。
+                FontSize = CompactBody ? 20 * CompactScale : 20,
                 HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center
             });
             content.Children.Add(new TextBlock
             {
                 Text = m.ShortName,
-                FontSize = 11,
+                FontSize = CompactBody ? 11 * CompactScale : 11,
                 HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center
             });
 
@@ -2243,37 +2426,112 @@ public sealed partial class ToolSidebarWindow : Window
     /// <summary>收起条的悬停高亮（鼠标搭上去就亮一下，触屏不会触发）。</summary>
     private void Strip_PointerEntered(object? sender, PointerEventArgs e)
     {
-        _hover = true;
-        UpdateCollapsedLook();
+        _hoverStrip = true;
+        ApplyHover();
     }
 
     private void Strip_PointerExited(object? sender, PointerEventArgs e)
     {
         // 按着的时候不熄：捕获还在手上，指针挪出条外是常事，这时熄掉看着像"闪一下"
         if (_pressed) return;
-        _hover = false;
+        _hoverStrip = false;
+        ApplyHover();
+    }
+
+    /// <summary>两个悬停来源取"或"后统一刷一次（避免从热区挪到线上时来回闪）。</summary>
+    private void ApplyHover()
+    {
+        var on = _hoverStrip || _hoverPad;
+        if (on == _hover) return;
+        _hover = on;
         UpdateCollapsedLook();
     }
 
+    // ── 收起条隐形热区（2026-10-17：线太细点不着 / 手指滑不开）─────────
+
+    /// <summary>热区朝**屏幕里**多让出来的带宽（dip）。18 ≈ 鼠标"差一点点"也中、手指也能落进来。</summary>
+    private const int HitPadInwardDip = 18;
+
+    /// <summary>热区沿线的两端各延伸多少（dip）—— 长度方向也留点容错。</summary>
+    private const int HitPadEndDip = 12;
+
+    /// <summary>热区里悬停：把那条线点亮（跟鼠标直接搭在线上同一个效果）。</summary>
+    private void SetPadHover(bool on)
+    {
+        _hoverPad = on;
+        ApplyHover();
+    }
+
     /// <summary>
-    /// 收起条两种样式各自的悬停效果：抓手 = 那截小条亮一点；细竖线 = 整条换成强调色。
-    /// ⚠️ 只动这两个视觉，**绝不碰 Panel 底色 / 窗口背景** —— 那套是防白闪的（见 ApplyPanelBrush）。
+    /// 按当前状态摆/收隐形热区。收起且可见 → 摆到「竖线 + 到屏幕边的空隙 + 内侧容错带」；
+    /// 展开 / 隐藏 → 收走，一像素输入都不多占。
+    /// </summary>
+    private void UpdateHitPad()
+    {
+        try
+        {
+            if (!_visible || _expanded)
+            {
+                _hitPad?.Hide();
+                return;
+            }
+
+            _hitPad ??= SidebarHitPad.TryCreate(_edge, Expand, SetPadHover);
+            if (_hitPad is null) return;                       // 创建失败 = 没有容错区，点击照旧走 Avalonia
+
+            var size = CollapsedSize();
+            var at = EdgePosition(size.Width, size.Height);
+            var scale = Scale();
+            var padIn = (int)Math.Round(HitPadInwardDip * scale);
+            var padEnd = (int)Math.Round(HitPadEndDip * scale);
+            var gap = (int)Math.Round((UseLineCollapsed ? CollapsedEdgeGapDip : GripEdgeGapDip) * scale);
+
+            int x, y, w, h;
+            switch (_edge)
+            {
+                case "left":
+                    x = at.X - gap; y = at.Y - padEnd;
+                    w = size.Width + gap + padIn; h = size.Height + padEnd * 2;
+                    break;
+                case "top":
+                    x = at.X - padEnd; y = at.Y - gap;
+                    w = size.Width + padEnd * 2; h = size.Height + gap + padIn;
+                    break;
+                case "bottom":
+                    x = at.X - padEnd; y = at.Y - padIn;
+                    w = size.Width + padEnd * 2; h = size.Height + padIn + gap;
+                    break;
+                default: // right：外侧要盖住到屏幕边的空隙（把指针怼到屏幕边也点得中），内侧多让一条容错带
+                    x = at.X - padIn; y = at.Y - padEnd;
+                    w = size.Width + padIn + gap; h = size.Height + padEnd * 2;
+                    break;
+            }
+
+            _hitPad.Place(new PixelRect(x, y, Math.Max(8, w), Math.Max(8, h)),
+                Hwnd(),                                        // z 序：排在收起条下面一层
+                (int)Math.Round(14 * scale),                   // 点击容错
+                (int)Math.Round(10 * scale));                  // 朝屏幕里滑的阈值
+        }
+        catch (Exception ex)
+        {
+            Log("摆热区失败: " + ex.Message);
+        }
+    }
+
+    private void HideHitPad() => _hitPad?.Hide();
+
+    /// <summary>
+    /// 收起条的悬停效果：整条铺一层半透明强调色（2026-10-17 起两套样式一样 —— 都只是一条线）。
+    /// ⚠️ 只动这一层，**绝不碰 Panel 底色 / 窗口背景** —— 那套是防白闪的（见 ApplyPanelBrush）。
     /// </summary>
     private void UpdateCollapsedLook()
     {
         try
         {
-            if (UseLineCollapsed)
-            {
-                // 细竖线：内芯已去掉，悬停时整条铺一层半透明强调色当反馈；熄掉时清掉本地画刷，回到主题那支
-                LineHover.Opacity = _hover ? 1.0 : 0;
-                if (_hover) LineHover.Background = new SolidColorBrush(AccentColor(), 0.35);
-                else LineHover.ClearValue(Border.BackgroundProperty);
-            }
-            else
-            {
-                Grip.Opacity = _hover ? 1.0 : 0.6;
-            }
+            // 悬停时整条铺一层半透明强调色当反馈；熄掉时清掉本地画刷，回到主题那支
+            LineHover.Opacity = _hover ? 1.0 : 0;
+            if (_hover) LineHover.Background = new SolidColorBrush(AccentColor(), 0.35);
+            else LineHover.ClearValue(Border.BackgroundProperty);
         }
         catch (Exception ex)
         {
@@ -2522,12 +2780,8 @@ public sealed partial class ToolSidebarWindow : Window
             var edge = Edge;
             var flat = edge is "top" or "bottom";
 
-            // 收起状态的抓手：竖条时竖着、横条时横着
-            GripStack.Orientation = flat ? Orientation.Horizontal : Orientation.Vertical;
-            Grip.Width = flat ? 48 : 5;
-            Grip.Height = flat ? 5 : 48;
-
-            // 收起状态的细竖线：内芯已去掉（2026-10-12），窗口本身即那条线，无需再量芯的尺寸
+            // 收起状态（2026-10-17 起）= 一条光溜溜的线：窗口本身就是那条线，没有内芯要摆。
+            // 线厚/线长由 CollapsedDipW/H 决定（见 CollapsedSize），这里不用再量任何子元素。
 
             // 展开面板：永远竖着排（贴上下边时就是两行）
             ExpandedStack.Orientation = Orientation.Vertical;
@@ -2797,7 +3051,7 @@ public sealed partial class ToolSidebarWindow : Window
                 }
                 else
                 {
-                    dipW = PanelThicknessDip;
+                    dipW = ExpandedThicknessDip;
                     // 底排最多五颗（收起/常驻/位置复原/隐藏/打开应用），增量按可见颗数摊（见 FooterDipFor）
                     dipH = (int)Math.Min(Math.Max(PanelLengthDip, 200 + 55 * count) + FooterDipFor(footerCount), lim.H);
                 }
@@ -2826,7 +3080,7 @@ public sealed partial class ToolSidebarWindow : Window
             return (Math.Min(workW, Math.Max(PanelLengthFlatDip, workW * 0.92)),
                     footerCount > 0 ? PanelThicknessFlatDip : PanelThicknessFlatBareDip);
 
-        return (PanelThicknessDip,
+        return (ExpandedThicknessDip,
                 Math.Min(workH, Math.Max(PanelLengthDip + FooterDipFor(footerCount), workH * 0.85)));
     }
 
@@ -2987,6 +3241,9 @@ public sealed partial class ToolSidebarWindow : Window
                 if (Math.Abs(dx) <= 2 && Math.Abs(dy) <= 2) break;
                 target = new PixelPoint(target.X + dx, target.Y + dy);
             }
+
+            // 窗口动了，隐形热区跟着挪（展开态它自己会收走）
+            UpdateHitPad();
         }
         catch (Exception ex)
         {

@@ -141,9 +141,50 @@ public static class ToolCatalog
         },
         new ToolDef
         {
+            Id = "autoshutdown", Name = "自动关机",
+            Desc = "按星期设定关机时间点，到达时间后自动关机；可直接关机（可设延迟），也可用系统原生的滑动关机。",
+            Glyph = "\uE787", Page = typeof(ClassSoftwareHub.Desktop.Pages.AutoShutdownPage)
+        },
+        // ⚠️ 上游 2026-10-09 把「系统镜像下载」整体下线（工具定义、页面、侧边栏模块、内容解析）。
+        //    本移植版按用户决定**保留**这个功能（页面 Pages/Tools/MirrorToolPage 与侧边栏模块都还在），
+        //    所以这条定义必须留着 —— 2026-10-19 修：之前跟着上游删了定义，但导航项
+        //    （ShellPage.axaml 里 Tag="mirror-download"）和侧边栏模块还在，
+        //    点导航项时 ToolCatalog 反查不到 → 落进 default → 打开成首页（用户报的 bug）。
+        new ToolDef
+        {
             Id = "mirror-download", Name = "系统镜像下载",
-            Desc = "Windows 等系统镜像的官方 / 可信第三方入口，单击任一行即跳转（本站不存储镜像）。",
-            Glyph = "\uE896", Page = typeof(MirrorToolPage)
+            Desc = "从多个镜像站下载 Windows / Office 等系统镜像，可复制校验值核对；镜像地址来自站点内容包。",
+            // E896 = 云下载
+            Glyph = "\uE896", Page = typeof(ClassSoftwareHub.Desktop.Pages.Tools.MirrorToolPage)
+        },
+        // ⚠️「自动关机」2026-10-12 从「实验性功能」转正搬来这里（Nick 定：这玩意可以退出实验性了）——
+        //    导航子项与工具索引页卡片都会自动跟着出现，不用另改导航（见本类注释）。
+        new ToolDef
+        {
+            Id = "function-plot", Name = "函数图像",
+            Desc = "输入含 x 的表达式即可绘制函数曲线，可同时绘制多条以便比较；支持滚轮缩放与拖动查看。",
+            Glyph = "\uE9D2", Page = typeof(ClassSoftwareHub.Desktop.Pages.FunctionPlotPage)
+        },
+        new ToolDef
+        {
+            Id = "disk-map", Name = "磁盘空间",
+            Desc = "按占用面积画出目录结构，一眼看出空间被谁吃掉了；单击方块可逐层下钻。",
+            // E7F1 = 硬盘
+            Glyph = "\uE7F1", Page = typeof(ClassSoftwareHub.Desktop.Pages.Tools.DiskMapPage)
+        },
+        new ToolDef
+        {
+            Id = "equation", Name = "方程求解",
+            Desc = "一次方程组给出精确分数解；一元方程按方程本身求根，支持平方、三角函数、对数与指数。",
+            // E8EF = 计算器
+            Glyph = "\uE8EF", Page = typeof(ClassSoftwareHub.Desktop.Pages.Tools.EquationPage)
+        },
+        new ToolDef
+        {
+            Id = "chemistry", Name = "化学方程式配平",
+            Desc = "输入 A + B = C 形式的方程式即可算出最小正整数系数，并逐种元素核对左右原子数。支持括号与结晶水。",
+            // E80A = 九宫格（像元素周期表）。⛔ 只用 E7/E8/E9 老码位，ED 段在 Win10 是空框
+            Glyph = "\uE80A", Page = typeof(ClassSoftwareHub.Desktop.Pages.Tools.ChemistryPage)
         },
     };
 }

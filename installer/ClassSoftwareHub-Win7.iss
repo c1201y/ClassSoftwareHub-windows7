@@ -1,4 +1,4 @@
-﻿; ══════════════════════════════════════════════════════════════════════
+; ══════════════════════════════════════════════════════════════════════
 ;  ClassSoftwareHub · Windows 7 移植版 — Inno Setup 6 安装脚本
 ;
 ;  编译（在工程根目录）：
@@ -22,7 +22,7 @@
 
 ; ⚠️ 唯一的版本号来源，必须和 Core/ShellConfig.cs 的 ShellVersion 一字不差（写在这里时**不带** dv 前缀）
 #ifndef DesktopVersion
-  #define DesktopVersion "1.1.1-insider1.0"
+  #define DesktopVersion "1.2.0-insider1.0"
 #endif
 
 #define AppName "ClassSoftwareHub"
@@ -114,6 +114,8 @@ const
   WebView2Page = 'https://developer.microsoft.com/microsoft-edge/webview2/#download-section';
   // WebView2 运行时在注册表里的固定 GUID
   WebView2Client = '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}';
+  // 本应用 AppId（与 [Setup] 里的 AppId 一字不差；用于判断是不是升级、找卸载键）
+  AppIdGuid = '{C4E7B2A1-6D38-4F5C-9A17-0E8B3D5C7F42}';
 
 /// <summary>应用的单实例 Mutex 还在不在（在 = 旧版本还跑着）。</summary>
 function AppIsRunning(): Boolean;
@@ -274,4 +276,29 @@ begin
     if Choice = IDYES then
       OpenUrl(WebView2Page);
   end;
+end;
+
+// 「附加任务」页里「创建桌面快捷方式」的默认勾选状态：
+//   · 首次安装 → 默认勾上（用户可自行取消）；
+//   · 升级 → 尊重用户当前选择：桌面上还留着旧图标就勾上保留它，
+//            用户之前删了就别再自动建回来（Nick 2026-10-17 反馈的 bug）。
+// ⚠️ 静默升级（更新器）的 /TASKS 由 UpdateService 按同一逻辑给出，这里主要管交互式重跑时的预填；
+//    WizardSelectTasks 在向导起始阶段调用，对静默安装同样生效（静默不显示该页，以程序设定为准）。
+procedure InitializeWizard();
+var
+  IsUpdate, WantIcon: Boolean;
+  UninstKey: String;
+begin
+  UninstKey := AppIdGuid + '_is1';
+  IsUpdate :=
+    RegKeyExists(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\' + UninstKey) or
+    RegKeyExists(HKLM, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\' + UninstKey);
+
+  if not IsUpdate then
+    WantIcon := True   // 首次安装：默认创建桌面图标（用户可取消）
+  else
+    WantIcon := FileExists(ExpandConstant('{autodesktop}\{#AppName}.lnk')); // 升级：按现状保留
+
+  if WantIcon then
+    WizardSelectTasks('desktopicon');
 end;

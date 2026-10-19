@@ -306,6 +306,23 @@ public sealed partial class SidebarLayoutPage : PageBase
                 if (CollapsedStyleCombo.SelectedIndex != index) CollapsedStyleCombo.SelectedIndex = index;
             }
 
+            // 大小样式（2026-10-18 自上游 1.2.0 移植）：收起态 / 展开态各一套
+            if (DensityCombo is not null)
+            {
+                var index = s.SidebarDensity == "compact" ? 1 : 0;
+                if (DensityCombo.SelectedIndex != index) DensityCombo.SelectedIndex = index;
+            }
+            if (ExpandedDensityCombo is not null)
+            {
+                var index = s.SidebarExpandedDensity switch
+                {
+                    "same" => 0,
+                    "compact" => 2,
+                    _ => 1,   // standard
+                };
+                if (ExpandedDensityCombo.SelectedIndex != index) ExpandedDensityCombo.SelectedIndex = index;
+            }
+
             // 「收起条长度」滑杆：0 = 当前样式的默认值（抓手 110 / 细竖线 220）
             RefreshCollapsedLengthUi();
 
@@ -1000,7 +1017,7 @@ public sealed partial class SidebarLayoutPage : PageBase
                 // ⚠️ 这时候**不能**放心把页面交给外层滚动：Avalonia 没有 WinUI 那套
                 //    DirectManipulation 攒位移的问题，但"拖完顺手跳一下"同样不该有 ——
                 //    所以只把页面钉回按下时的位置，锁留着，等手指抬起再放。
-                PageScroll.Offset = new Vector(PageScroll.Offset.X, _pageScrollOffset);
+                RestorePageScrollOffset();
             }
             else
             {
@@ -1036,10 +1053,23 @@ public sealed partial class SidebarLayoutPage : PageBase
     {
     }
 
+    /// <summary>
+    /// 把页面滚动位置钉回"按下时"记录的位置。
+    /// ⛔ 只写有限值：NaN/Infinity 写进 ScrollViewer.Offset 会让 Avalonia 的 CoerceOffset
+    ///    与双向绑定互相触发、直接把栈跑爆（2026-10-18 崩溃 0xc00000fd）。这里顺手挡一道。
+    /// </summary>
+    private void RestorePageScrollOffset()
+    {
+        var x = PageScroll.Offset.X;
+        if (!double.IsFinite(x)) x = 0;
+        var y = _pageScrollOffset;
+        if (!double.IsFinite(y)) y = 0;
+        PageScroll.Offset = new Vector(x, y);
+    }
     private void UnlockScroll()
     {
         _latchScroll = false;
-        PageScroll.Offset = new Vector(PageScroll.Offset.X, _pageScrollOffset);
+        RestorePageScrollOffset();
     }
 
     private void OnRootPointerReleased(object? sender, PointerReleasedEventArgs e) => ReleaseScrollLatch();
@@ -1856,6 +1886,32 @@ public sealed partial class SidebarLayoutPage : PageBase
 
         // 换样式之后"默认长度"也跟着变（0 = 默认时要显示新样式的默认值）
         RefreshCollapsedLengthUi();
+
+        if (App.Settings.Current.SidebarEnabled) ToolSidebarWindow.ApplyStyle();
+    }
+
+    // ── 大小样式（2026-10-18 自上游 1.2.0 移植） ──────────────────────
+
+    /// <summary>「侧边栏大小样式」：只决定收起态（那条小抓手）。</summary>
+    private void Density_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_toolSync) return;
+        if (DensityCombo.SelectedItem is not ComboBoxItem item || item.Tag is not string density) return;
+
+        App.Settings.Current.SidebarDensity = density;
+        App.Settings.Save();
+
+        if (App.Settings.Current.SidebarEnabled) ToolSidebarWindow.ApplyStyle();
+    }
+
+    /// <summary>「展开后的大小样式」：same = 跟随收起态；标准 / 紧凑 = 固定。</summary>
+    private void ExpandedDensity_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_toolSync) return;
+        if (ExpandedDensityCombo.SelectedItem is not ComboBoxItem item || item.Tag is not string density) return;
+
+        App.Settings.Current.SidebarExpandedDensity = density;
+        App.Settings.Save();
 
         if (App.Settings.Current.SidebarEnabled) ToolSidebarWindow.ApplyStyle();
     }

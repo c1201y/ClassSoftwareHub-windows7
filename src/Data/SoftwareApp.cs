@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
+using ClassSoftwareHub.Desktop.Services;
 
 namespace ClassSoftwareHub.Desktop.Data;
 
@@ -19,6 +20,40 @@ public sealed class DownloadItem
     public string Size { get; set; } = "";
     public string Url { get; set; } = "";
     public string Hash { get; set; } = "";
+
+    /// <summary>维护者显式声明的落地方式（file / store / netdisk / page；2026-10-18 自上游 1.2.0 移植）。
+    /// 不写就由 <see cref="DownloadLinkKind"/> 按域名与后缀推断。</summary>
+    public string DeclaredKind { get; set; } = "";
+
+    /// <summary>这条下载项该怎么落地（按钮文案与点击行为都跟着它走）。</summary>
+    public DownloadKind Kind => DownloadLinkKind.Of(Url, DeclaredKind);
+
+    /// <summary>
+    /// 下载按钮上的文案 —— 与站点 <c>downloadLink.ts</c> 的 actionLabel 同一套（2026-10-18 自上游 1.2.0 移植）：
+    /// 文件直链＝下载；网盘＝前往网盘；官网＝前往官网；商店＝打开商店。
+    /// ⛔ 过去这些一律写「下载」，用户按下去才发现被带进了浏览器。
+    /// </summary>
+    public string ActionText => Kind switch
+    {
+        DownloadKind.File => "下载",
+        DownloadKind.Netdisk => "前往网盘",
+        DownloadKind.Store => "打开商店",
+        _ => "前往官网",
+    };
+
+    /// <summary>
+    /// 跳转项的一句说明（2026-10-18 自上游 1.2.0 移植）；
+    /// 能直接下载的返回空串，界面上整行收起，不占位。
+    /// </summary>
+    public string KindHint => Kind switch
+    {
+        DownloadKind.Netdisk => "该链接为第三方网盘分享页，将跳转至网盘获取安装包",
+        DownloadKind.Page => "该软件仅提供官方下载页，将跳转至官网获取安装包",
+        _ => "",
+    };
+
+    /// <summary>有没有那行跳转说明（Avalonia 没有 Visibility 枚举，直接绑 IsVisible）。</summary>
+    public bool KindHintVisibility => KindHint.Length > 0;
 
     /// <summary>平台旁边的小字（备注 / 体积），都没填就返回空串。</summary>
     public string Subtitle
@@ -83,6 +118,16 @@ public sealed class SoftwareApp : System.ComponentModel.INotifyPropertyChanged
 
     /// <summary>卡片副标题：有版本号显示版本，否则显示一句话简介。</summary>
     public string CardSubtitle => Version.Length > 0 ? "v" + Version : Tagline;
+
+    /// <summary>
+    /// 短简介（详情页右栏「推荐应用」用；2026-10-18 自上游 1.2.0 移植）：
+    /// 优先 Tagline，其次 Description，最后退分类名。
+    /// ⚠️ 数据里 Description 可能很长，界面要自己限行数（MaxLines）。
+    /// </summary>
+    public string IntroText =>
+        !string.IsNullOrWhiteSpace(Tagline) ? Tagline.Trim()
+        : !string.IsNullOrWhiteSpace(Description) ? Description.Trim()
+        : CategoryDisplay;
 
     /// <summary>分类显示名（载入内容后由 ContentStore 填，界面当徽标用）。</summary>
     public string CategoryDisplay { get; set; } = "";
@@ -198,6 +243,22 @@ public sealed class SoftwareApp : System.ComponentModel.INotifyPropertyChanged
             {
                 if (Icon.StartsWith("http", StringComparison.OrdinalIgnoreCase))
                 {
+                    // ⚠️ 2026-10-18 自上游 1.2.0 移植：上游把"本地缓存 + 后台按需刷新"
+                    //    收口成了 AppIconCache（epoch 失效制：站点数据更新 ⇒ 旧缓存标记陈旧，
+                    //    显示走旧图、后台静默换新）。本移植版保留自己的 LoadIconAsync 链路
+                    //    （多一层"随安装包内置的图标"兜底，Win7 教室机更有用），但**接上
+                    //    AppIconCache 的失效信号**：本地有图就交给它判"新不新鲜"，陈旧时
+                    //    后台重下一次 —— 站点换过图标地址后本机不再永远停在旧图上。
+                    AppIconCache.TryGet(Icon, out var localHit, out var stale);
+                    if (localHit is { })
+                    {
+                        if (stale) _ = AppIconCache.EnsureCachedAsync(Icon);
+                    }
+                    else
+                    {
+                        _ = AppIconCache.EnsureCachedAsync(Icon);   // 本机没有也让它按自己的路线下
+                    }
+
                     var uri = new Uri(Icon);
                     // SVG 图标（chrome 等）：原版用 SvgImageSource 解（矢量，缩放不糊）。
                     // ⚠️ Avalonia 核心不含 SVG 解码器（需第三方包 Avalonia.Svg.Skia）——本移植版不引新包，
@@ -219,6 +280,37 @@ public sealed class SoftwareApp : System.ComponentModel.INotifyPropertyChanged
             return _icon;
         }
     }
+
+    /// <summary>
+    /// 图标当画刷用（详情页顶栏、推荐列表的圆角小图标；2026-10-18 自上游 1.2.0 移植）。
+    /// ⛔ 圆角 Border 靠 Background 画最稳（子元素 Image 要靠 ClipToBounds 才裁得干净）。
+    /// ⚠️ Avalonia 的对应物是 <see cref="ImageBrush"/>（Bitmap 实现 IImageBrushSource）。
+    /// </summary>
+    public IBrush? IconBrush
+    {
+        get
+        {
+            if (_iconBrushMade) return _iconBrush;
+            _iconBrushMade = true;
+            try
+            {
+                if (IconImage is IImageBrushSource src)
+                {
+                    _iconBrush = new ImageBrush(src)
+                    {
+                        Stretch = Stretch.UniformToFill,
+                        AlignmentX = AlignmentX.Center,
+                        AlignmentY = AlignmentY.Center,
+                    };
+                }
+            }
+            catch { /* 取不到就当没有，界面用占位字形兜底 */ }
+            return _iconBrush;
+        }
+    }
+
+    private IBrush? _iconBrush;
+    private bool _iconBrushMade;
 
     /// <summary>
     /// 后台下载 + 限宽解码图标，完成后回 UI 线程通知。**本地缓存优先**。
@@ -254,7 +346,8 @@ public sealed class SoftwareApp : System.ComponentModel.INotifyPropertyChanged
                 {
                     _icon = bmp;
                     _iconLoaded = true;
-                    Raise(nameof(IconImage));
+                    Raise(nameof(IconImage));
+                    Raise(nameof(IconBrush));
                     Raise(nameof(IconPlaceholder));
                 });
                 return;
@@ -275,7 +368,8 @@ public sealed class SoftwareApp : System.ComponentModel.INotifyPropertyChanged
                 {
                     _icon = cached;
                     _iconLoaded = true;
-                    Raise(nameof(IconImage));       // Avalonia 的 Bitmap 是纯数据对象，换了新对象必须通知
+                    Raise(nameof(IconImage));       // Avalonia 的 Bitmap 是纯数据对象，换了新对象必须通知
+                    Raise(nameof(IconBrush));
                     Raise(nameof(IconPlaceholder));
                 });
                 return;
@@ -306,7 +400,8 @@ public sealed class SoftwareApp : System.ComponentModel.INotifyPropertyChanged
                     {
                         _icon = bmp;
                         _iconLoaded = true;
-                        Raise(nameof(IconImage));
+                        Raise(nameof(IconImage));
+                        Raise(nameof(IconBrush));
                         Raise(nameof(IconPlaceholder));
                     });
                     return;

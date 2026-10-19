@@ -288,6 +288,10 @@ public sealed partial class MainWindow : Window
             var result = await service.CheckAsync(channel, ShellConfig.ShellVersion);
             if (result is not { HasUpdate: true, Release: { } release }) return;
 
+            // 记下"有新版本"：首页那颗「立即更新」靠它（2026-10-18 自上游 1.2.0 移植）。
+            // ⛔ 只存结果，不发起检查 —— 首页绝不能自己联网。
+            Services.Updating.UpdateNotice.Set(release);
+
             // 这种启动方式主窗口是藏着的（--minimized / --palette / 直接收进托盘）
             // → 弹对话框没人看，改发一条系统通知，点通知再把界面叫出来
             if (!IsWindowVisible())
@@ -347,6 +351,11 @@ public sealed partial class MainWindow : Window
     {
         // 进度弹窗正开着它 → 弹窗自己会弹「下载完成 / 下载失败」，别再叠一条系统通知
         if (task.Id == _downloadDialogTaskId) return;
+
+        // 更新包不走"下载完成"这条通知（2026-10-18 自上游 1.2.0 移植）：
+        // 它已经有一条「更新 x.y.z」任务卡片在那儿，点卡片的「安装」才是用户要做的事 ——
+        // 再叠一条"下载完成，已保存到下载文件夹"只会把用户带偏。
+        if (task.Kind == DownloadTaskKind.Update) return;
 
         if (task.State == DownloadState.Completed)
         {
@@ -558,6 +567,13 @@ public sealed partial class MainWindow : Window
                 _settings.Current.WindowHeight = (int)Height;
                 try { _settings.Save(); } catch { }
             }
+
+            // 位置 / 大小 / 最大化：恢复上次的，并按屏幕夹一趟
+            LoadWindowBounds();
+
+            // 拖动 / 缩放时**防抖**落盘（每次移动都写文件太费）
+            PositionChanged += (_, _) => ScheduleBoundsSave();
+            SizeChanged += (_, _) => ScheduleBoundsSave();
         }
         catch { }
 
@@ -1011,16 +1027,100 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// 记住窗口大小 / 位置 / 是否最大化（2026-10-18 自上游 1.2.0 移植）。
+    /// ⚠️ 最大化时不写尺寸与位置 —— 那会把"最大化时的窗口框"存成下一次的普通尺寸。
+    /// </summary>
     private void SaveWindowState()
     {
         try
         {
+            _settings.Current.WindowMaximized = WindowState == WindowState.Maximized;
             if (WindowState == WindowState.Maximized) return;
+
             _settings.Current.WindowWidth = (int)Width;
             _settings.Current.WindowHeight = (int)Height;
+
+            // 位置（屏幕坐标，dip）。
+            var pos = Position;
+            _settings.Current.WindowLeft = pos.X;
+            _settings.Current.WindowTop = pos.Y;
+
             _settings.Save();
         }
         catch { }
+    }
+
+    /// <summary>窗口随时在动，别每拖一帧都落一次盘（1.2 秒防抖，与上游一致）。</summary>
+    private Avalonia.Threading.DispatcherTimer? _boundsSaveTimer;
+
+    private void ScheduleBoundsSave()
+    {
+        try
+        {
+            if (_boundsSaveTimer is null)
+            {
+                _boundsSaveTimer = new Avalonia.Threading.DispatcherTimer
+                {
+                    Interval = TimeSpan.FromMilliseconds(1200),
+                };
+                _boundsSaveTimer.Tick += (_, _) =>
+                {
+                    _boundsSaveTimer?.Stop();
+                    SaveWindowState();
+                };
+            }
+
+            _boundsSaveTimer.Stop();
+            _boundsSaveTimer.Start();
+        }
+        catch { /* 记不住窗口位置不影响使用 */ }
+    }
+
+    /// <summary>
+    /// 恢复上次的窗口位置/大小/最大化，并按**当前屏幕**夹一趟（2026-10-18 自上游 1.2.0 移植）。
+    /// ⛔ 不夹的话，换回一台更小的机器时窗口会落到屏幕外 —— 用户看到的就是"程序在跑，主界面不显示"。
+    /// </summary>
+    private void LoadWindowBounds()
+    {
+        try
+        {
+            var s = _settings.Current;
+            var primary = Screens.Primary;
+            var work = primary?.WorkingArea ?? new PixelRect(0, 0, 1920, 1080);
+            var scale = primary?.Scaling ?? 1.0;
+            if (scale <= 0) scale = 1.0;
+
+            var workX = (int)(work.X / scale);
+            var workY = (int)(work.Y / scale);
+            var workW = (int)(work.Width / scale);
+            var workH = (int)(work.Height / scale);
+
+            if (s.WindowLeft != int.MinValue && s.WindowTop != int.MinValue)
+            {
+                // 位置也得在屏幕里有交集才算数，否则不恢复位置（让系统自己居中）
+                var visible =
+                    s.WindowLeft + (int)Width > workX + 60 &&
+                    s.WindowLeft < workX + workW - 60 &&
+                    s.WindowTop + (int)Height > workY + 60 &&
+                    s.WindowTop < workY + workH - 60;
+
+                if (visible)
+                    Position = new PixelPoint(s.WindowLeft, s.WindowTop);
+                else
+                {
+                    Core.AppLog.Info("window", "上次的窗口位置在当前屏幕外，已忽略（改为默认居中）");
+                    s.WindowLeft = int.MinValue;
+                    s.WindowTop = int.MinValue;
+                }
+            }
+
+            if (s.WindowMaximized) WindowState = WindowState.Maximized;
+        }
+        catch (Exception ex)
+        {
+            Core.AppLog.Warn("window", "恢复窗口位置失败：" + ex.Message);
+        }
     }
 
     private void OnWindowClosed(object? sender, EventArgs args)
@@ -1542,6 +1642,9 @@ public sealed partial class MainWindow : Window
 
             if (result is { HasUpdate: true, Release: { } release })
             {
+                // 记下"有新版本"：首页那颗「立即更新」靠它（2026-10-18 自上游 1.2.0 移植）
+                Services.Updating.UpdateNotice.Set(release);
+
                 // 一样先问，绝不替用户做主（返回值是三态：Later / Now / Background）
                 var choice = await Services.Updating.UpdateFlow.AskAsync(release, this);
                 if (choice == Services.Updating.UpdateFlow.UpdateChoice.Now)
@@ -1550,6 +1653,9 @@ public sealed partial class MainWindow : Window
                     Services.Updating.UpdateFlow.StartBackgroundDownload(service, release);
                 return;
             }
+
+            // 已经是最新：清掉首页那颗「发现新版本」入口
+            Services.Updating.UpdateNotice.Clear();
 
             await new AvaloniaDialog
             {

@@ -102,7 +102,7 @@ public static class VolumeFlyoutGroup
         if (VolumeWindow.IsVisible || VolumeMixerWindow.IsVisible) return;
         StopWatch();
         ReleaseSidebar();
-        ToolSidebarWindow.CollapseAfterVolumeFlyoutsClosed();
+        ToolSidebarWindow.CollapseAfterPopupsClosed();
     }
 
     /// <summary>把两个浮窗一起收掉（鼠标离开、Esc、边条隐藏等显式收起走这里）。</summary>

@@ -100,8 +100,38 @@ public sealed partial class LogDetailWindow : Window
             // Show() 里已经先刷过一次（那样窗口一出来就有内容）；这里只在还没数据时兜底
             if (SessionBox.ItemsSource is null) ReloadSessions();
             StartFollow();
+
+            // ⚠️ 2026-10-19 修（用户：日志详细窗口深浅色没适配）：
+            //    构造期那次 ThemeCompat.Apply 发生在**窗口显示之前**，主题变体未必传播到位，
+            //    窗口会一直用默认（浅色）那一套 —— 工具浮窗踩过同一个坑（见 ToolPaletteWindow 的同款注释）。
+            //    显示出来之后再补一次主题 + 材质；并且订阅主题变化，窗口开着时切深浅色也跟着变。
+            ApplyThemeNow();
+
+            ActualThemeVariantChanged -= OnThemeChanged;
+            ActualThemeVariantChanged += OnThemeChanged;
         };
     }
+
+    /// <summary>按当前设置重新套一遍主题（变体 + 材质底色）。窗口显示后 / 主题切换时都要调。</summary>
+    private void ApplyThemeNow()
+    {
+        try
+        {
+            // ⚠️ 2026-10-19（用户报「日志页详细日志窗口深浅色没适配」）：
+            //    这里必须用 **main 作用域**（跟主界面的「颜色模式」走），不能用默认的 external。
+            //    本窗口是日志页的子窗口，用户开着「分体主题 + 外部分体=dark」时，
+            //    external 会把它染成深色而主界面是浅色 —— 看起来就是"没适配"。
+            ThemeCompat.Apply(Root, mainScope: true);
+            Backdrop.Apply(this, Root, App.Settings.Current.Backdrop);
+            _chips.RefreshTheme();          // 筛选芯片的画刷是构造期写死的实例值，得跟着重算
+        }
+        catch (Exception ex)
+        {
+            AppLog.Debug("port", "[log-detail] 主题刷新失败: " + ex.Message);
+        }
+    }
+
+    private void OnThemeChanged(object? sender, EventArgs e) => ApplyThemeNow();
 
     // ── 对外 ─────────────────────────────────────────────────────────────
 
@@ -145,7 +175,8 @@ public sealed partial class LogDetailWindow : Window
             CanResize = true;
 
             Backdrop.Apply(this, Root, App.Settings.Current.Backdrop);
-            ThemeCompat.Apply(Root);
+            // ⚠️ main 作用域：跟主界面颜色模式走（理由见 ApplyThemeNow 的注释）
+            ThemeCompat.Apply(Root, mainScope: true);
 
             ApplySize();
 
@@ -187,7 +218,7 @@ public sealed partial class LogDetailWindow : Window
         }
         catch (Exception ex)
         {
-            Debug.WriteLine("[log-detail] 尺寸设置失败: " + ex.Message);
+            Core.AppLog.Debug("port", "[log-detail] 尺寸设置失败: " + ex.Message);
         }
     }
 

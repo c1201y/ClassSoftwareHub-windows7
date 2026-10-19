@@ -26,7 +26,7 @@
     <ScrollViewer Padding="24,14,24,20" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
     <!-- 三列钉宽：内容钉在中间、两侧吸收余量（上游 2026-10-01 给工具页加的内容列，上游值 1008；
          这里取本移植版全站通用的 960 内容列宽，与设置页 / 软件下载页同一套）。 -->
-    <Grid>
+    <Grid Background="Transparent">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="1*" />
             <ColumnDefinition Width="998*" MaxWidth="960" />

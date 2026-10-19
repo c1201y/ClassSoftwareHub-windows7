@@ -190,7 +190,7 @@ public sealed partial class ToolPaletteWindow : Window
             }
             catch (Exception ex2)
             {
-                Debug.WriteLine("[toolwin] 标题栏定制不可用: " + ex2.Message);
+                Core.AppLog.Debug("port", "[toolwin] 标题栏定制不可用: " + ex2.Message);
             }
 
             // 圆角：Win11 用 DWM 的 CORNER_PREFERENCE，Win7/10 那个属性不认，得靠 SetWindowRgn 裁剪。
@@ -204,7 +204,7 @@ public sealed partial class ToolPaletteWindow : Window
         }
         catch (Exception ex)
         {
-            Debug.WriteLine("[toolwin] 初始化失败: " + ex.Message);
+            Core.AppLog.Debug("port", "[toolwin] 初始化失败: " + ex.Message);
         }
 
         Core.AppLog.Info("exit", "浮窗实例已建");
@@ -254,7 +254,7 @@ public sealed partial class ToolPaletteWindow : Window
         catch (Exception ex)
         {
             _frame = null;
-            Debug.WriteLine("[toolwin] 自绘窗口框架挂载失败，退回原生标题栏: " + ex.Message);
+            Core.AppLog.Debug("port", "[toolwin] 自绘窗口框架挂载失败，退回原生标题栏: " + ex.Message);
             PortLog.Step("ToolPaletteWindow: 自绘窗口框架挂载失败，退回原生标题栏 - " + ex.Message);
         }
     }
@@ -344,7 +344,7 @@ public sealed partial class ToolPaletteWindow : Window
         }
         catch (Exception ex)
         {
-            Debug.WriteLine("[toolwin] 显示失败: " + ex.Message);
+            Core.AppLog.Debug("port", "[toolwin] 显示失败: " + ex.Message);
         }
 
         _visible = true;
@@ -375,7 +375,7 @@ public sealed partial class ToolPaletteWindow : Window
         {
             if (epoch != _fadeEpoch) return;             // 淡出期间又点开了：别把刚显示的窗藏掉
             try { NativeMethods.ShowWindow(Backdrop.TryGetHwnd(this), SW_HIDE); }
-            catch (Exception ex) { Debug.WriteLine("[toolwin] 收起失败: " + ex.Message); }
+            catch (Exception ex) { Core.AppLog.Debug("port", "[toolwin] 收起失败: " + ex.Message); }
 
             MemoryTrimmer.Trim();
         });

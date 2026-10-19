@@ -37,7 +37,7 @@
     <!-- ⚠️ 2026-10-02：ScrollViewer 提到最外层（滚动条贴窗口右缘），边距改 Padding、居中改内层 Grid；
          原来套在列表外面的那层 ScrollViewer 解开（「检测中 / 空状态」跟着外层一起滚） -->
     <ScrollViewer Padding="24,36,24,44" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-        <Grid MaxWidth="960" HorizontalAlignment="Center">
+        <Grid Background="Transparent" MaxWidth="960" HorizontalAlignment="Center">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />

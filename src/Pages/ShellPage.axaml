@@ -50,6 +50,30 @@
                 <TextBlock x:Name="TitleText" Text="ClassSoftwareHub" FontSize="12" FontWeight="Bold"
                            VerticalAlignment="Center" />
             </StackPanel>
+
+            <!--
+              全局搜索（Ctrl + K；2026-10-18 自上游 1.2.0 移植）。
+              搜索范围与匹配规则在 Data/SearchIndex.cs（软件 / 内置工具 / 页面）。
+              ⚠️ WinUI → Avalonia：AutoSuggestBox 在 Avalonia 没有 → 这里用 TextBox + 自绘结果弹层（Popup）。
+                 点击 / 回车选第一条；Esc 收起；点外面也收起。
+            -->
+            <Grid x:Name="SearchHost" HorizontalAlignment="Center" VerticalAlignment="Center" Width="360">
+                <TextBox x:Name="SearchBox" Watermark="搜索软件、内置工具、页面…" FontSize="12"
+                         Padding="26,5,8,5" TextChanged="SearchBox_TextChanged"
+                         KeyDown="SearchBox_KeyDown" />
+                <fa:FontIcon Glyph="&#xE721;" FontSize="12" Opacity="0.55" IsHitTestVisible="False"
+                             HorizontalAlignment="Left" VerticalAlignment="Center" Margin="8,0,0,0" />
+                <Popup x:Name="SearchPopup" Placement="Bottom"
+                       IsLightDismissEnabled="True" IsOpen="False">
+                    <Border Background="{DynamicResource SolidBackgroundFillColorSecondaryBrush}"
+                            BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                            CornerRadius="6" Padding="4" Width="360" MaxHeight="380">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel x:Name="SearchResults" Spacing="1" />
+                        </ScrollViewer>
+                    </Border>
+                </Popup>
+            </Grid>
             <StackPanel x:Name="TitleBarActions" Orientation="Horizontal" HorizontalAlignment="Right"
                         VerticalAlignment="Center" Margin="0,0,170,0" Spacing="10">
                 <!-- 深色 / 浅色 一键切换（图标显示"点了会切到的那一边"） -->
@@ -143,12 +167,12 @@
             <fa:NavigationView.MenuItems>
                 <fa:NavigationViewItem Content="首页" Tag="home">
                     <fa:NavigationViewItem.IconSource>
-                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE80F;" />
+                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE80F;" />
                     </fa:NavigationViewItem.IconSource>
                 </fa:NavigationViewItem>
                 <fa:NavigationViewItem Content="软件下载" Tag="apps">
                     <fa:NavigationViewItem.IconSource>
-                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE719;" />
+                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE719;" />
                     </fa:NavigationViewItem.IconSource>
                 </fa:NavigationViewItem>
                 <!--
@@ -169,55 +193,81 @@
                 -->
                 <fa:NavigationViewItem x:Name="ToolsNav" Content="内置工具" Tag="tools">
                     <fa:NavigationViewItem.IconSource>
-                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE71D;" />
+                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE71D;" />
                     </fa:NavigationViewItem.IconSource>
                     <fa:NavigationViewItem.MenuItems>
                         <fa:NavigationViewItem Content="图片取色" Tag="image-color">
                             <fa:NavigationViewItem.IconSource>
-                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE790;" />
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE790;" />
                             </fa:NavigationViewItem.IconSource>
                         </fa:NavigationViewItem>
                         <fa:NavigationViewItem Content="随机抽号" Tag="pick-number">
                             <fa:NavigationViewItem.IconSource>
-                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE716;" />
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE716;" />
                             </fa:NavigationViewItem.IconSource>
                         </fa:NavigationViewItem>
                         <fa:NavigationViewItem Content="课堂计时器" Tag="timer">
                             <fa:NavigationViewItem.IconSource>
-                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE916;" />
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE916;" />
                             </fa:NavigationViewItem.IconSource>
                         </fa:NavigationViewItem>
                         <fa:NavigationViewItem Content="全屏时钟" Tag="clock">
                             <fa:NavigationViewItem.IconSource>
-                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE740;" />
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE740;" />
                             </fa:NavigationViewItem.IconSource>
                         </fa:NavigationViewItem>
                         <fa:NavigationViewItem Content="桌面留言" Tag="message">
                             <fa:NavigationViewItem.IconSource>
-                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE8BD;" />
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE8BD;" />
                             </fa:NavigationViewItem.IconSource>
                         </fa:NavigationViewItem>
                         <!-- 教室喊话（2026-10-13 从设置页独立成页）：E720 麦克风，与「桌面留言」的对话泡分得开 -->
                         <fa:NavigationViewItem Content="教室喊话" Tag="announce">
                             <fa:NavigationViewItem.IconSource>
-                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE720;" />
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE720;" />
                             </fa:NavigationViewItem.IconSource>
                         </fa:NavigationViewItem>
                         <fa:NavigationViewItem Content="编码 / 哈希工具" Tag="encoding">
                             <fa:NavigationViewItem.IconSource>
-                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE943;" />
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE943;" />
                             </fa:NavigationViewItem.IconSource>
                         </fa:NavigationViewItem>
                         <fa:NavigationViewItem Content="系统镜像下载" Tag="mirror-download">
                             <fa:NavigationViewItem.IconSource>
-                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE896;" />
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE896;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
+                        <!--
+                          上游 dv1.2.0-insider1.1 新增的四页内置工具（2026-10-18 移植）：
+                          函数图像 / 磁盘空间 / 方程求解 / 化学方程式配平。
+                          ⛔ Tag 必须与 Data/ToolDef.cs 的 ToolCatalog.Id 完全一致（ShellPage 构造时会校验）。
+                          ⛔ 子项必须 XAML 声明（FA 2.4.1 的选中竖线只认 XAML 子项）。
+                        -->
+                        <fa:NavigationViewItem Content="函数图像" Tag="function-plot">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE9D2;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
+                        <fa:NavigationViewItem Content="磁盘空间" Tag="disk-map">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE7F1;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
+                        <fa:NavigationViewItem Content="方程求解" Tag="equation">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE8EF;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
+                        <fa:NavigationViewItem Content="化学方程式配平" Tag="chemistry">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE80A;" />
                             </fa:NavigationViewItem.IconSource>
                         </fa:NavigationViewItem>
                     </fa:NavigationViewItem.MenuItems>
                 </fa:NavigationViewItem>
                 <fa:NavigationViewItem Content="侧边布局" Tag="sidebar">
                     <fa:NavigationViewItem.IconSource>
-                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE8A0;" />
+                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE8A0;" />
                     </fa:NavigationViewItem.IconSource>
                 </fa:NavigationViewItem>
                 <!--
@@ -235,7 +285,7 @@
                 -->
                 <fa:NavigationViewItem x:Name="ExperimentalNav" Content="实验性功能" Tag="experimental">
                     <fa:NavigationViewItem.IconSource>
-                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xEA80;" />
+                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xEA80;" />
                     </fa:NavigationViewItem.IconSource>
                     <fa:NavigationViewItem.MenuItems>
                         <!--
@@ -246,7 +296,7 @@
                         -->
                         <fa:NavigationViewItem Content="本机核实" Tag="machinecheck">
                             <fa:NavigationViewItem.IconSource>
-                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE7F4;" />
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE7F4;" />
                             </fa:NavigationViewItem.IconSource>
                         </fa:NavigationViewItem>
                         <!--
@@ -258,7 +308,7 @@
                         -->
                         <fa:NavigationViewItem Content="白板专杀" Tag="easiguard">
                             <fa:NavigationViewItem.IconSource>
-                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xEA99;" />
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xEA99;" />
                             </fa:NavigationViewItem.IconSource>
                         </fa:NavigationViewItem>
                         <!--
@@ -267,7 +317,7 @@
                         -->
                         <fa:NavigationViewItem Content="程序专杀" Tag="procguard">
                             <fa:NavigationViewItem.IconSource>
-                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE7E8;" />
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE7E8;" />
                             </fa:NavigationViewItem.IconSource>
                         </fa:NavigationViewItem>
                         <!--
@@ -279,7 +329,7 @@
                         -->
                         <fa:NavigationViewItem Content="虚拟键盘" Tag="virtualkeyboard">
                             <fa:NavigationViewItem.IconSource>
-                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE765;" />
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE765;" />
                             </fa:NavigationViewItem.IconSource>
                         </fa:NavigationViewItem>
                         <!--
@@ -290,7 +340,7 @@
                         -->
                         <fa:NavigationViewItem Content="自动关机" Tag="autoshutdown">
                             <fa:NavigationViewItem.IconSource>
-                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE787;" />
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE787;" />
                             </fa:NavigationViewItem.IconSource>
                         </fa:NavigationViewItem>
                         <!--
@@ -298,6 +348,35 @@
                           （Pages/SettingsPage.axaml）。NavigateTagCore 的 "log-viewer" case 保留，
                           供设置页跳转（含 page=log-viewer 启动参数）用。
                         -->
+
+                        <!--
+                          以下四项为上游 dv1.1.3-insider1.3 ~ dv1.2.0-insider1.1 新增（2026-10-18 移植）：
+                          应用卸载 / AppData 管理 / 开机启动项 / 系统修复。都归在「实验性功能」下。
+                          ⛔ 与 ExperimentalPage 的卡片、ToolCatalog 无关（它们不是内置工具），
+                             Tag 必须在 NavigateTagCore 里有对应 case。
+                          ⚠️ 图标：E74D（垃圾桶）＝卸载，E8B7（文件夹）＝AppData，E945（电源）＝启动项，
+                             E9F3（扳手）＝系统修复。全部 E7/E8/E9 段老码位。
+                        -->
+                        <fa:NavigationViewItem Content="应用卸载" Tag="uninstall">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE74D;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
+                        <fa:NavigationViewItem Content="AppData 管理" Tag="appdata">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE8B7;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
+                        <fa:NavigationViewItem Content="开机启动项" Tag="startup">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE945;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
+                        <fa:NavigationViewItem Content="系统修复" Tag="systemrepair">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE9F3;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
                     </fa:NavigationViewItem.MenuItems>
                 </fa:NavigationViewItem>
             </fa:NavigationView.MenuItems>
@@ -307,12 +386,12 @@
                 <!-- 下载不再占着界面：进度在这里看得到；徽标上是「正在下载几个」（0 个就把徽标摘掉） -->
                 <fa:NavigationViewItem x:Name="DownloadsNav" Content="任务进行" Tag="downloads">
                     <fa:NavigationViewItem.IconSource>
-                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE896;" />
+                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE896;" />
                     </fa:NavigationViewItem.IconSource>
                 </fa:NavigationViewItem>
                 <fa:NavigationViewItem Content="提交软件" Tag="submit">
                     <fa:NavigationViewItem.IconSource>
-                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE898;" />
+                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE898;" />
                     </fa:NavigationViewItem.IconSource>
                 </fa:NavigationViewItem>
                 <!--
@@ -321,18 +400,18 @@
                 -->
                 <fa:NavigationViewItem Content="反馈中心" Tag="feedback">
                     <fa:NavigationViewItem.IconSource>
-                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE939;" />
+                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE939;" />
                     </fa:NavigationViewItem.IconSource>
                 </fa:NavigationViewItem>
                 <!-- 更新日志：E81C 是时钟/历史，跟「设置」的齿轮分得开 -->
                 <fa:NavigationViewItem Content="更新日志" Tag="changelog">
                     <fa:NavigationViewItem.IconSource>
-                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE81C;" />
+                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE81C;" />
                     </fa:NavigationViewItem.IconSource>
                 </fa:NavigationViewItem>
                 <fa:NavigationViewItem Content="设置" Tag="settings">
                     <fa:NavigationViewItem.IconSource>
-                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" Glyph="&#xE713;" />
+                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE713;" />
                     </fa:NavigationViewItem.IconSource>
                 </fa:NavigationViewItem>
             </fa:NavigationView.FooterMenuItems>

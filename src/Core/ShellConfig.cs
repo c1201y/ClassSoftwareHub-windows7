@@ -50,7 +50,7 @@ public static class ShellConfig
     // 2026-10-12：**1.1.1 → 1.1.1-insider1.0**（进入 1.1.1 预览线：本轮补齐上游
     // dv1.1.2 → dv1.1.3-insider1.1 的服务层链路日志采纳，随后按用户要求转入预览版发布；
     // 客户端据此判定 IsInsider=true → 默认走 insider 通道，可同时看到预发布与正式版）。
-    public const string ShellVersion = "1.1.1-insider1.0";
+    public const string ShellVersion = "1.2.0-insider1.0";
 
     /// <summary>当前是不是预览（内测）构建 —— 版本号里带 <c>insider</c> 即为真。</summary>
     public static bool IsInsider =>

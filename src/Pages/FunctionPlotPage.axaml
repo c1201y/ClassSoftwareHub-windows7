@@ -1,0 +1,165 @@
+<platform:PageBase
+    x:Class="ClassSoftwareHub.Desktop.Pages.FunctionPlotPage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:fa="using:FluentAvalonia.UI.Controls">
+
+    <!-- ⛔⛔ 整页照 Windows 计算器绘图模式重排（Nick 定）：**全屏三列**，
+         [函数分析][画布][输入+键盘]，没有标题、没有说明文字、没有页面边距、不锁 960 ——
+         这一页的主角就是图，其余一切信息都塞进两侧的栏里。
+         ⚠️ Background="Transparent" 是给滚轮接力用的（见 Core/WheelRelay.cs），
+         本页真正的滚轮交互在画布上（缩放），见 Plot_Wheel。
+         ⚠️ WinUI → Avalonia：ThemeResource → DynamicResource；Visibility → IsVisible；
+            FontIcon → fa:FontIcon；ToolTipService → ToolTip。 -->
+    <Grid Background="Transparent">
+        <Grid.ColumnDefinitions>
+            <!-- 窗口较窄时先压缩分析栏（Nick 定），SizeChanged 里收窄到 0。
+                 ⚠️ Avalonia 不支持给 ColumnDefinition 写 x:Name，代码里按索引取（root.ColumnDefinitions[0]）。 -->
+            <ColumnDefinition Width="272" MinWidth="0" />
+            <ColumnDefinition Width="*" MinWidth="300" />
+            <ColumnDefinition Width="332" />
+        </Grid.ColumnDefinitions>
+
+        <!-- ═══ 左栏：函数分析 ═══ -->
+        <Border x:Name="AnalysisPanel" Grid.Column="0" BorderThickness="0,0,1,0"
+                Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
+            <Grid Margin="16,12,16,12">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="函数分析" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <Button Grid.Column="1" Content="依据" Click="Basis_Click" Padding="10,4" Margin="8,0,0,0"
+                            ToolTip.Tip="这些结论怎么来的、精度边界在哪" />
+                    <!-- 讲课时把整栏收起来（Nick 定）：投屏场景不希望学生看到分析结论 -->
+                    <Button Grid.Column="2" Click="AnalysisToggle_Click" Padding="6,4" Margin="4,0,0,0"
+                            ToolTip.Tip="收起函数分析">
+                        <fa:FontIcon Glyph="&#xE76B;" FontSize="12" />
+                    </Button>
+                </Grid>
+
+                <ComboBox x:Name="TargetBox" Grid.Row="1" HorizontalAlignment="Stretch" Margin="0,10,0,0"
+                          IsVisible="False" SelectionChanged="TargetBox_Changed"
+                          ToolTip.Tip="选择要分析哪一条曲线" />
+
+                <TextBlock x:Name="AnalysisMode" Grid.Row="2" FontSize="11" Opacity="0.55" Margin="0,8,0,0" />
+
+                <!-- 内容多时内部滚动，不挤外面 -->
+                <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" Margin="0,8,0,0">
+                    <StackPanel Spacing="10">
+                        <TextBlock x:Name="AnalysisEmpty" FontSize="12" Opacity="0.6" TextWrapping="Wrap"
+                                   Text="输入表达式后显示分析结果。" />
+                        <StackPanel x:Name="AnalysisList" Spacing="8" />
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+        </Border>
+
+        <!-- ═══ 中栏：画布（占满，不套卡片边框）═══ -->
+        <!-- ⚠️ 两层 Canvas：底层画网格轴标签（不参与命中测试），上层画曲线。
+             指针事件挂在这个 Grid 上 —— 曲线元素自己会吃掉命中测试，挂在 Canvas 上会被它挡住。 -->
+        <Grid Grid.Column="1" x:Name="PlotArea" Background="Transparent"
+              SizeChanged="PlotArea_SizeChanged"
+              PointerWheelChanged="Plot_Wheel"
+              PointerPressed="Plot_Pressed"
+              PointerMoved="Plot_Moved"
+              PointerReleased="Plot_Released">
+            <Canvas x:Name="ChromeLayer" IsHitTestVisible="False" />
+            <Canvas x:Name="CurveLayer" IsHitTestVisible="False" />
+
+            <!-- 分析栏收起后，画布左上角留一个展开入口（不占布局，浮在画布上） -->
+            <Border x:Name="AnalysisExpand" HorizontalAlignment="Left" VerticalAlignment="Top"
+                    Margin="12,12,0,0" CornerRadius="8" Padding="4" BorderThickness="1"
+                    IsVisible="False"
+                    Background="{DynamicResource SolidBackgroundFillColorSecondaryBrush}"
+                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
+                <Button Click="AnalysisToggle_Click" Padding="8,4" Background="Transparent" BorderThickness="0"
+                        ToolTip.Tip="展开函数分析">
+                    <fa:FontIcon Glyph="&#xE76C;" FontSize="13" />
+                </Button>
+            </Border>
+
+            <!-- 缩放工具浮在画布左下角，不占布局行 -->
+            <StackPanel HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                        Margin="12,0,0,12" Orientation="Horizontal" Spacing="6">
+                <Border CornerRadius="8" Padding="4" BorderThickness="1"
+                        Background="{DynamicResource SolidBackgroundFillColorSecondaryBrush}"
+                        BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <Button Click="Reset_Click" Padding="8,4" Background="Transparent" BorderThickness="0"
+                                ToolTip.Tip="回到初始视角">
+                            <fa:FontIcon Glyph="&#xE72C;" FontSize="13" />
+                        </Button>
+                        <Button Click="ZoomOut_Click" Padding="8,4" Background="Transparent" BorderThickness="0"
+                                ToolTip.Tip="缩小">
+                            <fa:FontIcon Glyph="&#xE71F;" FontSize="13" />
+                        </Button>
+                        <Button Click="ZoomIn_Click" Padding="8,4" Background="Transparent" BorderThickness="0"
+                                ToolTip.Tip="放大">
+                            <fa:FontIcon Glyph="&#xE8A3;" FontSize="13" />
+                        </Button>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </Grid>
+
+        <!-- ═══ 右栏：输入 + 数学键盘（键盘常驻，照计算器）═══ -->
+        <Border Grid.Column="2" BorderThickness="1,0,0,0"
+                Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <!-- ⚠️ 输入区自己的内边距 —— 键盘区要铺到窗口边缘，不能跟着缩进 -->
+                <Grid Margin="12,12,12,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <ComboBox x:Name="AngleBox" SelectedIndex="0" HorizontalAlignment="Stretch"
+                              SelectionChanged="AngleBox_SelectionChanged"
+                              ToolTip.Tip="三角函数按弧度还是角度解释">
+                        <ComboBoxItem Content="弧度制" />
+                        <ComboBoxItem Content="角度制" />
+                    </ComboBox>
+                    <Button Grid.Column="1" Click="AddCurve_Click" VerticalAlignment="Center" Margin="8,0,0,0"
+                            ToolTip.Tip="添加一条曲线">
+                        <fa:FontIcon Glyph="&#xE710;" FontSize="13" />
+                    </Button>
+                </Grid>
+
+                <!-- ⛔⛔ 曲线列表铺满键盘上方的**全部剩余高度**（Nick 定）：
+                     曾经写死 MaxHeight="150"，那么高的一列只能露出四条就被截断。
+                     行高给 * 让它在格子内自己滚，别再用固定上限把它框死。 -->
+                <ScrollViewer Grid.Row="1" Margin="12,0,12,0" Padding="0,0,4,0"
+                              VerticalAlignment="Stretch"
+                              VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="CurveList" Spacing="8" />
+                </ScrollViewer>
+
+                <!-- ═══ 数学键盘 ═══ -->
+                <!-- ⛔⛔ 是右栏的**一部分**，不是浮在面板上的小卡片（Nick：浮卡有喜感）——
+                     无圆角、无边框，底色铺满右栏整宽直到窗口底边，按键拉伸占满可用宽度。 -->
+                <Border Grid.Row="2" Padding="10,10,10,12"
+                        Background="{DynamicResource CardBackgroundFillColorSecondaryBrush}">
+                    <Grid x:Name="KeypadGrid" />
+                </Border>
+            </Grid>
+        </Border>
+    </Grid>
+</platform:PageBase>

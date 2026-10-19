@@ -1,9 +1,11 @@
 using System.Collections.Generic;
+using System.ComponentModel;
+using Avalonia.Media;
 
 namespace ClassSoftwareHub.Desktop.Core;
 
 /// <summary>首页 / 设置页那一行快捷入口的数据。</summary>
-public sealed class QuickLink
+public sealed class QuickLink : INotifyPropertyChanged
 {
     public string Name { get; set; } = "";
     public string Glyph { get; set; } = "";
@@ -18,8 +20,35 @@ public sealed class QuickLink
     /// </summary>
     public string Tag { get; set; } = "";
 
-    /// <summary>要突出的那颗（「赞助作者」）：模板换成"主题色底 + 反白字"那套。</summary>
-    public bool Accent { get; set; }
+    /// <summary>
+    /// SVG 图标资源文件名（如 <c>GITHUB.svg</c>）。非空时模板改用这张图、隐藏 FontIcon。
+    /// （2026-10-18 自上游 1.2.0 移植。）
+    /// </summary>
+    public string? IconSvg { get; set; }
+
+    /// <summary>按当前主题色染好的 SVG 图标源（由页面在 Build 后填充，主题切换时刷新）。</summary>
+    public IImage? IconSource
+    {
+        get => _iconSource;
+        set
+        {
+            _iconSource = value;
+            OnChanged(nameof(IconSource));
+            OnChanged(nameof(HasIconSource));
+        }
+    }
+
+    private IImage? _iconSource;
+
+    /// <summary>模板里「有 SVG 就显示图、否则显示 FontIcon」用它切换（Avalonia 没有 Visibility 枚举）。</summary>
+    public bool HasIconSource => _iconSource is not null;
+
+    /// <summary>反过来的一半：没有 SVG 时才显示 FontIcon。</summary>
+    public bool ShowGlyph => _iconSource is null;
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    private void OnChanged(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
 
 /// <summary>快捷入口清单（两处页面共用，改一处两边都变）。</summary>
@@ -34,20 +63,22 @@ public static class QuickLinks
 
         return new List<QuickLink>
         {
-            new() { Name = "项目仓库", Glyph = "\uE943", Url = repoUrl },
+            new() { Name = "项目仓库", Glyph = "\uE943", IconSvg = "GITHUB.svg", Url = repoUrl },
             new()
             {
-                Name = "作者主页", Glyph = "\uE77B",
+                Name = "作者主页", Glyph = "\uE77B", IconSvg = "主页.svg",
                 Url = ui.T("about.author-home-url", "https://space.bilibili.com/3546609547741581"),
             },
+            // ⚠️ 这颗原来带 Accent = true（走"主题色底 + 反白字"那套模板单独突出），
+            //    2026-10-12 Nick 嫌那个底色越看越丑 ⇒ 去掉（2026-10-18 对齐上游 1.2.0）。
             new()
             {
-                Name = "赞助作者", Glyph = "\uEB51", Accent = true,
+                Name = "赞助作者", Glyph = "\uEB51",
                 Url = ui.T("about.reward-url", "https://afdian.com/a/cyan1201"),
             },
             new()
             {
-                Name = "加入Q群", Glyph = "\uE8BD",
+                Name = "加入Q群", Glyph = "\uE8BD", IconSvg = "QQ.svg",
                 Url = ui.T("about.qq-group-url", "https://qm.qq.com/q/wByO7XG8Wk"),
             },
             // ⚠️ 更新日志走**应用内**页面（tag changelog），不是仓库的 releases 网页 ——

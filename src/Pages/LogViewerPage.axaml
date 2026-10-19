@@ -56,7 +56,7 @@
         <ctl:LogLevelBrushConverter x:Key="LevelBrush" />
 
         <DataTemplate x:Key="LogRowTemplate">
-            <Grid>
+            <Grid Background="Transparent">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="150" />
                     <ColumnDefinition Width="64" />

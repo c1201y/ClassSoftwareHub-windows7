@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:sty="using:FluentAvalonia.Styling"
              xmlns:fa="using:FluentAvalonia.UI.Controls"
+             xmlns:core="using:ClassSoftwareHub.Desktop.Core"
              xmlns:views="using:ClassSoftwareHub.Desktop.Views"
              x:Class="ClassSoftwareHub.Desktop.App"
              RequestedThemeVariant="Default">
@@ -147,6 +148,24 @@
         </Style>
 
         <!--
+          块状入口卡（上游 App.xaml 的 CshNavCardStyle，2026-10-13 建；2026-10-18 移植）：
+          首页「快速开始」那两张一行的入口卡就是这套 —— 圆角 8 + 更宽松的上下内边距，
+          高度**靠内容撑、不写 Height**。实验性功能 / 内置工具页的卡片也改用它。
+
+          ⚠️ 它和 cshCard **不是一类**，别互相替：
+             · cshCard    = 内容卡（说明、表单、结果），圆角 4 = 系统 ControlCornerRadius；
+             · cshNavCard = 入口/导航卡，做得更"块"一点，圆角 8。
+          用法：`Classes="cshNavCard"`。
+        -->
+        <Style Selector="Border.cshNavCard">
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="14,18" />
+            <Setter Property="Background" Value="{DynamicResource CardBackgroundFillColorDefaultBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource CardStrokeColorDefaultBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+
+        <!--
           只读结果行（编码 / 哈希工具的四条哈希值，上游 App.xaml 的 CshResultRowStyle）。
           2026-10-02 建（Nick：「用 Border 堆叠的表单表格，所有块都是方块包方块」）：
           这类"一行一条结果"的内容改用 ListView 承载 —— 每一行自带系统悬停底色、
@@ -189,6 +208,12 @@
 
             <!-- ⛔ Win7 关键：图标字体。绝不能删。 -->
             <FontFamily x:Key="SymbolThemeFontFamily">avares://ClassSoftwareHub/Assets/Fonts/CshSymbols.ttf#CshSymbols</FontFamily>
+
+            <!-- 值转换器（2026-10-18 自上游 1.2.0 移植）：
+                 快捷入口模板用 —— SVG 图标与 FontIcon 二选一显示。
+                 ⚠️ Avalonia 没有 Visibility 枚举，两个转换器返回 bool（绑 IsVisible）。 -->
+            <core:NullToCollapsed x:Key="NullToCollapsed" />
+            <core:NotNullToCollapsed x:Key="NotNullToCollapsed" />
 
             <!--
               自绘窗口按钮的配色。
