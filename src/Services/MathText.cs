@@ -239,7 +239,10 @@ public static class MathText
                 return;
 
             case Frac f:
-                para.Add(new InlineUIContainer { Child = FractionElement(f, ctx) });
+                // ⛔ 底部 padding 抬基线（教训见 AlignOnBaseline 注释）
+                var frac = FractionElement(f, ctx);
+                AlignOnBaseline(frac, ctx);
+                para.Add(new InlineUIContainer { Child = frac });
                 return;
 
             case Script sc:
@@ -247,7 +250,9 @@ public static class MathText
                 return;
 
             case Radical r:
-                para.Add(new InlineUIContainer { Child = RadicalElement(r, ctx) });
+                var rad = RadicalElement(r, ctx);
+                AlignOnBaseline(rad, ctx);
+                para.Add(new InlineUIContainer { Child = rad });
                 return;
         }
     }
@@ -301,36 +306,36 @@ public static class MathText
     }
 
     /// <summary>
-    /// 把堆叠类元素（分数、根号）下沉到**数学轴**上。
+    /// 把堆叠类元素（分数、根号）摆到**基线**上。
     /// <para>
-    /// ⛔⛔ 不这么做的话 <see cref="InlineUIContainer"/> 是按**底边贴基线**摆的：
-    /// 一个两行高的分式会整个被顶到基线以上，看起来"飘"在半空、跟后面的数字错位
-    /// （Nick 截图点名）。行框本身已经按对象高度撑开了，所以下沉不会压到下一行。
+    /// ⛔⛔ 2026-10-20 多轮实测的最终方案（用户截图：x = 56/9 分母被裁；-π/6 分母挤进基线）：
+    /// </para>
+    /// <para>
+    /// · RenderTransform 视觉下移 —— 位移不进布局，行框不涨，下移出界的分母被裁掉。
+    /// · VerticalAlignment=Bottom —— UI 底边贴**行框底**，而文本基线在行框内偏上，
+    ///   分母整个沉到基线以下、与前后文字重叠。
+    /// · 底部负 margin —— margin 同时参与行框计算，等于没抬。
+    /// · InlineUIContainer.Baseline —— Avalonia 11.2.8 没有这个属性。
+    /// · BaselineAlignment=Baseline —— 11.2 的 TextLine 对 UI 容器**忽略**该值，实测无效。
+    /// </para>
+    /// <para>
+    /// ✅ 最终做法（纯布局、可预测）：给元素加**内部底部 padding = 0.27em**
+    ///   （正文行框里"基线到行框底"的距离 ≈ 字形下伸部）。
+    ///   UI 底边贴行框底 ⇒ padding 底边就是基线位置 ⇒ 分母底恰好落在主基线上，
+    ///   分数线 ≈ 基线上方 0.6em —— 教材排版的标准位置；行框按 padding 撑高，绝不裁剪。
     /// </para>
     /// </summary>
-    private static void AlignOnMathAxis(Avalonia.Controls.Control element, Ctx ctx)
+    private static void AlignOnBaseline(Avalonia.Controls.Control element, Ctx ctx)
     {
-        var shift = new TranslateTransform();
-        element.RenderTransform = shift;
-
-        void Update()
-        {
-            var h = element.Bounds.Height;
-            if (h > 0) shift.Y = h / 2 - ctx.Size * 0.26;   // 数学轴约在基线以上 0.26em
-        }
-
-        element.AttachedToVisualTree += (_, _) => Update();
-        element.PropertyChanged += (_, e) =>
-        {
-            if (e.Property == Layoutable.BoundsProperty) Update();
-        };
+        var m = element.Margin;
+        element.Margin = new Thickness(m.Left, m.Top, m.Right, ctx.Size * 0.27);
     }
 
+    /// <summary>分数：分子 / 分数线 / 分母 三行堆叠（底边对齐基线由 BaselineAlignment 负责）。</summary>
     private static Avalonia.Controls.Control FractionElement(Frac f, Ctx ctx)
     {
         var grid = new Grid
         {
-            
             Margin = new Thickness(2, 0, 2, 0),
         };
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -357,7 +362,6 @@ public static class MathText
         Grid.SetRow(den, 2);
         grid.Children.Add(den);
 
-        AlignOnMathAxis(grid, ctx);
         return grid;
     }
 
@@ -382,12 +386,12 @@ public static class MathText
         return panel;
     }
 
+    /// <summary>根号：√ 符号 + 顶部横线的被开方数。</summary>
     private static Avalonia.Controls.Control RadicalElement(Radical r, Ctx ctx)
     {
         var panel = new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            VerticalAlignment = VerticalAlignment.Center,
         };
 
         panel.Children.Add(new TextBlock
@@ -408,7 +412,6 @@ public static class MathText
             Child = Wrap(r.Body, ctx),
         });
 
-        AlignOnMathAxis(panel, ctx);
         return panel;
     }
 
