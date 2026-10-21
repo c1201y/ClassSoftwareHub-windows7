@@ -1,10 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.Documents;
-using Avalonia.Controls.Shapes;
-using Avalonia.Layout;
 using Avalonia.Media;
 
 namespace ClassSoftwareHub.Desktop.Services;
@@ -22,16 +20,18 @@ namespace ClassSoftwareHub.Desktop.Services;
 /// 认不出来的字符一律原样当普通文本输出，绝不吃掉 —— 排错了比排不出更糟。
 /// </para>
 /// <para>
-/// ⛔⛔ 用 <see cref="TextBlock"/>（Inlines 可换行）而不是横向 StackPanel：
-/// 分析栏只有约 150px 宽，长结论必须能自动折行；StackPanel 不会换行，直接横向溢出。
+/// ⛔⛔ 2026-10-21 重写为**自绘控件**（<c>MathView : Control</c>，用 FormattedText 逐块画）：
+///   之前用 <c>TextBlock + InlineUIContainer</c> 塞分数，分数在行里的垂直位置**完全由
+///   Avalonia 的 TextLine 决定**，而 11.2 的 TextLine 对 UI 容器只有"底边贴基线/行框底"
+///   这两种行为可选 —— 于是分母要么被裁、要么整个压在基线上和前面的数字挤成一排，
+///   用户连着两次截图反馈。自绘之后基线由我们自己算：分数线在基线上方 0.26em、
+///   分母垂到基线以下，就是教材里的位置；宽度不够时按**块**折行（分析栏只有 150px 宽，
+///   长结论必须能换行）。
 /// </para>
 /// <para>
 /// ⚠️ WinUI → Avalonia 移植（2026-10-18 自上游 1.2.0 移植）：
-///   · WinUI 的 <c>RichTextBlock + Paragraph + InlineUIContainer</c> →
-///     Avalonia 的 <c>TextBlock.Inlines</c>（<c>Run</c> + <c>InlineUIContainer</c> 同名可用，
-///     折行行为一致）；
-///   · <c>Windows.UI.Text.FontStyle</c> → <c>Avalonia.Media.FontStyle</c>；
-///   · <c>LineStackingStrategy</c> → 直接设 <c>LineHeight</c>（Avalonia 默认就是精确行高）。
+///   · WinUI 的 <c>RichTextBlock + Paragraph + InlineUIContainer</c> → 本移植版自绘（见上）；
+///   · <c>Windows.UI.Text.FontStyle</c> → <c>Avalonia.Media.FontStyle</c>。
 /// </para>
 /// </summary>
 public static class MathText
@@ -48,27 +48,19 @@ public static class MathText
         "abs", "max", "min", "mod", "e",
     };
 
-    /// <summary>把一段结论字符串排成可换行的数学视图。</summary>
-    public static TextBlock Render(string? text, double fontSize, IBrush brush)
+    /// <summary>把一段结论字符串排成数学视图（可自动折行）。</summary>
+    public static Control Render(string? text, double fontSize, IBrush brush)
     {
         var body = text ?? "";
-
-        var block = new TextBlock
-        {
-            FontSize = fontSize,
-            Foreground = brush,
-            TextWrapping = TextWrapping.Wrap,
-            // Avalonia 11 的 TextBlock 默认允许复制（SelectableTextBlock 才显式支持选择）；
-            // 结论要能选中复制 ⇒ 外面用 SelectableTextBlock 包一层（见下）。
-        };
-
-        var para = new InlineCollection();
 
         try
         {
             var ctx = new Ctx(fontSize, brush);
+            var boxes = new List<MathBox>();
             foreach (var piece in new Parser(Normalize(body)).ParseAll())
-                Append(para, piece, ctx);
+                Build(boxes, piece, ctx);
+
+            return new MathView(boxes);
         }
         catch (Exception ex)
         {
@@ -76,15 +68,14 @@ public static class MathText
             Core.AppLog.Exception("plot", ex, "数学文本排版");
 
             // 排版出了任何岔子都退回纯文本：宁可不好看，不能空白
-            para.Clear();
-            para.Add(new Run { Text = body, FontSize = fontSize, Foreground = brush });
+            return new TextBlock
+            {
+                Text = body,
+                FontSize = fontSize,
+                Foreground = brush,
+                TextWrapping = TextWrapping.Wrap,
+            };
         }
-
-        // ⛔⛔ 必须把排好的 InlineCollection **挂到 TextBlock 上** ——
-        //    2026-10-18 修：移植时漏了这一步，于是 block.Inlines 一直是空的，
-        //    方程预览 / 函数分析 / 化学式全渲染成空白（用户报「方程求解不显示方程」）。
-        block.Inlines = para;
-        return block;
     }
 
     // ────────────────────────── 片段模型 ──────────────────────────
@@ -217,202 +208,294 @@ public static class MathText
                 or 't' or 'T' or 's' or 'u' or 'v' or 'w' or 'f' or 'g' or 'h';
     }
 
-    // ────────────────────────── 渲染 ──────────────────────────
-
-    private static void Append(InlineCollection para, Piece piece, Ctx ctx)
-    {
-        switch (piece)
-        {
-            case Txt t:
-                if (t.Text.Length == 0) return;
-                para.Add(new Run
-                {
-                    Text = t.Text,
-                    FontSize = ctx.Size,
-                    Foreground = ctx.Brush,
-                    FontStyle = t.Italic ? Avalonia.Media.FontStyle.Italic : Avalonia.Media.FontStyle.Normal,
-                });
-                return;
-
-            case Group g:
-                foreach (var item in g.Items) Append(para, item, ctx);
-                return;
-
-            case Frac f:
-                // ⛔ 底部 padding 抬基线（教训见 AlignOnBaseline 注释）
-                var frac = FractionElement(f, ctx);
-                AlignOnBaseline(frac, ctx);
-                para.Add(new InlineUIContainer { Child = frac });
-                return;
-
-            case Script sc:
-                para.Add(new InlineUIContainer { Child = ScriptElement(sc, ctx) });
-                return;
-
-            case Radical r:
-                var rad = RadicalElement(r, ctx);
-                AlignOnBaseline(rad, ctx);
-                para.Add(new InlineUIContainer { Child = rad });
-                return;
-        }
-    }
-
-    /// <summary>把一个片段摊成横排元素（分数内部用，不需要换行）。</summary>
-    private static void Flatten(StackPanel panel, Piece piece, Ctx ctx)
-    {
-        switch (piece)
-        {
-            case Txt t:
-                if (t.Text.Length == 0) return;
-                panel.Children.Add(new TextBlock
-                {
-                    Text = t.Text,
-                    FontSize = ctx.Size,
-                    Foreground = ctx.Brush,
-                    FontStyle = t.Italic ? Avalonia.Media.FontStyle.Italic : Avalonia.Media.FontStyle.Normal,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    // 堆叠件内部收紧行距：默认行高会把"分子/分母"撑得过高，分数显得又高又散
-                    LineHeight = ctx.Size * 1.25,
-                });
-                return;
-
-            case Group g:
-                foreach (var item in g.Items) Flatten(panel, item, ctx);
-                return;
-
-            case Frac f:
-                panel.Children.Add(FractionElement(f, ctx));
-                return;
-
-            case Script sc:
-                panel.Children.Add(ScriptElement(sc, ctx));
-                return;
-
-            case Radical r:
-                panel.Children.Add(RadicalElement(r, ctx));
-                return;
-        }
-    }
-
-    private static Avalonia.Controls.Control Wrap(Piece piece, Ctx ctx)
-    {
-        var panel = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        Flatten(panel, piece, ctx);
-        return panel;
-    }
+    // ────────────────────────── 排版盒（自绘） ──────────────────────────
 
     /// <summary>
-    /// 把堆叠类元素（分数、根号）摆到**基线**上。
-    /// <para>
-    /// ⛔⛔ 2026-10-20 多轮实测的最终方案（用户截图：x = 56/9 分母被裁；-π/6 分母挤进基线）：
-    /// </para>
-    /// <para>
-    /// · RenderTransform 视觉下移 —— 位移不进布局，行框不涨，下移出界的分母被裁掉。
-    /// · VerticalAlignment=Bottom —— UI 底边贴**行框底**，而文本基线在行框内偏上，
-    ///   分母整个沉到基线以下、与前后文字重叠。
-    /// · 底部负 margin —— margin 同时参与行框计算，等于没抬。
-    /// · InlineUIContainer.Baseline —— Avalonia 11.2.8 没有这个属性。
-    /// · BaselineAlignment=Baseline —— 11.2 的 TextLine 对 UI 容器**忽略**该值，实测无效。
-    /// </para>
-    /// <para>
-    /// ✅ 最终做法（纯布局、可预测）：给元素加**内部底部 padding = 0.27em**
-    ///   （正文行框里"基线到行框底"的距离 ≈ 字形下伸部）。
-    ///   UI 底边贴行框底 ⇒ padding 底边就是基线位置 ⇒ 分母底恰好落在主基线上，
-    ///   分数线 ≈ 基线上方 0.6em —— 教材排版的标准位置；行框按 padding 撑高，绝不裁剪。
-    /// </para>
+    /// 一个排版盒：只知道自己的宽、基线上方多高（Ascent）、基线下方多深（Descent），
+    /// 以及"把基线放在 <paramref name="yBaseline"/> 时怎么画"。
+    /// 分数这类堆叠件的基线由我们自己定（分数线在基线上方），不再受 TextLine 摆布。
     /// </summary>
-    private static void AlignOnBaseline(Avalonia.Controls.Control element, Ctx ctx)
+    private abstract class MathBox
     {
-        var m = element.Margin;
-        element.Margin = new Thickness(m.Left, m.Top, m.Right, ctx.Size * 0.27);
+        public double Width { get; protected set; }
+        public double Ascent { get; protected set; }
+        public double Descent { get; protected set; }
+
+        public abstract void Draw(DrawingContext context, double x, double yBaseline);
     }
 
-    /// <summary>分数：分子 / 分数线 / 分母 三行堆叠（底边对齐基线由 BaselineAlignment 负责）。</summary>
-    private static Avalonia.Controls.Control FractionElement(Frac f, Ctx ctx)
+    /// <summary>普通文本块（数字、字母、运算符、中文）。</summary>
+    private sealed class TextBox : MathBox
     {
-        var grid = new Grid
+        private readonly FormattedText _text;
+
+        public IBrush Brush { get; }
+
+        public TextBox(string text, Ctx ctx, bool italic)
         {
-            Margin = new Thickness(2, 0, 2, 0),
-        };
-        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            Brush = ctx.Brush;
+            _text = new FormattedText(
+                text,
+                CultureInfo.CurrentCulture,
+                FlowDirection.LeftToRight,
+                new Typeface(FontFamily.Default, italic ? FontStyle.Italic : FontStyle.Normal, FontWeight.Normal),
+                ctx.Size,
+                ctx.Brush);
 
-        var num = Wrap(f.Num, ctx);
-        num.HorizontalAlignment = HorizontalAlignment.Center;
-        Grid.SetRow(num, 0);
-        grid.Children.Add(num);
+            Width = _text.WidthIncludingTrailingWhitespace;
+            Ascent = _text.Baseline;
+            Descent = Math.Max(0, _text.Height - _text.Baseline);
+        }
 
-        var bar = new Rectangle
-        {
-            Height = Math.Max(1, ctx.Size / 14),
-            Fill = ctx.Brush,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            Margin = new Thickness(1, 0, 1, 0),
-        };
-        Grid.SetRow(bar, 1);
-        grid.Children.Add(bar);
-
-        var den = Wrap(f.Den, ctx);
-        den.HorizontalAlignment = HorizontalAlignment.Center;
-        Grid.SetRow(den, 2);
-        grid.Children.Add(den);
-
-        return grid;
+        public override void Draw(DrawingContext context, double x, double yBaseline)
+            => context.DrawText(_text, new Point(x, yBaseline - _text.Baseline));
     }
 
-    private static Avalonia.Controls.Control ScriptElement(Script sc, Ctx ctx)
+    /// <summary>一行里并排的若干盒（分子、分母、被开方数都用它）。</summary>
+    private sealed class RowBox : MathBox
     {
-        var panel = new StackPanel
+        private readonly List<MathBox> _boxes = new();
+        private readonly List<double> _offsets = new();
+
+        public RowBox(IEnumerable<MathBox> boxes)
         {
-            Orientation = Orientation.Horizontal,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
+            var x = 0.0;
+            foreach (var b in boxes)
+            {
+                _boxes.Add(b);
+                _offsets.Add(x);
+                x += b.Width;
+                Ascent = Math.Max(Ascent, b.Ascent);
+                Descent = Math.Max(Descent, b.Descent);
+            }
+            Width = x;
+        }
 
-        var body = Wrap(sc.Base, ctx);
-        body.VerticalAlignment = VerticalAlignment.Center;
-        panel.Children.Add(body);
-
-        // ⚠️ 上标往上抬、下标往下压，都不能额外撑高行
-        var script = Wrap(sc.Sup, ctx.Script());
-        script.Margin = new Thickness(1, sc.Sub ? ctx.Size * 0.30 : -ctx.Size * 0.34, 0, 0);
-        script.VerticalAlignment = VerticalAlignment.Center;
-        panel.Children.Add(script);
-
-        return panel;
+        public override void Draw(DrawingContext context, double x, double yBaseline)
+        {
+            for (var i = 0; i < _boxes.Count; i++)
+                _boxes[i].Draw(context, x + _offsets[i], yBaseline);
+        }
     }
 
-    /// <summary>根号：√ 符号 + 顶部横线的被开方数。</summary>
-    private static Avalonia.Controls.Control RadicalElement(Radical r, Ctx ctx)
+    /// <summary>分数：分子在上、分数线在基线上方 0.26em、分母**垂到基线以下**（教材位置）。</summary>
+    private sealed class FracBox : MathBox
     {
-        var panel = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-        };
+        private readonly MathBox _num;
+        private readonly MathBox _den;
+        private readonly IBrush _brush;
+        private readonly double _bar;
+        private readonly double _axis;          // 分数线距基线上方
+        private readonly double _numLift;       // 分子基线距基线上方
+        private readonly double _denAbove;      // 分母基线相对主基线（负 = 在基线以下）
 
-        panel.Children.Add(new TextBlock
+        public FracBox(MathBox num, MathBox den, Ctx ctx)
         {
-            Text = "√",
-            FontSize = ctx.Size * 1.15,
-            Foreground = ctx.Brush,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, -1, 0),
-        });
+            _num = num;
+            _den = den;
+            _brush = ctx.Brush;
 
-        panel.Children.Add(new Border
+            // ⚠️ 2026-10-21：上下位置**按 em 比例**定，不能拿字框的 ascent/descent 去算 ——
+            //    字框里含大量上下留白（行距），照它算出来的分数会被拉成两三倍高。
+            //    教材位置：分数线在基线上方 0.26em、分子基线 +0.36em、分母基线 −0.54em
+            //    ⇒ 分子底贴着分数线、分母顶贴着分数线、分母整体垂到基线以下。
+            var em = ctx.Size;
+            _bar = Math.Max(1, em / 18);
+            _axis = em * 0.26;
+            var gap = em * 0.10;
+
+            _numLift = _axis + gap;                       // 分子基线在基线上方
+            _denAbove = _axis - gap - em * 0.70;           // 分母基线相对主基线（负 = 在下方）
+
+            var pad = em * 0.12;
+            Width = Math.Max(num.Width, den.Width) + pad * 2;
+            Ascent = _numLift + em * 0.75;
+            Descent = Math.Max(0, -_denAbove) + em * 0.22;
+        }
+
+        public override void Draw(DrawingContext context, double x, double yBaseline)
         {
-            BorderBrush = ctx.Brush,
-            BorderThickness = new Thickness(0, Math.Max(1, ctx.Size / 16), 0, 0),
-            Padding = new Thickness(2, 0, 1, 0),
-            VerticalAlignment = VerticalAlignment.Center,
-            Child = Wrap(r.Body, ctx),
-        });
+            // 分子
+            _num.Draw(context, x + (Width - _num.Width) / 2, yBaseline - _numLift);
 
-        return panel;
+            // 分数线
+            var barTop = yBaseline - _axis - _bar / 2;
+            context.FillRectangle(_brush, new Rect(x, barTop, Width, _bar));
+
+            // 分母（垂到基线以下）
+            _den.Draw(context, x + (Width - _den.Width) / 2, yBaseline - _denAbove);
+        }
+    }
+
+    /// <summary>上标 / 下标。</summary>
+    private sealed class ScriptBox : MathBox
+    {
+        private readonly MathBox _base;
+        private readonly MathBox _script;
+        private readonly double _shift;      // 正数 = 基线以下（下标）
+
+        public ScriptBox(MathBox baseBox, MathBox script, double shift)
+        {
+            _base = baseBox;
+            _script = script;
+            _shift = shift;
+
+            Width = baseBox.Width + script.Width;
+            Ascent = Math.Max(baseBox.Ascent, -shift + script.Ascent);
+            Descent = Math.Max(baseBox.Descent, shift + script.Descent);
+        }
+
+        public override void Draw(DrawingContext context, double x, double yBaseline)
+        {
+            _base.Draw(context, x, yBaseline);
+            _script.Draw(context, x + _base.Width, yBaseline + _shift);
+        }
+    }
+
+    /// <summary>根号：√ 符号 + 被开方数顶上的横线。</summary>
+    private sealed class RadicalBox : MathBox
+    {
+        private readonly TextBox _sign;
+        private readonly MathBox _body;
+        private readonly double _lineThickness;
+        private readonly double _gap;
+
+        public RadicalBox(MathBox body, Ctx ctx)
+        {
+            _body = body;
+            _sign = new TextBox("√", ctx, italic: false);
+            _lineThickness = Math.Max(1, ctx.Size / 16);
+            _gap = ctx.Size * 0.06;
+
+            Width = _sign.Width + body.Width + 1;
+            Ascent = Math.Max(_sign.Ascent, body.Ascent + _gap + _lineThickness);
+            Descent = Math.Max(_sign.Descent, body.Descent);
+        }
+
+        public override void Draw(DrawingContext context, double x, double yBaseline)
+        {
+            _sign.Draw(context, x, yBaseline);
+            var bodyX = x + _sign.Width;
+            _body.Draw(context, bodyX, yBaseline);
+
+            var y = yBaseline - _body.Ascent - _gap - _lineThickness / 2;
+            context.FillRectangle(_sign.Brush, new Rect(bodyX, y, _body.Width + 1, _lineThickness));
+        }
+    }
+
+    // ────────────────────────── 画布控件 ──────────────────────────
+
+    /// <summary>
+    /// 自绘的数学视图：按**块**折行（宽度不够时整块换行），逐行按自己的基线画。
+    /// 行高 = Ascent + Descent，所以分数再高也不会被裁，也不会和相邻行挤在一起。
+    /// </summary>
+    private sealed class MathView : Control
+    {
+        private readonly List<MathBox> _boxes;
+        private readonly List<(List<(MathBox Box, double X)> Items, double Ascent, double Descent, double Width)> _lines = new();
+
+        public MathView(List<MathBox> boxes) => _boxes = boxes;
+
+        protected override Size MeasureOverride(Size availableSize)
+        {
+            var maxWidth = double.IsInfinity(availableSize.Width)
+                ? double.PositiveInfinity
+                : Math.Max(1, availableSize.Width);
+
+            _lines.Clear();
+
+            var items = new List<(MathBox, double)>();
+            var x = 0.0;
+            var ascent = 0.0;
+            var descent = 0.0;
+            var width = 0.0;
+
+            void Flush()
+            {
+                if (items.Count == 0) return;
+                _lines.Add((new List<(MathBox, double)>(items), ascent, descent, width));
+                items.Clear();
+                x = 0;
+                ascent = 0;
+                descent = 0;
+                width = 0;
+            }
+
+            foreach (var b in _boxes)
+            {
+                if (x > 0 && x + b.Width > maxWidth) Flush();
+                items.Add((b, x));
+                x += b.Width;
+                width = Math.Max(width, x);
+                ascent = Math.Max(ascent, b.Ascent);
+                descent = Math.Max(descent, b.Descent);
+            }
+            Flush();
+
+            var height = 0.0;
+            var totalWidth = 0.0;
+            foreach (var line in _lines)
+            {
+                height += line.Ascent + line.Descent;
+                totalWidth = Math.Max(totalWidth, line.Width);
+            }
+
+            return new Size(totalWidth, height);
+        }
+
+        public override void Render(DrawingContext context)
+        {
+            // 极端情况下 MeasureOverride 还没跑过（比如刚构造就画），先补一次，避免整块空着
+            if (_lines.Count == 0 && _boxes.Count > 0)
+                MeasureOverride(new Size(Bounds.Width > 0 ? Bounds.Width : double.PositiveInfinity, double.PositiveInfinity));
+
+            var y = 0.0;
+            foreach (var line in _lines)
+            {
+                var baseline = y + line.Ascent;
+                foreach (var item in line.Items)
+                    item.Box.Draw(context, item.X, baseline);
+                y += line.Ascent + line.Descent;
+            }
+        }
+    }
+
+    // ────────────────────────── 组装：Piece → 排版盒 ──────────────────────────
+
+    private static void Build(List<MathBox> sink, Piece piece, Ctx ctx)
+    {
+        switch (piece)
+        {
+            case Txt t:
+                if (t.Text.Length > 0) sink.Add(new TextBox(t.Text, ctx, t.Italic));
+                return;
+
+            case Group g:
+                foreach (var item in g.Items) Build(sink, item, ctx);
+                return;
+
+            case Frac f:
+                sink.Add(new FracBox(BuildRow(f.Num, ctx), BuildRow(f.Den, ctx), ctx));
+                return;
+
+            case Script sc:
+                var body = BuildRow(sc.Base, ctx);
+                var script = BuildRow(sc.Sup, ctx.Script());
+                var shift = sc.Sub ? ctx.Size * 0.20 : -ctx.Size * 0.42;   // 正 = 往下（下标）
+                sink.Add(new ScriptBox(body, script, shift));
+                return;
+
+            case Radical r:
+                sink.Add(new RadicalBox(BuildRow(r.Body, ctx), ctx));
+                return;
+        }
+    }
+
+    private static MathBox BuildRow(Piece piece, Ctx ctx)
+    {
+        var list = new List<MathBox>();
+        Build(list, piece, ctx);
+        return new RowBox(list);
     }
 
     // ────────────────────────── 预处理与字符表 ──────────────────────────

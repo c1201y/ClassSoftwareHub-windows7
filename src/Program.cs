@@ -52,6 +52,17 @@ internal static class Program
     [STAThread]
     public static void Main(string[] args)
     {
+        // 排障：数学排版离屏自检（--mathshot <输出 png>）。开主界面之前就跑完并退出，
+        // 用来核对分数/上标/根号的基线位置（见 Platform/MathShot）。只用于开发验证。
+        var shotAt = Array.FindIndex(args, a => a.Equals("--mathshot", StringComparison.OrdinalIgnoreCase));
+        if (shotAt >= 0)
+        {
+            var outPath = shotAt + 1 < args.Length ? args[shotAt + 1] : "mathshot.png";
+            BuildAvaloniaApp().SetupWithoutStarting();
+            Platform.MathShot.Run(outPath);
+            return;
+        }
+
         _forceSoftwareRender = Array.Exists(args,
             a => a.Equals("--software-render", StringComparison.OrdinalIgnoreCase));
 
