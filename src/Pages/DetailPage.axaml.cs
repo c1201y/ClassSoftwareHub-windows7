@@ -72,10 +72,14 @@ public sealed partial class DetailPage : PageBase
         IntroTitle.Text = ui.T("detail.intro", "应用介绍");
         InfoTitle.Text = ui.T("detail.info", "详细信息");
         DownloadsTitle.Text = ui.T("detail.downloads", "下载");
-        StoreTitle.Text = ui.T("detail.store-title", "使用 Microsoft Store 下载");
-        StoreDesc.Text = ui.T("detail.store-desc", "由应用商店托管，安装后自动更新，无需手动跟随版本。");
-        StoreButton.Content = ui.T("detail.store-button", "下载");
+        StoreTitle.Text = ui.T("detail.store-title", "在 Microsoft Store 中获取");
+        StoreDesc.Text = ui.T("detail.store-desc", "由微软商店托管，安装后自动更新，无需手动下载安装包。");
+        StoreButton.Content = ui.T("detail.store-button", "获取");
         StoreOnlyHint.Text = ui.T("detail.store-only", "该软件通过 Microsoft Store 分发，单击上方按钮打开商店页面即可获取");
+
+        // 商店图标（2026-10-19，自上游 1.3）：内嵌资源解到缓存再绑，避免 unpackaged 下取不到
+        if (StoreLogo.Source is null) StoreLogo.Source = LoadStoreLogo();
+        StoreLogo.IsVisible = StoreLogo.Source is not null;
 
         var app = App.Content.FindById(parameter as string ?? "");
         if (app is null)
@@ -388,6 +392,29 @@ public sealed partial class DetailPage : PageBase
                              ?? new SolidColorBrush(Color.FromArgb(0x18, 0, 0, 0)),
             });
             InfoList.Children.Insert(index, wrapper);
+        }
+    }
+
+    /// <summary>
+    /// 微软商店图标（`Assets/StoreLogo.png`，内嵌资源 ⇒ 跟着 exe 走、离线可用）。
+    /// ⚠️ WinUI 原版走 <c>Services.EmbeddedAssets.ExtractToCache</c> 解到缓存再用文件路径；
+    ///    本移植版的 csproj 只把 <c>Assets\**\*.png</c> 收成 AvaloniaResource（不是 EmbeddedResource），
+    ///    所以改成直接读 <c>avares://ClassSoftwareHub/Assets/StoreLogo.png</c>，效果一样、还少一次落盘。
+    /// ⚠️ TODO(win7): 仓库根 Assets 里目前**没有** StoreLogo.png（上游 1.3 才加）——
+    ///    资源缺失时返回 null、卡片自动收起图标，⛔ 别让整页崩掉。
+    /// </summary>
+    private static Avalonia.Media.Imaging.Bitmap? LoadStoreLogo()
+    {
+        try
+        {
+            var uri = new Uri("avares://ClassSoftwareHub/Assets/StoreLogo.png");
+            using var stream = Avalonia.Platform.AssetLoader.Open(uri);
+            return stream is null ? null : new Avalonia.Media.Imaging.Bitmap(stream);
+        }
+        catch (Exception ex)
+        {
+            Core.AppLog.Warn("detail", "商店图标加载失败（资源缺失？）：" + ex.Message);
+            return null;
         }
     }
 

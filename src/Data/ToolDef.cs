@@ -12,6 +12,9 @@ public sealed class ToolDef
     public string Desc { get; init; } = "";
     /// <summary>SEGOEICONS 字形码。</summary>
     public string Glyph { get; init; } = "";
+
+    /// <summary>归属分组（导航与工具索引页都按它分派）。⚠️ 默认课堂，新增系统工具时务必显式标注。</summary>
+    public ToolGroup Group { get; init; } = ToolGroup.Classroom;
     /// <summary>点开要导航到的页面。</summary>
     public Type? Page { get; init; }
 
@@ -87,6 +90,16 @@ public sealed class MirrorInfo
     public List<MirrorSite> Sites { get; } = new();
 }
 
+/// <summary>内置工具的分组（2026-10-22 自上游 1.2.0-insider1.3 移植：导航把原「内置工具」拆成两项）。</summary>
+public enum ToolGroup
+{
+    /// <summary>课堂上用的：抽号、计时、时钟、学科工具等。</summary>
+    Classroom,
+
+    /// <summary>系统维护类：磁盘、关机、校验、取色等。</summary>
+    System,
+}
+
 /// <summary>
 /// 内置工具清单 —— 导航栏「内置工具」分组的子项、工具索引页的卡片，共用这一份。
 /// <para>⚠️ 往这儿加工具：① 下面 <see cref="All"/> 加一条（Id/Name/Desc/Glyph/Page）；
@@ -101,7 +114,7 @@ public static class ToolCatalog
         {
             Id = "image-color", Name = "图片取色",
             Desc = "导入图片后自动提取一组柔和的配色（种子色 + 7 档明暗变体），单击色块即可复制。",
-            Glyph = "\uE790", Page = typeof(ImageColorToolPage)
+            Glyph = "\uE790", Page = typeof(ImageColorToolPage), Group = ToolGroup.System
         },
         new ToolDef
         {
@@ -137,13 +150,13 @@ public static class ToolCatalog
         {
             Id = "encoding", Name = "编码 / 哈希工具",
             Desc = "校验文件：拖入即得 MD5 / SHA-1 / SHA-256 / SHA-512，可粘贴官方值自动核对；也可做 Base64、URL 编解码。",
-            Glyph = "\uE943", Page = typeof(EncodingToolPage)
+            Glyph = "\uE943", Page = typeof(EncodingToolPage), Group = ToolGroup.System
         },
         new ToolDef
         {
             Id = "autoshutdown", Name = "自动关机",
             Desc = "按星期设定关机时间点，到达时间后自动关机；可直接关机（可设延迟），也可用系统原生的滑动关机。",
-            Glyph = "\uE787", Page = typeof(ClassSoftwareHub.Desktop.Pages.AutoShutdownPage)
+            Glyph = "\uE787", Page = typeof(ClassSoftwareHub.Desktop.Pages.AutoShutdownPage), Group = ToolGroup.System
         },
         // ⚠️ 上游 2026-10-09 把「系统镜像下载」整体下线（工具定义、页面、侧边栏模块、内容解析）。
         //    本移植版按用户决定**保留**这个功能（页面 Pages/Tools/MirrorToolPage 与侧边栏模块都还在），
@@ -155,7 +168,7 @@ public static class ToolCatalog
             Id = "mirror-download", Name = "系统镜像下载",
             Desc = "从多个镜像站下载 Windows / Office 等系统镜像，可复制校验值核对；镜像地址来自站点内容包。",
             // E896 = 云下载
-            Glyph = "\uE896", Page = typeof(ClassSoftwareHub.Desktop.Pages.Tools.MirrorToolPage)
+            Glyph = "\uE896", Page = typeof(ClassSoftwareHub.Desktop.Pages.Tools.MirrorToolPage), Group = ToolGroup.System
         },
         // ⚠️「自动关机」2026-10-12 从「实验性功能」转正搬来这里（Nick 定：这玩意可以退出实验性了）——
         //    导航子项与工具索引页卡片都会自动跟着出现，不用另改导航（见本类注释）。
@@ -170,7 +183,7 @@ public static class ToolCatalog
             Id = "disk-map", Name = "磁盘空间",
             Desc = "按占用面积画出目录结构，一眼看出空间被谁吃掉了；单击方块可逐层下钻。",
             // E7F1 = 硬盘
-            Glyph = "\uE7F1", Page = typeof(ClassSoftwareHub.Desktop.Pages.Tools.DiskMapPage)
+            Glyph = "\uE7F1", Page = typeof(ClassSoftwareHub.Desktop.Pages.Tools.DiskMapPage), Group = ToolGroup.System
         },
         new ToolDef
         {

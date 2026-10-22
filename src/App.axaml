@@ -227,11 +227,45 @@
                     <SolidColorBrush x:Key="CshCaptionGlyphBrush" Color="#1B1B1B" />
                     <SolidColorBrush x:Key="CshCaptionHoverBrush" Color="#14000000" />
                     <SolidColorBrush x:Key="CshCaptionPressedBrush" Color="#24000000" />
+                    <!-- ════════════ Hub AI 品牌资源（2026-10-18 上游新增；2026-10-22 移植）════════════
+                         为什么集中在这里：AI 的品牌色**不跟随系统强调色**（用户把强调色改成绿色，
+                         AI 图标也跟着变绿会很怪）。这里是全项目唯一允许写死色值的地方，页面只引用键名。
+                         配色口径：借鉴「极淡多色过渡」—— 彩色当空气铺在背景里，图标保持中性。 -->
+                    <LinearGradientBrush x:Key="HubAiCardBackground" StartPoint="0%,0%" EndPoint="100%,100%">
+                        <GradientStop Color="#ECF3F0" Offset="0" />
+                        <GradientStop Color="#EBEFF6" Offset="0.52" />
+                        <GradientStop Color="#F4ECEF" Offset="1" />
+                    </LinearGradientBrush>
+                    <SolidColorBrush x:Key="HubAiCardBorder" Color="#E7E4DF" />
+                    <SolidColorBrush x:Key="HubAiIconBackground" Color="#DED8D0" />
+                    <SolidColorBrush x:Key="HubAiIconForeground" Color="#3E382F" />
+                    <SolidColorBrush x:Key="HubAiTitleForeground" Color="#15181A" />
+                    <SolidColorBrush x:Key="HubAiSubForeground" Color="#69726F" />
+                    <SolidColorBrush x:Key="HubAiPanelBackground" Color="#FCFCFD" />
+                    <SolidColorBrush x:Key="HubAiPanelBorder" Color="#DFE2E2" />
+                    <SolidColorBrush x:Key="HubAiBubbleBackground" Color="#F1F2F2" />
+
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
                     <SolidColorBrush x:Key="CshCaptionGlyphBrush" Color="#F2F2F2" />
                     <SolidColorBrush x:Key="CshCaptionHoverBrush" Color="#16FFFFFF" />
                     <SolidColorBrush x:Key="CshCaptionPressedBrush" Color="#26FFFFFF" />
+                    <!-- ══ Hub AI 品牌资源（深色）：深色**不做多色氛围渐变**（实测翻车：同色差在深色
+                         大面积上会变成脏斑），改成冷灰只走明度，靠 1px 描边把卡片从页面底上拎起来。 -->
+                    <LinearGradientBrush x:Key="HubAiCardBackground" StartPoint="0%,0%" EndPoint="100%,100%">
+                        <GradientStop Color="#292F33" Offset="0" />
+                        <GradientStop Color="#292E36" Offset="0.52" />
+                        <GradientStop Color="#2B2E35" Offset="1" />
+                    </LinearGradientBrush>
+                    <SolidColorBrush x:Key="HubAiCardBorder" Color="#3E4449" />
+                    <SolidColorBrush x:Key="HubAiIconBackground" Color="#413C35" />
+                    <SolidColorBrush x:Key="HubAiIconForeground" Color="#EDE6DC" />
+                    <SolidColorBrush x:Key="HubAiTitleForeground" Color="#E8EDF0" />
+                    <SolidColorBrush x:Key="HubAiSubForeground" Color="#93A0A6" />
+                    <SolidColorBrush x:Key="HubAiPanelBackground" Color="#24282C" />
+                    <SolidColorBrush x:Key="HubAiPanelBorder" Color="#3C4247" />
+                    <SolidColorBrush x:Key="HubAiBubbleBackground" Color="#2E3338" />
+
 
                     <!--
                       下拉菜单（ComboBox 弹层）在深色下的配色。

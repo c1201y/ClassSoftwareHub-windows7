@@ -566,4 +566,39 @@ public static class UpdateFlow
     {
         try { if (File.Exists(path)) File.Delete(path); } catch { /* 删不掉就让下载流程覆盖它 */ }
     }
+
+    /// <summary>
+    /// 把「待装更新」补进任务列表（2026-10-22 自上游 1.3 移植）。
+    /// <para>
+    /// 起因：包是**上一次会话**下好的（<c>UpdatePendingPath</c> 存在设置里），重启后任务列表是空的 ——
+    /// 用户在「任务进行」页看不到它，只能去首页横幅点安装。这里按需补一条已完成的更新任务卡片，
+    /// 与「后台下载完成」那条完全同构（同一个 TrackUpdate + CompleteExternal 套路）。
+    /// </para>
+    /// <para>⚠️ 幂等：已存在同 tag / 同路径的更新任务就直接返回，别重复加卡片。</para>
+    /// </summary>
+    public static void EnsurePendingTaskVisible()
+    {
+        var s = App.Settings.Current;
+        var path = s.UpdatePendingPath ?? "";
+        if (path.Length == 0 || !File.Exists(path)) return;
+
+        var tag = s.UpdatePendingTag ?? "";
+
+        foreach (var t in DownloadManager.Current.Tasks)
+            if (t.IsUpdate && (tag.Length == 0 ? t.Path == path : t.UpdateTag == tag)) return;
+
+        var size = SizeOfFile(path);
+        var task = DownloadManager.Current.TrackUpdate(
+            $"ClassSoftwareHub {(tag.Length > 0 ? tag : "新版本")}", tag, UpdateTaskNote(), "");
+        DownloadManager.Current.CompleteExternal(task, path, size);
+    }
+
+    /// <summary>更新任务卡片上的说明文案（与后台下载那条保持一致）。</summary>
+    private static string UpdateTaskNote() => "应用更新包　·　可在此直接安装，无需手动查找安装包";
+
+    /// <summary>文件大小（拿不到就 0，卡片上少显示一个数字而已）。</summary>
+    private static long SizeOfFile(string path)
+    {
+        try { return new FileInfo(path).Length; } catch { return 0; }
+    }
 }

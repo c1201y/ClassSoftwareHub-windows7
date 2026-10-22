@@ -1,0 +1,77 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:fa="using:FluentAvalonia.UI.Controls"
+        x:Class="ClassSoftwareHub.Desktop.Views.SubjectToolsWindow"
+        Title="学科工具">
+
+    <!--
+      学科工具窗 —— 独立窗口（2026-10-18 Nick 要；2026-10-22 自上游 1.2.0-insider1.3 移植）。
+
+      来由：函数图像 / 方程求解 / 化学配平这三件"用完就走"的学科工具，原来只能
+      先进主界面再从导航翻过去；用户只想算一道题时，为这个把整个应用调出来太重。
+      这扇窗把三件工具单拎出来，侧边栏点一下就出来，不碰主窗口。
+
+      · 左侧是 NavigationView 的**紧凑栏**（只有图标 + 悬停提示），不另排标题 ——
+        三个工具页自己都有 28px 大标题（函数图像那页干脆没有标题、三栏铺满），
+        再在窗口顶上堆一层文字档位就重复了。
+      · 右侧 Frame 直接承载三个工具页：它们都不依赖 ShellPage / Frame，能独立跑
+        （已逐页核过，没有 App.MainWindow / Navigation 引用）。
+      · 标题栏：上游 2026-10-19 改成**内容延伸 + 自绘标题栏**（系统按钮浮在右上角）。
+        本移植版按仓储既有写法（ToolPaletteWindow）：32px 标题条 + 自绘关闭键；
+        Win7 走 SelfDrawnFrame 接管非客户区，Win10/11 走客户区扩展 + 系统三大金刚。
+
+      ⚠️ 关掉 = 真销毁（不像工具浮窗"收起来"）：学科窗没有留着复用的价值，
+         真关最省事，也不会在退出链路上留一个没关的窗口把进程吊住。
+    -->
+    <Grid x:Name="Root" Background="{DynamicResource ApplicationPageBackgroundThemeBrush}">
+        <Grid.RowDefinitions>
+            <!-- 自绘标题栏（2026-10-19）：内容延伸到标题栏区域，系统按钮浮在右上角 -->
+            <RowDefinition Height="32" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Grid x:Name="TitleBarHost" Grid.Row="0" Background="Transparent">
+            <!-- 上游 Padding="16,0,140,0"：右侧 140 是留给系统三大金刚的位置（文本靠左，不影响观感） -->
+            <TextBlock Text="学科工具" FontSize="12" Opacity="0.7" VerticalAlignment="Center"
+                       Margin="16,0,140,0" />
+
+            <!-- Win7 路线下系统标题栏被吃掉，关闭键必须自己画；Win10/11 走系统三大金刚时隐藏它 -->
+            <Button x:Name="CaptionCloseButton" Classes="caption close"
+                    HorizontalAlignment="Right" VerticalAlignment="Top"
+                    Margin="0,0,4,0" Click="CaptionClose_Click">
+                <Path Data="M0.5,0.5 L9.5,9.5 M9.5,0.5 L0.5,9.5" />
+            </Button>
+        </Grid>
+
+        <fa:NavigationView x:Name="Nav" Grid.Row="1"
+                           PaneDisplayMode="LeftCompact"
+                           IsPaneToggleButtonVisible="False"
+                           IsBackButtonVisible="False"
+                           IsSettingsVisible="False"
+                           AlwaysShowHeader="False"
+                           SelectionChanged="Nav_SelectionChanged">
+            <fa:NavigationView.MenuItems>
+                <!-- 字形只走 E7/E8/E9 老码位（ED 段是 Win10 空框） -->
+                <fa:NavigationViewItem Content="函数图像" Tag="function-plot" ToolTip.Tip="函数图像">
+                    <fa:NavigationViewItem.IconSource>
+                        <fa:FontIconSource Glyph="&#xE9D2;" />
+                    </fa:NavigationViewItem.IconSource>
+                </fa:NavigationViewItem>
+
+                <fa:NavigationViewItem Content="方程求解" Tag="equation" ToolTip.Tip="方程求解">
+                    <fa:NavigationViewItem.IconSource>
+                        <fa:FontIconSource Glyph="&#xE8EF;" />
+                    </fa:NavigationViewItem.IconSource>
+                </fa:NavigationViewItem>
+
+                <fa:NavigationViewItem Content="化学方程式配平" Tag="chemistry" ToolTip.Tip="化学方程式配平">
+                    <fa:NavigationViewItem.IconSource>
+                        <fa:FontIconSource Glyph="&#xE80A;" />
+                    </fa:NavigationViewItem.IconSource>
+                </fa:NavigationViewItem>
+            </fa:NavigationView.MenuItems>
+
+            <fa:Frame x:Name="ContentFrame" />
+        </fa:NavigationView>
+    </Grid>
+</Window>

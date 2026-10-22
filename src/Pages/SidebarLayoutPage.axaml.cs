@@ -125,6 +125,14 @@ public sealed partial class SidebarLayoutPage : PageBase
     private bool _swapping;                 // ↑/↓ 的滑动动画正在进行（这段时间别再点）
     private bool _footerSync;               // 正在把设置刷进底排的那五个开关（此时 Toggled 是"回声"，别当用户拨的）
     private bool _toolSync;                 // 同上，但针对「常用工具」与「截图」那几张卡（开关 / 下拉的"回声"）
+
+    /// <summary>
+    /// 「展开面板高度」滑块的落盘防抖（2026-10-18 上游；2026-10-22 移植）。拖动一次会连着触发几十次 ValueChanged，
+    /// 每次写一遍 settings.json 太浪费 —— 停手 350ms 再写。
+    /// ⚠️ 必须挂字段：局部变量会被 GC 回收，timer 就再也不 tick 了（踩过）。
+    /// ⚠️ 移植说明：Avalonia 的 DispatcherTimer 没有 IsRepeating，单发靠 Tick 里 Stop()。
+    /// </summary>
+    private DispatcherTimer? _heightSaveTimer;
     private bool _edgeRebuild;              // 「贴在哪条边」下拉正在按模式重建选项（期间忽略 SelectionChanged）
     private bool _flying;                   // 落位后的"收势"正在进行（这段时间别让新的拖动插进来）
 
@@ -325,6 +333,34 @@ public sealed partial class SidebarLayoutPage : PageBase
 
             // 「收起条长度」滑杆：0 = 当前样式的默认值（抓手 110 / 细竖线 220）
             RefreshCollapsedLengthUi();
+
+            // 「展开面板高度」（2026-10-18 上游；2026-10-22 移植）：滑块存的是整数百分比，存档里是 0.45~0.95 的小数。
+            // ⚠️ 老存档没这个键 ⇒ 反序列化后是字段默认 0.75，这里不必特判。
+            if (HeightRatioSlider is not null)
+            {
+                var raw = s.SidebarHeightRatio;
+                if (double.IsNaN(raw) || raw <= 0) raw = ToolSidebarWindow.DefaultHeightRatio;
+                var percent = Math.Clamp((int)Math.Round(raw * 100), 45, 95);
+                if (Math.Abs(HeightRatioSlider.Value - percent) > 0.01) HeightRatioSlider.Value = percent;
+                if (HeightRatioText is not null) HeightRatioText.Text = percent + "%";
+            }
+
+            // 「自适应高度」：开 = 按内容伸缩、比例当上限；关 = 锁死那个比例
+            if (HeightAutoSwitch is not null) HeightAutoSwitch.IsChecked = s.SidebarHeightAuto;
+
+            // 「收起时离屏幕边缘」（2026-10-11 上游；2026-10-22 移植）
+            if (SidebarGapCombo is not null)
+            {
+                var index = GapIndex(s.SidebarCollapsedGap);
+                if (SidebarGapCombo.SelectedIndex != index) SidebarGapCombo.SelectedIndex = index;
+            }
+
+            // 「关机方式」：侧边栏「关机」按钮走滑动关机还是立即关机（2026-10-18 上游；2026-10-22 移植）
+            if (ShutdownModeCombo is not null)
+            {
+                var index = App.Settings.Current.ShutdownMode == "shutdown" ? 1 : 0;
+                if (ShutdownModeCombo.SelectedIndex != index) ShutdownModeCombo.SelectedIndex = index;
+            }
 
             // 「截图」那两张卡（2026-10-01 从设置页搬来，同一套"回声"处理）
             if (ShotAutoSaveSwitch is not null) ShotAutoSaveSwitch.IsChecked = s.ShotAutoSave;
@@ -1980,6 +2016,106 @@ public sealed partial class SidebarLayoutPage : PageBase
 
         RefreshCollapsedLengthUi();
         if (App.Settings.Current.SidebarEnabled) ToolSidebarWindow.ApplyCollapsedLength();
+    }
+
+    // ── 展开面板高度 / 自适应高度（2026-10-18 上游；2026-10-22 移植） ──────────────
+
+    /// <summary>
+    /// 「展开面板高度」滑块（2026-10-18 Nick：0.65→0.75 一直调不明白，索性把这个通道开放给用户）。
+    /// 值域 45%～95%（占工作区高度），默认 75%，步长 5%。
+    ///
+    /// ⚠️ 拖动是**连续触发**的：每一下都走 <c>ApplyHeightRatio()</c> 那条轻路（重新量尺寸 + 贴边），
+    ///    ⛔ 别用 <c>ApplySetting()</c> —— 那是整条重建（拆按钮、重排），拖动时会一路闪。
+    /// ⚠️ 落盘用防抖（停手 350ms 才写），见 <see cref="_heightSaveTimer"/>。
+    /// ⚠️ 只有**展开着**的边条能立刻看出变化；收起态那条抓手跟这个值无关。
+    /// </summary>
+    private void HeightRatio_ValueChanged(object? sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_toolSync) return;
+
+        // XAML 已经把范围限在 45~95，这里再夹一道并吸到 5 的整数倍 ——
+        // 触摸拖动 / 键盘微调都可能停在非整档上，存档里留个 62.37 没意义
+        var percent = Math.Clamp(
+            (int)Math.Round(e.NewValue / 5.0, MidpointRounding.AwayFromZero) * 5, 45, 95);
+
+        App.Settings.Current.SidebarHeightRatio = percent / 100.0;
+        if (HeightRatioText is not null) HeightRatioText.Text = percent + "%";
+
+        if (App.Settings.Current.SidebarEnabled) ToolSidebarWindow.ApplyHeightRatio();
+
+        // 防抖落盘：Avalonia 的 DispatcherTimer 天生重复触发、没有 IsRepeating ⇒ Tick 里自己 Stop()
+        _heightSaveTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
+        _heightSaveTimer.Stop();
+        _heightSaveTimer.Tick -= HeightSaveTimer_Tick;
+        _heightSaveTimer.Tick += HeightSaveTimer_Tick;
+        _heightSaveTimer.Start();
+    }
+
+    private void HeightSaveTimer_Tick(object? sender, EventArgs e)
+    {
+        _heightSaveTimer?.Stop();
+        try { App.Settings.Save(); } catch { }
+    }
+
+    /// <summary>
+    /// 「自适应高度」开关（2026-10-18 Nick 要）：开 = 面板高度随模块数量伸缩，上面的比例只当上限；
+    /// 关 = 高度锁死为那个比例，模块少时下方留白。
+    ///
+    /// ⚠️ 改完必须**重新量一遍尺寸**（<see cref="ToolSidebarWindow.ApplyHeightRatio"/>）——
+    ///    这个开关不改变面板里的元素，只改变"量高度时算不算内容"，光刷设置界面上的字没用。
+    /// </summary>
+    private void HeightAuto_Toggled(object? sender, RoutedEventArgs e)
+    {
+        if (_toolSync) return;
+
+        App.Settings.Current.SidebarHeightAuto = HeightAutoSwitch.IsChecked == true;
+        App.Settings.Save();
+
+        if (App.Settings.Current.SidebarEnabled) ToolSidebarWindow.ApplyHeightRatio();
+    }
+
+    // ── 收起时离屏幕边缘（2026-10-11 上游；2026-10-22 移植） ──────────────────
+
+    /// <summary>
+    /// 侧边栏**收起**时那条小抓手离屏幕边缘多远（0 = 紧贴）。
+    ///
+    /// ⚠️ 它只影响收起态的落位 ⇒ 调 <c>ApplyCollapsedGap()</c> 重新贴一次就够，
+    ///    ⛔ 别用 <c>ApplySetting()</c> —— 那是重建（要拆按钮、重排、重新显示），为挪几像素不值当。
+    /// ⚠️ 展开着的边条调完看不出变化（面板恒贴边缘），收起后才看得出来。
+    /// </summary>
+    private void SidebarGap_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_toolSync) return;
+        if (SidebarGapCombo.SelectedItem is not ComboBoxItem item || item.Tag is not string tag) return;
+
+        App.Settings.Current.SidebarCollapsedGap = int.TryParse(tag, out var v) ? v : 6;
+        App.Settings.Save();
+
+        if (App.Settings.Current.SidebarEnabled) ToolSidebarWindow.ApplyCollapsedGap();
+    }
+
+    /// <summary>「收起时离屏幕边缘」的存档值 → 下拉第几项；认不出的值落到默认那档（6）。</summary>
+    private static int GapIndex(int gap) => gap switch
+    {
+        0 => 0,
+        2 => 1,
+        4 => 2,
+        6 => 3,
+        10 => 4,
+        16 => 5,
+        _ => 3,
+    };
+
+    // ── 关机方式（2026-10-18 Nick 要；2026-10-22 移植） ──────────────────────
+
+    /// <summary>「侧边布局 → 关机方式」切换：手动关机（滑动关机）／直接关机。</summary>
+    private void ShutdownMode_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_toolSync) return;
+        if (ShutdownModeCombo.SelectedItem is not ComboBoxItem item || item.Tag is not string mode) return;
+
+        App.Settings.Current.ShutdownMode = mode;
+        App.Settings.Save();
     }
 
     // ── 截图（2026-10-07 整组从「设置」页搬来，逻辑原样） ────────────────

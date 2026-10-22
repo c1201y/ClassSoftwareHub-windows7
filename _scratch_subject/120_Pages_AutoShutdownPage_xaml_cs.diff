@@ -1,0 +1,38 @@
+--- 120/Pages\AutoShutdownPage.xaml.cs
++++ 130/Pages\AutoShutdownPage.xaml.cs
+@@ -197,16 +197,17 @@
+             ShowScheduleHint($"{AutoShutdownConfig.DayNames[prev]}还没有关机点，没有可以套用的内容。");
+             return;
+         }
+ 
+         if (target.Count > 0)
+         {
+             var confirm = new ContentDialog
+             {
++                        RequestedTheme = (App.MainWindow?.Content as Microsoft.UI.Xaml.FrameworkElement)?.ActualTheme ?? Microsoft.UI.Xaml.ElementTheme.Default,
+                 XamlRoot = XamlRoot,
+                 Title = "套用前一天的关机点",
+                 Content = $"{AutoShutdownConfig.DayNames[dayIndex]}现在有 {target.Count} 个关机点，"
+                           + $"套用{AutoShutdownConfig.DayNames[prev]}的 {source.Count} 个会把它们全部替换掉。",
+                 PrimaryButtonText = "替换",
+                 CloseButtonText = "取消",
+                 DefaultButton = ContentDialogButton.Close,
+             };
+@@ -384,16 +385,17 @@
+         // 内容宽 380：时间行 = 160 + 8 +「时」+ 8 + 160 + 8 +「分」≈ 369，留一点余量给字体度量差异
+         var root = new StackPanel { Spacing = 16, Width = 380 };
+         root.Children.Add(Section("时间", timeRow));
+         root.Children.Add(Section("方式", methodRow));
+         root.Children.Add(delaySection);
+ 
+         var dialog = new ContentDialog
+         {
++                RequestedTheme = (App.MainWindow?.Content as Microsoft.UI.Xaml.FrameworkElement)?.ActualTheme ?? Microsoft.UI.Xaml.ElementTheme.Default,
+             XamlRoot = XamlRoot,
+             Title = isNew ? "添加关机点" : "关机点",
+             Content = root,
+             PrimaryButtonText = "保存",
+             SecondaryButtonText = isNew ? "" : "删除",
+             CloseButtonText = "取消",
+             DefaultButton = ContentDialogButton.Primary,
+         };

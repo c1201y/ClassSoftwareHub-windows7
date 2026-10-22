@@ -7,6 +7,7 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Styling;
 using Avalonia.Threading;
 using ClassSoftwareHub.Desktop.Data;
 using ClassSoftwareHub.Desktop.Platform;
@@ -209,8 +210,12 @@ public sealed partial class AutoShutdownPage : PageBase
         if (target.Count > 0)
         {
             // ⚠️ 原版对话框带 XamlRoot；FluentAvalonia 的 ContentDialog 没有 XamlRoot，直接 ShowAsync()。
+            // ⚠️ 原版 1.3 在这里补了 RequestedTheme（让对话框跟主窗口同色）；Avalonia 对应
+            //    RequestedThemeVariant（取主窗口内容的实际主题变体，取不到就走 Default）。
             var confirm = new ContentDialog
             {
+                // ⚠️ FluentAvalonia 2.4.1 的 ContentDialog 没有 RequestedThemeVariant 属性，
+                //    对话框弹层跟应用主题走（与本仓库其它 ContentDialog 一致）。
                 Title = "套用前一天的关机点",
                 Content = $"{AutoShutdownConfig.DayNames[dayIndex]}现在有 {target.Count} 个关机点，"
                           + $"套用{AutoShutdownConfig.DayNames[prev]}的 {source.Count} 个会把它们全部替换掉。",
@@ -406,6 +411,9 @@ public sealed partial class AutoShutdownPage : PageBase
 
         var dialog = new ContentDialog
         {
+            // 原版 1.3：RequestedTheme 跟随主窗口内容（WinUI → Avalonia 见上一条对话框的说明）
+            // ⚠️ FluentAvalonia 2.4.1 的 ContentDialog 没有 RequestedThemeVariant 属性，
+            //    对话框弹层跟应用主题走（与本仓库其它 ContentDialog 一致）。
             Title = isNew ? "添加关机点" : "关机点",
             Content = root,
             PrimaryButtonText = "保存",

@@ -1,0 +1,567 @@
+--- OLD/Pages\SubmitPage.xaml.cs
++++ NEW/Pages\SubmitPage.xaml.cs
+@@ -1,56 +1,105 @@
+ using System;
+ using System.Collections.Generic;
++using System.IO;
+ using System.Linq;
+ using System.Net.Http;
+ using System.Text;
+ using System.Text.Json;
+ using System.Text.RegularExpressions;
+ using System.Threading;
+ using System.Threading.Tasks;
+ using Microsoft.UI.Xaml;
+ using Microsoft.UI.Xaml.Controls;
+ using Microsoft.UI.Xaml.Media;
+ using Microsoft.UI.Text;
+ using Windows.ApplicationModel.DataTransfer;
++using Windows.Storage;
+ using Windows.Storage.Pickers;
+ using Windows.System;
+ 
+ namespace ClassSoftwareHub.Desktop.Pages;
+ 
+ /// <summary>
+ /// 提交软件（原生版，不再用 WebView2）。
+ /// 提交流程跟网页版一致：POST 到自建 Worker（带服务端令牌）→ 仓库 submissions/ 草稿 → 审核 Issue → 合并上架。
+ /// 入口按顺序回退、记住上次成功的入口；连不上时内容存本机，可重试 / 下载 JSON / 复制 / 去 GitHub 提 PR。
+ /// </summary>
+ public sealed partial class SubmitPage : Page
+ {
+-    /// <summary>提交入口：先试 CDN 新域，再试 CF 直连（与网页版一致）。</summary>
+-    private static readonly string[] SubmitEndpoints = { "https://cshapi.132614.xyz", "https://submit.132614.xyz" };
+-    private const int SubmitTimeoutMs = 10000;
++    /// <summary>提交入口与选路逻辑都在 <see cref="Services.SubmitEndpoint"/>：投稿与 OSS 直传签名共用一份。</summary>
++    private static int SubmitTimeoutMs => Services.SubmitEndpoint.TimeoutMs;
+     /// <summary>站点仓库的 submissions 目录（兜底走 GitHub 新建文件页）。</summary>
+     private const string RepoNewFileUrl = "https://github.com/c1201y/ClassSoftwareHub/new/main/submissions";
+     /// <summary>合法校验值位数：32=MD5 / 40=SHA-1 / 56=SHA-224 / 64=SHA-256 / 96=SHA-384 / 128=SHA-512</summary>
+     private static readonly int[] HashLengths = { 32, 40, 56, 64, 96, 128 };
+ 
+     private static readonly HttpClient Http = new();
+ 
+     private static string DataDir => Core.AppPaths.DataDir;
+-    private static string EndpointFile => System.IO.Path.Combine(DataDir, "submit-endpoint.txt");
+     private static string DraftFile => System.IO.Path.Combine(DataDir, "submit-draft.json");
+ 
+     private sealed class DownloadDraft
+     {
+         public string Platform = "";
+         public string Size = "";
+         public string Note = "";
+         public string Url = "";
+         public string Hash = "";
++
++        /// <summary>用户在「下载方式」里显式选的 kind；空串＝自动识别，提交时不写这个字段。</summary>
++        public string Kind = "";
++    }
++
++    /// <summary>
++    /// 「下载方式」下拉的选项 —— 与网页端提交页 SubmitPage.vue 的 downloadKindItems **同一套**，
++    /// 顺序也一样：第 0 项是「自动识别」（不写 kind，交给详情页按链接推断），其余对应
++    /// Data/DownloadLinkKind.cs 里的 DownloadKind。
++    /// ⛔ 两边选项必须一致，否则同一份提交数据在网页端与桌面端会长得不一样。
++    /// </summary>
++    private static readonly (string Label, string Kind)[] DownloadKinds =
++    {
++        ("自动识别（按链接判断）", ""),
++        ("官网直链 / 直接下载", "file"),
++        ("网页跳转", "netdisk"),
++        ("应用商店", "store"),
++    };
++
++    /// <summary>
++    /// 一稿最多几条下载项 —— 与网页端 <c>SubmitPage.vue</c> 的 <c>MAX_DOWNLOADS = 5</c> 一致。
++    /// 这是提交数据的约定（服务端与审核都按这个口径），桌面端不能比网页端更宽松。
++    /// </summary>
++    private const int MaxDownloads = 5;
++
++    /// <summary>kind 值 → 下拉索引；空串（自动）返回 -1，让占位文案显示出来（与网页端一致）。</summary>
++    private static int KindIndexOf(string kind)
++    {
++        if (kind.Length == 0) return -1;
++        for (var i = 1; i < DownloadKinds.Length; i++)
++            if (DownloadKinds[i].Kind == kind) return i;
++        return -1;
++    }
++
++    /// <summary>
++    /// 一张下载项卡片里的输入框与下拉。
++    /// ⛔ 存引用而不是「遍历卡片按顺序取第 N 个」—— 直链那行外面多包了一层 StackPanel，
++    /// 早期按遍历顺序取会把直链填进校验值框（2026-10-09 用户报的恢复草稿错位）。
++    /// </summary>
++    private sealed class DownloadFields
++    {
++        public TextBox Platform = null!;
++        public TextBox Size = null!;
++        public TextBox Note = null!;
++        public TextBox Url = null!;
++        public TextBox Hash = null!;
++        public ComboBox Kind = null!;
+     }
+ 
+     private readonly List<DownloadDraft> _downloads = new();
++    /// <summary>每张下载项卡片里五个输入框的引用，**按字段语义**存，⛔别再靠遍历顺序取第 N 个。</summary>
++    private readonly List<DownloadFields> _fields = new();
+     private readonly List<Border> _cards = new();
+     private readonly List<TextBlock> _titles = new();
+     private bool _busy;
+     /// <summary>连不上时留存的那份 payload（兜底面板用）。</summary>
+     private Dictionary<string, object?>? _pending;
+ 
+@@ -68,12 +117,15 @@
+ 
+     // ══════════ 下载项 ══════════
+     private void AddDownload_Click(object sender, RoutedEventArgs e) => AddDownload();
+ 
+     private void AddDownload()
+     {
++        // 与网页端 MAX_DOWNLOADS（= 5）同一口径：这是提交数据的约定，超限的投稿服务端不收
++        if (_downloads.Count >= MaxDownloads) return;
++
+         var draft = new DownloadDraft();
+         _downloads.Add(draft);
+ 
+         var stack = new StackPanel { Spacing = 12 };
+ 
+         var head = new Grid { ColumnSpacing = 10 };
+@@ -84,58 +136,140 @@
+         remove.Click += (_, _) => RemoveDownload(draft);
+         Grid.SetColumn(remove, 1);
+         head.Children.Add(title);
+         head.Children.Add(remove);
+         stack.Children.Add(head);
+ 
+-        stack.Children.Add(Field("平台（如 Windows x64 安装版）", "Windows x64 安装版", null, value => draft.Platform = value));
++        var platformBox = Field("平台（如 Windows x64 安装版）", "Windows x64 安装版", null, value => draft.Platform = value);
++        stack.Children.Add(platformBox);
+ 
+         var row = new Grid { ColumnSpacing = 14 };
+         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+-        row.Children.Add(Field("体积", "如 1.6 MB", null, value => draft.Size = value));
+-        var note = Field("备注", "如 便携版 / 需要管理员权限", null, value => draft.Note = value);
+-        Grid.SetColumn(note, 1);
+-        row.Children.Add(note);
++        var sizeBox = Field("体积", "如 1.6 MB", null, value => draft.Size = value);
++        var noteBox = Field("备注", "如 便携版 / 需要管理员权限", null, value => draft.Note = value);
++        row.Children.Add(sizeBox);
++        Grid.SetColumn(noteBox, 1);
++        row.Children.Add(noteBox);
+         stack.Children.Add(row);
+ 
+-        stack.Children.Add(Field("下载直链 *", "https://…/setup.exe", null, value => draft.Url = value));
+-        stack.Children.Add(Field("校验值（选填，用于防篡改）", "纯十六进制，算法按位数自动识别", null, value => draft.Hash = value));
++        // 直链一行：输入框占满，上传按钮贴在它右侧（排法照「从 GitHub 读取」那一行）
++        var urlBar = new ProgressBar
++        {
++            Height = 4,
++            Minimum = 0,
++            Maximum = 1,
++            Visibility = Visibility.Collapsed,
++            HorizontalAlignment = HorizontalAlignment.Stretch,
++        };
++        // 说明行**不能**塞进 TextBox.Description —— 那样按钮的「底边对齐」会跟着一起被顶下去，
++        // 看起来就跟输入框错位了（2026-10-06 Nick 抓的）。它得是这一行的独立兄弟，且要跟输入框贴紧。
++        var urlHint = new TextBlock
++        {
++            FontSize = 12,
++            Opacity = 0.7,
++            TextWrapping = TextWrapping.Wrap,
++            Text = "没有自己的网盘就点右侧按钮，把文件传到本站存储；上传成功后这行会锁住。",
++        };
++
++        var urlGrid = new Grid { ColumnSpacing = 10 };
++        urlGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
++        urlGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
++
++        var urlBox = Field("下载直链 *", "https://…/setup.exe", null, value => draft.Url = value);
++
++        // 下载方式（对应网页端提交页同一个下拉）：决定详情页那颗按钮写「下载」还是
++        // 「前往网盘 / 前往官网」。默认 -1 ＝不选 ＝自动识别，提交时不写 kind 字段。
++        // ⚠️ 在这里就建好（比直链那一行早），是因为上传成功后要立刻把它拨到「文件直链」。
++        var kindCombo = new ComboBox
++        {
++            Header = "下载方式",
++            PlaceholderText = DownloadKinds[0].Label,
++            HorizontalAlignment = HorizontalAlignment.Stretch,
++            // ⛔ 必须先填项、再置 -1：SelectedIndex 在空集合上设 -1 会被后续 Add 顶成 0
++            SelectedIndex = -1,
++        };
++        foreach (var (label, _) in DownloadKinds)
++            kindCombo.Items.Add(new ComboBoxItem { Content = label });
++        kindCombo.SelectedIndex = -1;
++        kindCombo.SelectionChanged += (_, _) =>
++            draft.Kind = kindCombo.SelectedIndex >= 1 ? DownloadKinds[kindCombo.SelectedIndex].Kind : "";
++
++        var uploadButton = new Button { Content = "上传", MinWidth = 90, VerticalAlignment = VerticalAlignment.Bottom };
++        Grid.SetColumn(uploadButton, 1);
++        uploadButton.Click += async (_, _) =>
++        {
++            var picked = await PickFileAsync("选择要上传到本站的文件", new[] { "*" });
++            if (picked is null) return;
++
++            await UploadToSiteAsync(picked.Path, Services.OssPurpose.File, uploadButton, urlBar, urlHint, url =>
++            {
++                draft.Url = url;
++                urlBox.Text = url;
++                // 键是服务端生成的，手改一个字符就失效 ⇒ 锁住（跟网页版一样）
++                urlBox.IsReadOnly = true;
++                // ⛔ 必须显式标「文件直链」：`oss://` 键推断不出类型，停在「自动识别」会被
++                //    当成网页跳转，详情页点一下就把人带走 —— 正是用户报的「上传了还要管直链」。
++                //    网页端同一处也是这么做的（SubmitPage.vue：kindIndex = 1）。
++                draft.Kind = "file";
++                kindCombo.SelectedIndex = 1;
++            });
++        };
++
++        urlGrid.Children.Add(urlBox);
++        urlGrid.Children.Add(uploadButton);
++        // 输入框行 + 进度条 + 说明/状态行三件贴成一小块（间距 4，跟 TextBox 自带说明行的观感一致）
++        var urlBlock = new StackPanel { Spacing = 4 };
++        urlBlock.Children.Add(urlGrid);
++        urlBlock.Children.Add(urlBar);
++        urlBlock.Children.Add(urlHint);
++        stack.Children.Add(urlBlock);
++        stack.Children.Add(kindCombo);
++
++        var hashBox = Field("校验值（选填，用于防篡改）", "纯十六进制，算法按位数自动识别", null, value => draft.Hash = value);
++        stack.Children.Add(hashBox);
+ 
+         var card = new Border
+         {
+             CornerRadius = new CornerRadius(8),
+             Padding = new Thickness(16),
+             BorderThickness = new Thickness(1),
+             BorderBrush = Res("CardStrokeColorDefaultBrush"),
+             Background = Res("CardBackgroundFillColorDefaultBrush"),
+             Child = stack,
+         };
+ 
+         _cards.Add(card);
++        _fields.Add(new DownloadFields { Platform = platformBox, Size = sizeBox, Note = noteBox, Url = urlBox, Hash = hashBox, Kind = kindCombo });
+         _titles.Add(title);
+         DownloadsHost.Children.Add(card);
+         RenumberDownloads();
++        SyncAddButton();
+     }
+ 
+     private void RemoveDownload(DownloadDraft draft)
+     {
+         if (_downloads.Count <= 1) return;   // 至少留一项（跟网页版一致）
+         var index = _downloads.IndexOf(draft);
+         if (index < 0) return;
+         _downloads.RemoveAt(index);
++        _fields.RemoveAt(index);
+         DownloadsHost.Children.Remove(_cards[index]);
+         _cards.RemoveAt(index);
+         _titles.RemoveAt(index);
+         RenumberDownloads();
++        SyncAddButton();
+     }
+ 
+     private void RenumberDownloads()
+     {
+         for (var i = 0; i < _titles.Count; i++) _titles[i].Text = $"下载项 {i + 1}";
+     }
++
++    /// <summary>下载项到上限就把「添加」按钮灰掉（跟网页端同一表现，别让人点了没反应）。</summary>
++    private void SyncAddButton() => AddDownloadButton.IsEnabled = _downloads.Count < MaxDownloads;
+ 
+     private TextBox Field(string header, string placeholder, string? description, Action<string>? onText)
+     {
+         var box = new TextBox
+         {
+             Header = header,
+@@ -144,12 +278,136 @@
+         };
+         if (onText is not null) box.TextChanged += (_, _) => onText(box.Text);
+         return box;
+     }
+ 
+     private Brush Res(string key) => Services.ThemeBrush.Get(this, key);
++
++    // ══════════ 上传到本站（OSS 直传，与网页版同一套协议） ══════════
++    //
++    // 链路：向 /api/oss-sign 要一条一次性预签名 PUT 地址 → 客户端直传 OSS（进度就是这一步的）
++    //       → 回填对象键。软件包落 upload/ 前缀、下载时走票据闸门；图标落 icon/ 前缀、公开只读。
++    // 为什么要它：投稿人不必自己准备网盘或 GitHub Releases，站点代管文件本体。
++
++    /// <summary>图标：选本地图片 → 本地压到 128 px → 上传 → 回填公开只读地址。</summary>
++    private async void IconUpload_Click(object sender, RoutedEventArgs e)
++    {
++        var picked = await PickFileAsync("选择图标图片",
++            new[] { ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".ico" }, PickerLocationId.PicturesLibrary);
++        if (picked is null) return;
++
++        long size = 0;
++        try { size = (long)(await picked.GetBasicPropertiesAsync()).Size; } catch { /* 拿不到大小就照常往下走 */ }
++        if (size > Services.OssUpload.IconInputMaxBytes)
++        {
++            IconUploadHint.Text = $"这张图有 {HumanSize(size)}，请换一张小一些的"
++                                  + $"（上限 {HumanSize(Services.OssUpload.IconInputMaxBytes)}）。";
++            IconUploadHint.Visibility = Visibility.Visible;
++            return;
++        }
++
++        // 缩不了（不是图片 / 编解码器不认 / 压完更大）就用原文件 —— 压缩只是优化，不是门槛
++        var shrunken = await Services.IconResize.ShrinkToTempAsync(picked.Path);
++        try
++        {
++            await UploadToSiteAsync(shrunken ?? picked.Path, Services.OssPurpose.Icon,
++                IconUploadButton, null, IconUploadHint, url => IconBox.Text = url);
++        }
++        finally
++        {
++            if (shrunken is not null)
++            {
++                try { File.Delete(shrunken); } catch { /* 删不掉就留给系统清临时目录 */ }
++            }
++        }
++    }
++
++    /// <summary>把文件传到站点 OSS，并把进度、结果、失败原因都写到给定的控件上。</summary>
++    private async Task UploadToSiteAsync(
++        string filePath,
++        Services.OssPurpose purpose,
++        Button button,
++        ProgressBar? bar,
++        TextBlock hint,
++        Action<string> onDone)
++    {
++        button.IsEnabled = false;
++        if (bar is not null)
++        {
++            bar.Value = 0;
++            bar.Visibility = Visibility.Visible;
++        }
++        hint.Visibility = Visibility.Visible;
++        hint.Text = "正在上传…";
++
++        try
++        {
++            var progress = new Progress<Services.UploadProgress>(p =>
++            {
++                if (bar is not null) bar.Value = p.Fraction;
++                hint.Text = $"正在上传 {HumanSize(p.Sent)} / {HumanSize(p.Total)}（{p.Fraction * 100:0}%）";
++            });
++
++            var result = await Services.OssUpload.UploadAsync(filePath, purpose, progress);
++            onDone(result.Url);
++            hint.Text = result.OrphanMinutes > 0
++                ? $"已上传，请在 {result.OrphanMinutes} 分钟内完成提交，否则会被自动清理。"
++                : "已上传。";
++        }
++        catch (Services.OssUploadException ex)
++        {
++            hint.Text = DescribeUploadError(ex);
++        }
++        catch (Exception ex)
++        {
++            hint.Text = "上传失败：" + ex.Message;
++        }
++        finally
++        {
++            if (bar is not null) bar.Visibility = Visibility.Collapsed;
++            button.IsEnabled = true;
++        }
++    }
++
++    /// <summary>上传失败的本地化说法（服务端的英文/XML 原始报错不适合直接甩给用户）。</summary>
++    private static string DescribeUploadError(Services.OssUploadException ex) => ex.Code switch
++    {
++        Services.OssUploadErrorCode.TooLarge =>
++            $"文件超过上限（{HumanSize(Services.OssUpload.MaxBytes)}），请改填官网或 GitHub Releases 直链。",
++        Services.OssUploadErrorCode.SignFailed => "站点没有接受这次上传：" + ex.Message,
++        Services.OssUploadErrorCode.Unreachable => "连不上提交服务，请检查网络后重试。",
++        Services.OssUploadErrorCode.Network => "传输中断，请检查网络后重试。",
++        Services.OssUploadErrorCode.Aborted => "已取消上传。",
++        _ => "站点拒绝了这次上传：" + ex.Message,
++    };
++
++    /// <summary>弹系统选文件框（unpackaged 应用必须先把它跟窗口关联起来）。</summary>
++    private static async Task<StorageFile?> PickFileAsync(
++        string commitText,
++        IReadOnlyList<string> filters,
++        PickerLocationId start = PickerLocationId.Downloads)
++    {
++        var picker = new FileOpenPicker
++        {
++            ViewMode = PickerViewMode.List,
++            SuggestedStartLocation = start,
++            CommitButtonText = commitText,
++        };
++        foreach (var filter in filters) picker.FileTypeFilter.Add(filter);
++
++        WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow!));
++        return await picker.PickSingleFileAsync();
++    }
++
++    private static string HumanSize(long bytes) => bytes switch
++    {
++        >= 1L << 30 => $"{bytes / 1073741824.0:0.##} GB",
++        >= 1L << 20 => $"{bytes / 1048576.0:0.#} MB",
++        >= 1L << 10 => $"{bytes / 1024.0:0.#} KB",
++        _ => bytes + " B",
++    };
+ 
+     // ══════════ 从 GitHub 一键读取 ══════════
+     private readonly Dictionary<string, string> _lastFilled = new();
+     private string _lastDownloadUrls = "";
+     private bool _importing;
+ 
+@@ -380,12 +638,13 @@
+     }
+ 
+     /// <summary>整段重建下载项（一键读取 / 恢复草稿都用它）。</summary>
+     private void SetDownloads(List<(string Platform, string Note, string Size, string Url, string Hash)> items)
+     {
+         _downloads.Clear();
++        _fields.Clear();
+         _cards.Clear();
+         _titles.Clear();
+         DownloadsHost.Children.Clear();
+ 
+         foreach (var item in items)
+         {
+@@ -393,13 +652,13 @@
+             var draft = _downloads[^1];
+             draft.Platform = item.Platform;
+             draft.Note = item.Note;
+             draft.Size = item.Size;
+             draft.Url = item.Url;
+             draft.Hash = item.Hash;
+-            FillCard(_cards[^1], draft);
++            FillCard(_fields[^1], draft);
+         }
+         if (_downloads.Count == 0) AddDownload();
+         _lastDownloadUrls = string.Join("\n", _downloads.Select(item => item.Url.Trim()));
+     }
+ 
+     // ══════════ 组装 payload ══════════
+@@ -427,12 +686,15 @@
+                     ["note"] = item.Note.Trim(),
+                     ["size"] = item.Size.Trim(),
+                     ["url"] = item.Url.Trim(),
+                 };
+                 var hash = NormalizeHash(item.Hash);
+                 if (hash.Length > 0) entry["hash"] = hash;
++                // 下载方式：用户显式选了才写 kind，选「自动识别」就交给详情页按链接推断
++                // —— 与网页端提交页同一口径（SubmitPage.vue：if (kind) entry.kind = kind）
++                if (item.Kind.Length > 0) entry["kind"] = item.Kind;
+                 return entry;
+             })
+             .ToList();
+ 
+         var payload = new Dictionary<string, object?>
+         {
+@@ -601,36 +863,15 @@
+                 // 连不上 / 超时 / 响应不是 JSON → 换下一个入口
+             }
+         }
+         return (null, null);
+     }
+ 
+-    private static List<string> OrderedEndpoints()
+-    {
+-        try
+-        {
+-            if (System.IO.File.Exists(EndpointFile))
+-            {
+-                var remembered = System.IO.File.ReadAllText(EndpointFile).Trim();
+-                if (SubmitEndpoints.Contains(remembered))
+-                    return new List<string> { remembered }.Concat(SubmitEndpoints.Where(item => item != remembered)).ToList();
+-            }
+-        }
+-        catch { /* 读不到就用默认顺序 */ }
+-        return SubmitEndpoints.ToList();
+-    }
+-
+-    private static void RememberEndpoint(string baseUrl)
+-    {
+-        try
+-        {
+-            System.IO.Directory.CreateDirectory(DataDir);
+-            System.IO.File.WriteAllText(EndpointFile, baseUrl);
+-        }
+-        catch { /* 记不上不影响提交 */ }
+-    }
++    private static List<string> OrderedEndpoints() => Services.SubmitEndpoint.Ordered();
++
++    private static void RememberEndpoint(string baseUrl) => Services.SubmitEndpoint.Remember(baseUrl);
+ 
+     // ══════════ 本机草稿（提交失败后不丢内容） ══════════
+     private static void SaveDraft(Dictionary<string, object?> payload)
+     {
+         try
+         {
+@@ -687,12 +928,13 @@
+         for (var i = 0; i < CategoryCombo.Items.Count; i++)
+             if (CategoryCombo.Items[i] is ComboBoxItem item && (item.Tag as string) == categoryKey)
+                 CategoryCombo.SelectedIndex = i;
+ 
+         // 下载项整段重建
+         _downloads.Clear();
++        _fields.Clear();
+         _cards.Clear();
+         _titles.Clear();
+         DownloadsHost.Children.Clear();
+ 
+         if (draft.TryGetValue("downloads", out var value) && value is JsonElement downloads && downloads.ValueKind == JsonValueKind.Array)
+         {
+@@ -702,39 +944,39 @@
+                 var item = _downloads[^1];
+                 item.Platform = JsonText(element, "platform");
+                 item.Size = JsonText(element, "size");
+                 item.Note = JsonText(element, "note");
+                 item.Url = JsonText(element, "url");
+                 item.Hash = JsonText(element, "hash");
+-                FillCard(_cards[^1], item);
++                // 下载方式：草稿里没写 kind 就是「自动识别」（下拉回到未选状态，显示占位文案）
++                item.Kind = JsonText(element, "kind");
++                FillCard(_fields[^1], item);
+             }
+         }
+         if (_downloads.Count == 0) AddDownload();
+ 
+         FallbackPanel.Visibility = Visibility.Collapsed;
+         _pending = null;
+         ShowResult(true, "已恢复", "上次未提交成功的内容已填回表单，检查后可再次提交。");
+     }
+ 
+     private static string JsonText(JsonElement element, string key)
+         => element.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() ?? "" : "";
+ 
+-    /// <summary>把下载项的值写回界面（恢复草稿用）。</summary>
+-    private static void FillCard(Border card, DownloadDraft draft)
+-    {
+-        if (card.Child is not StackPanel stack) return;
+-        var values = new[] { draft.Platform, draft.Size, draft.Note, draft.Url, draft.Hash };
+-        var boxes = new List<TextBox>();
+-        foreach (var child in stack.Children)
+-        {
+-            if (child is TextBox box) boxes.Add(box);
+-            else if (child is Grid row)
+-                foreach (var cell in row.Children)
+-                    if (cell is TextBox cellBox) boxes.Add(cellBox);
+-        }
+-        for (var i = 0; i < boxes.Count && i < values.Length; i++) boxes[i].Text = values[i];
++    /// <summary>把下载项的值写回界面（恢复草稿 / 一键读取都用它）。</summary>
++    private static void FillCard(DownloadFields fields, DownloadDraft draft)
++    {
++        fields.Platform.Text = draft.Platform;
++        fields.Size.Text = draft.Size;
++        fields.Note.Text = draft.Note;
++        fields.Url.Text = draft.Url;
++        fields.Hash.Text = draft.Hash;
++        // 下载方式：空串（自动识别）落在 -1，下拉显示占位文案 —— 与网页端同一个观感
++        fields.Kind.SelectedIndex = KindIndexOf(draft.Kind);
++        // 本站上传回填的 `oss://` 键是服务端生成的，锁住别让人改坏
++        fields.Url.IsReadOnly = draft.Url.Trim().StartsWith("oss://", StringComparison.OrdinalIgnoreCase);
+     }
+ 
+     // ══════════ 兜底：下载 / 复制 / 去 GitHub ══════════
+     private static (string Name, string Text)? BuildSubmissionFile(Dictionary<string, object?>? data)
+     {
+         if (data is null) return null;

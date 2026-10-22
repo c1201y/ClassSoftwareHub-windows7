@@ -4,28 +4,27 @@ using System.Diagnostics;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace ClassSoftwareHub.Desktop.Services;
 
 /// <summary>
-/// 「GitHub 应用更新加速源」的三个取值（设置页「软件内容」）。存进 settings.json 的就是这三个字面量。
+/// 「GitHub 下载体验优化」的三个取值（设置页「软件内容」）。存进 settings.json 的就是这三个字面量。
 /// ⚠️ 这是**存档格式**的一部分：只能加新值，不能改已有字面量。
 /// </summary>
 public static class GithubRoutes
 {
-    /// <summary>自动：默认档。优先自建节点，不可用时按测速结果挑最快的公益镜像。</summary>
+    /// <summary>自动：下载前把自建节点、各条公益镜像、GitHub 源都探一下，按快慢排。</summary>
     public const string Auto = "auto";
 
-    /// <summary>自建加速服务：GitHub 链接交由社区自建节点中转（经本站 Worker 代签，取限时直链）。</summary>
+    /// <summary>自建加速服务：固定优先社区自建节点（向节点换限时签名链接），取不到签名退公益镜像。</summary>
     public const string SelfHosted = "selfhosted";
 
     /// <summary>GitHub 源：原样直连 github.com，不做任何改写。</summary>
     public const string Official = "github";
 
-    /// <summary>将存档字符串收敛为三个合法值；无法识别时按 GitHub 源（官方直连）处理。</summary>
+    /// <summary>把存档里的字符串收敛到三个合法值（认不出的一律当 GitHub 源 —— 官方直连永远最保底）。</summary>
     public static string Normalize(string? value) => value switch
     {
         SelfHosted => SelfHosted,
@@ -35,63 +34,82 @@ public static class GithubRoutes
 }
 
 /// <summary>
-/// 下载前把「原始链接」翻译成「实际要抓的链接」—— 用户级的**全局默认下载路径**。
+/// 一条候选下载链接，外加「抓它时必须一起发的头」。
+///
+/// <see cref="Referer"/> 与 <see cref="ApiKey"/> 都是**自建加速节点**的硬要求：
+/// 节点按 Referer 白名单放行（原生客户端默认不发该头），签名若绑定了密钥还要 <c>X-Api-Key</c>。
+/// 二者跟链接绑在一起走，才不会出现「探速带了、真下载忘了带」这类漏发。
+/// </summary>
+public sealed record DownloadCandidate(string Url, string? Referer, string? ApiKey = null)
+{
+    public static DownloadCandidate Direct(string url) => new(url, null);
+
+    /// <summary>
+    /// 把「抓它时必须带的头」加到请求上。探速与真下载**共用这一个方法**，
+    /// 免得以后又出现「探速带了 Referer、真下载忘了带」这种把好路误判成不可用的漏发。
+    /// </summary>
+    public void ApplyTo(System.Net.Http.HttpRequestMessage request)
+    {
+        if (!string.IsNullOrEmpty(Referer))
+            request.Headers.Referrer = new Uri(Referer);
+        if (!string.IsNullOrEmpty(ApiKey))
+            request.Headers.TryAddWithoutValidation("X-Api-Key", ApiKey);
+    }
+
+    /// <summary>⚠️ 只打印链接：日志里绝不能带密钥。</summary>
+    public override string ToString() => Url;
+}
+
+/// <summary>
+/// 下载前把「原始链接」翻译成「候选链接列表」—— 用户级的**全局默认下载路径**。
 ///
 /// 覆盖范围：**软件下载**（<see cref="DownloadService"/>）与**更新包下载**
-/// （<c>UpdateService.DownloadAndVerifyAsync</c>）两条链路都走这里。
+/// （<c>UpdateService.DownloadAndVerifyAsync</c>）两条链路都走这里，用户不必分别在两处设一次。
+///
+/// 三个模式（2026-10-09 起，对齐 gh-stream 接口说明）：
+///   · GitHub 源  —— 原样直连，一条候选，不探测不改写；
+///   · 自建加速服务 —— 先向自建节点换一条**限时签名链接**（<see cref="MirrorSign"/>，抓取时必须带 Referer），
+///                     固定首选；取不到签名就往后退到公益镜像（通道清单原序）→ GitHub 源；
+///   · 自动       —— 自建节点 / 各条公益镜像 / GitHub 源**并行测速**，按快慢排候选，结果缓存。
+///
+/// ⚠️ 自建节点**不支持前缀拼接**（<c>节点/&lt;原始链接&gt;</c> 对任何 Referer 都 403），
+///    只能用它自己签发的 <c>/d?u=…&amp;e=…&amp;s=…</c> 链接 —— 所以候选必须能携带 Referer（和可能的 X-Api-Key）。
+/// ⚠️ 换签名**直连节点**（<c>download.classsoftwarehub.cn/sign</c>），不再经站点后端中转：
+///    实测本机网络下节点通、而站点后端域名不通，走中转等于白等。
 ///
 /// 和详情页那条「加速通道」的分工：
 ///   · 详情页 = 逐条**手动**挑公益镜像（<see cref="Core.GithubMirror.Channels"/>），一次一条链接；
 ///   · 这里   = 用户在设置里定**一次**，之后所有 GitHub 下载都按它走。
+///   两者不冲突：手动挑过之后链接的域名已经不是 github.com 了，<see cref="Core.GithubMirror.IsMirrorableUrl"/>
+///   认不出来，所以不会再被改写一遍（前缀拼接天然幂等）。
 ///
-/// 默认链路（与网页端同策略，三段式，前一段不行就自动走下一段）：
-///   ① **自建加速**：本站 Worker <c>/api/mirror-sign</c> 代签 → 拿到自建节点
-///      <c>download.classsoftwarehub.cn</c> 的限时直链（约 15 分钟有效）。
-///      ⚠️ 该节点**不是** gh-proxy 那种「前缀拼接」（<c>节点/原链接</c> 会被 403 拒绝），
-///      只能走签名直链；且下载时**必须携带本站白名单里的 Referer**，缺了同样 403。
-///      密钥不进客户端：签名在 Worker 侧完成，本程序只拿一次性直链。
-///   ② **公益镜像**：自建代签不通 / 节点不可用 → 对公益镜像**并行测速**，最快的排前面，
-///      其余按速度排序回退（结果缓存 10 分钟，避免重复测速）。
-///   ③ **GitHub 官方直链**：以上均不可用时的最终回退，保证下载始终可用。
-///
-/// 选「GitHub 源」则以上全不做，原样直连；非 GitHub 文件链接（官网、网盘、商店页）一律不改写。
+///    更新包走加速也不影响安全性：<c>UpdateService</c> 下载完照样按 MD5 / SHA256 校验，改包会被当场拦下。
 /// </summary>
 public static class GithubRoute
 {
-    /// <summary>
-    /// 自建加速服务**是否已经就绪**。就绪后设置页不再显示红色警告；
-    /// 选「自建加速服务」（或默认的「自动」）会经 Worker 代签取限时直链，
-    /// 失败自动回落公益镜像测速择优，全不可用再回 GitHub 官方直链。
-    /// </summary>
-    public static readonly bool AcceleratorReady = true;
+    /// <summary>候选池里「自建加速节点」这条的标识（缓存顺序时用它，不落盘）。</summary>
+    private const string AcceleratorId = "acc";
 
-    /// <summary>自建加速节点主机（gh-stream 签名节点）。仅用于判断「这条链接是不是加速链接」。</summary>
-    public const string AcceleratorHost = "download.classsoftwarehub.cn";
-
-    /// <summary>访问加速节点时**必须**携带的 Referer（节点侧的来源白名单；不携带一律 403）。</summary>
-    public const string AcceleratorReferer = "https://classsoftwarehub.us.ci/";
-
-    /// <summary>代签入口（本站 Worker），按顺序回退。原生命令行客户端也能调，无需浏览器 Origin。</summary>
-    private static readonly string[] SignEndpoints =
-    {
-        "https://cshapi.132614.xyz/api/mirror-sign",
-        "https://submit.132614.xyz/api/mirror-sign",
-    };
+    /// <summary>候选池里 GitHub 官方直连这条的标识。</summary>
+    private const string OfficialId = "github";
 
     /// <summary>探测窗口：到点就断开（不等它下完），拿这段时间的平均速度当排名依据。</summary>
-    private static readonly TimeSpan ProbeWindow = TimeSpan.FromSeconds(2.5);
+    private static readonly TimeSpan ProbeWindow = TimeSpan.FromSeconds(1.5);
 
-    /// <summary>探测硬超时：覆盖已建立连接但无数据返回的情况。</summary>
-    private static readonly TimeSpan ProbeHardTimeout = TimeSpan.FromSeconds(8);
+    /// <summary>探测硬超时（比窗口宽一点，兜住"连上了但一个字节都不给"的情况）。</summary>
+    private static readonly TimeSpan ProbeHardTimeout = TimeSpan.FromSeconds(2);
 
     /// <summary>探测读到的字节数低于此值 → 这条基本不能用。</summary>
     private const int ProbeMinBytes = 64 * 1024;
 
-    /// <summary>单次探测的最大读取量（Range 上界），避免为测速拉取完整文件。</summary>
+    /// <summary>探测最多读这么多（Range 上界，别为了测速真把大包拖下来）。</summary>
     private const int ProbeMaxBytes = 512 * 1024;
 
-    /// <summary>测速结果缓存时长，过期后重新测速。</summary>
-    private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(10);
+    /// <summary>
+    /// 自动模式这次排出来的顺序能信多久 —— 网络会变，过期重探。
+    /// 取 8 分钟是因为候选里可能含签名链接（节点侧 15 分钟过期），要留足余量。
+    /// </summary>
+    private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(8);
 
     private static readonly HttpClient ProbeHttp = new(new HttpClientHandler
     {
@@ -101,18 +119,9 @@ public static class GithubRoute
         Timeout = Timeout.InfiniteTimeSpan,     // 靠下面的 CancellationToken 控制
     };
 
-    /// <summary>代签请求专用 HttpClient（短请求，设置超时上限）。</summary>
-    private static readonly HttpClient SignHttp = new(new HttpClientHandler
-    {
-        AllowAutoRedirect = true,
-    })
-    {
-        Timeout = TimeSpan.FromSeconds(12),
-    };
-
     private static readonly object Gate = new();
-    private static string[]? _mirrorOrder;
-    private static DateTime _mirrorAt;
+    private static string[]? _autoOrder;
+    private static DateTime _autoAt;
 
     /// <summary>当前设置（认不出的值当 GitHub 源）。</summary>
     public static string Current => GithubRoutes.Normalize(App.Settings.Current.GithubDownloadRoute);
@@ -125,179 +134,178 @@ public static class GithubRoute
         _ => "自动",
     };
 
-    /// <summary>这条 URL 是不是「自建加速节点」的链接 —— 下载/探速据此决定是否附 Referer。</summary>
-    public static bool IsAcceleratedUrl(string? url)
-    {
-        if (string.IsNullOrWhiteSpace(url)) return false;
-        return Uri.TryCreate(url, UriKind.Absolute, out var u)
-            && u.Host.Equals(AcceleratorHost, StringComparison.OrdinalIgnoreCase);
-    }
-
     /// <summary>
     /// 原始链接 → **候选链接**（按优先级排：前一条失败了就试下一条）。
-    /// 非 GitHub 文件链接、以及已经是加速链接的，原样返回一条 —— 绝不改写不该动的链接。
-    ///
-    /// 默认（自动）与「自建加速服务」同策略：**自建优先 → 公益镜像（测速择优）→ 官方直链**。
+    /// 非 GitHub 文件链接一律原样返回一条 —— 绝不改写不该动的链接。
     /// </summary>
-    public static async Task<IReadOnlyList<string>> ResolveAsync(string url, CancellationToken ct = default)
+    public static async Task<IReadOnlyList<DownloadCandidate>> ResolveAsync(string url, CancellationToken ct = default)
     {
         // 只有「GitHub 上的文件地址」才谈得上换路（官网直链、网盘、商店页一律不动）
         if (!Core.GithubMirror.IsMirrorableUrl(url))
         {
             Core.AppLog.Step("download-route", "非 GitHub 链接 → 原样直连（不改写）");
-            return new[] { url };
+            return new[] { DownloadCandidate.Direct(url) };
         }
 
-        // GitHub 源：原样直连，不做任何改写。
+        var official = DownloadCandidate.Direct(url);
         if (Current == GithubRoutes.Official)
         {
             Core.AppLog.Step("download-route", "线路=GitHub 源 → 直连，不探测不改写");
-            return new[] { url };
+            return new[] { official };
         }
 
-        // 节点未就绪（当前已就绪，此分支留作回退）：直接走公益镜像测速择优，末尾回官方直链。
-        if (!AcceleratorReady)
-            return await MirrorChainAsync(url, probe: true, ct).ConfigureAwait(false);
+        var list = Current == GithubRoutes.SelfHosted
+            ? await SelfHostedAsync(url, official, ct).ConfigureAwait(false)
+            : await AutoAsync(url, official, ct).ConfigureAwait(false);
 
-        // ① 自建加速：先经本站 Worker 代签，拿到自建节点的限时直链。
-        var signed = await SignAsync(url, ct).ConfigureAwait(false);
-        if (signed is null)
-        {
-            // 自建不可用 → ② 公益镜像测速择优 → ③ 官方直链
-            Core.AppLog.Info("download-route", "自建加速服务：未取得签名，改用公益镜像（测速择优）");
-            var fallback = await MirrorChainAsync(url, probe: true, ct).ConfigureAwait(false);
-            LogCandidates(fallback);
-            return fallback;
-        }
+        // 一句"最后到底排成了什么样"：自动模式下面 AutoAsync 已经逐条报了实测速度，
+        // 这条是给**命中缓存**和**自建模式**补的（它们不走那段探速日志）。
+        Core.AppLog.Step("download-route",
+            $"线路={DisplayName(Current)} · 候选 {list.Count} 条 → "
+            + string.Join(" > ", list.Select(c => HostOf(c.Url))));
 
-        // 自建直链优先；下载失败时按已缓存的镜像顺序回退，最后回官方直链。
-        var list = new List<string> { signed };
-        list.AddRange(await MirrorChainAsync(url, probe: false, ct).ConfigureAwait(false));
-        LogCandidates(list);
         return list;
     }
 
+    /// <summary>只取域名（日志里看"走了哪一家"就够，不必把带签名的整条 URL 铺进去）。</summary>
     /// <summary>
-    /// 一句"最后到底排成了什么样"：只取域名（日志里看"走了哪一家"就够，
-    /// 不必把带签名的整条 URL 铺进日志）。
+    /// 原始链接 → 候选链接（纯字符串），供 Win7 版下载实现直接使用。
+    /// ⚠️ Referer/Key 不在这里携带 —— 对方的实现会自己按 <c>IsAcceleratedUrl</c> 贴 Referer。
     /// </summary>
-    private static void LogCandidates(IReadOnlyList<string> candidates) =>
-        Core.AppLog.Step("download-route",
-            $"线路={DisplayName(Current)} · 候选 {candidates.Count} 条 → "
-            + string.Join(" > ", candidates.Select(c => HostOf(c))));
+    public static async Task<IReadOnlyList<string>> ResolveAcceleratedAsync(
+        string url, CancellationToken ct = default)
+    {
+        var candidates = await ResolveAsync(url, ct).ConfigureAwait(false);
+        return candidates.Select(c => c.Url).ToList();
+    }
 
-    /// <summary>只取链接的域名部分。</summary>
     private static string HostOf(string url)
     {
         try { return new Uri(url).Host; } catch { return url; }
     }
 
     /// <summary>
-    /// 详情页「加速下载」专用：强制走加速链，不受设置页「GitHub 应用更新加速源」约束
-    /// （该设置仅约束更新包等自动下载）。链路与「自动」档一致：
-    /// ① 自建加速（Worker 代签 → 限时直链）；② 不可用时公益镜像并行测速择优；
-    /// ③ 全部不可用时回退 GitHub 官方直链。
-    /// 非 GitHub 文件链接（官网 / 网盘 / 商店页）原样返回，不做改写。
+    /// 自建加速服务：固定首选自建节点；取不到签名 → 公益镜像（通道清单原序）→ GitHub 源。
+    /// 这里**只换签名、不做测速** —— 用户明确选了自建节点，没必要每次都先花 2.5 秒探一遍公益镜像。
     /// </summary>
-    public static async Task<IReadOnlyList<string>> ResolveAcceleratedAsync(string url, CancellationToken ct = default)
+    private static async Task<IReadOnlyList<DownloadCandidate>> SelfHostedAsync(
+        string url, DownloadCandidate official, CancellationToken ct)
     {
-        if (!Core.GithubMirror.IsMirrorableUrl(url))
-            return new[] { url };
+        var list = new List<DownloadCandidate>();
 
-        var signed = await SignAsync(url, ct).ConfigureAwait(false);
+        var signed = await MirrorSign.GetSignedUrlAsync(url, ct).ConfigureAwait(false);
+
+        // ⛔⛔ **自建就是自建**（2026-10-21 Nick 明确要求）：
+        //    选了「自建加速服务」就**只走自建**，拿不到签名就当场报错，
+        //    不许静默回退到公益镜像或 GitHub 源。
+        //    回退是「自动」模式的职责 —— 用户选自建就是为了验它到底通不通，
+        //    偷偷换路会把故障掩盖成「能下但很慢」，反而更难排查。
         if (signed is null)
         {
-            Core.AppLog.Info("download-route", "加速下载：自建加速不可用，改用公益镜像（测速择优）");
-            return await MirrorChainAsync(url, probe: true, ct).ConfigureAwait(false);
+            Core.AppLog.Warn("download-route", "自建加速服务：未取得签名，按设置直接失败（不回退）");
+
+            throw new InvalidOperationException(
+                "自建加速服务未能取得下载签名，本次下载未开始。\n\n"
+                + "若需继续下载，请在「设置 → 网络」中将下载路径改为「自动」，\n"
+                + "程序将在各条可用线路之间测速并选择最优线路。\n\n"
+                + "具体原因已记录于应用日志。");
         }
 
-        var list = new List<string> { signed };
-        list.AddRange(await MirrorChainAsync(url, probe: false, ct).ConfigureAwait(false));
-        Core.AppLog.Info("download-route", "加速下载 · 自建节点：" + signed);
-        return list;
+        // 签名到手：只给自建节点（不再附带镜像与 GitHub 源）
+        return new[] { MirrorSign.Candidate(signed) };
     }
 
-    /// <summary>调本站 Worker 代签：拿到自建节点的限时直链；不通返回 null。</summary>
-    private static async Task<string?> SignAsync(string url, CancellationToken ct)
-    {
-        var query = "?url=" + Uri.EscapeDataString(url);
-        foreach (var endpoint in SignEndpoints)
-        {
-            try
-            {
-                using var resp = await SignHttp.GetAsync(endpoint + query, ct).ConfigureAwait(false);
-                if (!resp.IsSuccessStatusCode) continue;
-
-                var body = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-                using var doc = JsonDocument.Parse(body);
-                var root = doc.RootElement;
-                if (root.TryGetProperty("success", out var ok) && ok.ValueKind == JsonValueKind.True
-                    && root.TryGetProperty("url", out var u) && u.ValueKind == JsonValueKind.String)
-                {
-                    var signed = u.GetString();
-                    if (!string.IsNullOrWhiteSpace(signed)) return signed;
-                }
-            }
-            catch { /* 换下一个入口 */ }
-        }
-        return null;
-    }
 
     /// <summary>
-    /// 公益镜像候选链：按测速结果排序（probe=true 现场并行测速；false 用缓存/默认序），
-    /// **末尾固定补 GitHub 官方直链** —— 镜像全不可用时它接手。
+    /// 自动：把自建节点、各条公益镜像、GitHub 源一起探速，按快慢排候选；结果缓存 <see cref="CacheTtl"/>。
+    /// 缓存里存的是**顺序标识**而不是链接本身 —— 签名链接是逐条目标签发的，直接缓存链接会串。
     /// </summary>
-    private static async Task<IReadOnlyList<string>> MirrorChainAsync(string official, bool probe, CancellationToken ct)
+    private static async Task<IReadOnlyList<DownloadCandidate>> AutoAsync(
+        string url, DownloadCandidate official, CancellationToken ct, bool includeOfficial = true)
     {
-        var order = probe
-            ? await RankMirrorsAsync(official, ct).ConfigureAwait(false)
-            : CachedMirrorOrder();
+        // ⚠️ 缓存里可能含 GitHub 源，自建模式不能直接用 —— 它会把 GitHub 又拉回来
+        var cached = includeOfficial ? CachedOrder() : null;
+        if (cached is not null)
+            return await FromOrderAsync(cached, url, official, ct).ConfigureAwait(false);
 
-        var list = new List<string>(order.Count + 1);
-        foreach (var id in order)
+        // 冷启动：先铺好公益镜像与官方（探速立刻发起），再并行等签名，别让签名请求白等 2.5 秒
+        var items = new List<Item>();
+        foreach (var channel in Core.GithubMirror.Channels)
+            items.Add(new Item(channel.Id, DownloadCandidate.Direct(Core.GithubMirror.MirrorUrl(url, channel))));
+        // 自建模式下不让 GitHub 源参与竞争（否则用户开着加速器时它会抢到第一）
+        if (includeOfficial) items.Add(new Item(OfficialId, official));
+
+        var probes = items.ToDictionary(item => item.Id, item => ProbeAsync(item.Candidate, ct));
+
+        var signed = await MirrorSign.GetSignedUrlAsync(url, ct).ConfigureAwait(false);
+        if (signed is not null)
         {
-            var channel = ChannelById(id);
-            if (channel is not null)
-                list.Add(Core.GithubMirror.MirrorUrl(official, channel));
+            var accelerator = MirrorSign.Candidate(signed);
+            items.Insert(0, new Item(AcceleratorId, accelerator));   // 同速时自建节点优先
+            probes[AcceleratorId] = ProbeAsync(accelerator, ct);
         }
-        list.Add(official);
+
+        await Task.WhenAll(probes.Values).ConfigureAwait(false);
+
+        var ranked = items
+            .OrderByDescending(item => probes[item.Id].Result.Usable)
+            .ThenByDescending(item => probes[item.Id].Result.BytesPerSecond)
+            .ToList();
+
+        Remember(ranked.Select(item => item.Id).ToArray());
+
+        Core.AppLog.Info("download-route",
+            "自动选路 → " + string.Join(" > ", ranked.Select(item => $"{Label(item.Id)} {Describe(probes[item.Id].Result)}")));
+
+        return ranked.Select(item => item.Candidate).ToList();
+    }
+
+    /// <summary>命中缓存：按记下来的顺序重建候选（签名链接现换，其余是确定性的拼接）。</summary>
+    private static async Task<IReadOnlyList<DownloadCandidate>> FromOrderAsync(
+        string[] order, string url, DownloadCandidate official, CancellationToken ct)
+    {
+        // 上次排出来有自建节点才需要再换一次签名；否则连这次请求都省了
+        var signed = order.Contains(AcceleratorId)
+            ? await MirrorSign.GetSignedUrlAsync(url, ct).ConfigureAwait(false)
+            : null;
+
+        var list = new List<DownloadCandidate>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+
+        void Add(string id)
+        {
+            if (!seen.Add(id)) return;
+            var candidate = Build(id, url, official, signed);
+            if (candidate is not null) list.Add(candidate);
+        }
+
+        foreach (var id in order) Add(id);
+        Add(OfficialId);                                     // 补齐缓存里没有的（比如清单新增了通道）
+        foreach (var channel in Core.GithubMirror.Channels) Add(channel.Id);
+
         return list;
     }
 
-    /// <summary>并行测速所有公益镜像 → 按「先可用、后速度」降序排序并缓存 10 分钟。</summary>
-    private static async Task<IReadOnlyList<string>> RankMirrorsAsync(string official, CancellationToken ct)
+    /// <summary>把一个顺序标识还原成候选链接；还原不出来（通道已下线 / 签名没取到）返回 null。</summary>
+    private static DownloadCandidate? Build(string id, string url, DownloadCandidate official, string? signed)
     {
-        var cached = CachedMirrorOrderOrNull();
-        if (cached is not null) return cached;
+        if (id == AcceleratorId)
+            return signed is null ? null : MirrorSign.Candidate(signed);
+        if (id == OfficialId)
+            return official;
 
-        var channels = Core.GithubMirror.Channels;
-        var probes = new Task<ProbeResult>[channels.Length];
-        for (var i = 0; i < channels.Length; i++)
-            probes[i] = ProbeAsync(Core.GithubMirror.MirrorUrl(official, channels[i]), ct);
-
-        // 几条同时探，互不等待（总耗时 ≈ 单条探测窗口）
-        var results = await Task.WhenAll(probes).ConfigureAwait(false);
-
-        var order = channels
-            .Select((ch, i) => (ch.Id, Result: results[i]))
-            .OrderByDescending(x => x.Result.Usable)
-            .ThenByDescending(x => x.Result.BytesPerSecond)
-            .Select(x => x.Id)
-            .ToArray();
-
-        RememberMirrorOrder(order);
-        Core.AppLog.Info("download-route", "公益镜像测速 → " + string.Join("；",
-            channels.Select((ch, i) => $"{ch.Name} {Describe(results[i])}")));
-        return order;
+        var channel = Core.GithubMirror.Channels.FirstOrDefault(item => item.Id == id);
+        return channel is null ? null : DownloadCandidate.Direct(Core.GithubMirror.MirrorUrl(url, channel));
     }
 
-    /// <summary>按 id 找一条镜像通道。</summary>
-    private static Core.MirrorChannel? ChannelById(string id)
+    private sealed record Item(string Id, DownloadCandidate Candidate);
+
+    private static string Label(string id) => id switch
     {
-        foreach (var ch in Core.GithubMirror.Channels)
-            if (ch.Id == id) return ch;
-        return null;
-    }
+        AcceleratorId => "自建加速",
+        OfficialId => "GitHub 源",
+        _ => Core.GithubMirror.Channels.FirstOrDefault(item => item.Id == id)?.Name ?? id,
+    };
 
     private sealed record ProbeResult(bool Ok, long Bytes, double BytesPerSecond, string? Error)
     {
@@ -305,8 +313,12 @@ public static class GithubRoute
         public bool Usable => Ok && Bytes >= ProbeMinBytes;
     }
 
-    /// <summary>只读一小段（Range）+ 只读一小会儿，据平均速度排名。失败不抛异常，包在结果里。</summary>
-    private static async Task<ProbeResult> ProbeAsync(string url, CancellationToken outer)
+    /// <summary>
+    /// 只读一小段（Range）+ 只读一小会儿，据平均速度排名。失败不抛异常，包在结果里。
+    /// ⚠️ 候选该带的头（Referer / X-Api-Key）必须一起带上 —— 自建节点漏了它直接 403，
+    ///    会把好路误判成不可用。
+    /// </summary>
+    private static async Task<ProbeResult> ProbeAsync(DownloadCandidate candidate, CancellationToken outer)
     {
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(outer);
         linked.CancelAfter(ProbeHardTimeout);
@@ -316,11 +328,9 @@ public static class GithubRoute
         long received = 0;
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            using var request = new HttpRequestMessage(HttpMethod.Get, candidate.Url);
             request.Headers.Range = new RangeHeaderValue(0, ProbeMaxBytes - 1);
-            // 自建加速节点按 Referer 放行：探速也得带上，否则一律 403（会被误判成"不可用"）
-            if (IsAcceleratedUrl(url))
-                request.Headers.Referrer = new Uri(AcceleratorReferer);
+            candidate.ApplyTo(request);
 
             using var response = await ProbeHttp
                 .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
@@ -351,7 +361,7 @@ public static class GithubRoute
         }
     }
 
-    /// <summary>平均速度（B/s）。耗时过短时按 0.05 秒下限计算，避免结果失真。</summary>
+    /// <summary>平均速度（B/s）。分母兜个底，别让"连上就到"除出一个天文数字。</summary>
     private static double Speed(long bytes, TimeSpan elapsed) =>
         bytes <= 0 ? 0 : bytes / Math.Max(elapsed.TotalSeconds, 0.05);
 
@@ -362,39 +372,58 @@ public static class GithubRoute
         _ => $"{r.BytesPerSecond / 1024:0} KB/s（{r.Bytes / 1024} KB）",
     };
 
-    /// <summary>返回缓存的镜像顺序；无缓存或已过期时按默认顺序返回，不触发测速。</summary>
-    private static IReadOnlyList<string> CachedMirrorOrder()
-    {
-        var cached = CachedMirrorOrderOrNull();
-        if (cached is not null) return cached;
-        return Core.GithubMirror.Channels.Select(c => c.Id).ToArray();
-    }
-
-    private static string[]? CachedMirrorOrderOrNull()
+    private static string[]? CachedOrder()
     {
         lock (Gate)
         {
-            if (_mirrorOrder is not null && DateTime.UtcNow - _mirrorAt <= CacheTtl)
-                return _mirrorOrder;
-            return null;
+            if (_autoOrder is null) return null;
+            if (DateTime.UtcNow - _autoAt > CacheTtl)
+            {
+                _autoOrder = null;
+                return null;
+            }
+            return _autoOrder;
         }
     }
 
-    private static void RememberMirrorOrder(string[] order)
+    private static void Remember(string[] order)
     {
         lock (Gate)
         {
-            _mirrorOrder = order;
-            _mirrorAt = DateTime.UtcNow;
+            _autoOrder = order;
+            _autoAt = DateTime.UtcNow;
         }
     }
 
-    /// <summary>路由设置变更后清除测速缓存，使新设置立即生效。</summary>
+    /// <summary>设置里刚改了路径 → 把自动模式的缓存清掉（否则最多要等 8 分钟才认新设置）。</summary>
     public static void InvalidateCache()
     {
         lock (Gate)
         {
-            _mirrorOrder = null;
+            _autoOrder = null;
         }
+    }
+
+/// <summary>
+/// 与 Win7 版兼容层（2026-10-21）。
+/// <para>
+/// 下面三个成员是 Win7 版 <c>DownloadService.cs</c> 直接引用的名字。我们的实现用
+/// <see cref="DownloadCandidate"/> 携带 Referer/Key，而对方用纯字符串、在发请求时自己贴 Referer。
+/// 为了能直接复用他们的下载实现而加这层桥，行为保持一致。
+/// </para>
+/// </summary>
+    /// <summary>自建节点主机。</summary>
+    public const string AcceleratorHost = "download.classsoftwarehub.cn";
+
+    /// <summary>访问节点必须带的 Referer（节点侧白名单，不带一律 403）。</summary>
+    public const string AcceleratorReferer = "https://classsoftwarehub.us.ci/";
+
+    /// <summary>这条链接是不是指向自建节点。</summary>
+    public static bool IsAcceleratedUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return false;
+
+        return Uri.TryCreate(url, UriKind.Absolute, out var parsed)
+            && parsed.Host.Equals(AcceleratorHost, StringComparison.OrdinalIgnoreCase);
     }
 }

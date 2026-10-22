@@ -211,8 +211,8 @@ public static class AppIconCache
             // ① 先按用户在设置里选的线路来
             foreach (var candidate in await GithubRoute.ResolveAsync(url, ct).ConfigureAwait(false))
             {
-                tried.Add(candidate);
-                var bytes = await FetchAsync(candidate, ct).ConfigureAwait(false);
+                tried.Add(candidate.Url);
+                var bytes = await FetchAsync(candidate.Url, ct).ConfigureAwait(false);
                 if (bytes is { Length: > 0 })
                 {
                     _lastGoodMirror = null;         // 官方/自建这条通了就别惦记镜像了

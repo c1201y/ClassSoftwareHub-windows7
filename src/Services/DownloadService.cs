@@ -197,7 +197,8 @@ public static class DownloadService
         {
             DownloadRoute.Official => new[] { url },
             DownloadRoute.Accelerated => await GithubRoute.ResolveAcceleratedAsync(url, ct).ConfigureAwait(false),
-            _ => await GithubRoute.ResolveAsync(url, ct).ConfigureAwait(false),
+            // 默认（Setting）走全局设置，但这里要的是纯字符串候选，所以抖一层
+            _ => (await GithubRoute.ResolveAsync(url, ct).ConfigureAwait(false)).Select(c => c.Url).ToList(),
         };
 
         Exception? lastError = null;

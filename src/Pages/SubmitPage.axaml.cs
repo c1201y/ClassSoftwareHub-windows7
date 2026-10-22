@@ -65,6 +65,12 @@ public sealed partial class SubmitPage : PageBase
         ("应用商店", "store"),
     };
 
+    /// <summary>
+    /// 一稿最多几条下载项 —— 与网页端 <c>SubmitPage.vue</c> 的 <c>MAX_DOWNLOADS = 5</c> 一致。
+    /// 这是提交数据的约定（服务端与审核都按这个口径），桌面端不能比网页端更宽松。
+    /// </summary>
+    private const int MaxDownloads = 5;
+
     /// <summary>kind 值 → 下拉索引；空串（自动）返回 -1，让占位文案显示出来（与网页端一致）。</summary>
     private static int KindIndexOf(string kind)
     {
@@ -98,6 +104,9 @@ public sealed partial class SubmitPage : PageBase
 
     private void AddDownload()
     {
+        // 与网页端 MAX_DOWNLOADS（= 5）同一口径：这是提交数据的约定，超限的投稿服务端不收
+        if (_downloads.Count >= MaxDownloads) return;
+
         var draft = new DownloadDraft();
         _downloads.Add(draft);
 
@@ -151,6 +160,24 @@ public sealed partial class SubmitPage : PageBase
             Text = "没有自己的网盘就点右侧按钮，把文件传到本站存储；上传成功后这行会锁住。",
         };
 
+        // 下载方式（对应网页端提交页同一个下拉；2026-10-18 自上游 1.2.0 移植）：
+        // 决定详情页那颗按钮写「下载」还是「前往网盘 / 前往官网 / 打开商店」。
+        // 默认 -1 ＝不选 ＝自动识别，提交时不写 kind 字段。
+        // ⚠️ 在这里就建好（比直链那一行早），是因为上传成功后要立刻把它拨到「文件直链」。
+        var kindCombo = new ComboBox
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            PlaceholderText = "自动识别（按链接判断）",
+        };
+        foreach (var (label, _) in DownloadKinds)
+            kindCombo.Items.Add(new ComboBoxItem { Content = label });
+        kindCombo.SelectedIndex = KindIndexOf(draft.Kind);
+        kindCombo.SelectionChanged += (_, _) =>
+        {
+            var i = kindCombo.SelectedIndex;
+            draft.Kind = i >= 0 && i < DownloadKinds.Length ? DownloadKinds[i].Kind : "";
+        };
+
         // ⚠️ Avalonia 11.2 的 Grid 没有 ColumnSpacing → 靠按钮左 Margin 拉开 10
         var urlGrid = new Grid();
         urlGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -168,6 +195,11 @@ public sealed partial class SubmitPage : PageBase
                 urlBox.Text = url;
                 // 键是服务端生成的，手改一个字符就失效 ⇒ 锁住（跟网页版一样）
                 urlBox.IsReadOnly = true;
+                // ⛔ 必须显式标「文件直链」：`oss://` 键推断不出类型，停在「自动识别」会被
+                //    当成网页跳转，详情页点一下就把人带走 —— 正是用户报的「上传了还要管直链」。
+                //    网页端同一处也是这么做的（SubmitPage.vue：kindIndex = 1）。
+                draft.Kind = "file";
+                kindCombo.SelectedIndex = 1;
             });
         };
         urlGrid.Children.Add(urlBox);
@@ -181,23 +213,6 @@ public sealed partial class SubmitPage : PageBase
         stack.Children.Add(urlBlock);
 
         stack.Children.Add(Field("校验值（选填，用于防篡改）", "纯十六进制，算法按位数自动识别", null, value => draft.Hash = value));
-
-        // 下载方式（对应网页端提交页同一个下拉；2026-10-18 自上游 1.2.0 移植）：
-        // 决定详情页那颗按钮写「下载」还是「前往网盘 / 前往官网 / 打开商店」。
-        // 默认 -1 ＝不选 ＝自动识别，提交时不写 kind 字段。
-        var kindCombo = new ComboBox
-        {
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            PlaceholderText = "自动识别（按链接判断）",
-        };
-        foreach (var (label, _) in DownloadKinds)
-            kindCombo.Items.Add(new ComboBoxItem { Content = label });
-        kindCombo.SelectedIndex = KindIndexOf(draft.Kind);
-        kindCombo.SelectionChanged += (_, _) =>
-        {
-            var i = kindCombo.SelectedIndex;
-            draft.Kind = i >= 0 && i < DownloadKinds.Length ? DownloadKinds[i].Kind : "";
-        };
 
         var kindLabel = new TextBlock { Text = "下载方式（选填）", FontSize = 12.5, Opacity = 0.8 };
         var kindHint = new TextBlock
@@ -228,6 +243,7 @@ public sealed partial class SubmitPage : PageBase
         _titles.Add(title);
         DownloadsHost.Children.Add(card);
         RenumberDownloads();
+        SyncAddButton();
     }
 
     private void RemoveDownload(DownloadDraft draft)
@@ -240,12 +256,16 @@ public sealed partial class SubmitPage : PageBase
         _cards.RemoveAt(index);
         _titles.RemoveAt(index);
         RenumberDownloads();
+        SyncAddButton();
     }
 
     private void RenumberDownloads()
     {
         for (var i = 0; i < _titles.Count; i++) _titles[i].Text = $"下载项 {i + 1}";
     }
+
+    /// <summary>下载项到上限就把「添加」按钮灰掉（跟网页端同一表现，别让人点了没反应）。</summary>
+    private void SyncAddButton() => AddDownloadButton.IsEnabled = _downloads.Count < MaxDownloads;
 
     /// <summary>
     /// 生成一个字段（标签 + 输入框 + 可选说明）。

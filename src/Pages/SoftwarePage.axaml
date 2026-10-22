@@ -10,6 +10,8 @@
         · 原版 App.xaml 里的 CshCardItemStyle（关掉 GridViewItem 自带焦点框/悬停底色）在 Avalonia 里不需要了 ——
           这里改用 ItemsControl（本身没有 ItemContainer，无容器 chrome），卡片自己带 Class="card" 的悬停反馈。
         · Grid 没有 ColumnSpacing / RowSpacing → 用子元素 Margin 模拟，间距值照搬原版。
+      ⚠️ 本页顶层改成 Grid 再套 ScrollViewer：1.3 新增的 Hub AI 浮层要**贴内容区右下角浮在滚动内容之上**
+         （原版放在最外层 Grid 的最后一格），Avalonia 里必须让浮层和 ScrollViewer 同级，不能塞进滚动内容里。
     -->
     <platform:PageBase.Styles>
         <Style Selector="Border.card:pointerover">
@@ -17,193 +19,296 @@
         </Style>
     </platform:PageBase.Styles>
 
-    <!--
-      和首页 / 设置页同一套版式：内容钉在中间 960 宽（导航展开收起都不动）。
-      ⚠️ 2026-10-02：ScrollViewer 提到最外层（滚动条贴窗口右缘），边距改 Padding、居中改内层 Grid；
-         原来罩住两个视图的那层 AppsScroll 解开，整页由外层统一滚动。
-    -->
-    <!-- Background="Transparent" 是给滚轮接力用的（见 Core/WheelRelay.cs）：不画任何像素，
-         但要让两侧留白参与命中测试 —— 否则鼠标停在留白上滚，列表纹丝不动（与首页手感不一致）。 -->
-    <ScrollViewer Padding="24,36,24,44" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
-                  Background="Transparent">
-        <Grid MaxWidth="960" HorizontalAlignment="Center">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="*" />
-            </Grid.RowDefinitions>
+    <Grid Background="Transparent">
+        <!--
+          和首页 / 设置页同一套版式：内容钉在中间 960 宽（导航展开收起都不动）。
+          ⚠️ 2026-10-02：ScrollViewer 提到最外层（滚动条贴窗口右缘），边距改 Padding、居中改内层 Grid；
+             原来罩住两个视图的那层 AppsScroll 解开，整页由外层统一滚动。
+        -->
+        <!-- Background="Transparent" 是给滚轮接力用的（见 Core/WheelRelay.cs）：不画任何像素，
+             但要让两侧留白参与命中测试 —— 否则鼠标停在留白上滚，列表纹丝不动（与首页手感不一致）。 -->
+        <ScrollViewer Padding="24,36,24,44" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                      Background="Transparent">
+            <Grid MaxWidth="960" HorizontalAlignment="Center">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
 
-            <TextBlock x:Name="TitleText" Text="软件下载" FontSize="30" FontWeight="Bold" />
+                <TextBlock x:Name="TitleText" Text="软件下载" FontSize="30" FontWeight="Bold" />
 
-            <!-- 原版 RowSpacing=14 → 第 1、2 行各自加 14 的上 Margin -->
-            <StackPanel Grid.Row="1" Margin="0,14,0,0" Spacing="10">
-                <Grid>
+                <!--
+                  工具条（2026-10-18 重排，1:1 对齐上游 1.3）：**分类 · 视图 · AI 一行解决**。
+                  ⚠️ 原来这里是「单选按钮组 + 一条横向滚动 chip 列表」两层各占一行，Nick 说"太混乱"。现在：
+                     · 分类仍是横向 chip 条（原版用系统 SelectorBar —— ⚠️ FluentAvalonia 2.4.1 **没有** SelectorBar
+                       控件，故沿用本移植版已有的 ToggleButton chip 条：选中态/计数/横向滚动都已实现，语义等价）
+                     · 视图切换收进下拉（两个选项不值得占一整行）
+                     · AI 缩成右侧一个小按钮，点开仍是右下浮层
+                -->
+                <Grid Grid.Row="1" Margin="0,14,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
 
-                    <!-- ⚠️ 原版 AutoSuggestBox（含 QueryIcon="Find"）在 Avalonia 里没有对应控件 →
-                         改用 TextBox + 左侧叠加一枚放大镜 FontIcon（视觉等价），事件仍是 TextChanged。 -->
-                    <Grid MaxWidth="460" HorizontalAlignment="Left">
-                        <TextBox x:Name="SearchBox" Watermark="搜索软件（名称 / 简介 / id）"
-                                 Padding="34,0,12,0" VerticalContentAlignment="Center"
-                                 TextChanged="SearchBox_TextChanged" />
-                        <fa:FontIcon Glyph="&#xE721;" FontSize="14" Margin="12,0,0,0"
-                                     HorizontalAlignment="Left" VerticalAlignment="Center"
-                                     Opacity="0.6" IsHitTestVisible="False" />
-                    </Grid>
+                    <ScrollViewer Grid.Column="0" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                                  Margin="0,0,12,0">
+                        <StackPanel x:Name="Chips" Orientation="Horizontal" Spacing="8" />
+                    </ScrollViewer>
 
-                    <!-- 视图切换：磁贴（3 列，带简介）/ 网格（5 列，紧凑）
-                         ⚠️ 原版是 RadioButtons 容器（WinUI 专有）；Avalonia 没有，改用同 GroupName 的两个 RadioButton。 -->
-                    <StackPanel Grid.Column="1" Margin="16,0,0,0" Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
-                        <RadioButton x:Name="TileRadio" GroupName="AppCardView" Content="磁贴视图"
-                                     Tag="tile" Checked="ViewChoice_Checked" />
-                        <RadioButton x:Name="GridRadio" GroupName="AppCardView" Content="网格视图"
-                                     Tag="grid" Checked="ViewChoice_Checked" />
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"
+                                VerticalAlignment="Center">
+                        <ComboBox x:Name="ViewPicker" MinWidth="112"
+                                  SelectionChanged="ViewPicker_SelectionChanged">
+                            <ComboBoxItem Content="磁贴视图" Tag="tile" />
+                            <ComboBoxItem Content="网格视图" Tag="grid" />
+                        </ComboBox>
+
+                        <Button x:Name="HubAiEntry" Padding="12,6" Click="HubAiEntry_Click"
+                                ToolTip.Tip="打开 Hub AI 顾问">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <fa:FontIcon Glyph="&#xE8F2;" FontSize="13" />
+                                <TextBlock Text="AI" FontSize="12.5" />
+                            </StackPanel>
+                        </Button>
                     </StackPanel>
                 </Grid>
-                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                    <StackPanel x:Name="Chips" Orientation="Horizontal" Spacing="8" />
-                </ScrollViewer>
-            </StackPanel>
 
-            <Grid Grid.Row="2" Margin="0,14,0,0">
-                <!--
-                  ⚠️ 应用一多就必须要能滚（2026-10-02 实机反馈「不能滚动」）。
-                  2026-10-02 起滚动由**页面最外层**的 ScrollViewer 统一管（滚动条贴窗口右缘），
-                  这里不再套内层 ScrollViewer。
-                -->
-                <Grid>
-                <!-- ===== 磁贴视图（3 列 = 302 + 16 间距，正好 960；带简介） ===== -->
-                <ItemsControl x:Name="TileGrid" Padding="0,2,0,0" Tapped="AppGrid_Tapped">
-                    <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <WrapPanel />
-                        </ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <Border Width="302" Height="120" CornerRadius="4" Padding="16,14" Margin="0,0,16,14"
-                                    Classes="card"
-                                    Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
-                                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
-                                    BorderThickness="1">
-                                <Grid>
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="*" />
-                                        <RowDefinition Height="Auto" />
-                                    </Grid.RowDefinitions>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <!-- 图标统一成 1:1 正方形：原版是 ImageBrush + UniformToFill + Alignment=Center
-                                         ＝ 等比放大填满正方形，多出来的边从**正中间**裁掉。
-                                         ⚠️ Avalonia 的 SoftwareApp.IconImage 是 IImage（Image.Source 的抽象类型），
-                                            不能直接喂给 ImageBrush.Source（IImageBrushSource）→ 改用 Border 裁剪 + Image 填充，
-                                            视觉效果一致（圆角裁剪 + UniformToFill 居中裁切）。 -->
-                                    <Border Width="44" Height="44" CornerRadius="9" VerticalAlignment="Top"
-                                            HorizontalAlignment="Left" ClipToBounds="True">
-                                        <Grid>
-                                            <Image Source="{Binding IconImage}" Stretch="UniformToFill" />
-                                            <!--
-                                              图标加载成功才收掉的兜底块（加载中 / 下载失败 / 本来就没图都显示）。
-                                              ⚠️ 2026-10-02：原来是 35% 透明的灰购物袋字形，图标全下不来时
-                                                 一片灰、还完全认不出是哪个应用 —— 换成**彩色底 + 名字首字**。
-                                            -->
-                                            <Border Background="{Binding AvatarBrush}"
-                                                    IsVisible="{Binding IconPlaceholder}">
-                                                <TextBlock Text="{Binding AvatarText}" FontSize="19" FontWeight="Bold"
-                                                           Foreground="White"
-                                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                            </Border>
-                                        </Grid>
-                                    </Border>
-                                    <StackPanel Grid.Column="1" Margin="12,0,0,0" Spacing="2" VerticalAlignment="Top">
-                                        <TextBlock Text="{Binding Name}" FontSize="15" FontWeight="Bold"
+                <Grid Grid.Row="2" Margin="0,14,0,0">
+                    <!--
+                      ⚠️ 应用一多就必须要能滚（2026-10-02 实机反馈「不能滚动」）。
+                      2026-10-02 起滚动由**页面最外层**的 ScrollViewer 统一管（滚动条贴窗口右缘），
+                      这里不再套内层 ScrollViewer。
+                    -->
+                    <Grid>
+                    <!-- ===== 磁贴视图（3 列 = 312 + 8 间距，正好 960；带简介） ===== -->
+                    <ItemsControl x:Name="TileGrid" Padding="0,2,0,0" Tapped="AppGrid_Tapped">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <WrapPanel />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <!--
+                                  ⚠️ 2026-10-22 Nick：「把首页那些卡片的样式移植过来」。
+                                  首页入口卡 = cshNavCard（圆角 8、更宽松的留白），
+                                  之前这里用的是内容卡 cshCard（圆角 4），看着就是两套东西。
+                                -->
+                                <Border Width="312" Height="126" Padding="16,12" Margin="0,0,8,8"
+                                        Classes="cshNavCard card"
+                                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                                        BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                                        BorderThickness="1">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="*" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <!-- 图标统一成 1:1 正方形：原版是 ImageBrush + UniformToFill + Alignment=Center
+                                             ＝ 等比放大填满正方形，多出来的边从**正中间**裁掉。
+                                             ⚠️ Avalonia 的 SoftwareApp.IconImage 是 IImage（Image.Source 的抽象类型），
+                                                不能直接喂给 ImageBrush.Source（IImageBrushSource）→ 改用 Border 裁剪 + Image 填充，
+                                                视觉效果一致（圆角裁剪 + UniformToFill 居中裁切）。 -->
+                                        <Border Width="48" Height="48" CornerRadius="10" VerticalAlignment="Top"
+                                                HorizontalAlignment="Left" ClipToBounds="True">
+                                            <Grid>
+                                                <Image Source="{Binding IconImage}" Stretch="UniformToFill" />
+                                                <!--
+                                                  图标加载成功才收掉的兜底块（加载中 / 下载失败 / 本来就没图都显示）。
+                                                  ⚠️ 2026-10-02：原来是 35% 透明的灰购物袋字形，图标全下不来时
+                                                     一片灰、还完全认不出是哪个应用 —— 换成**彩色底 + 名字首字**。
+                                                -->
+                                                <Border Background="{Binding AvatarBrush}"
+                                                        IsVisible="{Binding IconPlaceholder}">
+                                                    <TextBlock Text="{Binding AvatarText}" FontSize="19" FontWeight="Bold"
+                                                               Foreground="White"
+                                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                </Border>
+                                            </Grid>
+                                        </Border>
+                                        <StackPanel Grid.Column="1" Margin="12,0,0,0" Spacing="2" VerticalAlignment="Top">
+                                            <TextBlock Text="{Binding Name}" FontSize="15" FontWeight="SemiBold"
+                                                       MaxLines="1" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding Tagline}" FontSize="12" Opacity="0.75"
+                                                       MaxLines="2" TextWrapping="Wrap"
+                                                       TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                        <!-- 原版 RowSpacing=8 → 第 2 行元素加 8 上 Margin；ColumnSpacing=12 → 第 2、3 列加 12 左 Margin -->
+                                        <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Margin="0,8,0,0" Text="{Binding MetaText}"
+                                                   FontSize="11.5" Opacity="0.7" MaxLines="1"
+                                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Bottom" />
+                                        <fa:FontIcon Grid.Row="1" Grid.Column="2" Margin="12,8,0,0" Glyph="&#xE8A7;" FontSize="13"
+                                                     Opacity="0.45" VerticalAlignment="Bottom" />
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <!-- ===== 网格视图（5 列 = 184 + 8 间距，正好 960；紧凑） ===== -->
+                    <ItemsControl x:Name="CompactGrid" IsVisible="False" Padding="0,2,0,0" Tapped="AppGrid_Tapped">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <WrapPanel />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <!-- 同磁贴视图：改用入口卡 cshNavCard；内联 Padding/Height 优先于 Style，所以另写适配 184 宽的值 -->
+                                <Border Width="184" Height="114" Padding="14,12" Margin="0,0,8,8"
+                                        Classes="cshNavCard card"
+                                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                                        BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                                        BorderThickness="1">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <Border Width="30" Height="30" CornerRadius="6" HorizontalAlignment="Left"
+                                                VerticalAlignment="Top" ClipToBounds="True">
+                                            <Grid>
+                                                <Image Source="{Binding IconImage}" Stretch="UniformToFill" />
+                                                <!-- 同磁贴视图：彩色首字头像兜底（2026-10-02） -->
+                                                <Border Background="{Binding AvatarBrush}"
+                                                        IsVisible="{Binding IconPlaceholder}">
+                                                    <TextBlock Text="{Binding AvatarText}" FontSize="13.5" FontWeight="Bold"
+                                                               Foreground="White"
+                                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                </Border>
+                                            </Grid>
+                                        </Border>
+                                        <!-- 原版 RowSpacing=3 → 第 2~4 行各自加 3 上 Margin -->
+                                        <TextBlock Grid.Row="1" Margin="0,3,0,0" Text="{Binding Name}" FontSize="13.5" FontWeight="SemiBold"
                                                    MaxLines="1" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Text="{Binding Tagline}" FontSize="12" Opacity="0.75"
-                                                   MaxLines="2" TextWrapping="Wrap"
-                                                   TextTrimming="CharacterEllipsis" />
-                                    </StackPanel>
-                                    <!-- 原版 RowSpacing=8 → 第 2 行元素加 8 上 Margin；ColumnSpacing=12 → 第 2、3 列加 12 左 Margin -->
-                                    <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Margin="0,8,0,0" Text="{Binding MetaText}"
-                                               FontSize="11.5" Opacity="0.7" MaxLines="1"
-                                               TextTrimming="CharacterEllipsis" VerticalAlignment="Bottom" />
-                                    <fa:FontIcon Grid.Row="1" Grid.Column="2" Margin="12,8,0,0" Glyph="&#xE8A7;" FontSize="13"
-                                                 Opacity="0.45" VerticalAlignment="Bottom" />
-                                </Grid>
-                            </Border>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                                        <TextBlock Grid.Row="2" Margin="0,3,0,0" Text="{Binding Tagline}" FontSize="11.5" Opacity="0.75"
+                                                   MaxLines="1" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Row="3" Margin="0,3,0,0" Text="{Binding CompactMeta}" FontSize="11" Opacity="0.7"
+                                                   MaxLines="1" TextTrimming="CharacterEllipsis" />
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
 
-                <!-- ===== 网格视图（5 列 = 174 + 16 间距，正好 960；紧凑） ===== -->
-                <ItemsControl x:Name="CompactGrid" IsVisible="False" Padding="0,2,0,0" Tapped="AppGrid_Tapped">
-                    <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <WrapPanel />
-                        </ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <Border Width="174" Height="112" CornerRadius="4" Padding="12,10" Margin="0,0,16,14"
-                                    Classes="card"
-                                    Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
-                                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
-                                    BorderThickness="1">
-                                <Grid>
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                        <RowDefinition Height="Auto" />
-                                    </Grid.RowDefinitions>
-                                    <Border Width="30" Height="30" CornerRadius="6" HorizontalAlignment="Left"
-                                            VerticalAlignment="Top" ClipToBounds="True">
-                                        <Grid>
-                                            <Image Source="{Binding IconImage}" Stretch="UniformToFill" />
-                                            <!-- 同磁贴视图：彩色首字头像兜底（2026-10-02） -->
-                                            <Border Background="{Binding AvatarBrush}"
-                                                    IsVisible="{Binding IconPlaceholder}">
-                                                <TextBlock Text="{Binding AvatarText}" FontSize="13.5" FontWeight="Bold"
-                                                           Foreground="White"
-                                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                            </Border>
-                                        </Grid>
-                                    </Border>
-                                    <!-- 原版 RowSpacing=3 → 第 2~4 行各自加 3 上 Margin -->
-                                    <TextBlock Grid.Row="1" Margin="0,3,0,0" Text="{Binding Name}" FontSize="13.5" FontWeight="Bold"
-                                               MaxLines="1" TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Grid.Row="2" Margin="0,3,0,0" Text="{Binding Tagline}" FontSize="11.5" Opacity="0.75"
-                                               MaxLines="1" TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Grid.Row="3" Margin="0,3,0,0" Text="{Binding CompactMeta}" FontSize="11" Opacity="0.7"
-                                               MaxLines="1" TextTrimming="CharacterEllipsis" />
-                                </Grid>
-                            </Border>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                    </Grid>
 
+                    <!-- 空状态：把「为什么没有」和「怎么办」说清楚（内容包没同步 / 搜索没命中） -->
+                    <StackPanel x:Name="EmptyPanel" IsVisible="False" Spacing="10" MaxWidth="520"
+                                HorizontalAlignment="Center" VerticalAlignment="Center">
+                        <fa:FontIcon Glyph="&#xE946;" FontSize="30" Opacity="0.45" />
+                        <TextBlock x:Name="EmptyTitle" Text="软件清单为空" FontSize="17" FontWeight="Bold"
+                                   HorizontalAlignment="Center" />
+                        <TextBlock x:Name="EmptyText" FontSize="12.5" Opacity="0.75" TextWrapping="Wrap"
+                                   TextAlignment="Center"
+                                   Text="清单位于「内容包」中：安装包内置一份，联网后自动从站点更新。" />
+                        <TextBlock x:Name="EmptyDetail" FontSize="11.5" Opacity="0.55" TextWrapping="Wrap"
+                                   TextAlignment="Center" />
+                        <Button x:Name="EmptyRetry" Content="重新同步内容包" Classes="accent"
+                                HorizontalAlignment="Center" Click="EmptyRetry_Click" />
+                    </StackPanel>
+                </Grid>
+            </Grid>
+        </ScrollViewer>
+
+        <!-- ════════════ Hub AI 浮层（2026-10-18，1:1 对齐上游 1.3）════════════
+             贴右下角浮在内容之上，不挤压列表（Nick 选的 Copilot 叠加形态）。
+             和 ScrollViewer 同级 = 天然盖住内容区；盖不到左侧导航栏 ——
+             导航在 ShellPage 的 NavigationView Pane 里，不在这棵树，所以它永远压不过来。
+             ⚠️ 宽 380 ≈ 960 内容区的 40%：再宽列表就看不出东西，再窄推荐的软件会挤成一行字。
+             ⚠️ 内容目前只是入口提示，不做对话；接模型是 HubAiPage 的事（发送后交给完整页）。
+             ⚠️ 高度固定 420：原来只有 MaxHeight + 按内容自适应，实际展开时矮得像条提示。
+             ⚠️ 位移动画见 ShowHubAiPanel：从下往上滑 24px + 淡入，收起时反向。 -->
+        <Border x:Name="HubAiPanel"
+                Width="380" Height="420"
+                HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                Margin="0,0,20,20" IsVisible="False"
+                CornerRadius="14" BorderThickness="1"
+                Background="{DynamicResource HubAiPanelBackground}"
+                BorderBrush="{DynamicResource HubAiPanelBorder}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <!-- ⚠️ Avalonia 的 Grid 没有 Padding（WinUI 有）⇒ 用 Margin 顶替 -->
+                <Grid Margin="16,12,8,10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Border Width="28" Height="28" CornerRadius="7"
+                            Background="{DynamicResource HubAiIconBackground}">
+                        <fa:FontIcon Glyph="&#xE8F2;" FontSize="13"
+                                     Foreground="{DynamicResource HubAiIconForeground}" />
+                    </Border>
+                    <!-- 原版 ColumnSpacing=10 → 第 2、3 列加 10 左 Margin -->
+                    <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center" Spacing="0">
+                        <TextBlock Text="Hub AI" FontSize="13" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource HubAiTitleForeground}" />
+                        <TextBlock Text="电脑顾问" FontSize="11"
+                                   Foreground="{DynamicResource HubAiSubForeground}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2">
+                        <Button Padding="7" Background="Transparent" BorderThickness="0"
+                                Click="HubAiExpand_Click" ToolTip.Tip="在页面中打开">
+                            <fa:FontIcon Glyph="&#xE8A7;" FontSize="12" />
+                        </Button>
+                        <Button Padding="7" Background="Transparent" BorderThickness="0"
+                                Click="HubAiClose_Click" ToolTip.Tip="收起">
+                            <fa:FontIcon Glyph="&#xE711;" FontSize="12" />
+                        </Button>
+                    </StackPanel>
                 </Grid>
 
-                <!-- 空状态：把「为什么没有」和「怎么办」说清楚（内容包没同步 / 搜索没命中） -->
-                <StackPanel x:Name="EmptyPanel" IsVisible="False" Spacing="10" MaxWidth="520"
-                            HorizontalAlignment="Center" VerticalAlignment="Center">
-                    <fa:FontIcon Glyph="&#xE946;" FontSize="30" Opacity="0.45" />
-                    <TextBlock x:Name="EmptyTitle" Text="软件清单为空" FontSize="17" FontWeight="Bold"
-                               HorizontalAlignment="Center" />
-                    <TextBlock x:Name="EmptyText" FontSize="12.5" Opacity="0.75" TextWrapping="Wrap"
-                               TextAlignment="Center"
-                               Text="清单位于「内容包」中：安装包内置一份，联网后自动从站点更新。" />
-                    <TextBlock x:Name="EmptyDetail" FontSize="11.5" Opacity="0.55" TextWrapping="Wrap"
-                               TextAlignment="Center" />
-                    <Button x:Name="EmptyRetry" Content="重新同步内容包" Classes="accent"
-                            HorizontalAlignment="Center" Click="EmptyRetry_Click" />
-                </StackPanel>
+                <ScrollViewer Grid.Row="1" Padding="16,0,16,6" VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="HubAiMessages" Spacing="10">
+                        <!--
+                          浮层**不做对话**（2026-10-18 改）：它只是个"提问入口"。
+                          理由：完整页那边有历史、工具调用、推荐卡片、用量统计，
+                          在这里重做一套只会两套逻辑各说各话（之前这里挂着假消息，用户以为坏了）。
+                          发送后把问题交给 HubAiPage，浮层收起。
+                        -->
+                        <Border Background="{DynamicResource HubAiBubbleBackground}" CornerRadius="10"
+                                Padding="14,11">
+                            <StackPanel Spacing="6">
+                                <TextBlock FontSize="12.5" TextWrapping="Wrap" LineHeight="20"
+                                           Text="描述你的需求，按回车后会在 Hub AI 页面继续。" />
+                                <TextBlock FontSize="11" Opacity="0.55" TextWrapping="Wrap"
+                                           Text="那里会读取本机硬件与存储概况，再给出建议。全程只读。" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- ⚠️ Avalonia 的 Grid 没有 Padding（WinUI 有）⇒ 用 Margin 顶替 -->
+                <Grid Grid.Row="2" Margin="12,6,12,12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="HubAiInput" Watermark="描述你的需求"
+                             KeyDown="HubAiInput_KeyDown" />
+                    <!-- 原版 ColumnSpacing=8 → 按钮加 8 左 Margin -->
+                    <Button Grid.Column="1" Margin="8,0,0,0" Padding="11,6"
+                            Classes="accent"
+                            Click="HubAiSend_Click" ToolTip.Tip="发送">
+                        <fa:FontIcon Glyph="&#xE724;" FontSize="13" />
+                    </Button>
+                </Grid>
             </Grid>
-        </Grid>
-    </ScrollViewer>
+        </Border>
+    </Grid>
 </platform:PageBase>

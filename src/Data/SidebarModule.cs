@@ -24,6 +24,14 @@ public static class SidebarModuleKinds
     ///    贴哪条边都由同一个窗口按 <c>EdgeGeometry</c> 算出该往哪边滑入。
     /// </summary>
     public const string Panel = "panel";
+
+    /// <summary>
+    /// 独立窗口（2026-10-18 上游新增；2026-10-22 移植）：单开一扇轻量窗，**不拉主界面**。
+    /// 目前只有三件学科工具用它 —— 函数图像 / 方程求解 / 化学配平那几页是"用完就走"的，
+    /// 为算一道题把整个应用调出来太重（见 <c>Views/SubjectToolsWindow</c>）。
+    /// 每个工具在侧边栏里是**各自独立的一项**（Nick 10-18 定：不要合并成一个「学科」入口）。
+    /// </summary>
+    public const string Window = "window";
 }
 
 /// <summary>
@@ -50,6 +58,12 @@ public sealed class SidebarModule
     /// <summary>kind = page 时要跳转的页面类型。</summary>
     public Type? Page { get; init; }
 
+    /// <summary>
+    /// kind = window 时要在独立窗口里打开的工具 id（见 <c>SubjectToolsWindow.Tools</c>：
+    /// function-plot / equation / chemistry）。空 = 窗口自己决定（上次用的那个）。
+    /// </summary>
+    public string? WindowTool { get; init; }
+
     /// <summary>想给某个模块写更贴切的说明就填它（不填就用 Kind 的通用说法）。</summary>
     public string? Note { get; init; }
 
@@ -59,6 +73,7 @@ public sealed class SidebarModule
         SidebarModuleKinds.Page => "打开主窗口中的该页面",
         SidebarModuleKinds.Action => "单击即执行，不切换窗口、不抢占焦点",
         SidebarModuleKinds.Panel => "在侧边栏旁显示面板，不切换窗口、不占用主界面",
+        SidebarModuleKinds.Window => "在独立窗口中打开，不必拉出主界面",
         _ => "显示浮窗，不占用主界面"
     };
 }
@@ -78,6 +93,20 @@ public static class SidebarModules
         new() { Id = "image-color", Name = "图片取色", ShortName = "取色", Glyph = "\uE790", Kind = SidebarModuleKinds.Page, Page = typeof(Pages.Tools.ImageColorToolPage) },
         new() { Id = "encoding", Name = "编码 / 哈希转换", ShortName = "编码", Glyph = "\uE943", Kind = SidebarModuleKinds.Page, Page = typeof(Pages.Tools.EncodingToolPage) },
         new() { Id = "mirror-download", Name = "系统镜像下载", ShortName = "镜像", Glyph = "\uE896", Kind = SidebarModuleKinds.Page, Page = typeof(Pages.Tools.MirrorToolPage) },
+
+        // ── 学科工具（2026-10-18 上游 Nick 要；2026-10-22 移植）──
+        // 函数图像 / 方程求解 / 化学配平**各占一项**，点哪项就直接开那件工具，单开一扇窗、**不拉主界面**。
+        // ⛔ Nick 明确否过"合并成一个「学科」入口"：三个工具要有三个按钮。
+        // 字形与 Data/ToolDef.cs 里同一件工具保持一致，别一边一个样。
+        new() { Id = "subject-function", Name = "函数图像", ShortName = "函数", Glyph = "\uE9D2", Kind = SidebarModuleKinds.Window, WindowTool = "function-plot", Note = "在独立窗口中打开函数图像，不必打开主界面" },
+        new() { Id = "subject-equation", Name = "方程求解", ShortName = "方程", Glyph = "\uE8EF", Kind = SidebarModuleKinds.Window, WindowTool = "equation", Note = "在独立窗口中打开方程求解，不必打开主界面" },
+        new() { Id = "subject-chemistry", Name = "化学方程式配平", ShortName = "化学", Glyph = "\uE80A", Kind = SidebarModuleKinds.Window, WindowTool = "chemistry", Note = "在独立窗口中打开化学方程式配平，不必打开主界面" },
+
+        // ── 「关机」（2026-10-18 上游 Nick 要；2026-10-22 移植）──
+        // 按设置里的「关机方式」执行：默认＝手动关机（调 SlideToShutDown.exe，下滑滑块才真关，
+        // 本身即二次确认）；直接关机＝立刻 shutdown /s /f /t 0。
+        // ⚠️ 破坏性操作，点下去先弹确认（danger 红键）。
+        new() { Id = "shutdown", Name = "关机", ShortName = "关机", Glyph = "\uE7E8", Kind = SidebarModuleKinds.Action, Note = "关闭计算机：先弹窗确认；按设置中的「关机方式」执行（手动关机＝系统滑动关机界面，需下滑确认；直接关机＝立即关机）" },
 
         // ── 挨着边条弹浮窗的单滑块面板 ──
         // 音量：点一下在边条内侧弹一栏（边条不收起）—— 竖向排「数值 + 垂直滑块 + 静音 + 展开」，

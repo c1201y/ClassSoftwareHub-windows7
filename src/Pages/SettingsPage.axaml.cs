@@ -214,6 +214,12 @@ public sealed partial class SettingsPage : PageBase
         App.MainWindow?.Shell.NavigateTo("log-viewer");
     }
 
+    /// <summary>Hub AI 二级设置页（2026-10-18 上游新增；2026-10-22 移植）。和日志查看同一套走法：直跳，返回靠导航栏。</summary>
+    private void OpenHubAiSettings_Click(object? sender, RoutedEventArgs e)
+    {
+        App.MainWindow?.Shell.NavigateToHubAiSettings();
+    }
+
     // ══════════════════════════ 回声洞 ══════════════════════════
 
     /// <summary>回声洞那张卡片整卡可点＝换一条（悬停底色铺满整行，正文自己不带框）。</summary>

@@ -50,7 +50,7 @@ public static class ShellConfig
     // 2026-10-12：**1.1.1 → 1.1.1-insider1.0**（进入 1.1.1 预览线：本轮补齐上游
     // dv1.1.2 → dv1.1.3-insider1.1 的服务层链路日志采纳，随后按用户要求转入预览版发布；
     // 客户端据此判定 IsInsider=true → 默认走 insider 通道，可同时看到预发布与正式版）。
-    public const string ShellVersion = "1.2.0-insider1.1";
+    public const string ShellVersion = "1.2.0-insider1.3";
 
     /// <summary>当前是不是预览（内测）构建 —— 版本号里带 <c>insider</c> 即为真。</summary>
     public static bool IsInsider =>
@@ -124,6 +124,41 @@ public static class ShellConfig
     public const string SiteVersionDisplay = "v2.3.4 - Tangram (20260927PR01)";
 
     public const string WebView2DownloadUrl = "https://developer.microsoft.com/microsoft-edge/webview2/";
+
+    /// <summary>
+    /// Hub AI 工具包在站点仓库里的位置（2026-10-18 上游新增；2026-10-22 移植）。
+    ///
+    /// <para>
+    /// ⚠️ 这个文件里**只有声明式 JSON**（工具名 / 说明 / 参数 schema），没有任何可执行内容 ——
+    /// 下载并执行远程代码等于把安全交给一个随时可能被改的文件，杀软也会直接拦。
+    /// 真正的实现永远在主程序里，按 id 分派。详见 <see cref="Services.HubAi.ToolPack"/>。
+    /// </para>
+    /// <para>
+    /// 放站点仓库而不是桌面版仓库：这里本来就是"内容源"（软件数据也在这），
+    /// 改工具清单不必动代码仓库；而且走同一套 <see cref="Services.GithubRoute"/> 多路下载。
+    /// </para>
+    /// </summary>
+    public const string HubAiToolPackPath = "AI工具/toolpack.json";
+
+    /// <summary>
+    /// 工具包的直连地址。下载时会再交给 <see cref="Services.GithubRoute"/> 生成多路候选
+    /// （GitHub 源 / 自建加速），跟随用户在设置里选的那条线路。
+    /// </summary>
+    public static string HubAiToolPackUrl
+    {
+        get
+        {
+            var segments = HubAiToolPackPath.Split('/');
+            var encoded = new string[segments.Length];
+            for (var i = 0; i < segments.Length; i++)
+                encoded[i] = Uri.EscapeDataString(segments[i]);
+
+            return "https://raw.githubusercontent.com/" +
+                   $"{SiteRepoOwner}/{SiteRepoName}/{SiteRepoBranch}/" +
+                   string.Join('/', encoded);
+        }
+    }
+
 
     public const string NetworkErrorMessage = "网络出现错误，请稍后重试";
 

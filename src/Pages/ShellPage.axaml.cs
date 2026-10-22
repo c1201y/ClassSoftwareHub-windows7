@@ -111,7 +111,11 @@ public sealed partial class ShellPage : PageBase
     {
         try
         {
-            var nav = ToolsNav.MenuItems.OfType<NavigationViewItem>().Select(i => i.Tag as string ?? "").ToList();
+            // 2026-10-22：内置工具拆成「课堂工具 / 系统工具」两个父项，子项按 ToolDef.Group 分派，
+            // 校验时把两组合起来比（集合相等即可，父项顺序不影响）。
+            var nav = ClassroomToolsNav.MenuItems.OfType<NavigationViewItem>()
+                .Concat(SystemToolsNav.MenuItems.OfType<NavigationViewItem>())
+                .Select(i => i.Tag as string ?? "").ToList();
             var cat = Data.ToolCatalog.All.Select(t => t.Id).ToList();
             if (!nav.SequenceEqual(cat))
             {
@@ -331,7 +335,7 @@ public sealed partial class ShellPage : PageBase
         {
             "WelcomePage" => "home",
             "SoftwarePage" => "apps",         // 分类页（cat:*）也高亮「软件下载」——人确实在这一区
-            "ToolsPage" => "tools",           // 工具**索引页**高亮父项；具体工具页见下面的目录反查
+            "ToolsPage" => "tools-classroom",  // 工具**索引页**高亮父项；具体工具页见下面的目录反查
             "SubmitPage" => "submit",
             "FeedbackPage" => "feedback",
             "FeedbackFormPage" => "feedback",
@@ -586,7 +590,8 @@ public sealed partial class ShellPage : PageBase
     /// </summary>
     private void FixGroupFlyoutPlacement()
     {
-        FixFlyoutPlacement(ToolsNav);
+        FixFlyoutPlacement(ClassroomToolsNav);
+        FixFlyoutPlacement(SystemToolsNav);
         FixFlyoutPlacement(ExperimentalNav);
 
         static void FixFlyoutPlacement(NavigationViewItem item)
@@ -659,9 +664,18 @@ public sealed partial class ShellPage : PageBase
     /// </summary>
     public void NavigateToTools()
     {
-        NavigateTo("tools");
-        ToolsNav.IsExpanded = true;
+        NavigateTo("tools-classroom");
+        ClassroomToolsNav.IsExpanded = true;
     }
+
+    /// <summary>
+    /// 进 Hub AI 对话页（软件下载页的入口卡、设置页的「去看看」都调它）。
+    /// 2026-10-18 上游新增；2026-10-22 移植。
+    /// </summary>
+    public void NavigateToHubAi() => NavigateTo("hubai");
+
+    /// <summary>进 Hub AI 二级设置页（设置 → Hub AI 那张卡）。</summary>
+    public void NavigateToHubAiSettings() => NavigateTo("hubai-settings");
 
     /// <summary>
     /// 跳到「内置工具」里的某个工具页（浮窗里的「详细设置」用）。
@@ -678,7 +692,7 @@ public sealed partial class ShellPage : PageBase
     /// </summary>
     public void NavigateToTool(Type pageType, object? parameter, bool viaList = true)
     {
-        SelectTag(TagForPage(pageType) ?? "tools");
+        SelectTag(TagForPage(pageType) ?? "tools-classroom");
         if (viaList && ContentFrame.CurrentSourcePageType != typeof(ToolsPage))
         {
             // 铺列表页只为让工具页左上角的"返回"能退回列表 —— 这次导航要**压掉进页动画**
@@ -805,8 +819,25 @@ public sealed partial class ShellPage : PageBase
             case "sidebar":
                 ContentFrame.Navigate(typeof(SidebarLayoutPage));
                 return;
+            case "tools-classroom":
+                // 课堂工具（2026-10-22 自上游移植：原「内置工具」拆成两项）
+                ContentFrame.Navigate(typeof(ToolsPage), "classroom");
+                return;
+            case "tools-system":
+                // 系统工具（同上）：同一个 ToolsPage 的另一种形态
+                ContentFrame.Navigate(typeof(ToolsPage), "system");
+                return;
+            case "hubai":
+                // Hub AI 对话页（2026-10-18 上游新增）：导航上半区，紧跟「软件下载」
+                ContentFrame.Navigate(typeof(HubAiPage));
+                return;
+            case "hubai-settings":
+                // Hub AI 二级设置页：不在导航栏，入口是「设置 → Hub AI」那张卡
+                ContentFrame.Navigate(typeof(HubAiSettingsPage));
+                return;
             case "tools":
-                ContentFrame.Navigate(typeof(ToolsPage));
+                // 兼容旧 tag（历史调用点还在用的都走课堂组）
+                ContentFrame.Navigate(typeof(ToolsPage), "classroom");
                 return;
             case "mirror":
                 // 系统镜像下载（2026-10-02：没有 tag 的话排障探针进不去这一页 —— 加上直达入口）

@@ -19,15 +19,37 @@ public sealed partial class ToolsPage : PageBase
     {
         InitializeComponent();
 
-        // 两列板式（见 .axaml：照搬首页「快速开始」）：偶数序号进左列、奇数进右列。
-        // （2026-10-18 自上游 1.2.0 移植）
-        CardColumnLeft.ItemsSource = ToolCatalog.All.Where((_, i) => i % 2 == 0).ToList();
-        CardColumnRight.ItemsSource = ToolCatalog.All.Where((_, i) => i % 2 == 1).ToList();
+        // 卡片列表改到 OnNavigatedTo 里填 —— 需要先知道当前是哪一组（2026-10-22 自上游移植）。
 
         // 这里的开关（「点关闭时收进托盘」和设置页里是同一个值）；侧边栏/置顶那些挪到「设置 → 常用工具」了
         _loading = true;
         TraySwitch.IsChecked = App.Settings.Current.CloseToTray;
         _loading = false;
+    }
+
+    /// <summary>
+    /// 按导航传进来的参数决定显示哪一组（<c>classroom</c> / <c>system</c>）。
+    /// ⚠️ 两个导航父项共用这一个页面：板式、卡片、交互全部一样，只是数据集与标题不同。
+    /// 不拆两个页面是为了避免一份板式两处维护。
+    /// </summary>
+    public override void OnNavigatedTo(object? parameter)
+    {
+        base.OnNavigatedTo(parameter);
+
+        var group = string.Equals(parameter as string, "system", StringComparison.OrdinalIgnoreCase)
+            ? ToolGroup.System
+            : ToolGroup.Classroom;
+
+        var items = ToolCatalog.All.Where(t => t.Group == group).ToList();
+
+        // 两列板式（见 .axaml：照搬首页「快速开始」）：偶数序号进左列、奇数进右列。
+        CardColumnLeft.ItemsSource = items.Where((_, i) => i % 2 == 0).ToList();
+        CardColumnRight.ItemsSource = items.Where((_, i) => i % 2 == 1).ToList();
+
+        TitleText.Text = group == ToolGroup.System ? "系统工具" : "课堂工具";
+
+        // 「常用工具窗口」那一块讲的是抽号 / 计时 / 时钟，只属于课堂组
+        PaletteBlock.IsVisible = group != ToolGroup.System;
     }
 
     private bool _loading;

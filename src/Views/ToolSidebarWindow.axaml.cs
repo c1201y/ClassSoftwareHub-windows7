@@ -29,17 +29,18 @@ namespace ClassSoftwareHub.Desktop.Views;
 ///     **拖拽换边已于 2026-10-04 整条撤除**（见字段区注释），要换边请到设置里选。
 ///   · 展开 = **两套样式**（2026-10-11 加）：classic 工具竖排列表 + 底排五颗（原版）｜
 ///     grid 图标网格（4 列一页 + 分页点）+ 快捷设置行。见 <see cref="SyncStyleViews"/>。
-/// 位置（贴哪条边 + 沿边位置）会记在设置里；「位置复原」= 回到右边的居中位置。
+/// 位置（贴哪条边）会记在设置里；**沿边位置不记忆**（2026-10-19 上游起一律居中，见 <see cref="_liveRatio"/>）；
+/// 「位置复原」= 回到右边的居中位置。
 /// 置顶、不进任务栏、无标题栏、不能缩放/最大化/最小化。
 ///
 /// ⚠️ 2026-09-27（Nick）：**左右两边可以同时显示**（设置里选「左右两边」= <c>SidebarEdge</c> 为 "both"）。
 /// 所以它不再是个单例 —— 见 <see cref="_pool"/>：一条边一个实例，设置里的 "both" 会被拆成 left + right 两条。
-/// 两条共享 <c>SidebarPosRatio</c>，上下位置天然一致；拖任意一条时对面实时跟随（<see cref="FollowPartner"/>）。
+/// 两条在拖动过程中靠内存里的 <see cref="_liveRatio"/> 保持上下位置一致；拖任意一条时对面实时跟随（<see cref="FollowPartner"/>）。
 /// 上边 / 下边**只有单条**（Nick：横着放一条就够了）。
 ///
 /// ⚠️ 2026-09-28（Nick）：再加**两种模式**（<c>SidebarMode</c>）——
-///   · <c>dock</c> 贴靠模式：**只贴左右两条边**（可选「左右两边」同时显示两条），沿边位置共用
-///     <c>SidebarPosRatio</c>；上/下边**不归它管**。
+///   · <c>dock</c> 贴靠模式：**只贴左右两条边**（可选「左右两边」同时显示两条），沿边位置拖动时内存联动
+///     （<see cref="_liveRatio"/>）；上/下边**不归它管**。
 ///   · <c>free</c> 自由模式：**四条边都能吸**（左/右/上/下），贴哪条边存 <c>SidebarFreeEdge</c>，
 ///     贴上/下边时是横条。它**不是**"浮在屏幕中间不吸边"—— 侧边栏永远吸在某条边上。
 /// 两种模式走的是**同一套**实例池与吸附逻辑（<see cref="_pool"/> / <see cref="SyncInstances"/>），
@@ -74,9 +75,65 @@ public sealed partial class ToolSidebarWindow : Window
     private const int SW_SHOW = 5;
     private const int SW_HIDE = 0;
     private const int PanelThicknessDip = 92;       // 展开后的厚度（竖着放时=宽）
-    private const int PanelLengthDip = 450;         // 展开后的长度（竖着放时=高）
+    /// <summary>
+    /// ⛔ <b>已不参与高度计算</b>（2026-10-11 上游起改成按内容实测，见 <c>ExpandedHeight</c>；
+    /// 2026-10-22 自上游 1.2.0-insider1.3 移植到本仓库）。
+    /// 留着只是因为下面那段说明还在解释老算法为什么"模块少还空一大块"。
+    /// </summary>
+    private const int PanelLengthDip = 450;         // 展开后的长度（竖着放时=高）—— 旧算法的下限
     private const int PanelThicknessFlatDip = 112;  // 上/下边时：两行（工具一行、按钮一行）的高度
     private const int PanelLengthFlatDip = 470;     // 上/下边时：展开面板长度的**下限**（真实宽度按内容算，见 PlannedSize）
+
+    /// <summary>展开面板高度占比的允许区间（「侧边布局」页那根滑块的上下限）。</summary>
+    public const double MinHeightRatio = 0.45;
+    public const double MaxHeightRatio = 0.95;
+    /// <summary>没调过时的默认占比（2026-10-12 从 0.65 抬到 0.75 的那一档）。</summary>
+    public const double DefaultHeightRatio = 0.75;
+
+    /// <summary>
+    /// 单列（竖着一条）时，展开面板最多能占工作区高度的几成。
+    ///
+    /// 来历：Nick 2026-10-11「一列下来的时候还是长长的一长条，太长了，要加个限高」→ 先写死 0.65，
+    /// 10-12 又说「有点太少，稍微再扩大一点」→ 0.75。**2026-10-18 Nick 定：别再替他调了，
+    /// 把这个通道开放给用户自己拖**（0.45～0.95，默认 0.75，见「侧边布局 → 展开面板高度」）。
+    /// 存档字段 <c>AppSettings.SidebarHeightRatio</c>；⛔ 别再把这里改回 const。
+    ///
+    /// ⚠️ 它**只是封顶，不是"给个固定高度"**：面板高度仍然由 <c>ExpandedHeight</c> 按内容 Measure 实测，
+    ///    模块少的时候该多矮就多矮。超出的部分交给工具区滚动：
+    ///    <c>ApplyScrollLimit</c> 里的 <c>ToolsScroll.MaxHeight</c> 就是拿这个上限算出来的。
+    /// </summary>
+    private static double SingleColumnMaxHeightRatio
+    {
+        get
+        {
+            try
+            {
+                var v = App.Settings.Current.SidebarHeightRatio;
+                // 存档里可能是 0（老档没这个键）、NaN、或者被人手改成离谱值 —— 一律夹回来
+                if (double.IsNaN(v) || v <= 0) return DefaultHeightRatio;
+                return Math.Clamp(v, MinHeightRatio, MaxHeightRatio);
+            }
+            catch
+            {
+                return DefaultHeightRatio;
+            }
+        }
+    }
+
+    /// <summary>
+    /// 展开面板高度是否**跟随内容**（2026-10-18 Nick：要一个能自己缩的开关）。
+    /// · true = 自适应：高度按里面模块实测，<see cref="SingleColumnMaxHeightRatio"/> 只当上限；
+    /// · false = 锁定：高度就是「占比 × 工作区高度」，模块少时下面留白。
+    /// 存档字段 <c>AppSettings.SidebarHeightAuto</c>，默认 true（= 保持原来那套"按内容实测"的行为）。
+    /// </summary>
+    private static bool HeightAuto
+    {
+        get
+        {
+            try { return App.Settings.Current.SidebarHeightAuto; }
+            catch { return true; }
+        }
+    }
 
     /// <summary>
     /// 收起动画的第二段：面板滑出屏幕之后，**抓手从屏幕外滑回贴边位**要花的毫秒（2026-10-01）。
@@ -213,6 +270,13 @@ public sealed partial class ToolSidebarWindow : Window
     private readonly string _edge;
 
     private bool _expanded;
+
+    /// <summary>
+    /// 拖动过程中的沿边位置比例（0~1，-1 = 居中）。
+    /// ⛔ **只在内存里**，不写存档 —— 位置记忆功能已移除（2026-10-19 上游，2026-10-22 移植）。
+    /// 它只负责"拖一边时对面实时跟随"这一件事，下次启动不会恢复。
+    /// </summary>
+    private double _liveRatio = -1;
 
     private int _collapseEpoch;                            // 收起滑出/抓手淡入的批次号：展开、再次收起都能把它作废
     private bool _shownOnce;
@@ -602,6 +666,42 @@ public sealed partial class ToolSidebarWindow : Window
         ApplyEdgeLayout();
         ApplySize();
         MoveToEdge();
+    }
+
+    /// <summary>
+    /// 「收起时离屏幕边缘」改了（2026-10-11 上游；2026-10-22 移植）：只要**重新落位**，不用重建按钮 ——
+    /// 按钮的行列结构一点没变，走 <see cref="ApplySetting"/> 那条重建的路反而会把边条当前状态打断。
+    ///
+    /// ⚠️ 展开态不吃这个值（面板始终紧贴边缘），所以展开着的边条调完看不出变化，收起后才看得出来。
+    /// </summary>
+    public static void ApplyCollapsedGap()
+    {
+        foreach (var w in _pool.Values)
+        {
+            try { w.SnapToSetting(); }
+            catch { }
+        }
+    }
+
+    /// <summary>
+    /// 「展开面板高度」占比改了（2026-10-18 上游；2026-10-22 移植）：重新量一遍尺寸再贴边，**不重建按钮**。
+    ///
+    /// ⚠️ 走 <c>SnapToSetting</c> 那条轻路（= 算布局 + 改尺寸 + 重新贴边），⛔ 别用
+    ///    <c>ApplySetting</c> —— 那是整条重建（拆按钮、重排、重新显示），只为改个高度不值当，
+    ///    而且滑块是**拖动时连续触发**的，重建会一路闪。
+    /// ⚠️ 只有展开着的实例才看得出变化；收起态的抓手尺寸与这个值无关。
+    /// </summary>
+    public static void ApplyHeightRatio()
+    {
+        foreach (var w in _pool.Values)
+        {
+            try
+            {
+                if (!w._expanded) continue;
+                w.SnapToSetting();
+            }
+            catch { }
+        }
     }
 
     // ── 窗口本身 ─────────────────────────────────────────────
@@ -1952,6 +2052,8 @@ public sealed partial class ToolSidebarWindow : Window
             Collapse();                                        // 先把边条收起来，别挡着工具窗口
             if (m.Kind == SidebarModuleKinds.Page && m.Page is not null)
                 App.MainWindow?.OpenToolSettings(m.Page);      // 拉出主窗口并跳到那一页
+            else if (m.Kind == SidebarModuleKinds.Window)
+                SubjectToolsWindow.ShowTool(m.WindowTool);     // 单开一扇轻量窗，不碰主界面
             else
                 ToolPaletteWindow.ShowTool(m.Id);              // 小浮窗
         }
@@ -2272,7 +2374,9 @@ public sealed partial class ToolSidebarWindow : Window
         catch { }
     }
 
-    /// <summary>边条贴哪条边 → Flyout 往哪边弹（贴左往右弹，依此类推）。</summary>
+    /// <summary>边条贴哪条边 → Flyout 往哪边弹（贴左往右弹，依此类推）。
+    /// ⚠️ 收起态那条离屏幕边缘留了 <see cref="CollapsedGapDip"/> 的空隙，所以"贴边"的
+    ///    判据不能再用写死的 8px —— 得把空隙（按当前缩放换算）加进去，否则认不出这条边。</summary>
     private PlacementMode ConfirmPlacement()
     {
         try
@@ -2280,10 +2384,11 @@ public sealed partial class ToolSidebarWindow : Window
             if (CurrentRect is { } r)
             {
                 var work = WorkAreaRect();
-                if (r.X <= work.X + 8) return PlacementMode.Right;
-                if (r.X + r.Width >= work.X + work.Width - 8) return PlacementMode.Left;
-                if (r.Y <= work.Y + 8) return PlacementMode.Bottom;
-                if (r.Y + r.Height >= work.Y + work.Height - 8) return PlacementMode.Top;
+                var tol = 8 + (int)Math.Round(CollapsedGapDip * Scale());
+                if (r.X <= work.X + tol) return PlacementMode.Right;
+                if (r.X + r.Width >= work.X + work.Width - tol) return PlacementMode.Left;
+                if (r.Y <= work.Y + tol) return PlacementMode.Bottom;
+                if (r.Y + r.Height >= work.Y + work.Height - tol) return PlacementMode.Top;
             }
         }
         catch { }
@@ -2484,7 +2589,7 @@ public sealed partial class ToolSidebarWindow : Window
             var scale = Scale();
             var padIn = (int)Math.Round(HitPadInwardDip * scale);
             var padEnd = (int)Math.Round(HitPadEndDip * scale);
-            var gap = (int)Math.Round((UseLineCollapsed ? CollapsedEdgeGapDip : GripEdgeGapDip) * scale);
+            var gap = (int)Math.Round(CollapsedGapDip * scale);
 
             int x, y, w, h;
             switch (_edge)
@@ -2583,15 +2688,8 @@ public sealed partial class ToolSidebarWindow : Window
                 }
             }
 
-            // 沿边位置存成 0~1 的比例，这样收起/展开尺寸不一样时也能对得上
-            var flat = edge is "top" or "bottom";
-            var alongStart = flat ? work.X : work.Y;
-            var alongLen = flat ? work.Width : work.Height;
-            var at = flat ? pos.X : pos.Y;
-            var myLen = flat ? size.Width : size.Height;
-            var free = Math.Max(0, alongLen - myLen);
-            App.Settings.Current.SidebarPosRatio =
-                free <= 0 ? 0.5 : Math.Clamp((at - alongStart) / (double)free, 0, 1);
+            // ⛔ 位置记忆已移除（2026-10-19 上游，2026-10-22 移植）：松手后**不再记录**沿边位置，
+            //    下一次贴边一律从头居中。只保留"换边"这件事本身。
 
             App.Settings.Save();
 
@@ -2621,7 +2719,8 @@ public sealed partial class ToolSidebarWindow : Window
     /// 双边模式的位置联动：把自己当前的沿边位置算成 0~1 比例甩给对面那条，让它立刻贴到同一高度。
     ///
     /// 拖动中每帧都会调，所以**故意不落盘** —— 每帧写一次 settings.json 会顿。
-    /// 落盘交给松手时的 <see cref="DockToNearestEdge"/> 统一做。
+    /// 2026-10-19 上游起位置记忆整个移除：这个比例只活在内存（<see cref="_liveRatio"/>），
+    /// 下次启动 / 重建一律沿边居中。
     /// 用 <c>verify: false</c> 挪对面：跟着走的东西要跟手，别一帧里读回位置纠偏好几次。
     /// </summary>
     private void FollowPartner(int myY, int myHeight)
@@ -2632,8 +2731,7 @@ public sealed partial class ToolSidebarWindow : Window
         {
             var work = WorkAreaRect();
             var free = Math.Max(0, work.Height - myHeight);
-            App.Settings.Current.SidebarPosRatio =
-                free <= 0 ? 0.5 : Math.Clamp((myY - work.Y) / (double)free, 0, 1);
+            _liveRatio = free <= 0 ? 0.5 : Math.Clamp((myY - work.Y) / (double)free, 0, 1);
             other.MoveToEdge(verify: false);
         }
         catch (Exception ex)
@@ -3052,8 +3150,8 @@ public sealed partial class ToolSidebarWindow : Window
                 else
                 {
                     dipW = ExpandedThicknessDip;
-                    // 底排最多五颗（收起/常驻/位置复原/隐藏/打开应用），增量按可见颗数摊（见 FooterDipFor）
-                    dipH = (int)Math.Min(Math.Max(PanelLengthDip, 200 + 55 * count) + FooterDipFor(footerCount), lim.H);
+                    // 展开后实际要多高：让内容自己报（2026-10-11 上游；2026-10-22 移植），见 ExpandedHeight
+                    dipH = ExpandedHeight(dipW, lim.H);
                 }
             }
         }
@@ -3063,6 +3161,42 @@ public sealed partial class ToolSidebarWindow : Window
         }
 
         return new PixelSize((int)Math.Round(dipW * scale), (int)Math.Round(dipH * scale));
+    }
+
+    /// <summary>
+    /// 竖条展开后**实际需要多高**（dip）—— 2026-10-11 上游 Nick 报「模块选得少的时候下面空一大块」。
+    /// （2026-10-22 自上游 1.2.0-insider1.3 移植。）
+    ///
+    /// 病因：老算法是 <c>max(PanelLengthDip(450), 200+55×个数) + 底排</c>，而 <see cref="ExpandedLimits"/>
+    /// 的 <c>H</c> 又拿「屏幕的 85%」当下限 ⇒ 本机算出来恒是 707，模块一少就白空三百多 dip。
+    ///
+    /// 现在**让内容自己报高度**：把整个展开面板按「面板宽度 × 不限高」量一遍，取它的 DesiredSize
+    /// （工具区是 ScrollViewer，<see cref="ApplyScrollLimit"/> 已经给它设了 MaxHeight ⇒ 内容超限时
+    /// 它报的就是那个上限，正好是我们要的"封顶后滚动"）。量不出来再退回按内容估算的公式。
+    /// </summary>
+    private int ExpandedHeight(int dipW, double limitH)
+    {
+        // 锁定高度（「自适应高度」关掉）：滑块值就是面板高度，内容少也照撑满 —— 下面留白是预期的。
+        // ⚠️ 只对竖条（贴左右边、单列）生效：横条厚度固定（112 / 72），不参与这套。
+        if (!HeightAuto && !IsFlat) return (int)Math.Round(limitH);
+
+        try
+        {
+            ExpandedView.Measure(new Size(dipW, double.PositiveInfinity));
+            var want = ExpandedView.DesiredSize.Height;
+            if (want > 1) return (int)Math.Min(Math.Ceiling(want) + 2, limitH);   // +2 给边框留余量
+        }
+        catch (Exception ex)
+        {
+            Log("量展开面板高度失败: " + ex.Message);
+        }
+
+        // 兜底：不 Measure 了，按行数估算（跟按钮实际高度走，⛔别写死数字）
+        // ⚠️ 本移植版工具区是**单列**（没有上游的「每行三个」），所以行数 = 按钮数
+        var rows = Math.Max(1, _toolButtons.Count);
+        var fn = VisibleFooterCount();
+        var body = 34 + rows * (52 + 3) + (fn > 0 ? 10 + fn * (44 + 2) : 0) + 14;
+        return (int)Math.Min(body, limitH);
     }
 
     /// <summary>
@@ -3080,8 +3214,9 @@ public sealed partial class ToolSidebarWindow : Window
             return (Math.Min(workW, Math.Max(PanelLengthFlatDip, workW * 0.92)),
                     footerCount > 0 ? PanelThicknessFlatDip : PanelThicknessFlatBareDip);
 
-        return (ExpandedThicknessDip,
-                Math.Min(workH, Math.Max(PanelLengthDip + FooterDipFor(footerCount), workH * 0.85)));
+        // ⚠️ 竖条的高度上限＝「工作区高度 × 用户调的比例」（0.45~0.95，默认 0.75），
+        //    ⛔ 别再拿"屏幕的 85%"当下限 —— 那正是「模块少还空一大块」的根源（见 ExpandedHeight）。
+        return (ExpandedThicknessDip, workH * SingleColumnMaxHeightRatio);
     }
 
     /// <summary>工具区最多能占多高/多宽（面板高度 - 标题/分隔线/底排按钮）。</summary>
@@ -3108,6 +3243,7 @@ public sealed partial class ToolSidebarWindow : Window
                 var chrome = 12 + 24;                                    // 面板 padding + 间距余量
                 ToolsScroll.MaxWidth = Math.Max(120, work.Width / scale - 32 - chrome);
                 ToolsScroll.MaxHeight = double.PositiveInfinity;
+                ToolsScroll.MinHeight = 0;                               // 横条厚度固定，不吃自适应这套
             }
             else
             {
@@ -3116,7 +3252,11 @@ public sealed partial class ToolSidebarWindow : Window
                 var fn = VisibleFooterCount();
                 var footer = fn > 0 ? fn * 44 + (fn - 1) * 2 : 0;
                 var chrome = title + 7 + footer + 17 + 9;                // + 分隔线 + 面板 padding + 几个间距
-                ToolsScroll.MaxHeight = Math.Max(120, ExpandedLimits().H - chrome);
+                var max = Math.Max(120, ExpandedLimits().H - chrome);
+                ToolsScroll.MaxHeight = max;
+                // 锁定高度时把工具区撑到上限：底排按钮贴住面板下沿，空白留在工具与底排之间会很难看
+                // （自适应时 MinHeight 归零，让内容自己决定多高 —— 2026-10-18 上游；2026-10-22 移植）
+                ToolsScroll.MinHeight = !HeightAuto ? max : 0;
                 ToolsScroll.MaxWidth = double.PositiveInfinity;
             }
         }
@@ -3152,18 +3292,42 @@ public sealed partial class ToolSidebarWindow : Window
             (int)Math.Round(CollapsedDipH * scale));
     }
 
-    /// <summary>收起态离屏幕边的空隙（dip，细竖线样式）。2026-10-12 用户要求细线样式"离屏幕边缘 8px"。</summary>
-    private const int CollapsedEdgeGapDip = 8;
+    /// <summary>
+    /// 收起态那条离屏幕边缘留多少 dip —— **默认值兜底**。
+    /// 2026-10-11 上游（Nick：有用户不喜欢那道缝）改成可调，读「侧边布局」页的
+    /// 「收起时离屏幕边缘」→ <c>AppSettings.SidebarCollapsedGap</c>；真正用的是 <see cref="CollapsedGapDip"/>。
+    ///
+    /// ⚠️ 只作用于**收起态**：展开态照旧紧贴（面板悬空一条缝会很难看）。
+    /// ⚠️ 连带 <see cref="ConfirmPlacement"/> 里"这条边"的判定阈值必须跟着放宽 ——
+    ///    它原来拿 `work.X + 8` 当"贴左"的判据，空隙一大就认不出来了。
+    /// </summary>
+    private const int CollapsedEdgeGapDip = 6;
+
+    /// <summary>离屏幕边缘最多能留多少（dip）—— 再大就不是"贴边"了。</summary>
+    private const int MaxCollapsedGapDip = 24;
 
     /// <summary>
-    /// 收起态离屏幕边的空隙（dip，圆角抓手样式）。
-    /// 2026-10-17 用户要求「把圆形抓手模式的悬浮窗向屏幕里移动 5px，距离屏幕边有点距离，两边都是」
-    /// —— 之前是死贴边（0），现在里让 5dip；左右两条（"both"）各自让开，贴上下边时同理。
+    /// 当前该留的空隙（dip）：读设置并夹到 <c>0 ~ MaxCollapsedGapDip</c>。
+    /// ⚠️ 夹取不能省：存档里躺着一个离谱的值时，边条会被推到屏幕中间去。
     /// </summary>
-    private const int GripEdgeGapDip = 5;
+    private static int CollapsedGapDip
+    {
+        get
+        {
+            try
+            {
+                var v = App.Settings.Current.SidebarCollapsedGap;
+                return v < 0 ? 0 : v > MaxCollapsedGapDip ? MaxCollapsedGapDip : v;
+            }
+            catch
+            {
+                return CollapsedEdgeGapDip;
+            }
+        }
+    }
 
     /// <summary>按当前贴的边算"贴边位置"（**纯计算，不动窗口**）。参数是窗口按哪套尺寸算。
-    /// ⚠️ 收起态会往里让空隙（细竖线 <see cref="CollapsedEdgeGapDip"/> / 抓手 <see cref="GripEdgeGapDip"/>），展开态仍贴边。</summary>
+    /// ⚠️ 收起态会往里让空隙（<see cref="CollapsedGapDip"/>，用户可在「侧边布局 → 收起时离屏幕边缘」调），展开态仍贴边。</summary>
     private PixelPoint EdgePosition(int width, int height)
     {
         var work = WorkAreaRect();
@@ -3175,13 +3339,13 @@ public sealed partial class ToolSidebarWindow : Window
         var myLen = flat ? width : height;
         var free = Math.Max(0, alongLen - myLen);
 
-        var ratio = App.Settings.Current.SidebarPosRatio;
-        var offset = ratio < 0 ? free / 2.0 : Math.Clamp(ratio * free, 0, free);
+        // ⛔ 位置记忆已移除（2026-10-19 上游，2026-10-22 移植）：它和「开机最小化」相互打架，而且拖完记住的位置
+        //    常常不再合适，手动调反而更顺手。启动/重建时一律沿边**居中**；
+        //    拖动过程中对面靠 <see cref="_liveRatio"/> 跟随，但那只是内存状态，不落盘。
+        var offset = _liveRatio < 0 ? free / 2.0 : Math.Clamp(_liveRatio * free, 0, free);
 
-        // 收起态离边空隙（换算成物理像素）：细竖线 8dip、圆角抓手 5dip；展开面板贴边
-        var gap = _expanded
-            ? 0
-            : (int)Math.Round((UseLineCollapsed ? CollapsedEdgeGapDip : GripEdgeGapDip) * Scale());
+        // 收起态离边空隙（换算成物理像素）；展开面板贴边
+        var gap = _expanded ? 0 : (int)Math.Round(CollapsedGapDip * Scale());
 
         return edge switch
         {
@@ -3209,7 +3373,7 @@ public sealed partial class ToolSidebarWindow : Window
         };
     }
 
-    /// <summary>贴到设置里那条边；沿边的位置按 SidebarPosRatio（&lt;0 = 居中）。</summary>
+    /// <summary>贴到设置里那条边；沿边的位置一律**居中**（位置记忆 2026-10-19 移除，见 <see cref="_liveRatio"/>）。</summary>
     /// <param name="verify">
     /// false = 只挪一次，**不读回位置做纠偏**。纠偏最多会连挪 4 次窗口，放在动画前会把头几帧挤掉，
     /// 所以动画路径上用它（落位精度由动画自己的最后一帧保证）。

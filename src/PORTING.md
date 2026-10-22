@@ -217,3 +217,26 @@ using ClassSoftwareHub.Desktop.Platform;
 
 > 不确定的地方宁可**保留原语义 + 加 `// TODO(win7):` 注释**，也要把结构写完整，  
 > 不要为了「能编译」把功能阉割掉。
+
+---
+
+## 8. 本轮（dv1.2.0-insider1.3 移植）新增的坑与结论
+
+> 2026-10-22 移植 Hub AI / 学科工具窗 / 下载链路 1.3 时实测踩到的，后续 agent 别再踩。
+
+| WinUI / .NET 8 写法 | Avalonia 11.2.8 / net6 写法 | 说明 |
+| --- | --- | --- |
+| `Grid.Padding` | ❌ 不存在 → 用 `Margin`（或外面包 `Border`） | XAML 编译期就报 `AVLN2000: Unable to resolve ... Padding` |
+| `ContentDialog.RequestedThemeVariant` | ❌ FA 2.4.1 的 `ContentDialog` 没有该属性 | 对话框弹层跟随应用主题，别再逐处设 |
+| `SelectorBar`（WinUI 3 控件） | ❌ FluentAvalonia 2.4.1 没有 → 用 ToggleButton chip 条 | 软件页分类条就是这么做的 |
+| C# 11 原始字符串 `"""..."""` / `$"""..."""` | ❌ LangVersion 10 → 普通字符串 + `\n` 拼接 或 `@"..."` 逐字串（引号写 `""`） | `AiChatService` 的系统提示词、`BuiltinTools` 的 JSON schema 都改过 |
+| `StreamReader.ReadLineAsync(ct)`（.NET 8） | ❌ net6 只有无参重载 → `Task.WhenAny(readTask, Task.Delay(Timeout.Infinite, ct))` | `AiClient` 的 SSE 读取 |
+| `RichTextBlock + Paragraph`（Markdown 渲染） | ✅ `MarkdownText.Apply(Panel, string)`：一段一个 `TextBlock`，段内用 `Run` | `TextBlock.Inlines` 是扁平的，没有"块"这一层 |
+| `AppWindow` / `Microsoft.UI.Windowing` | ✅ `Avalonia.Controls.Window` + 本仓库 `Core/SelfDrawnFrame`（Win7 路线） | 学科工具窗照 `ToolPaletteWindow` 的写法 |
+| 单流下载 | ✅ 上游 1.3 已改多路并行分片（`DownloadService`）+ 每个候选带 `Referer`/`X-Api-Key`（`DownloadCandidate.ApplyTo`） | 自建加速节点**每个请求**都要带，探速/单流/每个分片都不能漏 |
+
+### 未能 1:1 移植的项（已知差异，别当成 bug）
+
+- `Core/SystemInfo.cs` 的「显卡型号 / 显存」改用 WMI `Win32_VideoController` 过滤掉卸载残留（上游 2026-10-21 修）。
+  本移植版**未接 WMI**（net6 需要额外 `System.Management` 包，教室机不便引入），仍走注册表口径 ——
+  多显卡 / 换过显卡的机器上可能读到旧适配器名。其余系统信息不受影响。

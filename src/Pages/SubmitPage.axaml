@@ -228,7 +228,8 @@
                     <TextBlock FontSize="12" Opacity="0.6" TextWrapping="Wrap"
                                Text="直链需填写文件本身（.exe / .zip / .msi 等），单击后直接开始下载；请勿填写官网下载页。" />
                     <StackPanel x:Name="DownloadsHost" Spacing="12" />
-                    <Button Content="+ 添加下载项" Click="AddDownload_Click" HorizontalAlignment="Left" />
+                    <Button x:Name="AddDownloadButton" Content="+ 添加下载项" Click="AddDownload_Click"
+                            HorizontalAlignment="Left" />
 
                     <!-- ═══ 提交 ═══ -->
                     <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right" Margin="0,6,0,0">

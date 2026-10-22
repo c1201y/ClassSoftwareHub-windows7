@@ -176,6 +176,17 @@
                     </fa:NavigationViewItem.IconSource>
                 </fa:NavigationViewItem>
                 <!--
+                  Hub AI（2026-10-18 上游新增；2026-10-22 移植）：电脑顾问的完整对话页。
+                  ⚠️ 与「软件下载」页右下的浮层是同一个内核的两种外壳，浮层里「↗」会跳到这一页。
+                  ⚠️ 名字里必须带 AI —— 叫 Agent 会让人以为它能改电脑，实际全程只读。
+                  码位 E8F2 与上游一致（机器人/顾问）。
+                -->
+                <fa:NavigationViewItem Content="Hub AI" Tag="hubai">
+                    <fa:NavigationViewItem.IconSource>
+                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE8F2;" />
+                    </fa:NavigationViewItem.IconSource>
+                </fa:NavigationViewItem>
+                <!--
                   内置工具：和「实验性功能」一样是分组父项 —— 点它 = 进工具索引页 + 展开/收起分组，
                   子项（图片取色 / 随机抽号 / 课堂计时器 / 全屏时钟 / 桌面留言 / 编码哈希 / 系统镜像）
                   直达各自页面。父项自己也是入口（进 ToolsPage）。
@@ -191,16 +202,16 @@
                      ① 这里（导航子项）  ② Data/ToolDef.cs 的 ToolCatalog.All（工具索引页卡片 + 页面映射）。
                      启动时会校验两边是否一一对应，对不上会在 port.log 里留一条 Warn（见 ShellPage 构造）。
                 -->
-                <fa:NavigationViewItem x:Name="ToolsNav" Content="内置工具" Tag="tools">
+                <!--
+                  课堂工具（2026-10-22 自上游移植）：原「内置工具」按 ToolDef.Group 拆成两项的**课堂**那一半。
+                  ⛔ Tag 必须与 Data/ToolDef.cs 的 ToolCatalog.Id 完全一致（ShellPage 构造时会校验）。
+                  ⛔ 子项必须 XAML 声明（FA 2.4.1 的选中竖线只认 XAML 子项）。
+                -->
+                <fa:NavigationViewItem x:Name="ClassroomToolsNav" Content="课堂工具" Tag="tools-classroom">
                     <fa:NavigationViewItem.IconSource>
                         <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE71D;" />
                     </fa:NavigationViewItem.IconSource>
                     <fa:NavigationViewItem.MenuItems>
-                        <fa:NavigationViewItem Content="图片取色" Tag="image-color">
-                            <fa:NavigationViewItem.IconSource>
-                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE790;" />
-                            </fa:NavigationViewItem.IconSource>
-                        </fa:NavigationViewItem>
                         <fa:NavigationViewItem Content="随机抽号" Tag="pick-number">
                             <fa:NavigationViewItem.IconSource>
                                 <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE716;" />
@@ -221,10 +232,41 @@
                                 <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE8BD;" />
                             </fa:NavigationViewItem.IconSource>
                         </fa:NavigationViewItem>
-                        <!-- 教室喊话（2026-10-13 从设置页独立成页）：E720 麦克风，与「桌面留言」的对话泡分得开 -->
                         <fa:NavigationViewItem Content="教室喊话" Tag="announce">
                             <fa:NavigationViewItem.IconSource>
                                 <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE720;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
+                        <fa:NavigationViewItem Content="函数图像" Tag="function-plot">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE9D2;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
+                        <fa:NavigationViewItem Content="方程求解" Tag="equation">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE8EF;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
+                        <fa:NavigationViewItem Content="化学方程式配平" Tag="chemistry">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE80A;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
+                    </fa:NavigationViewItem.MenuItems>
+                </fa:NavigationViewItem>
+                <!--
+                  系统工具（2026-10-22 自上游移植）：原「内置工具」拆成两项的**系统维护**那一半（磁盘 / 校验 / 关机类）。
+                  ⛔ Tag 必须与 Data/ToolDef.cs 的 ToolCatalog.Id 完全一致（ShellPage 构造时会校验）。
+                  ⛔ 子项必须 XAML 声明（FA 2.4.1 的选中竖线只认 XAML 子项）。
+                -->
+                <fa:NavigationViewItem x:Name="SystemToolsNav" Content="系统工具" Tag="tools-system">
+                    <fa:NavigationViewItem.IconSource>
+                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE945;" />
+                    </fa:NavigationViewItem.IconSource>
+                    <fa:NavigationViewItem.MenuItems>
+                        <fa:NavigationViewItem Content="图片取色" Tag="image-color">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE790;" />
                             </fa:NavigationViewItem.IconSource>
                         </fa:NavigationViewItem>
                         <fa:NavigationViewItem Content="编码 / 哈希工具" Tag="encoding">
@@ -237,30 +279,9 @@
                                 <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE896;" />
                             </fa:NavigationViewItem.IconSource>
                         </fa:NavigationViewItem>
-                        <!--
-                          上游 dv1.2.0-insider1.1 新增的四页内置工具（2026-10-18 移植）：
-                          函数图像 / 磁盘空间 / 方程求解 / 化学方程式配平。
-                          ⛔ Tag 必须与 Data/ToolDef.cs 的 ToolCatalog.Id 完全一致（ShellPage 构造时会校验）。
-                          ⛔ 子项必须 XAML 声明（FA 2.4.1 的选中竖线只认 XAML 子项）。
-                        -->
-                        <fa:NavigationViewItem Content="函数图像" Tag="function-plot">
-                            <fa:NavigationViewItem.IconSource>
-                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE9D2;" />
-                            </fa:NavigationViewItem.IconSource>
-                        </fa:NavigationViewItem>
                         <fa:NavigationViewItem Content="磁盘空间" Tag="disk-map">
                             <fa:NavigationViewItem.IconSource>
                                 <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE7F1;" />
-                            </fa:NavigationViewItem.IconSource>
-                        </fa:NavigationViewItem>
-                        <fa:NavigationViewItem Content="方程求解" Tag="equation">
-                            <fa:NavigationViewItem.IconSource>
-                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE8EF;" />
-                            </fa:NavigationViewItem.IconSource>
-                        </fa:NavigationViewItem>
-                        <fa:NavigationViewItem Content="化学方程式配平" Tag="chemistry">
-                            <fa:NavigationViewItem.IconSource>
-                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="20" Glyph="&#xE80A;" />
                             </fa:NavigationViewItem.IconSource>
                         </fa:NavigationViewItem>
                     </fa:NavigationViewItem.MenuItems>

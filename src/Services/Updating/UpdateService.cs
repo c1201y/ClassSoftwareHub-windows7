@@ -206,14 +206,14 @@ public sealed class UpdateService
             // ⚠️ 最近发过坏包（校验不过）的线路排到最后（2026-10-18 自上游 1.2.0 移植）：
             //    一次 60+ MB，明知道那条线路会发坏包还先试它纯属白费流量；
             //    但也不能直接剔除 —— 线路可能已经修好，兜底顺序里仍保留。
-            var pending = new List<string>();
-            var demoted = new List<string>();
+            var pending = new List<DownloadCandidate>();
+            var demoted = new List<DownloadCandidate>();
             foreach (var c in candidates)
-                (IsRecentlyBad(c) ? demoted : pending).Add(c);
+                (IsRecentlyBad(c.Url) ? demoted : pending).Add(c);
             pending.AddRange(demoted);
             candidates = pending;
             if (demoted.Count > 0)
-                AppLog.Step("update", $"最近发过坏包的线路排到最后：{string.Join("、", demoted.Select(HostOf))}");
+                AppLog.Step("update", $"最近发过坏包的线路排到最后：{string.Join("、", demoted.Select(c => HostOf(c.Url)))}");
 
             AppLog.Step("update", $"线路候选 {candidates.Count} 条 · 落盘 {destinationFile}");
             Exception? lastError = null;
@@ -231,21 +231,11 @@ public sealed class UpdateService
                     // 下载交由 DownloadService 并行通道（与软件下载同一策略：大文件分片）。
                     // ⚠️ 分片按偏移乱序写入，无法边下载边计算增量哈希，
                     //    因此先完整落盘，再整文件读取计算 MD5/SHA256（本地磁盘开销可忽略）。
-                    var pump = progress;   // 进度类型与上游一致（DownloadProgress：百分比 + 已收字节 + 速度）
-                    await DownloadService.DownloadToFileAsync(candidate, temp, pump, ct);
-
+                    // 2026-10-22 对齐上游 1.3：更新包改走「边下边算哈希 + 每个候选带自己的请求头」，
+                    // 不再复用 DownloadService 的分片通道 —— 分片乱序写入无法增量算哈希。
                     using var md5 = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
                     using var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-                    await using (var disk = File.OpenRead(temp))
-                    {
-                        var buffer = new byte[256 * 1024];
-                        int read;
-                        while ((read = await disk.ReadAsync(buffer, ct)) > 0)
-                        {
-                            md5.AppendData(buffer, 0, read);
-                            sha.AppendData(buffer, 0, read);
-                        }
-                    }
+                    await FetchPackageAsync(candidate, package, temp, md5, sha, progress, ct);
 
                     var actualMd5 = Convert.ToHexString(md5.GetHashAndReset()).ToLowerInvariant();
                     var actualSha = Convert.ToHexString(sha.GetHashAndReset()).ToLowerInvariant();
@@ -313,12 +303,12 @@ public sealed class UpdateService
                     if (ex is ChecksumMismatchException mismatch)
                     {
                         lastMismatch = mismatch;
-                        MarkRecentlyBad(candidate);
+                        MarkRecentlyBad(candidate.Url);
                         if (candidateIndex < candidates.Count - 1)
                         {
                             progress?.Report(new DownloadProgress(0, package.Size, 0));
                             AppLog.Warn("update",
-                                $"更新包候选 {candidateIndex + 1}/{candidates.Count}（{HostOf(candidate)}）"
+                                $"更新包候选 {candidateIndex + 1}/{candidates.Count}（{HostOf(candidate.Url)}）"
                                 + $"给的包校验不过：{mismatch.Message} → 换下一条重下");
                         }
                         continue;
@@ -326,7 +316,7 @@ public sealed class UpdateService
 
                     if (candidateIndex < candidates.Count - 1)
                         AppLog.Warn("update",
-                            $"更新包候选 {candidateIndex + 1}/{candidates.Count}（{HostOf(candidate)}）"
+                            $"更新包候选 {candidateIndex + 1}/{candidates.Count}（{HostOf(candidate.Url)}）"
                             + $"不可用（{ex.Message}）→ 换下一条");
                 }
             }
@@ -614,6 +604,56 @@ public sealed class UpdateService
 
     /// <summary>更新包的落地目录：%LOCALAPPDATA%\ClassSoftwareHub\updates</summary>
     public static string UpdatesDir => Path.Combine(AppPaths.DataDir, "updates");
+
+
+    /// <summary>2026-10-22 自上游 1.3 移植：更新包边下边算哈希（每个候选带自己的请求头）。</summary>
+    private static async Task FetchPackageAsync(
+            DownloadCandidate candidate, UpdatePackage package, string temp,
+            IncrementalHash md5, IncrementalHash sha, IProgress<DownloadProgress>? progress, CancellationToken ct)
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, candidate.Url);
+            candidate.ApplyTo(req);
+            using var resp = await Http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+            resp.EnsureSuccessStatusCode();
+            var total = resp.Content.Headers.ContentLength ?? package.Size;
+    
+            await using var src = await resp.Content.ReadAsStreamAsync(ct);
+            // File.Create 是截断式的 —— 换下一条候选时天然从头写，不会把两段拼在一起
+            await using var dst = File.Create(temp);
+    
+            var buffer = new byte[128 * 1024];
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            long done = 0;
+            long lastTick = -200;
+            int read;
+            while ((read = await src.ReadAsync(buffer, ct)) > 0)
+            {
+                await dst.WriteAsync(buffer.AsMemory(0, read), ct);
+                md5.AppendData(buffer, 0, read);
+                sha.AppendData(buffer, 0, read);
+                done += read;
+    
+                if (total > 0 && clock.ElapsedMilliseconds - lastTick >= 120)
+                {
+                    lastTick = clock.ElapsedMilliseconds;
+                    progress?.Report(new DownloadProgress(done, total, SpeedOf(done, clock)));
+                }
+            }
+    
+            // 少一截就别往下走了：说了多少就得拿到多少。
+            // 在这里拦住，报的是"下载不完整"（比后面那句"校验不通过"好懂），也不会把半截包当成"这条线路给的包"。
+            if (total > 0 && done != total)
+                throw new IOException($"下载不完整：拿到 {done} 字节，应为 {total} 字节");
+    
+            if (total > 0) progress?.Report(new DownloadProgress(done, total, SpeedOf(done, clock)));
+        }
+
+    private static double SpeedOf(long done, System.Diagnostics.Stopwatch clock)
+        {
+            var seconds = clock.Elapsed.TotalSeconds;
+            return seconds >= 0.15 ? done / seconds : 0;
+        }
+
 }
 
 /// <summary>按 SemVer 比版本字符串。</summary>

@@ -242,6 +242,60 @@
                             </StackPanel>
                         </views:SettingsCard>
 
+                        <!--
+                          展开面板高度（2026-10-18 Nick：别再固定调死，交给用户自己拖；2026-10-22 自上游 1.2.0-insider1.3 移植）
+                          ⚠️ 滑块 45~95（占工作区高度），拖动即时生效；落盘防抖 350ms（见 HeightRatio_ValueChanged）。
+                          ⚠️ 上游此处写「仅对紧凑模式（单列）有效」—— 本移植版工具区本来就是单列（没有「每行三个」），
+                             所以只对**贴左右两边**（竖排）生效；贴上下边是固定厚度的横条，不吃这一项。
+                        -->
+                        <views:SettingsCard Header="展开面板高度"
+                                               Description="侧边栏展开后最多占屏幕可用高度的比例，拖动即时生效。上方数值是上限，实际高度见下一条。仅对贴左右两边（竖排）有效。">
+                            <views:SettingsCard.HeaderIcon>
+                                <fa:FontIcon Glyph="&#xE740;" />
+                            </views:SettingsCard.HeaderIcon>
+                            <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                <Slider x:Name="HeightRatioSlider" Width="190"
+                                        Minimum="45" Maximum="95"
+                                        TickFrequency="5" IsSnapToTickEnabled="True"
+                                        ValueChanged="HeightRatio_ValueChanged" />
+                                <TextBlock x:Name="HeightRatioText" MinWidth="40" VerticalAlignment="Center"
+                                           FontSize="12" Opacity="0.75" />
+                            </StackPanel>
+                        </views:SettingsCard>
+
+                        <!--
+                          自适应高度（2026-10-18 Nick 要；2026-10-22 自上游 1.2.0-insider1.3 移植）
+                          ⚠️ 开 = 高度随模块数量伸缩（比例只当上限）；关 = 锁死为上方比例，模块少时下方留白。
+                        -->
+                        <views:SettingsCard Header="自适应高度"
+                                               Description="展开面板的高度随其中模块的数量伸缩，上方设置的比例只作为上限：模块较少时面板随之收短，不会在下方留出空白。关闭后高度固定为上方比例，模块较少时下方会留白。">
+                            <views:SettingsCard.HeaderIcon>
+                                <fa:FontIcon Glyph="&#xE9A6;" />
+                            </views:SettingsCard.HeaderIcon>
+                            <ToggleSwitch x:Name="HeightAutoSwitch" OnContent="开" OffContent="关" MinWidth="0"
+                                          IsCheckedChanged="HeightAuto_Toggled" />
+                        </views:SettingsCard>
+
+                        <!--
+                          收起时离屏幕边缘（2026-10-11 上游：有用户不喜欢那道缝，做成可选；2026-10-22 移植）
+                          ⚠️ 只对**收起态**生效 —— 展开后的面板始终紧贴边缘。
+                        -->
+                        <views:SettingsCard Header="收起时离屏幕边缘"
+                                               Description="侧边栏收起成那条小抓手时，与屏幕边缘之间留出的距离。选「0」即紧贴屏幕边缘。此项仅对收起状态生效，展开后的面板始终紧贴边缘。">
+                            <views:SettingsCard.HeaderIcon>
+                                <fa:FontIcon Glyph="&#xE71D;" />
+                            </views:SettingsCard.HeaderIcon>
+                            <ComboBox x:Name="SidebarGapCombo" MinWidth="170"
+                                      SelectionChanged="SidebarGap_SelectionChanged">
+                                <ComboBoxItem Content="0（紧贴边缘）" Tag="0" />
+                                <ComboBoxItem Content="2" Tag="2" />
+                                <ComboBoxItem Content="4" Tag="4" />
+                                <ComboBoxItem Content="6（默认）" Tag="6" />
+                                <ComboBoxItem Content="10" Tag="10" />
+                                <ComboBoxItem Content="16" Tag="16" />
+                            </ComboBox>
+                        </views:SettingsCard>
+
                     </StackPanel>
 
                     <!--
@@ -333,6 +387,30 @@
                             </views:SettingsCard.HeaderIcon>
                             <ToggleSwitch x:Name="OpenAppToggle" Tag="openapp" OnContent="显示" OffContent="隐藏"
                                           MinWidth="0" IsCheckedChanged="FooterItem_Toggled" />
+                        </views:SettingsCard>
+
+                    </StackPanel>
+
+                    <!--
+                      ============ 关机 ============
+                      2026-10-18 Nick 要：侧边栏「关机」按钮的两种方式在这里选。
+                      ⚠️ 版式照旧：组标题 + Caption 说明 + SettingsCard + 4px 组内间距。
+                    -->
+                    <TextBlock Text="关机" FontSize="14" FontWeight="SemiBold" Margin="0,24,0,8" />
+                    <TextBlock FontSize="12" Opacity="0.6" TextWrapping="Wrap" Margin="0,-4,0,8"
+                               Text="侧边栏「关机」按钮触发后的行为。该按钮按下后会先弹出确认，避免误触。" />
+                    <StackPanel Spacing="4">
+
+                        <views:SettingsCard Header="关机方式"
+                                               Description="手动关机：调用系统「滑动关机」界面，下滑滑块才真正关机。直接关机：立即关闭计算机。">
+                            <views:SettingsCard.HeaderIcon>
+                                <fa:FontIcon Glyph="&#xE7E8;" />
+                            </views:SettingsCard.HeaderIcon>
+                            <ComboBox x:Name="ShutdownModeCombo" MinWidth="170"
+                                      SelectionChanged="ShutdownMode_SelectionChanged">
+                                <ComboBoxItem Content="手动关机（滑动关机）" Tag="slide" />
+                                <ComboBoxItem Content="直接关机" Tag="shutdown" />
+                            </ComboBox>
                         </views:SettingsCard>
 
                     </StackPanel>

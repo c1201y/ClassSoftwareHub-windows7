@@ -229,6 +229,23 @@
                      放置模式 / 贴哪条边）与「截图」两项，上游 2026-10-01 都搬去了「侧边布局」页 ——
                      那页本就是侧边栏与常用工具的布置中心。这里整块删干净，别再往设置页加回来。 -->
 
+                <!-- ================= Hub AI ================= -->
+                <!-- 2026-10-18 上游新增（2026-10-22 移植）：Nick 要求放在「诊断」上方 ——
+                     它是诊断类功能里唯一需要配置的那个，单独成组而不是塞进诊断组。
+                     ⚠️ 右侧**不要**自己放箭头：IsClickEnabled=True 时卡片自带一颗 Chevron。 -->
+                <TextBlock Text="Hub AI" FontSize="14" FontWeight="SemiBold" Margin="0,24,0,8" />
+                <StackPanel Spacing="4">
+
+                    <views:SettingsCard Header="Hub AI"
+                                        Description="电脑顾问的总开关与模型配置。模型服务由你自己提供，本软件不代收费用、不托管密钥。"
+                                        IsClickEnabled="True" Click="OpenHubAiSettings_Click">
+                        <views:SettingsCard.HeaderIcon>
+                            <fa:FontIcon Glyph="&#xE8F2;" />
+                        </views:SettingsCard.HeaderIcon>
+                    </views:SettingsCard>
+
+                </StackPanel>
+
                 <!-- ================= 诊断 ================= -->
                 <!-- 2026-10-02（原版）：日志查看从实验性分组挪来这儿（Nick：不是实验功能，设置里给个正式入口）。
                      位置他指定：窗口之后、软件内容之前。SettingsCard 整卡可点（IsClickEnabled）。

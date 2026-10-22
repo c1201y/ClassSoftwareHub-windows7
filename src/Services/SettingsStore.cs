@@ -379,6 +379,159 @@ public sealed class AppSettings
     /// 空 = 尚未添加 —— 发送须先在喊话页勾选目标设备（一码一机，无广播语义）。
     /// </summary>
     public List<AnnounceDevice> AnnounceDevices { get; set; } = new();
+
+    // ══ Hub AI / 学科工具 等新设置（2026-10-22 自上游 1.2.0-insider1.3 移植）
+/// <summary>
+    /// 学科工具窗上次停在哪个工具（<c>function-plot</c> / <c>equation</c> / <c>chemistry</c>）。
+    /// 侧边栏那颗「学科」只传 null，窗口就按这个值恢复 —— 上次算化学，下次点开还是化学。
+    /// 认不出的值由 <c>SubjectToolsWindow.Normalize</c> 兜回第一件，不用在这里校验。
+    /// </summary>
+    public string SubjectToolsLastTool { get; set; } = "function-plot";
+
+
+    /// <summary>
+    /// 侧边栏工具区**每行摆几个**（2026-10-11 Nick：单列排下来太占地方，想要能折行）：
+    /// <c>1</c>（默认）= 单列竖着排；<c>3</c> = 每行三个、满了自动折行。
+    /// ⚠️ 只对**贴左右两边**（竖条）生效 —— 贴上/下边是横条，本来就是横向排一排，这个值不参与。
+    /// ⚠️ 只认 1 / 3，别的值一律当 1（见 <c>ToolSidebarWindow.Columns</c>）。
+    /// </summary>
+    public int SidebarColumns { get; set; } = 1;
+
+
+    /// <summary>
+    /// 侧边栏**收起**时那条小抓手离屏幕边缘留多少 dip（2026-10-11 Nick：有用户不喜欢那道缝）。
+    /// <c>0</c> = 紧贴屏幕边缘；默认 <c>6</c>（与 <c>ToolSidebarWindow.CollapsedGapDip</c> 的默认值一致）。
+    ///
+    /// ⚠️ 只在**收起态**生效 —— 展开态的面板始终紧贴边缘（面板悬空一条缝很难看），这是刻意的行为差异。
+    /// ⚠️ 值会被夹到 0~24（见 <c>ToolSidebarWindow.CollapsedGapDip</c>）：存档里万一存了离谱的数，
+    ///    边条会被推到屏幕中间去，那就不是"贴边"了。
+    /// </summary>
+    public int SidebarCollapsedGap { get; set; } = 6;
+
+
+    /// <summary>
+    /// 侧边栏展开面板的高度上限占工作区高度的几成（2026-10-18 Nick：别再固定调死，交给用户自己拖）。
+    /// 取值 <c>0.45</c>～<c>0.95</c>，默认 <c>0.75</c>。对应「侧边布局 → 展开面板高度」那根滑块。
+    ///
+    /// ⚠️ 它只是**封顶**，不是"给个固定高度"：面板仍按内容实测，模块少时该多矮就多矮
+    ///    （见 <c>ToolSidebarWindow.ExpandedHeight</c> / <c>ApplyScrollLimit</c>）。
+    /// ⚠️ 只在**单列**（「工具排列模式 → 紧凑模式」）生效；每行三个时行数天然少、不受这一项约束。
+    /// ⚠️ 用的人自行夹取（<c>ToolSidebarWindow.SingleColumnMaxHeightRatio</c>），存档里出现怪值也不会撑爆屏幕。
+    /// </summary>
+    public double SidebarHeightRatio { get; set; } = 0.75;
+
+
+    /// <summary>
+    /// 展开面板的高度是否**跟随内容**（2026-10-18 Nick 要，默认开）。
+    /// · <c>true</c>（自适应）= 高度由里面模块的数量实测决定，<see cref="SidebarHeightRatio"/> 只当**上限**；
+    ///   只有两个模块时面板就矮矮的，下面不留白。
+    /// · <c>false</c>（锁定）= 高度固定为 <see cref="SidebarHeightRatio"/> × 工作区高度，
+    ///   模块少时下面会留白。两者用「侧边布局 → 自适应高度」切换。
+    /// ⚠️ 都只在单列（紧凑模式）下有意义；横条是固定厚度，不参与。
+    /// </summary>
+    public bool SidebarHeightAuto { get; set; } = true;
+
+
+    /// <summary>
+    /// 侧边栏「关机」按钮的关机方式（2026-10-18 Nick 要）：
+    /// <list type="bullet">
+    ///   <item><c>slide</c>（**默认**）= 手动关机：调系统的 <c>SlideToShutDown.exe</c>，弹出「下滑关机」界面，
+    ///         下滑滑块才真正关机；不滑就一直停着，本身即确认步骤。</item>
+    ///   <item><c>shutdown</c> = 直接关机：直接执行 <c>shutdown /s /f /t 0</c>，立即关闭计算机。</item>
+    /// </list>
+    /// ⚠️ 认不出的值一律当 <c>slide</c>（见 <c>TeachingActions</c> 的归一化）。
+    /// </summary>
+    public string ShutdownMode { get; set; } = "slide";
+
+
+    /// <summary>
+    /// Hub AI 的**总闸**（2026-10-18）。
+    ///
+    /// <para>
+    /// 闸门关闭后的表现（Nick 14:00 定）：
+    /// <list type="bullet">
+    ///   <item>软件下载页的**入口卡隐藏**（不占位、不留灰块）；</item>
+    ///   <item>导航里的「Hub AI」**保留**，点进去给一张"去启用"的引导，而不是直接报错；</item>
+    ///   <item>已经填过的配置全部保留。</item>
+    /// </list>
+    /// </para>
+    /// <para>
+    /// 默认 <c>true</c>：先让人看见有这么个东西，再用引导带他去配置。
+    /// ⚠️ 模型服务商 / 模型名 / Base URL / 参数这些**不放这里**：密钥要单独走 DPAPI 加密存文件，
+    /// 其余配置等二级设置页做的时候另开一组字段，⛔ 别把密钥塞进 settings.json。
+    /// </para>
+    /// </summary>
+    public bool HubAiEnabled { get; set; } = true;
+
+
+    /// <summary>
+    /// 模型服务商预设 id（见 <c>AiProviders</c>）：deepseek / tongyi / zhipu / openai / local / custom。
+    /// ⚠️ 只是"预设"不是"事实" —— 用户改过服务地址后，这里仍然记着当初选的预设，
+    /// 界面按 <see cref="HubAiBaseUrl"/> 的实际值显示，别拿预设去覆盖用户填的地址。
+    /// </summary>
+    public string HubAiProvider { get; set; } = "deepseek";
+
+
+    /// <summary>兼容 OpenAI 协议的服务根地址，例如 <c>https://api.deepseek.com/v1</c>。</summary>
+    public string HubAiBaseUrl { get; set; } = "https://api.deepseek.com/v1";
+
+
+    /// <summary>模型名。<see cref="HubAiProvider"/> 换了预设时由界面带出默认值，用户可改。</summary>
+    public string HubAiModel { get; set; } = "deepseek-v4-flash";
+
+
+    /// <summary>
+    /// 是否开启思考模式（2026-10-18）。默认开 —— 主流思考模型现在都默认开，关掉反而要额外解释。
+    /// ⚠️ 各家写法不同（<c>thinking.type</c> / <c>enable_thinking</c> / 仅 <c>reasoning_effort</c>），
+    /// 由 <c>AiClient.ApplyThinking</c> 按服务商翻译，⛔ 别在这里存"最终发给服务商的字段"。
+    /// </summary>
+    public bool HubAiThinking { get; set; } = true;
+
+
+    /// <summary>思考强度：<c>low</c> / <c>high</c> / <c>max</c>。服务商不支持时会被忽略。</summary>
+    public string HubAiEffort { get; set; } = "high";
+
+
+    /// <summary>
+    /// 用户希望 AI 怎么称呼自己（2026-10-18）。空 = 未设置，AI 就用「你」。
+    /// ⚠️ 只进 prompt，**不进日志**、不参与统计。
+    /// </summary>
+    public string UserDisplayName { get; set; } = "";
+
+
+    /// <summary>
+    /// 已配置的模型列表（2026-10-18）。同一个服务商可以配多条。
+    /// ⚠️ 上面的 <c>HubAiProvider/HubAiBaseUrl/HubAiModel/HubAiThinking/HubAiEffort</c> 现在只是
+    /// **当前那条的镜像**，供尚未改造的代码读取；真正的数据源是这里 + <see cref="HubAiActiveModelId"/>。
+    /// </summary>
+    public System.Collections.Generic.List<HubAi.AiModelEntry> HubAiModels { get; set; } = new();
+
+
+    /// <summary>当前使用哪一条模型（对应 <see cref="HubAiModels"/> 里的 Id）。</summary>
+    public string? HubAiActiveModelId { get; set; }
+
+
+    /// <summary>Hub AI 左侧历史栏是否收起（2026-10-19）。</summary>
+    public bool HubAiHistoryCollapsed { get; set; }
+
+
+    /// <summary>
+    /// Hub AI 是否允许联网检索（2026-10-20，输入框上的「联网」开关）。
+    /// ⚠️ 只有开启且工具总闸也开着时，搜索工具才会交给模型。
+    /// </summary>
+    public bool HubAiWebEnabled { get; set; }
+
+
+    /// <summary>
+    /// 是否启用 AI 工具包（2026-10-18）。
+    ///
+    /// <para>
+    /// 工具包是**可选安装**：不装就不占空间，装了才有"查磁盘明细 / 检索软件库"这些能力。
+    /// ⚠️ 开关关掉只是不把工具交给模型，**不删已下载的包** —— 用户可能只是想暂时不用，
+    /// 下次打开不该再等一次下载。真要删走「移除」按钮。
+    /// </para>
+    /// </summary>
+    public bool HubAiToolsEnabled { get; set; }
 }
 
 /// <summary>教室喊话发送端的已配对设备（一台电脑一个码）。</summary>
