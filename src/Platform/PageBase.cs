@@ -22,6 +22,11 @@ public abstract class PageBase : UserControl
         // 上游是每个页面显式 Attach；移植版在基类统一「自动版」，免得每个页面都给滚动容器起名。
         // ⚠️ 页面根 Grid 必须 Background="Transparent"（不画像素但参与命中测试），本仓库页面都已加。
         Core.WheelRelay.AttachAuto(this);
+
+        // ⛔ 2026-10-22：摘掉滚动容器上的「滚动手势识别器」——它触发的
+        //    ScrollContentPresenter.OnScrollGesture 会让 Offset 双向绑定无限递归（0xC00000FD，
+        //    dump 两次实锤）。详见 Platform/ScrollGestureFix 的注释。
+        ScrollGestureFix.Install(this);
     }
 
     /// <summary>进入页面。<paramref name="parameter"/> = <c>Frame.Navigate(type, parameter)</c> 的第二个参数。</summary>

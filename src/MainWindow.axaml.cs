@@ -114,6 +114,9 @@ public sealed partial class MainWindow : Window
 
         Closed += OnWindowClosed;
 
+        // ⛔ 2026-10-22：主窗口壳层里的 ScrollViewer 同样要摘手势识别器（崩溃根因见 ScrollGestureFix）
+        Platform.ScrollGestureFix.Install(this);
+
         // 托盘图标：关窗口收托盘、开机最小化收托盘、托盘菜单（工具浮窗 / 退出）都靠它
         InitTray();
         // ⚠️ 侧边栏就是在这一步（InitTray → ToolSidebarWindow.ApplySetting）挂上去的 ——
