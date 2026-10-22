@@ -281,8 +281,11 @@ public static class MirrorSign
 
         var endpoints = new[]
         {
-            // ⚠️ 实测（2026-10-21）：cshapi 这条是通的（HTTP 200，返回 /d?u=...&e=...&s=...），
-            //    download.* 域名并不提供代签接口（返回 400），放到后面免得白走一次。
+            // ⚠️ 2026-10-22：cshapi / submit 两个 132614.xyz 域名在部分家庭宽带下被 TLS(SNI) 级阻断
+            //    （TCP 可通、ClientHello 发出即被 RST），签名永远拿不到。sign.* 挂在主站
+            //    classsoftwarehub.us.ci 的 Worker 自定义域上，不在阻断名单，放最前。
+            //    download.* 域名并不提供代签接口（返回 400），放最后免得白走一次。
+            "https://sign.classsoftwarehub.us.ci/api/mirror-sign",
             "https://cshapi.132614.xyz/api/mirror-sign",
             "https://submit.132614.xyz/api/mirror-sign",
             NodeBaseUrl + "/api/mirror-sign",
