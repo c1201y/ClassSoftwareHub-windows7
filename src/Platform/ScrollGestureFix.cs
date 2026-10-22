@@ -118,6 +118,11 @@ internal static class ScrollGestureFix
             if (removed > 0)
                 Core.AppLog.Debug("ui",
                     $"[scroll-fix] 从 {element.GetType().Name} 摘掉滚动手势识别器 {removed} 个（0xC00000FD 根因）");
+
+            // 摘掉识别器会连触屏滑动一起废掉 —— 用我们自己的安全实现补回来
+            // （只动 Offset、带有限性夹取，不走那条会递归的绑定路径）。
+            if (element is Avalonia.Controls.Presenters.ScrollContentPresenter presenter)
+                TouchPanScroll.Attach(presenter);
         }
         catch (Exception ex)
         {
