@@ -1,58 +1,50 @@
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Presenters;
 using Avalonia.Input;
-using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 
 namespace ClassSoftwareHub.Desktop.Platform;
 
 /// <summary>
-/// 触屏「单指平移 + 惯性」的安全实现（2026-10-23 第三版）。
+/// 触屏「单指平移 + 惯性」实现（2026-10-23 第四版：每帧写 Offset，滚动条同步连贯）。
 ///
 /// <para>
-/// 背景一（为什么不用 Avalonia 自带手势）：自带的 <c>ScrollGestureRecognizer</c> 走
-/// <c>ScrollContentPresenter.OnScrollGesture</c> → 写 <c>ScrollViewer.Offset</c> →
-/// 与 viewer 的双向绑定互相推值。夹取结果一旦与传入值永不相等（NaN 参与时必然如此），
-/// 这个环就在**库内部同一次调用栈**里永不收敛 —— 0xC00000FD，dump 三次实锤。
-/// 我们的钩子都在环外，救不回来，只能自己实现。
+/// 演进过程（不要再走回头路）：
 /// </para>
 /// <para>
-/// 背景二（为什么不逐帧写 Offset）：写 <c>Offset</c> 会触发重新布局 + 整页重排；
-/// Win7 路线是软件渲染、长页面节点多 —— 每帧重排就是"滑动不跟手"。
+/// ① 用 Avalonia 自带 <c>ScrollGestureRecognizer</c> —— **崩**（0xC00000FD）。它的手势处理会写
+///    <c>ScrollViewer.Offset</c>，与 presenter 的双向绑定互相推值；夹取结果一旦永不等于传入值
+///    （NaN 参与时必然如此），环就在库内部同一次调用栈里不收敛，dump 三次实锤。
 /// </para>
 /// <para>
-/// ✅ 本实现的铁律：**拖动与惯性期间只改 <see cref="TranslateTransform"/>（纯视觉、零布局），
-///    抬手（含惯性结束）时一次性把位置写进 <c>Offset</c>**。全程最多写一次 Offset，
-///    且带 extent/viewport 有限性夹取（NaN 直接放弃），所以既跟手、又不可能触发那个死循环。
+/// ② 自己写、但每个 PointerMoved 都写 Offset —— **卡**（写 Offset 触发重排，长页面软件渲染扛不住）。
 /// </para>
 /// <para>
-/// 惯性：抬手时按最近 ~100ms 的位移估速度，超过阈值就起一个 15ms 定时器，
-/// 速度按 0.92^(dt/16ms) 衰减，画面继续平移（仍只改变换），速度低于 0.05dip/ms 或触到边界即停，
-/// 停下时提交一次 Offset。再次按下会立刻中止惯性。
+/// ③ 拖动只改 <c>TranslateTransform</c>、抬手才写 Offset —— 画面顺了，但**滚动条一卡一卡**
+///    （滚动条跟的是 Offset，拖动期间它压根没动）。
 /// </para>
 /// <para>
-/// ⚠️ 只处理 <see cref="PointerType.Touch"/>：鼠标、触控板滚轮、文本选择、按钮点击都不受影响。
-///    按下后位移不到 6dip 就抬手 = 点击，事件不吞。
+/// ✅ 现在：拖动与惯性都用 **15ms 定时器把「最新目标位置」写进 <c>Offset</c>**。
+///    指针事件只更新目标值（可能一帧来 3~4 个事件，只取最后那个），所以**每帧最多写一次**，
+///    既不会像②那样每个事件都重排，又让内容与滚动条同步、连贯地走。
+///    写入前一律做有限性判断 + extent/viewport 夹取（NaN 是那个死循环的引信）。
+///    因为写入方是我们（不是 presenter 的手势回调），不存在"presenter ↔ viewer 互相推值"的环。
+/// </para>
+/// <para>
+/// ⚠️ 只处理 <see cref="PointerType.Touch"/>；鼠标、触控板滚轮、文本选择、按钮点击不受影响。
+///    位移不到 6dip 抬手 = 点击（事件不吞）。
 /// </para>
 /// </summary>
 internal static class TouchPanScroll
 {
-    /// <summary>超过这个位移（dip）才算"开始拖动"，否则按点击处理。</summary>
     private const double StartThreshold = 6;
-
-    /// <summary>低于这个速度（dip/ms）就不起惯性 / 结束惯性。</summary>
-    private const double FlingThreshold = 0.12;
-
-    /// <summary>惯性每帧衰减系数（按 16ms 归一）。</summary>
+    private const double FlingThreshold = 0.12;   // dip/ms
     private const double FrictionPer16Ms = 0.92;
-
-    /// <summary>惯性定时器间隔。</summary>
-    private const int InertiaTickMs = 15;
+    private const int TickMs = 15;
 
     private sealed class Sample
     {
@@ -62,23 +54,22 @@ internal static class TouchPanScroll
 
     private sealed class State
     {
-        public bool Tracking;             // 已按下，还没决定是不是拖动
-        public bool Dragging;             // 已接管
-        public Point Start;               // 按下点（呈现器坐标）
-        public Vector StartOffset;        // 按下时的滚动偏移
-        public Visual? Content;           // 被平移的内容（presenter.Child）
-        public TranslateTransform? Shift; // 拖动 / 惯性期间挂上去的渲染变换
-        public Vector Pending;            // 当前目标偏移（结束时一次性提交）
+        public bool Tracking;
+        public bool Dragging;
+        public Point Start;
+        public Vector StartOffset;
+        public Vector Target;          // 最新目标位置（夹取后）
+        public bool HasTarget;
 
-        public readonly List<Sample> Samples = new();
         public readonly Stopwatch Clock = Stopwatch.StartNew();
+        public readonly System.Collections.Generic.List<Sample> Samples = new();
 
-        public DispatcherTimer? Inertia;
-        public Vector Velocity;           // dip/ms，最后一段手指/惯性速度
+        public DispatcherTimer? Pump;  // 每帧把 Target 写进 Offset
+        public Vector Velocity;        // dip/ms
+        public bool Inertia;
         public long LastTickMs;
     }
 
-    /// <summary>给一个内容呈现器挂上触屏平移（幂等）。</summary>
     public static void Attach(ScrollContentPresenter presenter)
     {
         try
@@ -88,29 +79,31 @@ internal static class TouchPanScroll
 
             var state = new State();
 
-            // ── 按下：记录起点，顺手停掉正在跑的惯性 ──
+            // ── 按下：记录起点，停止惯性 ──
             presenter.AddHandler(InputElement.PointerPressedEvent,
                 (_, e) =>
                 {
                     if (e.Pointer.Type != PointerType.Touch) return;
 
-                    StopInertia(presenter, state, commit: true, releaseCapture: false);
-
                     var sv = FindScrollViewer(presenter);
                     if (sv is null) return;
+
+                    state.Inertia = false;
+                    state.Velocity = default;
 
                     state.Tracking = true;
                     state.Dragging = false;
                     state.Start = e.GetPosition(presenter);
                     state.StartOffset = sv.Offset;
-                    state.Pending = sv.Offset;
+                    state.Target = sv.Offset;
+                    state.HasTarget = false;
 
                     state.Samples.Clear();
                     state.Samples.Add(new Sample { Ms = state.Clock.ElapsedMilliseconds, Point = state.Start });
                 },
                 Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
 
-            // ── 移动：超过阈值后只平移画面（RenderTransform），不写 Offset ──
+            // ── 移动：只更新目标值，真正写 Offset 交给定时器（每帧一次） ──
             presenter.AddHandler(InputElement.PointerMovedEvent,
                 (_, e) =>
                 {
@@ -123,31 +116,27 @@ internal static class TouchPanScroll
                         var first = now - state.Start;
                         if (Math.Abs(first.X) < StartThreshold && Math.Abs(first.Y) < StartThreshold) return;
 
-                        if (!BeginDrag(presenter, state)) return;
-
                         state.Dragging = true;
                         e.Pointer.Capture(presenter);
+                        StartPump(presenter, state);
                     }
 
                     var sv = FindScrollViewer(presenter);
-                    if (sv is null || state.Shift is null) return;
+                    if (sv is null) return;
 
                     var delta = now - state.Start;
                     var target = Clamp(sv, new Vector(state.StartOffset.X - delta.X, state.StartOffset.Y - delta.Y));
                     if (target is null) return;
 
-                    state.Pending = target.Value;
-
-                    // 画面按「目标 − 起点」反向位移：往下滑内容往上走
-                    state.Shift.X = state.StartOffset.X - target.Value.X;
-                    state.Shift.Y = state.StartOffset.Y - target.Value.Y;
+                    state.Target = target.Value;
+                    state.HasTarget = true;
 
                     TrackSample(state, now);
                     e.Handled = true;
                 },
                 Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
 
-            // ── 抬手：起惯性或直接落位 ──
+            // ── 抬手：有速度就切惯性（同一套定时器继续写），否则停泵 ──
             void End(PointerEventArgs? pe)
             {
                 if (!state.Tracking) return;
@@ -156,23 +145,23 @@ internal static class TouchPanScroll
                 state.Tracking = false;
                 state.Dragging = false;
 
-                if (wasDragging)
+                if (wasDragging && pe is not null)
                 {
-                    TrackSample(state, pe is null ? state.Start : pe.GetPosition(presenter));
+                    TrackSample(state, pe.GetPosition(presenter));
 
                     var velocity = EstimateVelocity(state);
-                    if (velocity.Length > FlingThreshold && StartInertia(presenter, state, velocity))
+                    if (velocity.Length > FlingThreshold)
                     {
-                        // 惯性接管：位置等惯性停稳后再提交
-                        if (pe is not null)
-                        {
-                            try { pe.Pointer.Capture(null); } catch { }
-                        }
+                        state.Velocity = velocity;
+                        state.Inertia = true;
+                        state.LastTickMs = state.Clock.ElapsedMilliseconds;
+
+                        try { pe.Pointer.Capture(null); } catch { }
                         return;
                     }
                 }
 
-                CommitAndEnd(presenter, state);
+                StopPump(state);
 
                 if (wasDragging && pe is not null)
                 {
@@ -183,7 +172,6 @@ internal static class TouchPanScroll
             presenter.AddHandler(InputElement.PointerReleasedEvent,
                 (_, e) => End(e), Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
 
-            // 捕获丢失事件没有 Pointer 属性，只清状态
             presenter.AddHandler(InputElement.PointerCaptureLostEvent,
                 (_, _) => End(null), Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
         }
@@ -193,30 +181,93 @@ internal static class TouchPanScroll
         }
     }
 
-    // ────────────────────────── 拖动 / 惯性 ──────────────────────────
+    // ────────────────────────── 每帧泵 ──────────────────────────
 
-    /// <summary>开始拖动：给内容挂上渲染变换。</summary>
-    private static bool BeginDrag(ScrollContentPresenter presenter, State state)
+    /// <summary>启动 15ms 定时器：拖动期间把 Target 写进 Offset；抬手后若带速度则继续跑惯性。</summary>
+    private static void StartPump(ScrollContentPresenter presenter, State state)
     {
-        try
-        {
-            if (presenter.Child is not Visual content) return false;
+        if (state.Pump is not null) return;
 
-            var shift = new TranslateTransform();
-            content.RenderTransform = shift;
+        state.LastTickMs = state.Clock.ElapsedMilliseconds;
 
-            state.Content = content;
-            state.Shift = shift;
-            return true;
-        }
-        catch (Exception ex)
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(TickMs) };
+        state.Pump = timer;
+
+        timer.Tick += (_, _) =>
         {
-            Core.AppLog.Debug("ui", "[touch-pan] 拖动初始化失败: " + ex.Message);
-            return false;
-        }
+            try
+            {
+                var sv = FindScrollViewer(presenter);
+                if (sv is null) { StopPump(state); return; }
+
+                if (state.Inertia)
+                {
+                    var now = state.Clock.ElapsedMilliseconds;
+                    var dt = Math.Clamp(now - state.LastTickMs, 1, 60);
+                    state.LastTickMs = now;
+
+                    var decay = Math.Pow(FrictionPer16Ms, dt / 16.0);
+                    state.Velocity = new Vector(state.Velocity.X * decay, state.Velocity.Y * decay);
+
+                    if (state.Velocity.Length < 0.03)
+                    {
+                        ApplyOffset(sv, state.Target);   // 收尾补一次，确保落在边界内
+                        StopPump(state);
+                        return;
+                    }
+
+                    var next = Clamp(sv, new Vector(
+                        state.Target.X + state.Velocity.X * dt,
+                        state.Target.Y + state.Velocity.Y * dt));
+
+                    if (next is null) { StopPump(state); return; }
+
+                    // 触到边界：该方向速度清零，避免贴边抖动
+                    if (Math.Abs(next.Value.X - state.Target.X) < 0.01) state.Velocity = new Vector(0, state.Velocity.Y);
+                    if (Math.Abs(next.Value.Y - state.Target.Y) < 0.01) state.Velocity = new Vector(state.Velocity.X, 0);
+
+                    state.Target = next.Value;
+                    state.HasTarget = true;
+                }
+                else if (!state.Dragging)
+                {
+                    StopPump(state);
+                    return;
+                }
+
+                if (state.HasTarget) ApplyOffset(sv, state.Target);
+            }
+            catch (Exception ex)
+            {
+                Core.AppLog.Debug("ui", "[touch-pan] 帧异常: " + ex.Message);
+                StopPump(state);
+            }
+        };
+
+        timer.Start();
     }
 
-    /// <summary>记录采样点（只留最近 ~120ms 的，够估速度）。</summary>
+    private static void StopPump(State state)
+    {
+        try { state.Pump?.Stop(); } catch { }
+        state.Pump = null;
+        state.Inertia = false;
+        state.HasTarget = false;
+    }
+
+    /// <summary>写 Offset（有限性已由 Clamp 保证；这里再挡一道，且只在真的变化时写）。</summary>
+    private static void ApplyOffset(ScrollViewer sv, Vector target)
+    {
+        if (!double.IsFinite(target.X) || !double.IsFinite(target.Y)) return;
+
+        var current = sv.Offset;
+        if (Math.Abs(current.X - target.X) < 0.01 && Math.Abs(current.Y - target.Y) < 0.01) return;
+
+        sv.Offset = target;
+    }
+
+    // ────────────────────────── 速度估算 ──────────────────────────
+
     private static void TrackSample(State state, Point point)
     {
         var now = state.Clock.ElapsedMilliseconds;
@@ -226,7 +277,6 @@ internal static class TouchPanScroll
             state.Samples.RemoveAt(0);
     }
 
-    /// <summary>按最近采样估速度：dip/ms（画面位移方向，与手指相反）。</summary>
     private static Vector EstimateVelocity(State state)
     {
         if (state.Samples.Count < 2) return default;
@@ -235,121 +285,12 @@ internal static class TouchPanScroll
         var last = state.Samples[^1];
         var ms = Math.Max(1, last.Ms - first.Ms);
 
-        // 手指位移 → 内容位移取反（内容往手指反方向走）
         return new Vector(-(last.Point.X - first.Point.X) / ms, -(last.Point.Y - first.Point.Y) / ms);
-    }
-
-    /// <summary>启动惯性（只跑渲染变换；停稳后才写 Offset）。</summary>
-    private static bool StartInertia(ScrollContentPresenter presenter, State state, Vector velocity)
-    {
-        var sv = FindScrollViewer(presenter);
-        if (sv is null || state.Shift is null) return false;
-
-        state.Velocity = velocity;
-        state.LastTickMs = state.Clock.ElapsedMilliseconds;
-
-        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(InertiaTickMs) };
-        state.Inertia = timer;
-
-        timer.Tick += (_, _) =>
-        {
-            try
-            {
-                var now = state.Clock.ElapsedMilliseconds;
-                var dt = Math.Clamp(now - state.LastTickMs, 1, 50);
-                state.LastTickMs = now;
-
-                // 速度衰减（按 16ms 归一的摩擦系数）
-                var decay = Math.Pow(FrictionPer16Ms, dt / 16.0);
-                state.Velocity = new Vector(state.Velocity.X * decay, state.Velocity.Y * decay);
-
-                var svNow = FindScrollViewer(presenter);
-                if (svNow is null || state.Shift is null) { StopInertia(presenter, state, commit: true, releaseCapture: false); return; }
-
-                var target = Clamp(svNow, new Vector(
-                    state.Pending.X + state.Velocity.X * dt,
-                    state.Pending.Y + state.Velocity.Y * dt));
-
-                if (target is null) { StopInertia(presenter, state, commit: true, releaseCapture: false); return; }
-
-                // 触到边界：把该方向速度清零，避免"贴边抖动"
-                if (Math.Abs(target.Value.X - state.Pending.X) < 0.01) state.Velocity = new Vector(0, state.Velocity.Y);
-                if (Math.Abs(target.Value.Y - state.Pending.Y) < 0.01) state.Velocity = new Vector(state.Velocity.X, 0);
-
-                state.Pending = target.Value;
-                state.Shift.X = state.StartOffset.X - target.Value.X;
-                state.Shift.Y = state.StartOffset.Y - target.Value.Y;
-
-                if (state.Velocity.Length < 0.05)
-                    StopInertia(presenter, state, commit: true, releaseCapture: false);
-            }
-            catch (Exception ex)
-            {
-                Core.AppLog.Debug("ui", "[touch-pan] 惯性帧异常: " + ex.Message);
-                StopInertia(presenter, state, commit: true, releaseCapture: false);
-            }
-        };
-
-        timer.Start();
-        return true;
-    }
-
-    /// <summary>停止惯性（可选提交位置）。</summary>
-    private static void StopInertia(ScrollContentPresenter presenter, State state, bool commit, bool releaseCapture)
-    {
-        if (state.Inertia is null) return;
-
-        try { state.Inertia.Stop(); } catch { }
-        state.Inertia = null;
-
-        if (commit) CommitAndEnd(presenter, state);
-
-        if (releaseCapture)
-        {
-            try { presenter.Cursor = null; } catch { }
-        }
-    }
-
-    /// <summary>把 Pending 一次性提交成 Offset，然后撤掉渲染变换。</summary>
-    private static void CommitAndEnd(ScrollContentPresenter presenter, State state)
-    {
-        try
-        {
-            var sv = FindScrollViewer(presenter);
-            if (sv is not null)
-            {
-                var commit = Clamp(sv, state.Pending);
-                if (commit is not null && (Math.Abs(sv.Offset.X - commit.Value.X) > 0.01 || Math.Abs(sv.Offset.Y - commit.Value.Y) > 0.01))
-                    sv.Offset = commit.Value;
-            }
-        }
-        finally
-        {
-            EndDrag(state);
-        }
-    }
-
-    /// <summary>撤掉渲染变换。</summary>
-    private static void EndDrag(State state)
-    {
-        try
-        {
-            if (state.Content is not null && state.Shift is not null && ReferenceEquals(state.Content.RenderTransform, state.Shift))
-                state.Content.RenderTransform = null;
-        }
-        catch
-        {
-            // 内容已被回收（页面切走）—— 忽略
-        }
-
-        state.Content = null;
-        state.Shift = null;
     }
 
     private static readonly Avalonia.StyledProperty<bool> AttachedProperty =
         Avalonia.AvaloniaProperty.RegisterAttached<ScrollContentPresenter, bool>("TouchPanAttached", typeof(TouchPanScroll));
 
-    /// <summary>把目标偏移夹进合法范围；任何非有限值一律放弃（NaN 是死循环引信）。</summary>
     private static Vector? Clamp(ScrollViewer sv, Vector target)
     {
         var maxX = Math.Max(0, sv.Extent.Width - sv.Viewport.Width);
