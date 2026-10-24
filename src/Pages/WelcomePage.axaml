@@ -197,7 +197,8 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <fa:FontIcon Glyph="&#xE81C;" FontSize="20" VerticalAlignment="Center"
+                        <!-- ⚠️ 2026-10-22 上游 1.4：有更新时换对勾 E930 + 绿色横幅，所以要能改字形/颜色 -->
+                        <fa:FontIcon x:Name="ChangelogIcon" Glyph="&#xE81C;" FontSize="20" VerticalAlignment="Center"
                                   Foreground="{DynamicResource TextOnAccentFillColorPrimaryBrush}" />
                         <StackPanel Grid.Column="1" Margin="18,0,0,0" VerticalAlignment="Center" Spacing="1">
                             <TextBlock x:Name="ChangelogCardTitle" Text="查看更新内容" FontSize="14"

@@ -643,8 +643,17 @@ public sealed partial class ShellPage : PageBase
     /// <summary>外部（首页卡片等）跳转导航用：先高亮导航项，再切页面。</summary>
     public void NavigateTo(string tag)
     {
-        SelectTag(tag);
-        NavigateTag(tag);
+        if (_inSelectTag) return;          // 防重入：SelectTag 触发的 ItemInvoked 回环直接丢掉
+        _inSelectTag = true;
+        try
+        {
+            SelectTag(tag);
+            NavigateTag(tag);
+        }
+        finally
+        {
+            _inSelectTag = false;
+        }
     }
 
     /// <summary>
@@ -869,8 +878,18 @@ public sealed partial class ShellPage : PageBase
         }
     }
 
+    /// <summary>防重入闸：SelectTag 会设置 SelectedItem / IsSelected，FA 内部会连环触发
+    ///     ItemInvoked → NavigateTo → SelectTag；嵌套一圈就可能把 FA 的 ChangeSelection 走崩
+    ///     （2026-10-24 崩溃 0xc0000005，dump 实锤栈：SelectExperimentalHighlight → set_SelectedItem
+    ///      → ChangeSelection → RaiseItemInvoked → Nav_ItemInvoked → …）。</summary>
+    private bool _inSelectTag;
+
     private void SelectTag(string tag)
     {
+        if (_inSelectTag) return;
+        _inSelectTag = true;
+        try
+        {
         // 「实验性功能」是个分组父项，它**不进 NavigationView 的选中体系**（原因见 ShellPage.axaml 的注释）——
         // 高亮得手动打：先清掉别的选中项，再点亮父项自己。
         // ⚠️ 这里**不碰 IsExpanded**：点父项时 NavigationView 自己会 toggle 展开/收起，
@@ -923,8 +942,12 @@ public sealed partial class ShellPage : PageBase
                 return;
             }
         }
+        }
+        finally
+        {
+            _inSelectTag = false;
+        }
     }
-
     /// <summary>
     /// 把导航高亮打在「实验性功能」父项上。
     /// ⚠️ 父项**不能塞进 Nav.SelectedItem**：NavigationView 拿到一个"带子项的分组头"时会把选中
@@ -934,7 +957,9 @@ public sealed partial class ShellPage : PageBase
     /// </summary>
     private void SelectExperimentalHighlight()
     {
-        Nav.SelectedItem = null;
+        // ⛔ 2026-10-24：这里原来有 Nav.SelectedItem = null —— FA 2.4.1 的
+        //    ChangeSelection 在"选中项带子项/分组"的树状态下会被这句带崩（0xc0000005，dump 实锤）。
+        //    只走 IsSelected 反选：视觉上同样能把上一项的底色清掉（IsSelected=false 会反选）。
         foreach (var item in AllNavigationItems()) item.IsSelected = false;
         ExperimentalNav.IsSelected = true;
     }

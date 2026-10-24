@@ -254,8 +254,10 @@
                                 <fa:FontIcon Glyph="&#xE740;" />
                             </views:SettingsCard.HeaderIcon>
                             <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                <!-- ⛔ 必须写 Value：只写 Minimum 时 Slider 初值就是 45，解析 XAML 就触发一次
+                                ValueChanged（那时 _toolSync 还没置 true）⇒ 存档比例被写成 0.45（上游 1.4 修） -->
                                 <Slider x:Name="HeightRatioSlider" Width="190"
-                                        Minimum="45" Maximum="95"
+                                        Minimum="45" Maximum="95" Value="75"
                                         TickFrequency="5" IsSnapToTickEnabled="True"
                                         ValueChanged="HeightRatio_ValueChanged" />
                                 <TextBlock x:Name="HeightRatioText" MinWidth="40" VerticalAlignment="Center"

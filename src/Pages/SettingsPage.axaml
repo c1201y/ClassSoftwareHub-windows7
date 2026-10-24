@@ -542,11 +542,12 @@
                     </views:SettingsCard>
 
                     <views:SettingsCard Header="检查更新"
-                                           Description="发现新版本会先询问是否安装，不会自动更新；最小化启动时会通过系统通知提醒。">
+                                           Description="发现新版本先询问，不会自动安装。">
                         <views:SettingsCard.HeaderIcon>
                             <fa:FontIcon Glyph="&#xE896;" />
                         </views:SettingsCard.HeaderIcon>
-                        <StackPanel Spacing="10">
+                        <!-- ⚠️ 2026-10-22 上游：内容区限宽，否则长内容把 Header 挤成竖排 -->
+                        <StackPanel Spacing="10" MaxWidth="420" HorizontalAlignment="Left">
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <!-- ⚠️ 移植说明：原版 Style="{ThemeResource AccentButtonStyle}" —— FA 的
                                      程序集里没这个键，改用 FA 自带的 accent 伪类（同 MainWindow 的用法）。 -->
@@ -557,9 +558,8 @@
                             <TextBlock x:Name="UpdateStatus" TextWrapping="Wrap"
                                        FontSize="12"
                                        Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
-                            <TextBlock x:Name="UpdateNotes" TextWrapping="Wrap" MaxLines="8" IsVisible="False"
-                                       FontSize="12"
-                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                            <!-- 上游 1.4：更新说明是 Markdown，用 MarkdownText 渲染成控件（不能直接塞 Text） -->
+                            <StackPanel x:Name="UpdateNotes" Spacing="2" IsVisible="False" />
                         </StackPanel>
                     </views:SettingsCard>
 

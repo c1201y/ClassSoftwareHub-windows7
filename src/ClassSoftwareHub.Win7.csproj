@@ -35,10 +35,10 @@
     <ApplicationResourceIncludeAssetsFromPackages>true</ApplicationResourceIncludeAssetsFromPackages>
 
     <!-- 版本号规则见 Core/ShellConfig.cs（ShellVersion 是唯一来源，这里只是写进 exe 的元数据） -->
-    <Version>1.2.0-insider1.3</Version>
+    <Version>1.2.0-insider1.4</Version>
     <AssemblyVersion>1.2.0.0</AssemblyVersion>
     <FileVersion>1.2.0.0</FileVersion>
-    <InformationalVersion>1.2.0-insider1.3</InformationalVersion>
+    <InformationalVersion>1.2.0-insider1.4</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Product>ClassSoftwareHub</Product>
     <AssemblyTitle>ClassSoftwareHub</AssemblyTitle>

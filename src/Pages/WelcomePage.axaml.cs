@@ -72,6 +72,43 @@ public sealed partial class WelcomePage : PageBase
     ///
     /// 待装标记的自检清理逻辑与旧 InfoBar 完全一致：装上新版本再进来、或包被清理了 → 顺手清档，不摆死卡片。
     /// </summary>
+    /// <summary>
+    /// 有更新时把「查看更新内容」卡片换成**绿色横幅**（与 InfoBar Success 同套配色）；
+    /// 无更新时恢复原来的强调色卡片 —— 它仍是「查看更新内容」的入口。
+    /// 2026-10-22 上游 1.4：Nick 说「立即更新的标志很不明显，有更新的话用这个横幅」。
+    /// </summary>
+    private void ApplyUpdateHighlight(bool highlight)
+    {
+        try
+        {
+            Avalonia.Media.IBrush Fill(string key) =>
+                Application.Current?.Resources[key] as Avalonia.Media.IBrush ?? Avalonia.Media.Brushes.Transparent;
+
+            if (highlight)
+            {
+                ChangelogCard.Background = Fill("SystemFillColorSuccessBackgroundBrush");
+                ChangelogIcon.Glyph = "\uE930";                       // 对勾
+                ChangelogIcon.Foreground = Fill("TextFillColorPrimaryBrush");
+                ChangelogCardTitle.Foreground = Fill("TextFillColorPrimaryBrush");
+                ChangelogCardSubtitle.Foreground = Fill("TextFillColorPrimaryBrush");
+                ChangelogChevron.Foreground = Fill("TextFillColorPrimaryBrush");
+            }
+            else
+            {
+                ChangelogCard.Background = Fill("AccentFillColorDefaultBrush");
+                ChangelogIcon.Glyph = "\uE81C";                       // 时钟
+                ChangelogIcon.Foreground = Fill("TextOnAccentFillColorPrimaryBrush");
+                ChangelogCardTitle.Foreground = Fill("TextOnAccentFillColorPrimaryBrush");
+                ChangelogCardSubtitle.Foreground = Fill("TextOnAccentFillColorPrimaryBrush");
+                ChangelogChevron.Foreground = Fill("TextOnAccentFillColorPrimaryBrush");
+            }
+        }
+        catch (Exception ex)
+        {
+            Core.AppLog.Debug("ui", "[welcome] 更新高亮失败: " + ex.Message);
+        }
+    }
+
     private void RefreshUpdateCard()
     {
         var s = App.Settings.Current;
@@ -93,6 +130,9 @@ public sealed partial class WelcomePage : PageBase
                 pending = true;
             }
         }
+
+        // ⚠️ 有更新就整张卡换成绿色横幅（上游 1.4）
+        ApplyUpdateHighlight(pending || Services.Updating.UpdateNotice.Pending is not null);
 
         // 目标元素＝快速开始区那张「查看更新内容」主题色卡。
         // 注意：卡片本身就是强调色底 ⇒ 不再靠 BorderBrush 表达"待装"，改用右端「立即安装」按钮。
