@@ -1,13 +1,13 @@
-![ClassSoftwareHub dv1.2.0-insider1.4 预览版](https://github.com/c1201y/ClassSoftwareHub-windows7/releases/download/dv1.2.0-insider1.4/dv1.2.png)
+![ClassSoftwareHub dv1.2.0-insider1.2 预览版](https://github.com/c1201y/ClassSoftwareHub-windows7/releases/download/dv1.2.0-insider1.2/dv1.2.png)
 
-# ClassSoftwareHub 桌面版（Windows 7）dv1.2.0-insider1.4 预览版发布
+# ClassSoftwareHub 桌面版（Windows 7）dv1.2.0-insider1.2 预览版发布
 
 前言
 --
 
-* 本版为 **dv1.2.0 预览线第三个版本**：对齐上游桌面版 dv1.2.0-insider1.4，并修复本移植版在导航与触摸滚动上暴露的问题。
+* 本版为 **dv1.2.0 预览线第三个版本**：对齐上游桌面版 dv1.2.0-insider1.4 的功能，并修复本移植版在导航与触摸滚动上暴露的问题。
 
-* 预览版面向 insider 通道用户；若你正在使用 dv1.2.0-insider1.3 或更早版本，建议升级。
+* 预览版面向 insider 通道用户；若你正在使用 dv1.2.0-insider1.1，建议升级（中间版本为未对外的内部迭代）。
 
 更新日志
 ----
