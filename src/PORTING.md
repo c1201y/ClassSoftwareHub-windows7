@@ -240,3 +240,50 @@ using ClassSoftwareHub.Desktop.Platform;
 - `Core/SystemInfo.cs` 的「显卡型号 / 显存」改用 WMI `Win32_VideoController` 过滤掉卸载残留（上游 2026-10-21 修）。
   本移植版**未接 WMI**（net6 需要额外 `System.Management` 包，教室机不便引入），仍走注册表口径 ——
   多显卡 / 换过显卡的机器上可能读到旧适配器名。其余系统信息不受影响。
+
+---
+
+## 9. Windows 版本兼容基线（2026-10-25 审计）
+
+> 任务来源：用户要求「适配 Win10 1809 以下版本」。逐文件审计了全部 P/Invoke 与版本分叉，结论如下。
+
+### 9.1 支持的系统范围
+
+| 系统 | 支持状态 | 依据 |
+| --- | --- | --- |
+| Windows 7 SP1 | ✅ 主目标（实测过真机） | TFM `net6.0-windows7.0`；.NET 6 支持 Win7 SP1；Avalonia 软件渲染 |
+| Windows 8 / 8.1 | ✅ 可运行（未实测） | manifest 已声明 supportedOS；.NET 6 实际可在 8.1 跑（官方支持列表未列 8.0，8.0 不保证） |
+| Windows 10 1507～1803（1809 以下） | ✅ 可运行 | 全部版本敏感 API 都有守卫（见 9.2）；Backdrop 走 Aero Blur（Win7 同源路径） |
+| Windows 10 1809+ / 11 | ✅ 完整体验 | Acrylic / 深色标题栏 / Win11 圆角 / Mica 按 build 号逐级开启 |
+
+### 9.2 版本敏感 API 的守卫方式（审计结论）
+
+| API | 最低系统 | 守卫方式 | 状态 |
+| --- | --- | --- | --- |
+| `SetWindowCompositionAttribute`（Acrylic） | Win10 1803 | `GetProcAddress` 动态解析，Win7 上返回 null 直接跳过 | ✅ |
+| `DwmEnableBlurBehindWindow` / `DwmExtendFrameIntoClientArea` | WinVista | 直接可用（Win7 Aero 毛玻璃主路径）；Aero 关闭时退纯色 | ✅ |
+| `DwmSetWindowAttribute`（深色/圆角/Backdrop） | 属性编号随系统 | 调用前 `OsInfo.SupportsXxx` 判 build；Win7 上未知属性只返回 E_INVALIDARG 不崩 | ✅ |
+| `GetDpiForSystem`（user32） | Win8.1 | 调用点 try/catch，失败记缩放 0% | ✅ |
+| `D3D11CreateDevice`（d3d11） | Win7 SP1+平台更新 | GpuInfo/DiagConsole 全部 try/catch，失败按「无 GPU」处理并回退软件渲染 | ✅ |
+| `Get/SetMonitorBrightness`（dxva2） | WinVista | BrightnessService 全 try/catch，失败返回 false 不外抛 | ✅ |
+| `EmptyWorkingSet`（psapi） | WinXP | DoTrim 整体 try/catch | ✅ |
+| `SetCurrentConsoleFontEx`（kernel32） | WinVista | try/catch | ✅ |
+| `GetPerformanceInfo`（psapi）/ `SHLoadIndirectString`（shlwapi）/ `mciSendStringW`（winmm） | WinXP | 直接可用 | ✅ |
+| `Shell_NotifyIcon` + `SetCurrentProcessExplicitAppUserModelID` | Win7 | 启动即设 AppUserModelID | ✅ |
+| `GetLastInputInfo` / `RegisterHotKey` 等 user32 基础件 | WinXP | 直接可用 | ✅ |
+
+### 9.3 清单与运行时
+
+- **app.manifest**：supportedOS 已声明 Win7/8/8.1/10-11 四个 GUID；DPI 双段写法（Win7 认 `dpiAware`，Win10 1703+ 认 `PerMonitorV2`）。
+- **WebView2**：SDK 锁定 `1.0.1587.40`（Win7 运行时止于 109），CoreWebView2 调用全部 try/catch。
+- **.NET 6 运行时**：官方支持 Win7 SP1（客户端）与 Win10 1607+；**Windows 8.0 不在 .NET 6 官方支持列表**（8.1 也不在，但实测可跑）⇒ 对外口径写「Windows 7 SP1 及以上；Windows 8/8.1 尽力支持」。
+
+### 9.4 已知不降级的功能点（旧系统上的预期行为）
+
+| 功能 | Win7/8 上的表现 |
+| --- | --- |
+| Acrylic / Mica | 退回纯色底（Backdrop 按 OsInfo 分支） |
+| Win11 窗口圆角 | 退回 `SetWindowRgn` 裁剪（RoundedCorners） |
+| 深色标题栏（DWM 属性） | 未实装，无影响 |
+| 触摸滚动 | 自研实现（TouchPanScroll），Win7/8/10 全系统一致 |
+| GPU 渲染 | 老显卡自动回退软件渲染（Win7 默认强制软件渲染） |
