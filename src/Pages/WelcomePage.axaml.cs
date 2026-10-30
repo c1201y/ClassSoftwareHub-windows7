@@ -279,6 +279,12 @@ public sealed partial class WelcomePage : PageBase
     private double _recommendDistance;
     private DispatcherTimer? _recommendTimer;
 
+    /// <summary>
+    /// 「图标还在后台加载」的卡片 → 订阅的 PropertyChanged 处理器。重铺前统一退订，
+    /// 不然每次「换一批」都往共享的 SoftwareApp 上挂一堆再也用不到的处理器（页面是常驻实例）。
+    /// </summary>
+    private readonly List<(SoftwareApp App, System.ComponentModel.PropertyChangedEventHandler Handler)> _recommendIconHooks = new();
+
     private void BuildRecommendations()
     {
         var apps = App.Content.Apps;
@@ -327,6 +333,9 @@ public sealed partial class WelcomePage : PageBase
 
         // 视口裁剪：超出部分藏起来（Avalonia 里 Clip 是几何对象，跟 WinUI 一样）
         RecommendViewport.Clip = new RectangleGeometry(new Rect(0, 0, viewport, RecommendTopH + 60));
+
+        foreach (var (app, handler) in _recommendIconHooks) app.PropertyChanged -= handler;
+        _recommendIconHooks.Clear();
 
         RecommendStrip.Children.Clear();
 
@@ -412,36 +421,63 @@ public sealed partial class WelcomePage : PageBase
         // 上半：图标放大铺底 + 半透明主题色罩（替代 WinUI 的 AcrylicBrush 毛玻璃）+ 中央清晰图标
         var topGrid = new Grid();
 
-        if (app.IconImage is { } backdrop)
-            topGrid.Children.Add(new Image { Source = backdrop, Stretch = Stretch.UniformToFill });
-
         topGrid.Children.Add(new Border
         {
             Background = new SolidColorBrush(tint, 0.55),
             CornerRadius = new CornerRadius(RecommendCardRadius, RecommendCardRadius, 0, 0),
         });
 
-        if (app.IconImage is { } crisp)
+        Image? backdropImage = null;
+        Border? crispIcon = null;
+        TextBlock? letter = null;
+
+        // 图标到了就地补上：铺底大图压在最底层（罩子下面），中央清晰图标叠在罩子之上。
+        void ShowIcon(IImage img)
         {
-            topGrid.Children.Add(new Border
+            if (backdropImage is null)
             {
-                Width = RecommendIconSize,
-                Height = RecommendIconSize,
-                CornerRadius = new CornerRadius(RecommendIconRadius),
-                Background = new ImageBrush((IImageBrushSource)crisp)
+                backdropImage = new Image { Source = img, Stretch = Stretch.UniformToFill };
+                topGrid.Children.Insert(0, backdropImage);
+            }
+            if (letter is not null)
+            {
+                topGrid.Children.Remove(letter);
+                letter = null;
+            }
+
+            var brush = new ImageBrush((IImageBrushSource)img)
+            {
+                Stretch = Stretch.UniformToFill,
+                AlignmentX = AlignmentX.Center,
+                AlignmentY = AlignmentY.Center,
+            };
+
+            if (crispIcon is null)
+            {
+                crispIcon = new Border
                 {
-                    Stretch = Stretch.UniformToFill,
-                    AlignmentX = AlignmentX.Center,
-                    AlignmentY = AlignmentY.Center,
-                },
-                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
-                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
-            });
+                    Width = RecommendIconSize,
+                    Height = RecommendIconSize,
+                    CornerRadius = new CornerRadius(RecommendIconRadius),
+                    Background = brush,
+                    HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                    VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                };
+                topGrid.Children.Add(crispIcon);
+            }
+            else
+            {
+                crispIcon.Background = brush;
+            }
+        }
+
+        if (app.IconImage is { } ready)
+        {
+            ShowIcon(ready);
         }
         else
         {
-            // 没有图标就先摆名字首字（图标加载成功后靠绑定收掉会很啰嗦，这里直接不摆 —— 反正会重铺）
-            topGrid.Children.Add(new TextBlock
+            letter = new TextBlock
             {
                 Text = app.AvatarText,
                 FontSize = 26,
@@ -449,7 +485,21 @@ public sealed partial class WelcomePage : PageBase
                 Foreground = Brushes.White,
                 HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
                 VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
-            });
+            };
+            topGrid.Children.Add(letter);
+
+            // ⚠️ 图标是后台加载的（连随包内置的也要解码一次）：到货时就地补图。
+            //    以前这里只摆首字、指望"下次重铺装上"，结果整排卡片一直停在字母上，
+            //    看起来就是"图片永远加载不出来"（2026-10-30 用户反馈「加载好慢」）。
+            void OnIconChanged(object? _, System.ComponentModel.PropertyChangedEventArgs e)
+            {
+                if (e.PropertyName is not (nameof(SoftwareApp.IconImage) or null)) return;
+                if (app.IconImage is not { } img) return;
+                app.PropertyChanged -= OnIconChanged;
+                ShowIcon(img);
+            }
+            app.PropertyChanged += OnIconChanged;
+            _recommendIconHooks.Add((app, OnIconChanged));
         }
 
         var top = new Border

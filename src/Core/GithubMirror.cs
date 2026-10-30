@@ -24,8 +24,10 @@ public static class GithubMirror
 
     public static string MirrorUrl(string url, MirrorChannel channel) => channel.Prefix + url;
 
+    // raw/ 是「仓库里单个文件」的直链（软件数据里的图标地址大量用它），与 releases/archive 同为文件下载；
+    // 漏掉它会让这些图标永远走官方直连（2026-10-30：首页图标加载慢，图标也纳入镜像）。
     private static readonly Regex GithubPath = new(
-        @"^/[^/]+/[^/]+/(releases/download|archive)/", RegexOptions.Compiled);
+        @"^/[^/]+/[^/]+/(releases/download|archive|raw)/", RegexOptions.Compiled);
 
     /// <summary>只有「GitHub 上的文件地址」才给加速入口（官网直链、仓库主页不给）。</summary>
     public static bool IsMirrorableUrl(string? url)

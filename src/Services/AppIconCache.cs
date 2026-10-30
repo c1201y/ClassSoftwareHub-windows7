@@ -39,7 +39,10 @@ public static class AppIconCache
     // 进程内二次加速：已建好的源直接复用，省掉再读一次文件 + 再解码。
     private static readonly ConcurrentDictionary<string, IImage> _memo = new();
     // 同一 URL 同时只下一个（避免列表一页几十个图标重复拉同一张）。
-    private static readonly ConcurrentDictionary<string, byte> _inflight = new();
+    // ⚠️ 存的是**共享任务**而不是一个占位标记：后到的调用方要能 await 同一个下载，
+    //    否则「等文件落盘再解码」的调用方（SoftwareApp.LoadIconAsync）会在别人下载中途
+    //    看到文件还不存在、直接判定失败。
+    private static readonly ConcurrentDictionary<string, Task<byte[]?>> _inflight = new();
 
     /// <summary>
     /// 缓存「纪元」标记文件。**它的最后修改时间就是本轮缓存的起点**：
@@ -179,18 +182,18 @@ public static class AppIconCache
         if (!IsHttp(url)) return;
         var target = PathOf(url);
         if (File.Exists(target) && !IsStale(target)) return;   // 有且没过期
-        if (!_inflight.TryAdd(url, 0)) return;        // 别人正在下，别重复拉
+
+        var bytes = await DownloadSharedAsync(url, ct).ConfigureAwait(false);
+        if (bytes is null || bytes.Length == 0)
+        {
+            Core.AppLog.Warn("cache", $"图标取不到（各条线路均失败）→ 暂用本机旧图：{Host(url)}");
+            return;
+        }
+
         try
         {
-            var bytes = await DownloadAsync(url, ct).ConfigureAwait(false);
-            if (bytes is null || bytes.Length == 0)
-            {
-                Core.AppLog.Warn("cache", $"图标取不到（各条线路均失败）→ 暂用本机旧图：{Host(url)}");
-                return;
-            }
-            Directory.CreateDirectory(Dir);
             // 覆盖写 ⇒ 文件 mtime 自动变新 ⇒ 下次 IsStale 判定为"已刷新"，不会重复拉
-            await File.WriteAllBytesAsync(target, bytes, ct).ConfigureAwait(false);
+            await StoreAsync(target, bytes, ct).ConfigureAwait(false);
             // ⛔ memo 里存的还是按旧文件建的源，得踢掉让下次按新文件重建。
             //    这里不在后台线程 new ImageSource —— 那东西必须在 UI 线程建。
             _memo.TryRemove(url, out _);
@@ -199,10 +202,66 @@ public static class AppIconCache
         {
             Core.AppLog.Exception("cache", ex, $"缓存图标 {Host(url)}");
         }
+    }
+
+    /// <summary>
+    /// 确保图标已落盘，并返回**本地文件路径**（供后台线程自己解码用；失败返回 null）。
+    /// 与 <see cref="EnsureCachedAsync"/> 的区别只在返回值：那个是 fire-and-forget，
+    /// 这个必须等到文件真的在盘上（或确认拿不到）才返回，否则调用方会解码到一个不存在的文件。
+    /// </summary>
+    public static async Task<string?> EnsureCachedFileAsync(string url, CancellationToken ct = default)
+    {
+        if (!IsHttp(url)) return null;
+        var target = PathOf(url);
+        if (!File.Exists(target) || IsStale(target))
+            await EnsureCachedAsync(url, ct).ConfigureAwait(false);
+        // 刷新失败时旧文件还在 ⇒ 照样返回旧图路径（与"陈旧先用旧图"的容错顺序一致）
+        return File.Exists(target) ? target : null;
+    }
+
+    /// <summary>同一 URL 的下载只跑一次：先到的建任务，后到的 await 同一个任务。</summary>
+    private static async Task<byte[]?> DownloadSharedAsync(string url, CancellationToken ct)
+    {
+        if (_inflight.TryGetValue(url, out var running))
+            return await running.ConfigureAwait(false);
+
+        var tcs = new TaskCompletionSource<byte[]?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (!_inflight.TryAdd(url, tcs.Task))
+        {
+            return _inflight.TryGetValue(url, out var other)
+                ? await other.ConfigureAwait(false)
+                : null;
+        }
+
+        try
+        {
+            byte[]? bytes;
+            try
+            {
+                bytes = await DownloadAsync(url, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Core.AppLog.Exception("cache", ex, $"下载图标 {Host(url)}");
+                bytes = null;
+            }
+            tcs.SetResult(bytes);
+            return bytes;
+        }
         finally
         {
             _inflight.TryRemove(url, out _);
         }
+    }
+
+    /// <summary>先写临时文件再整体替换：中途失败不会留下半张图（那会被当成坏缓存读）。</summary>
+    private static async Task StoreAsync(string target, byte[] bytes, CancellationToken ct)
+    {
+        Directory.CreateDirectory(Dir);
+        var tmp = target + "." + Environment.ProcessId + ".tmp";
+        await File.WriteAllBytesAsync(tmp, bytes, ct).ConfigureAwait(false);
+        try { File.Move(tmp, target, overwrite: true); }
+        catch { try { File.Delete(tmp); } catch { } throw; }
     }
 
     /// <summary>日志里只留域名就够定位了（整条 URL 可能很长还带签名）。</summary>
@@ -234,6 +293,8 @@ public static class AppIconCache
                 if (bytes is { Length: > 0 })
                 {
                     _lastGoodMirror = null;         // 官方/自建这条通了就别惦记镜像了
+                    if (!string.Equals(candidate.Url, url, StringComparison.Ordinal))
+                        Core.AppLog.Step("cache", $"图标经加速线路取到：{Host(url)} → {Host(candidate.Url)}");
                     return bytes;
                 }
             }
@@ -257,6 +318,7 @@ public static class AppIconCache
                 if (bytes is { Length: > 0 })
                 {
                     _lastGoodMirror = channel;
+                    Core.AppLog.Step("cache", $"图标经公益镜像取到：{Host(url)} → {channel.Name}");
                     return bytes;
                 }
             }

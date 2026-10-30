@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Media;
@@ -168,15 +167,6 @@ public sealed class SoftwareApp : System.ComponentModel.INotifyPropertyChanged
     private bool _iconResolved;
     private bool _iconLoaded;
 
-    /// <summary>
-    /// 下载图标用的共享 HttpClient（原版由 BitmapImage 内部持有连接，这里自己留一份）。
-    ///
-    /// ⚠️ 必须自己设超时（2026-10-02）：默认是 **100 秒**，而图标地址全是第三方 CDN
-    ///    （google.cn / github / bing / 各家小站），教室里大半连不上 —— 83 个图标齐齐挂在
-    ///    "正在连接"上，界面上就是一片永远不出来的占位。8 秒足够，过期就认输走头像兜底。
-    /// </summary>
-    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(8) };
-
     /// <summary>同时最多下几个图标。一口气放几十个请求出去，教室那点带宽全被图标吃掉了。</summary>
     private static readonly SemaphoreSlim IconGate = new(6, 6);
 
@@ -256,22 +246,9 @@ public sealed class SoftwareApp : System.ComponentModel.INotifyPropertyChanged
             {
                 if (Icon.StartsWith("http", StringComparison.OrdinalIgnoreCase))
                 {
-                    // ⚠️ 2026-10-18 自上游 1.2.0 移植：上游把"本地缓存 + 后台按需刷新"
-                    //    收口成了 AppIconCache（epoch 失效制：站点数据更新 ⇒ 旧缓存标记陈旧，
-                    //    显示走旧图、后台静默换新）。本移植版保留自己的 LoadIconAsync 链路
-                    //    （多一层"随安装包内置的图标"兜底，Win7 教室机更有用），但**接上
-                    //    AppIconCache 的失效信号**：本地有图就交给它判"新不新鲜"，陈旧时
-                    //    后台重下一次 —— 站点换过图标地址后本机不再永远停在旧图上。
-                    AppIconCache.TryGet(Icon, out var localHit, out var stale);
-                    if (localHit is { })
-                    {
-                        if (stale) _ = AppIconCache.EnsureCachedAsync(Icon);
-                    }
-                    else
-                    {
-                        _ = AppIconCache.EnsureCachedAsync(Icon);   // 本机没有也让它按自己的路线下
-                    }
-
+                    // 本地（随包内置 / 磁盘缓存）优先、网络走 AppIconCache 的镜像换线 + 落盘，
+                    // 这套顺序全在 LoadIconAsync 里（含 AppIconCache 的 epoch 失效判定）——
+                    // ⛔ 别在这里再并行踢一次 EnsureCachedAsync：那会让同一张图下两遍。
                     var uri = new Uri(Icon);
                     // SVG 图标（chrome 等）：原版用 SvgImageSource 解（矢量，缩放不糊）。
                     // ⚠️ Avalonia 核心不含 SVG 解码器（需第三方包 Avalonia.Svg.Skia）——本移植版不引新包，
@@ -326,21 +303,18 @@ public sealed class SoftwareApp : System.ComponentModel.INotifyPropertyChanged
     private bool _iconBrushMade;
 
     /// <summary>
-    /// 后台下载 + 限宽解码图标，完成后回 UI 线程通知。**本地缓存优先**。
-    /// 对应原版 <c>new BitmapImage(uri)</c>（内部异步下载）+ <c>DecodePixelWidth = 128</c>：
-    /// 卡片上图标最大也就 72px（详情页），按原图解码（动不动 256/512）纯属浪费 ——
-    /// 教学机 8G 内存，一页 50 多个图标就是几十 MB。这里限宽解码（等比，高度自动）。
+    /// 后台下载 + 限宽解码图标，完成后回 UI 线程通知。**本地优先**：
+    ///   ⓪ 随安装包内置的 <c>ContentIcons\</c>（零网络）
+    ///   ① 老版本留下的本目录缓存（<c>%LOCALAPPDATA%\ClassSoftwareHub\icons</c>，兼容已装机器）
+    ///   ② AppIconCache 的统一磁盘缓存（<c>content\icons</c>，站点数据更新后按 epoch 判陈旧）
+    ///   ③ 网络：**一律经 <see cref="AppIconCache"/>** —— GitHub 地址按用户在设置里选的线路
+    ///      换镜像、并发去重、成功后落盘（2026-10-30：首页图标加载慢，改为走镜像并缓存本地）。
     ///
-    /// ⚠️ 2026-10-02 实机改（原话「下载应用界面应用没有图标」）：
-    ///   ① **本地缓存**：下成功一次就存到 <c>%LOCALAPPDATA%\ClassSoftwareHub\icons</c>，
-    ///      以后启动直接读盘。图标地址是 google.cn / github / bing / 各家小站这类第三方 CDN，
-    ///      教室里大半连不上 —— 没有缓存的话每次启动都要重新赌一次网络。
-    ///   ② **8 秒超时 + 只重试一次**：HttpClient 默认 100 秒，几十个请求一起挂着，
-    ///      界面就是一片永远不出来的占位。
-    ///   ③ **并发上限 6**：别让图标把教室那点带宽全吃光。
-    ///   ④ **失败留日志**（icons.log）：下次再遇到"没图标"能直接看出是网络还是数据的问题。
-    ///   失败后界面上是**彩色首字头像**（<see cref="AvatarText"/> / <see cref="AvatarBrush"/>），
-    ///   不是过去那个灰扑扑的购物袋字形。
+    /// 解码仍限宽 128：卡片上图标最大也就 72px（详情页），按原图（256/512）解码纯属浪费 ——
+    /// 教学机 8G 内存，一页 50 多个图标就是几十 MB。
+    ///
+    /// 失败后界面上是**彩色首字头像**（<see cref="AvatarText"/> / <see cref="AvatarBrush"/>），
+    /// 不是过去那个灰扑扑的购物袋字形；失败留一行 icons.log 便于排障。
     /// </summary>
     private async Task LoadIconAsync(Uri uri)
     {
@@ -349,95 +323,76 @@ public sealed class SoftwareApp : System.ComponentModel.INotifyPropertyChanged
         //    命中就**完全不碰网络** —— 教室机上那些第三方 CDN（google.cn / bing / 各家小站）
         //    大半连不上，靠"下载成功一次才有缓存"救不了第一次开机。
         var bundled = BundledIconPath();
-        if (bundled is not null)
+        if (bundled is not null && TryDecodeIcon(bundled, out var bundledBmp))
         {
-            try
-            {
-                using var fs = File.OpenRead(bundled);
-                var bmp = Bitmap.DecodeToWidth(fs, 128);
-                Dispatcher.UIThread.Post(() =>
-                {
-                    _icon = bmp;
-                    _iconLoaded = true;
-                    Raise(nameof(IconImage));
-                    Raise(nameof(IconBrush));
-                    Raise(nameof(IconPlaceholder));
-                });
-                return;
-            }
-            catch { /* 内置文件坏了 → 走原有缓存 / 网络路径 */ }
+            PostIcon(bundledBmp!);
+            return;
         }
 
-        var cache = IconCachePath(uri);
-
-        // ① 本地缓存命中：直接读盘，完全不碰网络
-        if (cache is not null && File.Exists(cache))
+        // ① 老缓存命中：直接读盘，完全不碰网络（兼容升级上来的机器，新下载不再写这里）
+        var legacy = IconCachePath(uri);
+        if (legacy is not null && File.Exists(legacy))
         {
-            try
+            if (TryDecodeIcon(legacy, out var legacyBmp))
             {
-                using var fs = File.OpenRead(cache);
-                var cached = new Bitmap(fs);
-                Dispatcher.UIThread.Post(() =>
-                {
-                    _icon = cached;
-                    _iconLoaded = true;
-                    Raise(nameof(IconImage));       // Avalonia 的 Bitmap 是纯数据对象，换了新对象必须通知
-                    Raise(nameof(IconBrush));
-                    Raise(nameof(IconPlaceholder));
-                });
+                PostIcon(legacyBmp!);
                 return;
             }
-            catch
-            {
-                try { File.Delete(cache); } catch { }   // 缓存坏了 → 删掉，走下面的网络路径
-            }
+            try { File.Delete(legacy); } catch { }   // 缓存坏了 → 删掉，走下面的路径
         }
 
-        // ② 网络下载
+        // ② 统一图标缓存（AppIconCache）：陈旧/没有都由它按需刷新。
+        //    仍受本类 IconGate 限制 —— 镜像换线会一路试好几条，几十个图标一起放出去会把带宽吃光。
+        string? unified;
         await IconGate.WaitAsync().ConfigureAwait(false);
         try
         {
-            for (var attempt = 0; attempt < 2; attempt++)
-            {
-                try
-                {
-                    var bytes = await Http.GetByteArrayAsync(uri).ConfigureAwait(false);
-                    var bmp = Bitmap.DecodeToWidth(new MemoryStream(bytes), 128);
-
-                    if (cache is not null)
-                    {
-                        try { File.WriteAllBytes(cache, bytes); } catch { }
-                    }
-
-                    Dispatcher.UIThread.Post(() =>
-                    {
-                        _icon = bmp;
-                        _iconLoaded = true;
-                        Raise(nameof(IconImage));
-                        Raise(nameof(IconBrush));
-                        Raise(nameof(IconPlaceholder));
-                    });
-                    return;
-                }
-                catch (Exception ex)
-                {
-                    if (attempt == 0) { await Task.Delay(400).ConfigureAwait(false); continue; }
-                    LogIconFailure(uri, ex);
-                }
-            }
+            unified = await AppIconCache.EnsureCachedFileAsync(uri.AbsoluteUri).ConfigureAwait(false);
         }
         finally
         {
             IconGate.Release();
         }
+        if (unified is not null && TryDecodeIcon(unified, out var unifiedBmp))
+        {
+            PostIcon(unifiedBmp!);
+            return;
+        }
 
-        // 下载 / 解码失败：头像兜底留在那儿（与原版 ImageFailed 一致）
+        // ③ 失败：头像兜底留在那儿（与原版 ImageFailed 一致）
+        LogIconFailure(uri, unified is null ? "各条线路均取不到图标" : "图标文件无法解码");
         Dispatcher.UIThread.Post(() =>
         {
             _iconLoaded = false;
             Raise(nameof(IconPlaceholder));
         });
     }
+
+    /// <summary>解成 128 宽的位图；坏文件 / 不支持的格式（如 svg）返回 false。</summary>
+    private static bool TryDecodeIcon(string file, out Bitmap? bmp)
+    {
+        bmp = null;
+        try
+        {
+            using var fs = File.OpenRead(file);
+            bmp = Bitmap.DecodeToWidth(fs, 128);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>解码结果回 UI 线程：换图必须通知（Avalonia 的 Bitmap 是纯数据对象）。</summary>
+    private void PostIcon(Bitmap bmp) => Dispatcher.UIThread.Post(() =>
+    {
+        _icon = bmp;
+        _iconLoaded = true;
+        Raise(nameof(IconImage));
+        Raise(nameof(IconBrush));
+        Raise(nameof(IconPlaceholder));
+    });
 
     /// <summary>缓存文件名：id + URL 哈希（同一应用换了图标地址会各存一份，不会读串）。</summary>
     private string? IconCachePath(Uri uri)
@@ -483,8 +438,8 @@ public sealed class SoftwareApp : System.ComponentModel.INotifyPropertyChanged
         return safeId;
     }
 
-    /// <summary>图标下载失败留一行日志（写进 icons.log —— 诊断控制台会把整个目录实时回显出来）。</summary>
-    private static void LogIconFailure(Uri uri, Exception ex)
+    /// <summary>图标取不到留一行日志（写进 icons.log —— 诊断控制台会把整个目录实时回显出来）。</summary>
+    private static void LogIconFailure(Uri uri, string reason)
     {
         try
         {
@@ -493,7 +448,7 @@ public sealed class SoftwareApp : System.ComponentModel.INotifyPropertyChanged
                 "ClassSoftwareHub");
             Directory.CreateDirectory(dir);
             File.AppendAllText(Path.Combine(dir, "icons.log"),
-                $"[{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss}] 图标下载失败 {uri.Host}: {ex.Message}\n");
+                $"[{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss}] 图标取不到 {uri.Host}: {reason}\n");
         }
         catch
         {
