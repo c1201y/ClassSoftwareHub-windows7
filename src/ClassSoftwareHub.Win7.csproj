@@ -102,6 +102,15 @@
     <!-- Avalonia XAML 资源 -->
     <AvaloniaResource Include="Assets\**" Exclude="Assets\**\*.cs" />
     <AvaloniaResource Include="..\Assets\**\*.png" Link="Assets\%(RecursiveDir)%(Filename)%(Extension)" />
+    <!-- 教室喊话窗的正文/署名/倒计时字体（AnnounceWindow.axaml 按
+         avares://ClassSoftwareHub/Assets/Fonts/HarmonyOS_Sans_SC_*.ttf 引用）。
+         ⚠️ 这两行不能只靠上面的 ..\Assets 通配：那条只带 *.png，
+            字体缺席时 Avalonia 会在 Show() 里抛 "Could not create glyphTypeface"，
+            喊话窗直接打不开（2026-10-30 用户实测：本机预览失败）。 -->
+    <AvaloniaResource Include="..\Assets\Fonts\HarmonyOS_Sans_SC_Medium.ttf"
+                      Link="Assets\Fonts\HarmonyOS_Sans_SC_Medium.ttf" />
+    <AvaloniaResource Include="..\Assets\Fonts\HarmonyOS_Sans_SC_Light.ttf"
+                      Link="Assets\Fonts\HarmonyOS_Sans_SC_Light.ttf" />
   </ItemGroup>
 
   <ItemGroup>

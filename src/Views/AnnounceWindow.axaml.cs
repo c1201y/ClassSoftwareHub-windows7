@@ -127,7 +127,11 @@ public sealed partial class AnnounceWindow : Window
 
         Root.SizeChanged += (_, _) =>
         {
-            if (_begun) FitText();     // 尺寸变化（极少）时重排
+            // 尺寸变化要**连行块一起重排**：TryBegin 可能在窗口还是初始小尺寸时就被触发，
+            // 那时 FitText 只能给到最小字号，交错划入的行块也会按那个小字号建死；
+            // 等真正铺满屏幕后只重跑 FitText 的话，BodyText 长大了、看得见的 LinesPanel 却还是小字
+            // （2026-10-29「长文字开按行交错划入字号很小」即此）。
+            if (_begun) Reflow();
             TryBegin();                // 首次量到真实尺寸后开场
         };
 
@@ -223,7 +227,7 @@ public sealed partial class AnnounceWindow : Window
         BodyText.Text = _fullText;
         BodyHost.Opacity = 1;
         FitText();
-        BuildSlideLinesIfNeeded();
+        if (BuildSlideLinesIfNeeded()) StartSlideIn();
 
         UpdateCountText();
         if (!_countdown.IsEnabled) _countdown.Start();
@@ -435,6 +439,9 @@ public sealed partial class AnnounceWindow : Window
         BodyText.FontSize = fit.FontSize;
         BodyText.LineHeight = fit.LineHeight;
         _fittedHeight = fit.Height;
+
+        // 真机排障凭证：「字号很小」到底缩到了多少、按多大的可用区域算的，看这一行。
+        PortLog.Step($"喊话排版: 字号 {fit.FontSize:0}px／高 {fit.Height:0}／可用 {width:0}x{maxHeight:0}");
     }
 
     /// <summary>量一段文字在给定宽度下的高度（打字机预留高度用）。</summary>
@@ -458,34 +465,62 @@ public sealed partial class AnnounceWindow : Window
     }
 
     /// <summary>
+    /// 按当前窗口尺寸重排正文（FitText + 交错划入的行块）。
+    /// 尺寸变了必须连行块一起重算 —— 只重跑 FitText 会让 LinesPanel 停在旧（小）字号，
+    /// 正文看起来"永远那么小、怎么都不会自动放大"。
+    /// </summary>
+    private void Reflow()
+    {
+        FitText();
+
+        // 打字机进行中：正文的预留高度也得跟着新字号走，否则打完字会整块跳一下
+        if (_typeTimer is { IsEnabled: true } && _fittedHeight > 0)
+            BodyText.MinHeight = _fittedHeight;
+
+        if ((App.Settings.Current.AnnounceAnimation ?? "none").ToLowerInvariant() != "slide") return;
+        if (_exiting) return;
+
+        if (BuildSlideLinesIfNeeded()) StartSlideIn();
+    }
+
+    /// <summary>
     /// 「交错划入」需要按行摆放，所以先把正文按实际宽度切行（贪心逐字加）。
     /// 切完若总高超出可用区域，就缩字号重来（最多几轮）。
     /// </summary>
-    private void BuildSlideLinesIfNeeded()
+    /// <returns>行块是否被重建（重建后调用方应重新播放划入）。</returns>
+    private bool BuildSlideLinesIfNeeded()
     {
         var preset = (App.Settings.Current.AnnounceAnimation ?? "none").ToLowerInvariant();
-        if (preset != "slide") return;
+        if (preset != "slide") return false;
 
         var width = Root.Bounds.Width - 280;
         var height = Root.Bounds.Height - 270;
         var text = BodyText.Text ?? "";
-        if (width <= 0 || height <= 0 || text.Length == 0) return;
+        if (width <= 0 || height <= 0 || text.Length == 0) return false;
 
         var size = BodyText.FontSize;
-        _lineTexts.Clear();
+        List<string> lines = new();
         for (var attempt = 0; attempt < 12; attempt++)
         {
-            var lines = WrapLines(text, size, width);
+            lines = WrapLines(text, size, width);
             var total = lines.Count * Math.Round(size * 1.22);
-            if (total <= height || size <= 30)
-            {
-                _lineTexts.AddRange(lines);
-                break;
-            }
+            if (total <= height || size <= 30) break;
             size -= 4;
         }
 
-        if (_lineTexts.Count == 0) return;
+        if (lines.Count == 0) return false;
+
+        // 尺寸没实质变化时不重建：重建会把正在跑的划入动画打断重来
+        if (LinesPanel.IsVisible && _lineTexts.Count == lines.Count
+            && LinesPanel.Children.Count == lines.Count
+            && LinesPanel.Children[0] is TextBlock first && Math.Abs(first.FontSize - size) < 0.01
+            && _lineTexts.SequenceEqual(lines))
+        {
+            return false;
+        }
+
+        _lineTexts.Clear();
+        _lineTexts.AddRange(lines);
 
         LinesPanel.Children.Clear();
         foreach (var line in _lineTexts)
@@ -505,14 +540,21 @@ public sealed partial class AnnounceWindow : Window
 
         BodyText.IsVisible = false;
         LinesPanel.IsVisible = true;
+
+        PortLog.Step($"喊话分行: {_lineTexts.Count} 行 @ {size:0}px");
+        return true;
     }
 
     /// <summary>贪心切行：逐字累加，超宽就断开。中文没有空格，只能这样切。</summary>
-    private static List<string> WrapLines(string text, double fontSize, double width)
+    private List<string> WrapLines(string text, double fontSize, double width)
     {
         var lines = new List<string>();
         var probe = new TextBlock
         {
+            // ⚠️ 必须带上正文的字体/字重：漏掉它们会用默认字体量宽度，
+            //    切出来的行数跟真实渲染对不上（行数偏多 → 白白把字号缩小）。
+            FontFamily = BodyText.FontFamily,
+            FontWeight = BodyText.FontWeight,
             FontSize = fontSize,
             TextWrapping = TextWrapping.NoWrap,
         };
