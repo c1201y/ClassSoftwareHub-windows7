@@ -44,8 +44,16 @@ public sealed partial class WelcomePage : PageBase
             App.Content.Changed += OnContentChanged;
             Populate();
             RefreshUpdateCard();
+
+            // 「发现新版本」态：MainWindow 后台检查拿到结果放进 UpdateNotice，
+            // 本页订阅它的变化重刷更新卡 —— 否则用户停在首页时卡片不会即时变。
+            Services.Updating.UpdateNotice.Changed -= OnUpdateNoticeChanged;
+            Services.Updating.UpdateNotice.Changed += OnUpdateNoticeChanged;
         };
     }
+
+    /// <summary>导航离开 → 停掉推荐条定时器。Frame 会缓存页面实例，不停它就会在别的页面上继续 60fps 重画。</summary>
+    public override void OnNavigatedFrom() => StopRecommendScroll();
 
     /// <summary>内容清单变了（同步完成 / 手动刷新）→ 把「已收录 XX 款软件」那行刷一下。</summary>
     private void OnContentChanged()
@@ -58,6 +66,18 @@ public sealed partial class WelcomePage : PageBase
         }
 
         RefreshCollectedCount();
+    }
+
+    /// <summary>UpdateNotice 变了（后台检查发现新版本 / 清掉）→ 回 UI 线程重刷更新卡。</summary>
+    private void OnUpdateNoticeChanged()
+    {
+        if (Dispatcher.UIThread.CheckAccess())
+        {
+            RefreshUpdateCard();
+            return;
+        }
+
+        _ = Dispatcher.UIThread.InvokeAsync(RefreshUpdateCard);
     }
 
     // ── 更新状态（2026-10-06 起，挂在快速开始区的「查看更新内容」主题色卡上） ──
@@ -123,6 +143,8 @@ public sealed partial class WelcomePage : PageBase
             {
                 s.UpdatePendingPath = "";
                 s.UpdatePendingTag = "";
+                s.UpdatePendingMd5 = "";
+                s.UpdatePendingSha256 = "";
                 App.Settings.Save();
             }
             else
@@ -325,6 +347,11 @@ public sealed partial class WelcomePage : PageBase
         StopRecommendScroll();
         if (_recommendDistance <= 0) return;
 
+        // ⚠️ 这支定时器是**常驻 60fps 重画**（主窗可见时每 16ms 重画整窗）。两种情况必须让开：
+        //    ① 侧边栏/浮窗正在滑（<see cref="MotionGate"/>）—— 抢帧实测会把滑动顶到 30~130ms 一帧；
+        //    ② 主窗不在前台（侧边栏展开、切到别的程序、最小化）—— 没人看，白烧 CPU。
+        //    只是跳过这一帧的位移，定时器不重建，恢复时 last 已是当前时刻，不会一下窜一大段。
+        var host = TopLevel.GetTopLevel(this) as Window;
         var last = DateTime.UtcNow;
         _recommendTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
         _recommendTimer.Tick += (_, _) =>
@@ -333,6 +360,8 @@ public sealed partial class WelcomePage : PageBase
             var delta = (now - last).TotalSeconds;
             last = now;
             if (_recommendPaused) return;
+            if (MotionGate.Busy) return;
+            if (host is not null && !host.IsActive) return;
 
             _recommendOffset += RecommendSpeed * delta;
             if (_recommendOffset >= _recommendDistance) _recommendOffset -= _recommendDistance;
@@ -560,6 +589,31 @@ public sealed partial class WelcomePage : PageBase
         // ⚠️ 只在页面活着的时候听，别让已离开的页面被事件勾住。
         ActualThemeVariantChanged -= WelcomePage_ThemeChanged;
         ActualThemeVariantChanged += WelcomePage_ThemeChanged;
+
+        // 面板是随 ItemsSource 才生成的 ⇒ 等一帧再按实际宽度收格宽（SizeChanged 也会兜一次）
+        Dispatcher.UIThread.Post(() => FitQuickRow(QuickGrid.Bounds.Width), DispatcherPriority.Loaded);
+        QuickGrid.SizeChanged -= QuickGrid_SizeChanged;
+        QuickGrid.SizeChanged += QuickGrid_SizeChanged;
+    }
+
+    private void QuickGrid_SizeChanged(object? sender, SizeChangedEventArgs e) => FitQuickRow(e.NewSize.Width);
+
+    /// <summary>
+    /// 快捷入口**必须排在一行**（上游 2026-10-17 Nick：窗口变窄会折行，很难看）。
+    /// 做法是按可用宽度重算 <see cref="WrapPanel.ItemWidth"/>：宽屏维持 192 不动，
+    /// 窄了就把五颗平分一行；只有窄到 104×5 以下才允许折行（那时确实放不下了）。
+    /// </summary>
+    private void FitQuickRow(double width)
+    {
+        if (QuickGrid.ItemsPanelRoot is not WrapPanel panel) return;
+
+        var count = QuickGrid.ItemCount;
+        if (count == 0 || width <= 0) return;
+
+        // ⛔ 不能正好用 width / count：格宽乘回来会因浮点/取整差出零点几像素，
+        //    第五颗就被挤到下一行（上游实测 900 宽的窗口仍然 4+1）。留 1px 余量。
+        var itemWidth = Math.Clamp(Math.Floor(width / count) - 1d, 104d, 192d);
+        if (Math.Abs(panel.ItemWidth - itemWidth) > 0.5) panel.ItemWidth = itemWidth;
     }
 
     private void WelcomePage_ThemeChanged(object? sender, EventArgs e)

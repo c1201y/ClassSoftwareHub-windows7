@@ -136,12 +136,48 @@ public class SettingsCard : ContentControl
         Cursor = IsClickEnabled ? new Cursor(StandardCursorType.Hand) : Cursor.Default;
     }
 
+    // ⛔ 2026-10-29（用户反馈「设置页滑动时经常误点进法律条款」）：
+    //    原来在 OnPointerPressed 里直接触发 Click —— 手指一落下页面就跳走了，
+    //    等触摸滚动逻辑判定出「这是滑动不是点击」时已经晚了。
+    //    改成：按下只记起点，**抬手才判定**；位移超过容差、或已经不在卡上，一律不触发。
+    //    触摸滚动（TouchPanScroll）在隧道阶段还会把拖动后的抬手 Handled 掉，这里再挡一道。
+    private const double ClickMoveTolerance = 8;
+
+    private Point _pressPoint;
+    private bool _clickArmed;
+
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         base.OnPointerPressed(e);
         if (!IsClickEnabled) return;
+        if (e.Handled) return;                     // 子控件（开关/下拉/按钮）已经吃掉的按下不算整卡点击
         if (!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
+        _clickArmed = true;
+        _pressPoint = e.GetPosition(this);
+        e.Handled = true;
+    }
+
+    protected override void OnPointerReleased(PointerReleasedEventArgs e)
+    {
+        base.OnPointerReleased(e);
+        if (!_clickArmed) return;
+        _clickArmed = false;
+
+        if (e.Handled) return;                     // 触摸滚动已经吞掉这次抬手 = 滑动，不是点击
+
+        var pos = e.GetPosition(this);
+        if (!new Rect(Bounds.Size).Contains(pos)) return;
+
+        var moved = pos - _pressPoint;
+        if (Math.Abs(moved.X) > ClickMoveTolerance || Math.Abs(moved.Y) > ClickMoveTolerance) return;
+
         Click?.Invoke(this, new RoutedEventArgs());
         e.Handled = true;
+    }
+
+    protected override void OnPointerCaptureLost(PointerCaptureLostEventArgs e)
+    {
+        base.OnPointerCaptureLost(e);
+        _clickArmed = false;
     }
 }

@@ -4,10 +4,10 @@ namespace ClassSoftwareHub.Desktop.Core;
 public static class ShellConfig
 {
     /// <summary>
-    /// 站点地址 —— ⚠️ 当前是「测试版」：直接写死本机 dev server。
-    /// 正式发版时**只改这一行**，换成 "https://classsoftwarehub.us.ci" 就行（不要再引入开关）。
+    /// 站点地址 —— 已经是正式域名（不是本机 dev server）。
+    /// 换域名时**只改这一行**（不要再引入开关）。
     /// </summary>
-    public const string SiteUrl = "https://classsoftwarehub.us.ci";
+    public const string SiteUrl = "https://classsoftwarehub.cn";
 
     public const string AppName = "ClassSoftwareHub";
     public const string WindowTitle = "ClassSoftwareHub";
@@ -50,7 +50,16 @@ public static class ShellConfig
     // 2026-10-12：**1.1.1 → 1.1.1-insider1.0**（进入 1.1.1 预览线：本轮补齐上游
     // dv1.1.2 → dv1.1.3-insider1.1 的服务层链路日志采纳，随后按用户要求转入预览版发布；
     // 客户端据此判定 IsInsider=true → 默认走 insider 通道，可同时看到预发布与正式版）。
-    public const string ShellVersion = "1.2.0-insider1.2";
+    // 2026-10-29：版本号**回到 1.2.0-insider1.3** —— GitHub 上只发布到 insider1.2，
+    // 1.4~1.8 都是本地没发出去的号（按 f24a12c「用本仓库发布计数」的规矩作废），
+    // 本轮新包就排在最后一次发布的下一位。内容：侧边栏展开改成从屏幕外滑入、
+    // 收起条不再乱飞、展开面板内的触摸翻页重做，外加 Hub AI 输入区渐变托底 + 矢量发送图标。
+    // 2026-10-30：版本号**仍是 1.2.0-insider1.3**（用户：先用 1.3 提交，提交后再统一抬号）。
+    // 这一版的内容攒在一起：导航栏图标 20 → 24；侧边栏网格翻页改成面板下方独立一行
+    // ◀ ● ● ▶（不再压住首末列、点击不再被吞）；收起时一连两次 Collapse 只认第一次
+    // （以前第二次会跳过淡出，边上那条看着像"乱飞"）；网格滑动翻页不再抢指针
+    // （按钮照样能点，横滑改成"移动中判据 + 抬手隧道补判 + 面板级事件跟踪"，滑完不会误开工具）。
+    public const string ShellVersion = "1.2.0-insider1.3";
 
     /// <summary>当前是不是预览（内测）构建 —— 版本号里带 <c>insider</c> 即为真。</summary>
     public static bool IsInsider =>
@@ -202,16 +211,14 @@ public static class ShellConfig
     // ════════════════════════════════════════════════════════════════
 
     /// <summary>
-    /// 提交服务入口（自建 Worker <c>classhub</c>，令牌在服务端，客户端只发内容）。
+    /// 提交服务入口（新后端 csh-api，部署于 EdgeOne Pages；令牌在服务端，客户端只发内容）。
     /// 提交软件走 <c>{入口}/api/submit</c>；回声洞投稿走 <c>{入口}/api/echocave</c>；
-    /// 反馈中心走 <c>{入口}/api/feedback</c>（见 <see cref="Services.FeedbackSubmit"/>）。
-    /// 两个域名指向同一套服务，按顺序试；成功的那个记进 <see cref="SubmitEndpointFile"/>。
+    /// 反馈中心走 <c>{入口}/api/feedback</c>（见 <see cref="Services.FeedbackSubmit"/>）；
+    /// OSS 直传签名走 <c>{入口}/api/oss-sign</c>。
+    /// 入口清单唯一出处见 <see cref="ServiceEndpoints.All"/>（2026-10-27 三入口重排）；
+    /// 成功的那个记进 <see cref="SubmitEndpointFile"/>。
     /// </summary>
-    public static readonly string[] SubmitEndpoints =
-    {
-        "https://cshapi.132614.xyz",
-        "https://submit.132614.xyz",
-    };
+    public static readonly string[] SubmitEndpoints = ServiceEndpoints.All;
 
     /// <summary>「上次可用的提交入口」记忆文件（与提交软件共用同一个）。</summary>
     public const string SubmitEndpointFile = "submit-endpoint.txt";
@@ -253,13 +260,40 @@ public static class ShellConfig
     }
 
     /// <summary>
+    /// 这个主机名是不是「本家」网页（官网本体 / 子域 / 自有服务端点）。
+    ///
+    /// ⛔ 用途是 WebView 桥接的来源校验：应用内浮层可以导航到任意第三方网页（网盘、软件官网），
+    ///    而 shell-shim.js 是所有文档都会执行的 —— 不校验来源，任何网页都能调
+    ///    <c>setAutoStart</c> / <c>setTelemetry</c> / <c>window</c> 这些原生能力。
+    /// </summary>
+    public static bool IsTrustedWebHost(string? host)
+    {
+        if (string.IsNullOrWhiteSpace(host)) return false;
+
+        if (Uri.TryCreate(SiteUrl, UriKind.Absolute, out var site) && IsSameOrSubdomain(host, site.Host))
+            return true;
+
+        foreach (var endpoint in SubmitEndpoints)
+        {
+            if (Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) && IsSameOrSubdomain(host, uri.Host))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsSameOrSubdomain(string host, string root)
+        => host.Equals(root, System.StringComparison.OrdinalIgnoreCase)
+           || host.EndsWith("." + root, System.StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// 正式来源：站点上的内容清单（route 2 的产物，跟站点一起发布）。
     /// 桌面版只轮询这一个文件，按 sha256 增量拉变化的文件。
     /// </summary>
-    public const string ContentManifestUrl = "https://classsoftwarehub.us.ci/content/manifest.json";
+    public const string ContentManifestUrl = "https://classsoftwarehub.cn/content/manifest.json";
 
     /// <summary>备用来源（主站挂了可以从网盘拿）。</summary>
-    public const string ContentManifestUrlFallback = "https://pan.132614.xyz/dav/%E7%BD%91%E7%AB%99/content/manifest.json";
+    public const string ContentManifestUrlFallback = "https://classsoftwarehub.xfane.com/content/manifest.json";
 
     /// <summary>增量同步下来的内容缓存目录。</summary>
     public static string CachedContentDir => System.IO.Path.Combine(AppPaths.DataDir, "content");
@@ -277,7 +311,7 @@ public static class ShellConfig
         @"C:\Users\Programmer_Nick\OneDrive\文档\Visual Studio 18 项目文件\ClassSoftwareHub\dist\content";
 
     /// <summary>应用内网页浮层（WebSheet，比如详情页里「顺手看一眼官网」）—— 全程序唯一还会用到 WebView2 的地方。⚠️「提交软件」早已是原生页（Pages/SubmitPage.xaml），别再看这条注释。</summary>
-    public const string SubmitPageUrl = "https://classsoftwarehub.us.ci/#/submit";
+    public const string SubmitPageUrl = "https://classsoftwarehub.cn/#/submit";
 }
 
 /// <summary>应用数据目录（设置、缓存、内容）。</summary>

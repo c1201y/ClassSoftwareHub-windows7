@@ -95,6 +95,17 @@ public sealed partial class VirtualKeyboardWindow : Window
         _targetTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
         _targetTimer.Tick += (_, _) => TrackTarget();
 
+        // ⚠️ Alt+F4 / 任务栏关闭会真的销毁平台窗口：单例还指着这个死对象的话，
+        //    之后每次显示都打在不存在的句柄上，键盘"再也弹不出来"（只能重启应用）。
+        //    关闭时把单例放掉，下一次 Ensure() 重新建一个。
+        Closed += (_, _) =>
+        {
+            _targetTimer.Stop();
+            _visible = false;
+            ShownByUser = false;
+            if (ReferenceEquals(_instance, this)) _instance = null;
+        };
+
         ApplyTheme();
         BuildKeys();
         RefreshToolbar();
@@ -271,16 +282,18 @@ public sealed partial class VirtualKeyboardWindow : Window
     /// <summary>SW_SHOWNOACTIVATE 显示（首次走 Avalonia Show() 建内容层，随后切到不激活显示）。</summary>
     private bool Show(IntPtr hwnd)
     {
-        if (!_shown)
+        // ⚠️ 判断依据必须是 Avalonia 的可见性，不能是"只置真、永不复位"的 _shown：
+        //    Hide() 之后 Avalonia 认为窗口不可见（渲染 / 布局停了），此时只发 Win32 ShowWindow
+        //    会显示一个不刷新的空壳；Alt+F4 更狠，平台窗口已销毁，ShowWindow 直接打空。
+        //    每次交给 Avalonia Show() 自己同步状态，Closed 事件负责放掉单例重建。
+        if (!IsVisible)
         {
-            _shown = true;
-            Show();
+            try { Show(); }
+            catch (InvalidOperationException) { /* 平台窗口已销毁 —— 下面取句柄会拿到 Zero，调用方自然跳过 */ }
         }
         if (hwnd == IntPtr.Zero) return false;
         return NativeMethods.ShowWindow(hwnd, NativeMethodsUtil.SW_SHOWNOACTIVATE);
     }
-
-    private bool _shown;
 
     private void HideInternal()
     {

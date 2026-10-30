@@ -153,8 +153,12 @@ public static class ToolPackStore
             var tmp = FilePath + ".tmp";
             File.WriteAllText(tmp, json);
 
-            if (File.Exists(FilePath)) File.Delete(FilePath);
-            File.Move(tmp, FilePath);
+            // ⚠️ 不能先 Delete 再 Move —— 那等于把旧包先销毁，中间崩一下就两个都没了。
+            //    正式文件存在时走 File.Replace（原子替换），否则直接挪过去。
+            if (File.Exists(FilePath))
+                File.Replace(tmp, FilePath, destinationBackupFileName: null, ignoreMetadataErrors: true);
+            else
+                File.Move(tmp, FilePath);
 
             return true;
         }

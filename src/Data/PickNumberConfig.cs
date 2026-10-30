@@ -54,6 +54,10 @@ public sealed class PickNumberConfig
         cfg.Roster ??= new List<string>();
         cfg.UsedNames ??= new List<string>();
         cfg.RosterSource ??= "";
+
+        // 字号系数会直接乘到结果字号上：坏存档给个 1e9 / NaN 能把抽号结果撑爆或直接算不出来。
+        // 这里按滑块量程夹死，两个入口（工具页 / 浮窗）都不用再各自防。
+        cfg.NameScale = double.IsFinite(cfg.NameScale) ? Math.Clamp(cfg.NameScale, 0.5, 3.0) : 1.0;
         return cfg;
     }
 

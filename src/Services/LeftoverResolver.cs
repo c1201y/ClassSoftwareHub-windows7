@@ -637,6 +637,21 @@ public static class LeftoverResolver
         foreach (var prefix in ForbiddenPathPrefixes)
             if (prefix.Length > 0 && IsInsideOrEqual(full, prefix)) return true;
 
+        // ②.5 盘根 / 用户目录本体 / 用户目录的祖先：
+        //     只要这些路径被当成「安装目录」，整盘或整个 profile 都会变成强证据默认勾选。
+        var trimmed = full.TrimEnd('\\');
+        if (Path.GetPathRoot(full)?.TrimEnd('\\').Equals(trimmed, StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+
+        var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (profile.Length > 0)
+        {
+            if (string.Equals(trimmed, profile.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase))
+                return true;
+            // full 是 profile 的祖先（C:\、C:\Users）同样禁止
+            if (IsInsideOrEqual(profile, full)) return true;
+        }
+
         // ③ 叶子名命中禁碰名单（不管它在哪）
         var leaf = Path.GetFileName(full.TrimEnd('\\'));
         if (leaf.Length == 0) return true;
@@ -952,10 +967,16 @@ public static class LeftoverResolver
         public AppProfile(InstalledApp app)
         {
             NameKey = InstalledApps.Normalize(app.Name);
-            FolderKey = app.Location.Length > 0
-                ? InstalledApps.Normalize(Path.GetFileName(app.Location.TrimEnd('\\')))
+
+            // ⛔⛔ InstallLocation / InstallDir 是卸载登记里**不可信**的字符串：
+            //    见过空串、相对路径、盘根（C:\）、整个用户目录，甚至直接是 C:\Users。
+            //    一旦拿它当"强证据"的锚点，整盘或整个 profile 就会变成默认勾选的残留
+            //    —— 2026-10-15 那次误删正是这么发生的。这里不修数据，只把明显不合理
+            //    的值当成"没有安装目录"，让判据退回到名字比对。
+            Location = SanitizeLocation(app.Location);
+            FolderKey = Location.Length > 0
+                ? InstalledApps.Normalize(Path.GetFileName(Location.TrimEnd('\\')))
                 : "";
-            Location = app.Location;
 
             // ⛔⛔ 这里**没有**"发布者"这一项，而且是**故意**不要的。
             //    曾经有过一版拿 Publisher 去比名字，结果：测试软件的发布者是 ClassSoftwareHub，
@@ -1002,6 +1023,37 @@ public static class LeftoverResolver
         public string ExeKey { get; }
         public string Location { get; }
         public List<string> Tokens { get; }
+
+        /// <summary>
+        /// 把登记里的安装目录过滤成"可以当锚点用"的绝对路径；不可信的一律当空。
+        /// </summary>
+        private static string SanitizeLocation(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return "";
+            if (!Path.IsPathFullyQualified(raw)) return "";
+
+            string full;
+            try { full = Path.GetFullPath(raw).TrimEnd('\\'); }
+            catch { return ""; }
+
+            // 盘根本身（C:\）不是安装目录
+            var root = Path.GetPathRoot(full);
+            if (root is { Length: > 0 } &&
+                root.TrimEnd('\\').Equals(full, StringComparison.OrdinalIgnoreCase))
+                return "";
+
+            // 用户目录本体，或用户目录的祖先（C:\Users、C:\）
+            var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            if (profile.Length > 0 &&
+                (string.Equals(full, profile.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase) ||
+                 IsInsideOrEqual(profile, full)))
+                return "";
+
+            // Windows 目录、禁碰名单之下的位置（把程序"装"进系统目录的登记同样不可信）
+            if (IsForbiddenPath(full)) return "";
+
+            return full;
+        }
 
         /// <summary>这个 exe 名字看着像不像"卸载程序"（`unins000` / `uninstall` / `卸载`…）。</summary>
         private static bool LooksLikeUninstaller(string stem)

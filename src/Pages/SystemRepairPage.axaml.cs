@@ -46,6 +46,10 @@ public partial class SystemRepairPage : Platform.PageBase
         CountLine.Text = $"共 {SystemRepair.Tasks.Count} 项任务　·　全部需要管理员授权　·　执行前会再确认一次";
 
         AttachedToVisualTree += (_, _) => OnLoaded();
+
+        // ⚠️ 轮询器是 300ms 一次的 UI 线程定时器：页面切走后它照跑，等于在已脱离视觉树的
+        //    控件上一直改文本、一直占调度。离开就停，回来由 OnLoaded 重新起。
+        DetachedFromVisualTree += (_, _) => StopTimer();
     }
 
     private void BuildCards()
@@ -121,7 +125,14 @@ public partial class SystemRepairPage : Platform.PageBase
 
     private void OnLoaded()
     {
-        if (_session is not null) return;
+        if (_session is not null)
+        {
+            // 页面离开时轮询器会停（见 DetachedFromVisualTree），回来时任务若还在跑就接着轮询。
+            // 输出一直攒在 RepairSession 里，停期间不会丢。
+            _timer ??= CreateTimer();
+            _timer.Start();
+            return;
+        }
 
         SystemRepair.CleanupOldRuns();
 

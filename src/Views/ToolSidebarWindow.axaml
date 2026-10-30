@@ -165,28 +165,30 @@
                             </Grid>
 
                             <!-- 图标网格：格子由代码填（见 RenderGridPage），列数按贴的边定（左右 4 列、上下 8 列） -->
-                            <!-- ⚠️ 外面包一层 Grid 用来叠两颗换页箭头：多页才显（代码控制），半透明小箭头不抢戏，
-                                 触屏上也可以直接在网格上左右滑翻页（见 ToolGrid_PointerPressed/Released） -->
-                            <Grid>
-                                <Grid x:Name="ToolGrid" Margin="0,0,0,0" />
+                            <Grid x:Name="ToolGrid" Margin="0,0,0,0" />
 
-                                <Button x:Name="GridPrevPage" IsVisible="False" Click="GridPrevPage_Click"
-                                        MinWidth="18" MinHeight="34" Padding="0" Background="Transparent" BorderThickness="0"
-                                        Opacity="0.35" HorizontalAlignment="Left" VerticalAlignment="Center"
+                            <!--
+                              分页行（2026-10-30 改）：◀ ＋ 分页点 ＋ ▶ 排成一行，多页才显。
+                              ⛔ 换页箭头原先**浮在网格两侧**（24×46 半透明块），正好压住首/末列格子 ——
+                                 想点边上的工具，一半概率变成翻页。现在箭头有自己的位置，不再吃格子的点击。
+                              触屏上仍可直接在网格上左右滑翻页（见 ToolGrid_PointerPressed/Released）。
+                            -->
+                            <Grid x:Name="PagerRow" ColumnDefinitions="Auto,*,Auto" Height="28" IsVisible="False">
+                                <Button x:Name="GridPrevPage" Grid.Column="0" Click="GridPrevPage_Click"
+                                        MinWidth="32" MinHeight="28" Padding="6,0" Background="Transparent"
+                                        BorderThickness="0" Opacity="0.65" VerticalAlignment="Center"
                                         ToolTip.Tip="上一页">
-                                    <fa:FontIcon Glyph="&#xE76B;" FontSize="11" />
+                                    <fa:FontIcon Glyph="&#xE76B;" FontSize="13" />
                                 </Button>
-                                <Button x:Name="GridNextPage" IsVisible="False" Click="GridNextPage_Click"
-                                        MinWidth="18" MinHeight="34" Padding="0" Background="Transparent" BorderThickness="0"
-                                        Opacity="0.35" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                <StackPanel x:Name="PagerDots" Grid.Column="1" Orientation="Horizontal"
+                                            HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="4" />
+                                <Button x:Name="GridNextPage" Grid.Column="2" Click="GridNextPage_Click"
+                                        MinWidth="32" MinHeight="28" Padding="6,0" Background="Transparent"
+                                        BorderThickness="0" Opacity="0.65" VerticalAlignment="Center"
                                         ToolTip.Tip="下一页">
-                                    <fa:FontIcon Glyph="&#xE76C;" FontSize="11" />
+                                    <fa:FontIcon Glyph="&#xE76C;" FontSize="13" />
                                 </Button>
                             </Grid>
-
-                            <!-- 分页点：模块多到一页放不下时才冒出来，点一下翻页 -->
-                            <StackPanel x:Name="PagerDots" Orientation="Horizontal" HorizontalAlignment="Center"
-                                        Spacing="6" IsVisible="False" />
 
                             <!-- 快捷设置行（参考图中间那一排） -->
                             <Border x:Name="QuickBar" CornerRadius="8" Padding="4,4" BorderThickness="1"

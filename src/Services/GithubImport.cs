@@ -98,7 +98,7 @@ public static class GithubImport
 
     private static HttpClient CreateHttp()
     {
-        var http = new HttpClient();
+        var http = new HttpClient(Core.HttpTls.Handler());
         http.DefaultRequestHeaders.UserAgent.ParseAdd("ClassSoftwareHub-Desktop");
         http.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
         return http;
@@ -304,6 +304,11 @@ public static class GithubImport
             {
                 if (exception.Kind == GithubImportErrorKind.NotFound) throw;
                 lastError = exception;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                // 用户主动取消（不是单次超时）：直接结束，别再挨个镜像入口白等一轮
+                throw;
             }
             catch (Exception exception)
             {

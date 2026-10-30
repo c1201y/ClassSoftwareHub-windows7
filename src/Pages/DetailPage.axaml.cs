@@ -621,7 +621,7 @@ public sealed partial class DetailPage : PageBase
     ///   ② 自建不可用 → 并行测速 4 条公益镜像，最快的先用、其余按速度兜底；
     ///   ③ 全都不行 → GitHub 官方直链收尾（绝不把下载堵死）。
     ///
-    /// 具体的挑选在 <see cref="Services.GithubRoute.ResolveAcceleratedAsync"/> 与
+    /// 具体的挑选在 <see cref="Services.GithubRoute.ResolveAsync"/> 与
     /// <see cref="Services.DownloadService"/> 里做（逐条候选依次重试），界面这边只负责
     /// 把「要加速」这个意图传下去 —— 所以这里没有浮层、没有清单。
     /// </summary>

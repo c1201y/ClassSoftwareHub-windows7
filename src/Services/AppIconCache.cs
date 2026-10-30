@@ -76,6 +76,24 @@ public static class AppIconCache
     private static string PathOf(string url) => Path.Combine(Dir, NameOf(url));
 
     /// <summary>
+    /// 本地缓存文件的物理路径（不论新鲜与否）。
+    /// 给「拿不到网络图也必须有点东西可用」的场合 —— 目前是图标主色提取：
+    /// 那张图就躺在盘上，没理由因为网络断了就把详情页色带刷成强调色
+    /// （2026-10-24 Nick 报 ClassIsland：本地有图，详情页却是强调色 + 购物袋占位）。
+    /// </summary>
+    public static bool TryGetLocalPath(string url, out string path)
+    {
+        path = "";
+        if (!IsHttp(url)) return false;
+
+        var p = PathOf(url);
+        if (!File.Exists(p)) return false;
+
+        path = p;
+        return true;
+    }
+
+    /// <summary>
     /// 同步尝试从本地缓存取图标源。
     /// 命中（文件在，无论新鲜与否）返回 true —— **陈旧也照样返回**，调用方据此决定要不要联网换新的。
     /// </summary>
@@ -252,7 +270,7 @@ public static class AppIconCache
     {
         try
         {
-            using var http = new HttpClient { Timeout = FetchTimeout };
+            using var http = new HttpClient(Core.HttpTls.Handler()) { Timeout = FetchTimeout };
             return await http.GetByteArrayAsync(url, ct).ConfigureAwait(false);
         }
         catch

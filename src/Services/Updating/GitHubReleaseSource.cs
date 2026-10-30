@@ -21,6 +21,7 @@ public sealed class GitHubReleaseSource : IUpdateSource
     private static readonly HttpClient Http = new(new SocketsHttpHandler
     {
         PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+        SslOptions = Core.HttpTls.SslOptions(),   // Win7 默认不开 TLS 1.2
     })
     {
         Timeout = TimeSpan.FromSeconds(30),

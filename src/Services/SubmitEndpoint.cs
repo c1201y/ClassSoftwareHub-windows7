@@ -6,9 +6,9 @@ using System.Linq;
 namespace ClassSoftwareHub.Desktop.Services;
 
 /// <summary>
-/// 提交服务（自建 Cloudflare Worker）的入口清单，以及「记住上次成功的那个」的选路逻辑。
+/// 提交服务（新后端 csh-api，部署于 EdgeOne Pages）的入口清单，以及「记住上次成功的那个」的选路逻辑。
 ///
-/// 投稿（<c>/api/submit</c>）和投稿页的 OSS 直传签名（<c>/api/oss-sign</c>）挂在同一个 Worker 上，
+/// 投稿（<c>/api/submit</c>）和投稿页的 OSS 直传签名（<c>/api/oss-sign</c>）挂在同一个后端上，
 /// 所以入口只在这里写一份 —— 两处各留一份的话，迟早会改一处忘一处
 /// （网页端对应 <c>src/gallery/submitEndpoints.ts</c>，同一套设计）。
 ///
@@ -18,14 +18,13 @@ namespace ClassSoftwareHub.Desktop.Services;
 /// </summary>
 public static class SubmitEndpoint
 {
-    /// <summary>入口按顺序试：先 CDN 新域，再 CF 直连（与网页版一致）。</summary>
-    public static readonly string[] All =
-    {
-        "https://cshapi.132614.xyz",
-        "https://submit.132614.xyz",
-    };
+    /// <summary>入口清单唯一出处见 <see cref="Core.ServiceEndpoints.All"/>（2026-10-27 三入口重排）。</summary>
+    public static readonly string[] All = Core.ServiceEndpoints.All;
 
-    /// <summary>单个入口的超时时间：连不上时尽快换下一个入口，不让用户干等（两个入口最坏 20 秒）。</summary>
+    /// <summary>
+    /// 单个入口的超时时间：连不上时尽快换下一个入口，不让用户干等。
+    /// 全部入口依次试完的最坏耗时 = 入口数 × 该超时（条目数见 <see cref="Core.ServiceEndpoints.All"/>）。
+    /// </summary>
     public const int TimeoutMs = 10000;
 
     private static string FilePath => Path.Combine(Core.AppPaths.DataDir, "submit-endpoint.txt");

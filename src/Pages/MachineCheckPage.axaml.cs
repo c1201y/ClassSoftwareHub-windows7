@@ -109,6 +109,7 @@ public sealed partial class MachineCheckPage : PageBase
 
     private List<CheckRow> _all = new();
     private bool _ready;
+    private bool _loading;
 
     public MachineCheckPage()
     {
@@ -130,58 +131,77 @@ public sealed partial class MachineCheckPage : PageBase
 
     private async void Load()
     {
+        // ⚠️ async void 里漏出去的异常会直接带走进程；而"检测中"转圈和禁用的按钮
+        //    也没人负责复位 —— 出一次错页面就永久卡在转圈。这里统一兜底。
+        if (_loading) return;
+        _loading = true;
+
         LoadingPanel.IsVisible = true;
         ResultGrid.ItemsSource = null;
         EmptyPanel.IsVisible = false;
         RescanButton.IsEnabled = false;
 
-        var apps = App.Content.Apps.ToList();
+        try
+        {
+            var apps = App.Content.Apps.ToList();
 
-        if (apps.Count == 0)
+            if (apps.Count == 0)
+            {
+                LoadingPanel.IsVisible = false;
+                RescanButton.IsEnabled = true;
+                EmptyPanel.IsVisible = true;
+                EmptyText.Text = "软件清单尚未加载，请先前往「软件下载」获取内容包。";
+                SummaryHint.Text = "";
+                return;
+            }
+
+            // 注册表枚举 + 比对一起丢后台（都是纯计算/只读，不碰 UI）
+            var results = await Task.Run(() =>
+            {
+                var installed = InstalledApps.Enumerate();
+                // 商店版应用不写「程序和功能」的键，只跑上面那一趟会把它们全判成"没装"
+                var store = InstalledApps.EnumerateStorePackages();
+                return (
+                    Items: MachineCheck.Run(apps, installed, store),
+                    InstalledCount: installed.Count,
+                    StoreCount: store.Count);
+            });
+
+            _all = results.Items.Select(i => new CheckRow(i)).ToList();
+
+            var s = MachineCheck.Summarize(results.Items);
+            StatTotal.Text = s.Total.ToString();
+            StatInstalled.Text = s.Installed.ToString();
+            StatOutdated.Text = s.Outdated.ToString();
+            StatMissing.Text = s.Missing.ToString();
+
+            // 商店应用单独报个数：它跟「程序和功能」是两本账，混着数会显得"多报了"
+            var storeTail = results.StoreCount > 0 ? $"，另有 {results.StoreCount} 个 Microsoft Store 应用" : "";
+            SummaryHint.Text = s.Outdated > 0
+                ? $"{s.Outdated} 个软件建议升级 · 本机共检测到 {results.InstalledCount} 个已安装软件{storeTail}"
+                : $"未发现需要升级的软件 · 本机共检测到 {results.InstalledCount} 个已安装软件{storeTail}";
+
+            FootNote.Text =
+                "检测口径：读取 Windows「程序和功能」的安装记录（64 位、32 位、当前用户三处），以及本账户注册的 Microsoft Store 应用，" +
+                "按软件名称与清单匹配。免安装版、已更名的软件，以及其他账户下安装的商店应用不在上述两处记录中，" +
+                "可能被判定为「未安装」；版本差异仅在本机记录包含有效版本号时给出。单击卡片可查看软件详情。";
+
+            _ready = true;
+            ApplyFilter();
+        }
+        catch (Exception ex)
+        {
+            Core.AppLog.Exception("machinecheck", ex, "本机核实检测失败");
+            SummaryHint.Text = "";
+            EmptyPanel.IsVisible = true;
+            EmptyText.Text = "检测失败：" + ex.Message + "\n可点右上角「重新检测」再试一次。";
+        }
+        finally
         {
             LoadingPanel.IsVisible = false;
             RescanButton.IsEnabled = true;
-            EmptyPanel.IsVisible = true;
-            EmptyText.Text = "软件清单尚未加载，请先前往「软件下载」获取内容包。";
-            SummaryHint.Text = "";
-            return;
+            _loading = false;
         }
-
-        // 注册表枚举 + 比对一起丢后台（都是纯计算/只读，不碰 UI）
-        var results = await Task.Run(() =>
-        {
-            var installed = InstalledApps.Enumerate();
-            // 商店版应用不写「程序和功能」的键，只跑上面那一趟会把它们全判成"没装"
-            var store = InstalledApps.EnumerateStorePackages();
-            return (
-                Items: MachineCheck.Run(apps, installed, store),
-                InstalledCount: installed.Count,
-                StoreCount: store.Count);
-        });
-
-        _all = results.Items.Select(i => new CheckRow(i)).ToList();
-
-        var s = MachineCheck.Summarize(results.Items);
-        StatTotal.Text = s.Total.ToString();
-        StatInstalled.Text = s.Installed.ToString();
-        StatOutdated.Text = s.Outdated.ToString();
-        StatMissing.Text = s.Missing.ToString();
-
-        // 商店应用单独报个数：它跟「程序和功能」是两本账，混着数会显得"多报了"
-        var storeTail = results.StoreCount > 0 ? $"，另有 {results.StoreCount} 个 Microsoft Store 应用" : "";
-        SummaryHint.Text = s.Outdated > 0
-            ? $"{s.Outdated} 个软件建议升级 · 本机共检测到 {results.InstalledCount} 个已安装软件{storeTail}"
-            : $"未发现需要升级的软件 · 本机共检测到 {results.InstalledCount} 个已安装软件{storeTail}";
-
-        FootNote.Text =
-            "检测口径：读取 Windows「程序和功能」的安装记录（64 位、32 位、当前用户三处），以及本账户注册的 Microsoft Store 应用，" +
-            "按软件名称与清单匹配。免安装版、已更名的软件，以及其他账户下安装的商店应用不在上述两处记录中，" +
-            "可能被判定为「未安装」；版本差异仅在本机记录包含有效版本号时给出。单击卡片可查看软件详情。";
-
-        LoadingPanel.IsVisible = false;
-        RescanButton.IsEnabled = true;
-        _ready = true;
-        ApplyFilter();
     }
 
     private void ApplyFilter()

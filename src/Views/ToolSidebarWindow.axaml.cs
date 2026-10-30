@@ -29,7 +29,7 @@ namespace ClassSoftwareHub.Desktop.Views;
 ///     **拖拽换边已于 2026-10-04 整条撤除**（见字段区注释），要换边请到设置里选。
 ///   · 展开 = **两套样式**（2026-10-11 加）：classic 工具竖排列表 + 底排五颗（原版）｜
 ///     grid 图标网格（4 列一页 + 分页点）+ 快捷设置行。见 <see cref="SyncStyleViews"/>。
-/// 位置（贴哪条边）会记在设置里；**沿边位置不记忆**（2026-10-19 上游起一律居中，见 <see cref="_liveRatio"/>）；
+/// 位置（贴哪条边）会记在设置里；沿边位置同样记忆（2026-10-24 上游恢复：松手落盘、启动恢复，见 <see cref="_liveRatio"/>）；
 /// 「位置复原」= 回到右边的居中位置。
 /// 置顶、不进任务栏、无标题栏、不能缩放/最大化/最小化。
 ///
@@ -55,7 +55,7 @@ namespace ClassSoftwareHub.Desktop.Views;
 ///   · DisplayArea.Primary.WorkArea → Avalonia <c>Screens.Primary.WorkingArea</c>（同为物理像素）；
 ///   · DispatcherQueueTimer → Avalonia <see cref="DispatcherTimer"/>；
 ///   · ElementCompositionPreview 的透明度动画 → 普通 Opacity + 按帧计时器（见 SetPanelOpacity /
-///     FadePanelToOpaque 的移植注释），偏移动画（PlaySlideIn）改用 RenderTransform 平移；
+///     FadePanelOpacity 的移植注释）；
 ///   · 原生 Flyout → Avalonia <see cref="Flyout"/>（ShouldConstrainToRootBounds 在 Avalonia 没有
 ///     对应属性，Flyout 默认就不裁在宿主窗口里）；
 ///   · UISettings 取系统强调色 → Avalonia PlatformSettings.PlatformColorValues（取不到给兜底色）。
@@ -136,13 +136,23 @@ public sealed partial class ToolSidebarWindow : Window
     }
 
     /// <summary>
-    /// 收起动画的第二段：面板滑出屏幕之后，**抓手从屏幕外滑回贴边位**要花的毫秒（2026-10-01）。
-    /// 第一段是 <see cref="SlideOutToEdge"/> 的 240ms（整个面板推出屏幕）。两段加起来 ≈ 430ms。
-    /// 抓手的行程很短（只有自身厚度 8dip + 2px），所以这段比第一段快一些才跟得上。
-    /// ⚠️ 移植说明：上游改用渲染回调驱动；本仓库沿用 16ms <see cref="DispatcherTimer"/>（见 TweenWindow），
-    ///    时长这个"行为参数"照搬。
+    /// 展开时面板的淡入时长（毫秒）—— 跟滑入同时进行，滑到一半内容已经全实。
+    ///
+    /// ⛔ 2026-10-29 第一版是"窗口一次落到展开尺寸 + 原地淡入"，用户看到的是**直接弹出来**
+    ///    （「现在是直接弹出来的，换成 向屏幕内滑动出现」）。现在改成整块面板从屏幕外滑进来，见 <see cref="ExpandInPlace"/>。
     /// </summary>
-    private const double CollapseSlideMs = 190;
+    private const double ExpandFadeMs = 140;
+
+    /// <summary>
+    /// 展开滑入时长（毫秒）。220 ≈ 一眼看得出来在动、又不至于让人等 —— 触摸屏上这个速度也不拖沓。
+    /// </summary>
+    private const double ExpandSlideMs = 220;
+
+    /// <summary>滑入每帧间隔（毫秒）。15ms ≈ 66fps，SetWindowPos 只改坐标，代价很低。</summary>
+    private const int SlideFrameMs = 15;
+
+    /// <summary>收起时面板先原地淡出的时长（毫秒），淡完再变身成竖线 —— 竖线始终钉在原位，不滑。</summary>
+    private const double CollapseFadeMs = 110;
 
     /// <summary>
     /// 底部按钮那一排在竖条里的高度增量 —— <b>五颗全显</b>时的经验值（2026-09-27 定的）。
@@ -180,7 +190,7 @@ public sealed partial class ToolSidebarWindow : Window
     private const int GridPadDip = 8;                   // 面板四周内边距（= GridPanel 的 Margin）
     private const int GridHeaderDip = 26;               // 顶条（标题 + 四颗小图标键）的高度
     private const int GridSectionGapDip = 6;            // 顶条 / 网格 / 分页点 / 快捷设置行 之间的间距
-    private const int GridDotsDip = 14;                 // 分页点那一行的高度（圆点 7 + 每边触摸靶 3）
+    private const int GridDotsDip = 28;                 // 分页行高度（◀ ● ● ● ▶ 一行；2026-10-30 从 20 抬到 28，给触摸靶留够）
     private const int GridQuickDip = 56;                // 快捷设置行的高度
     private const int GridColsSide = 4;                 // 贴左右边时一页几列
     private const int GridRowsSide = 2;                 // 贴左右边时一页几行
@@ -272,13 +282,24 @@ public sealed partial class ToolSidebarWindow : Window
     private bool _expanded;
 
     /// <summary>
-    /// 拖动过程中的沿边位置比例（0~1，-1 = 居中）。
-    /// ⛔ **只在内存里**，不写存档 —— 位置记忆功能已移除（2026-10-19 上游，2026-10-22 移植）。
-    /// 它只负责"拖一边时对面实时跟随"这一件事，下次启动不会恢复。
+    /// 沿边位置比例（0~1，-1 = 居中）。
+    /// 内存里的实时值，拖动期间必须无条件更新（原先只有双边模式更新，单边永远居中）。
+    /// 存档那份在 <see cref="SettingsStore.SidebarPosRatio"/>：松手时写（<see cref="DockToNearestEdge"/>）、
+    /// 启动/重建时读（<see cref="SyncInstances"/>）。2026-10-24 上游按 Nick 要求恢复了位置记忆。
     /// </summary>
     private double _liveRatio = -1;
 
     private int _collapseEpoch;                            // 收起滑出/抓手淡入的批次号：展开、再次收起都能把它作废
+
+    /// <summary>
+    /// 正在走「面板淡出 → 变身竖线」这条路。
+    /// ⚠️ 2026-10-30（用户「有几次收起时的那一条还是乱飞」）：失焦（Deactivated）和进程内按下钩子
+    ///    常常接连触发两次 <see cref="Collapse"/>。以前第二次会落到「没展开 → 直接 FinishCollapse」
+    ///    那个分支，把 110ms 淡出整个跳掉 —— 面板"啪"一下缩成线，竖线又落在另一个位置，看着就是乱飞。
+    ///    现在淡出期间重复的收起请求一律忽略，交给在跑的那一次收尾。
+    /// </summary>
+    private bool _collapsing;
+
     private bool _shownOnce;
     private bool _visible;
 
@@ -299,24 +320,14 @@ public sealed partial class ToolSidebarWindow : Window
     /// </summary>
     private DispatcherTimer? _outsideWatch;
 
-    /// <summary>展开滑动用的按帧计时器（滑完置空）。
-    /// ⚠️ 移植说明：上游 dv1.1.0 起改用 <c>CompositionTarget.Rendering</c> 渲染回调 + 兜底 watchdog 驱动
-    ///    （嫌 16ms 计时器精度低、忙时会合并 tick）；本仓库既有约定是 15~16ms <see cref="DispatcherTimer"/>
-    ///    （见 SidebarLayoutPage 的 HookGhostFrame 注释），这里**保持本仓库写法不动**。</summary>
+    /// <summary>面板透明度过渡用的按帧计时器（展开淡入 / 收起淡出共用，一次只有一个）。</summary>
+    private DispatcherTimer? _fadeTimer;
+
+    /// <summary>展开滑入用的按帧计时器（只挪位置）。收起 / 隐藏 / 重排一律先 <see cref="StopSlide"/>。</summary>
     private DispatcherTimer? _slideTimer;
 
-    /// <summary>滑动的**落点存档**（目标位置）。滑动进行中 <see cref="CurrentRect"/> 返回它，
-    /// 别让锚定方（音量浮窗）读到半路上的实时位置 —— 锚到半路的位置，等边条滑到位两个就叠上了（2026-10-01 修）。</summary>
-    private PixelRect? _restRect;
-
-    /// <summary>
-    /// 滑动动画的"代次"。每次状态变化（收起/展开/拖动/隐藏）都 +1，让**还在跑的那一波动画立刻作废**。
-    /// 没有它就会出现"展开到一半快速点收起 → 动画的后续帧又把窗口挪回去"的竞态（按钮跑到左上角就是这么来的）。
-    /// </summary>
+    /// <summary>滑入批次号：作废已经排上的那一拍（窗口被别的路挪过之后，计时器不能再把它拖回去）。</summary>
     private int _slideEpoch;
-
-    /// <summary>抓手淡入用的按帧计时器（Composition 动画的替代，见类注释）。</summary>
-    private DispatcherTimer? _fadeTimer;
 
     /// <summary>展开面板里的工具按钮（按「侧边布局」的模块清单动态生成，见 BuildToolButtons）。</summary>
     private readonly List<Button> _toolButtons = new();
@@ -403,10 +414,6 @@ public sealed partial class ToolSidebarWindow : Window
             if (w is null) return null;
             try
             {
-                // 滑动进行中：返回落点存档（动画的目标位置）。实时位置还在半路上，
-                // 锚定方拿到它会把自己的落座点算歪，等边条滑到位就叠上了。
-                if (w._slideTimer is not null && w._restRect is { } rest) return rest;
-
                 var pos = w.WinPos();
                 var size = w.WinSizePx();
                 return new PixelRect(pos.X, pos.Y, size.Width, size.Height);
@@ -555,7 +562,13 @@ public sealed partial class ToolSidebarWindow : Window
     /// 按设置把实例集合对齐到"该有哪几条边"：该显示的建出来/显示，不该显示的藏起来。
     /// 返回**本次该显示的那些实例**（顺序：左 → 右；单条就是一个）。
     /// </summary>
-    private static List<ToolSidebarWindow> SyncInstances()
+    /// <param name="ratioEdge">
+    /// 需要在显示之前就把沿边比例准备好的那条边（换边时用）。
+    /// 2026-10-23 上游 Nick：「拖到左边再拖到右边上部，会先在右边下部出现再突变上去」——
+    /// 先按旧比例 Present 再挪走会露出中间态，所以要在实例"建出来 / 从池里取出来"的瞬间就写好吃到的比例。
+    /// </param>
+    /// <param name="ratio">与 <paramref name="ratioEdge"/> 配套的比例值。</param>
+    private static List<ToolSidebarWindow> SyncInstances(string? ratioEdge = null, double ratio = -1)
     {
         var want = DesiredEdges();
 
@@ -570,8 +583,22 @@ public sealed partial class ToolSidebarWindow : Window
                 w = new ToolSidebarWindow(e);
                 _pool[e] = w;
             }
+
+            // 新建的和复用的都要覆盖 —— 复用那条带着它上次的比例，正是"跳一下"的另一个来源
+            if (ratioEdge == e && ratio >= 0)
+                w._liveRatio = ratio;
+
             list.Add(w);
         }
+
+        // 调用方没给比例（启动 / 重建 / 从侧边布局页回来）→ 用存档里那份。
+        // 2026-10-24 上游恢复位置记忆：拖到的位置重启后就该还在。
+        // 双边模式下两边共用同一个比例（存档里只有一份，拖动时本来就靠 _liveRatio 互相同步）。
+        if (ratioEdge is null && App.Settings.Current.SidebarPosRatio >= 0)
+        {
+            foreach (var w in list) w._liveRatio = App.Settings.Current.SidebarPosRatio;
+        }
+
         return list;
     }
 
@@ -651,10 +678,12 @@ public sealed partial class ToolSidebarWindow : Window
     }
 
     /// <summary>设置里的开关/边选项变了：开就显示、关就藏起来；边变了重新贴过去。</summary>
-    public static void ApplySetting()
+    /// <param name="ratioEdge">换边时：需要在建/取实例瞬间就吃到的沿边比例的那条边。</param>
+    /// <param name="ratio">与 <paramref name="ratioEdge"/> 配套的比例值。</param>
+    public static void ApplySetting(string? ratioEdge = null, double ratio = -1)
     {
         if (!App.Settings.Current.SidebarEnabled) { HideSidebar(); return; }
-        foreach (var w in SyncInstances())
+        foreach (var w in SyncInstances(ratioEdge, ratio))
         {
             w.Present();
             w.SnapToSetting();
@@ -663,6 +692,7 @@ public sealed partial class ToolSidebarWindow : Window
 
     private void SnapToSetting()
     {
+        StopSlide();                                      // 尺寸/位置要重算：滑入半路就先停，别两条路一起挪窗口
         ApplyEdgeLayout();
         ApplySize();
         MoveToEdge();
@@ -811,10 +841,19 @@ public sealed partial class ToolSidebarWindow : Window
 
             // 触屏滑动翻页（2026-10-12 用户反馈）：按在格子上也能滑出去 ——
             // ⚠️ 必须 handledEventsToo=true：格子的 PointerReleased 会被 Button 标 handled。
-            ToolGrid.AddHandler(InputElement.PointerPressedEvent,
+            // ⚠️ 挂在 **Root** 上而不是 ToolGrid 上：Win7 触屏上格子的指针捕获可能中途丢，
+            //    丢了以后事件按命中目标冒泡，手指滑到格缝/分页行时就到不了 ToolGrid 了。
+            //    按下的位置另做一次"必须落在网格里"的判定（见 ToolGrid_PointerPressed）。
+            Root.AddHandler(InputElement.PointerPressedEvent,
                 new EventHandler<PointerPressedEventArgs>(ToolGrid_PointerPressed),
                 RoutingStrategies.Bubble, true);
-            ToolGrid.AddHandler(InputElement.PointerReleasedEvent,
+            Root.AddHandler(InputElement.PointerMovedEvent,
+                new EventHandler<PointerEventArgs>(ToolGrid_PointerMoved),
+                RoutingStrategies.Bubble, true);
+            Root.AddHandler(InputElement.PointerReleasedEvent,
+                new EventHandler<PointerReleasedEventArgs>(ToolGrid_PointerReleasedTunnel),
+                RoutingStrategies.Tunnel, true);
+            Root.AddHandler(InputElement.PointerReleasedEvent,
                 new EventHandler<PointerReleasedEventArgs>(ToolGrid_PointerReleased),
                 RoutingStrategies.Bubble, true);
             Root.PointerMoved += (_, _) => Touch();
@@ -826,6 +865,11 @@ public sealed partial class ToolSidebarWindow : Window
                 if (_expanded && !_pressed && !App.Settings.Current.SidebarPinned && !SuppressAutoCollapse)
                     Collapse();
             };
+
+            // 换显示器 / 改分辨率 / 改缩放：窗口尺寸 Avalonia 会按 DIP 自己跟，
+            // 但贴边位置和那个**独立原生窗口**做的隐形热区是拿 Scale() 换算物理像素的，
+            // 不会自己跟 —— 不重算就会停在旧位置/旧大小（2026-10-25 用户报「侧边栏出问题了」）。
+            ScalingChanged += (_, _) => OnScalingChanged();
             Root.ActualThemeVariantChanged += (_, _) =>
             {
                 ApplyPanelBrush();
@@ -900,19 +944,19 @@ public sealed partial class ToolSidebarWindow : Window
             MoveToEdge();
             // ⚠️ 外观要等窗口真显示出来之后再收尾（构造期改窗口样式会让窗口显示不出来）
             WindowChrome.RemoveBorder(hwnd, rounded: true, dark: Root.ActualThemeVariant == ThemeVariant.Dark);
-            // 圆角：RemoveBorder 里那次是"一次性"的，而侧边栏展开/收起时宽度会变 ——
-            // 区域是按当时的尺寸算死的，不重算就会裁歪（实测过：窗口 40 宽、区域还停在 59 宽）。
-            // Attach 挂在 Resized 上自动重算，正好治这个。
-            // ⚠️ force=true（2026-10-14）：Win11 上这扇 WS_POPUP + 每像素 alpha 的浮窗 DWM 拒绝
-            //    给圆角（CORNER_PREFERENCE=ROUND 也不认，实测 26200），区域裁剪是唯一出路。
-            try { _corners ??= RoundedCorners.Attach(this, RoundedCorners.DefaultCornerRadiusDip, force: true); } catch { }
-            _corners?.Refresh();
-            // 亚克力底（Win7 → Aero 毛玻璃 → 纯色兜底），也是显示之后才能上
-            Backdrop.Apply(this, null, "acrylic");
-            // ⚠️ Win11：这扇 NOREDIRECTIONBITMAP 浮窗 DWM 不认 SetWindowRgn（2026-10-15 实测，
-            //    日志"裁剪成功"但像素纹丝不动），圆角只能靠内容 alpha 抠 —— 底色必须全透，
-            //    否则面板圆角与窗口矩形之间的月牙缝漏出窗口白底（用户实测的"圆角没裁干净"）。
-            if (OsInfo.SupportsWindowRounding) Backdrop.EnablePerPixelCorners(this);
+            // 亚克力底（Win7 → Aero 毛玻璃 → 纯色兜底），也是显示之后才能上。
+            // ⚠️ alphaCorners: Win10 上 GPU 渲染同样带 WS_EX_NOREDIRECTIONBITMAP，DWM 无视
+            //    SetWindowRgn —— 这和 Win11 是同一个坑，圆角一律改由内容 alpha 抠。
+            BackdropTheme.Apply(this, null, "acrylic", alphaCorners: true);
+
+            // 圆角：Win8+（DWM 合成 → 内容 alpha 抠角）不再走区域裁剪 ——
+            //    SetWindowRgn 本来就被 DWM 无视，而它挂在 Resized 上会在展开/收起改尺寸的那一帧
+            //    白做一次全窗重设/重画，动画起步会顿一下。只在 Win7 / 无 DWM 时保留区域裁剪。
+            if (!BackdropTheme.SupportsAlphaCorners)
+            {
+                try { _corners ??= RoundedCorners.Attach(this, RoundedCorners.DefaultCornerRadiusDip, force: true); } catch { }
+                _corners?.Refresh();
+            }
         }
         catch (Exception ex)
         {
@@ -923,8 +967,8 @@ public sealed partial class ToolSidebarWindow : Window
     private void HideSelf()
     {
         if (!_visible) return;
-        StopSlide();
         _visible = false;
+        StopSlide();                                      // 藏了就别再让滑入的计时器挪窗口
         HideHitPad();                                     // 整条都藏了，热区更不能留着挡点击
 
         // 音量浮窗（主音量 + 合成器）跟着一起收
@@ -983,44 +1027,97 @@ public sealed partial class ToolSidebarWindow : Window
 
     private void Expand()
     {
+        // 已经在展开态就别再展一次 —— 再走一遍等于把面板扔回屏幕外重滑，看着就是"那一条乱飞"
+        if (_expanded) return;
+
         HideHitPad();                                     // 隐形热区跟收起条一起退场，别挡屏幕
-        StopSlide();                                      // 掐掉上一次没跑完的（防连点/竞态）
-        _collapseEpoch++;                                 // 取消可能还在跑的"收起滑出/抓手淡入"
+        _collapseEpoch++;                                 // 取消可能还在跑的"收起淡出"
+        _collapsing = false;
         _expanded = true;
-        ResetPanelOpacity();
         CollapsedView.IsVisible = false;
         ExpandedView.IsVisible = true;
-        ApplyScrollLimit();                               // 先把滚动范围算好；尺寸交给滑入动画一帧设到位
+        ApplyScrollLimit();                               // 先把滚动范围算好，再按它算展开尺寸
         ApplyCornerRadius();                              // 竖线样式下窗口马上要变宽，圆角得先回到 8
 
-        // ⚠️ 这里**不要**再单独 ApplySize() + MoveToEdge()：
-        //    那会让窗口先出现在"终点位置"并画出一帧展开态，紧接着又被滑入动画挪到起点 ——
-        //    肉眼就是"闪一下，然后再滑"。滑入动画自己会用**一次** MoveAndResize
-        //    把"起点位置 + 展开尺寸"同时设下去（2026-09-26 优化）。
-        SlideInFromEdge();
+        ExpandInPlace();
         Touch();
         StartOutsideWatch();                              // 没钉住时：点别处要收起（见字段注释）
     }
 
-    private void Collapse(bool animate = true)
+    /// <summary>
+    /// 展开发（2026-10-29 二改）：窗口按展开尺寸摆到**屏幕外**，再整块**向屏幕里滑入**。
+    ///
+    /// <para>
+    /// 用户原话：「展开动画那个竖线会飞」→ 第一版改成了原地淡入 → 紧接着又说
+    /// 「现在是直接弹出来的，换成 向屏幕内滑动出现」。所以现在动的是**面板本身**：
+    /// 收起条在滑动开始前就已经藏掉（<c>CollapsedView.IsVisible = false</c>），
+    /// 屏幕上从边缘滑进来的只有展开面板，那条竖线不会再跟着飞。
+    /// </para>
+    ///
+    /// <para>
+    /// ⚠️ 尺寸和屏幕外起点**一次**设下去，滑动期间窗口尺寸不变 —— 每帧只挪坐标，
+    ///    内容不会重排、字不会抖。
+    /// ⚠️ 内容透明度 0 → 1 跟滑入同时跑：第一帧面板还没排版完时不会露出半成品。
+    /// </para>
+    /// </summary>
+    private void ExpandInPlace()
     {
-        StopSlide();                                      // ⚠️ 必须停：不然展开动画的后续帧还会把窗口挪回去
-        _idle.Stop();
-        StopOutsideWatch();                               // 收起来就不用再看前台窗口了
+        SetPanelOpacity(0f);
 
-        // 展开 → 收起给个过渡：整个窗口往贴的那条边**滑出去**（跟滑进来同一条路子，方向相反），滑完再真收。
-        // animate=false 用在"要立刻消失"的场合（截图前、刚出现时），那种必须当帧就收干净。
-        if (!_expanded || !ExpandedView.IsVisible || !animate)
+        PixelPoint target, start;
+        int width, height;
+        try
         {
-            FinishCollapse();
+            var size = PlannedSize();
+            width = size.Width;
+            height = size.Height;
+            target = EdgePosition(width, height);         // _expanded 已为 true → 贴边、不含收起空隙
+            start = OffScreenPosition(target, width, height);
+
+            MoveResizeWin(start, width, height);
+        }
+        catch (Exception ex)
+        {
+            Log("展开落位失败: " + ex.Message);
+            FadePanelOpacity(1, ExpandFadeMs);            // 兜底：至少把内容放出来
             return;
         }
 
-        _expanded = false;                                // 先立旗：滑出期间自动收起那条路别再来一遍
+        Log($"展开滑入：{start.X},{start.Y} → {target.X},{target.Y}（{width}×{height}，{SlideFrameMs}ms/帧）");
+        SlideWindow(start, target);
+        FadePanelOpacity(1, ExpandFadeMs);
+    }
+
+    private void Collapse(bool animate = true)
+    {
+        _idle.Stop();
+        StopOutsideWatch();                               // 收起来就不用再看前台窗口了
+        StopSlide();                                      // 滑入还没走完就收了：停在原地，别再往屏幕里推
+
+        // animate=false 用在"要立刻消失"的场合（截图前、刚出现时），那种必须当帧就收干净。
+        if (!_expanded || !ExpandedView.IsVisible || !animate)
+        {
+            // 淡出已经在跑：这一次是重复请求（Deactivated + 进程内按下钩子最常撞在一起）。
+            // 直接 FinishCollapse 会把淡出跳过 —— 面板瞬间缩成线、竖线换了个位置，就是用户说的「乱飞」。
+            if (_collapsing) return;
+
+            _expanded = false;
+            FinishCollapse(anchor: animate);              // 用户触发的收起要锚在面板当前位置；"刚出现/截图"那条不动位置
+            return;
+        }
+
+        _expanded = false;                                // 先立旗：收起期间自动收起那条路别再来一遍
+        _collapsing = true;
         var epoch = ++_collapseEpoch;
-        // 滑完才真收，而且要让抓手**淡入**：滑出终点在屏幕外，小条直接"啪"一下冒出来太生硬
-        if (SlideOutToEdge(() => { if (epoch == _collapseEpoch) FinishCollapse(fadeIn: true); })) return;
-        FinishCollapse();                                 // 没有窗口可滑（极少数）：当帧收干净，不做动画
+
+        // 锚定式收起：面板在原地淡出，然后一次变身成竖线。窗口外边缘全程不动，竖线不会飞。
+        FadePanelOpacity(0, CollapseFadeMs, () =>
+        {
+            if (epoch != _collapseEpoch) return;          // 又被展开/再次收起打断了
+            _collapsing = false;
+            if (_expanded) { FadePanelOpacity(1, ExpandFadeMs); return; }
+            FinishCollapse(fadeIn: true, anchor: true);
+        });
     }
 
 
@@ -1028,12 +1125,19 @@ public sealed partial class ToolSidebarWindow : Window
     /// 真收：换回抓手 + 落位。中途用户又展开了就别收（_expanded 已被置回 true）。
     /// </summary>
     /// <param name="fadeIn">
-    /// true = 抓手淡入（**走滑动动画那条路用它**：面板刚滑出屏幕，小条淡入比"啪一下出现"自然）。
+    /// true = 竖线淡入（走收起动画那条路用它：面板刚在原地淡出，小条紧跟着淡入比"啪一下出现"自然）。
     /// false = 当帧就位（截图前、窗口刚出现时那种要立刻收干净的场合，不能有任何可见动画）。
     /// </param>
-    private void FinishCollapse(bool fadeIn = false)
+    /// <param name="anchor">
+    /// true = 竖线钉在当前面板的**沿边中心**（用户收起时要的"原地变身"）；
+    /// false = 按比例重新算（窗口刚出现、截图等场合，面板不一定还在原位，拿它当锚点只会把线甩走）。
+    /// </param>
+    private void FinishCollapse(bool fadeIn = false, bool anchor = false)
     {
         if (_expanded) return;
+
+        StopSlide();                                      // 收尾时窗口只归这条路管，滑入的计时器一律作废
+        _collapsing = false;
 
         // 先按住透明度，等落位之后再放出来 —— 顺序反了会先闪一帧不透明的小条
         if (fadeIn) SetPanelOpacity(0f);
@@ -1042,42 +1146,19 @@ public sealed partial class ToolSidebarWindow : Window
         CollapsedView.IsVisible = true;
         ApplyCornerRadius();                              // 竖线样式下窗口马上要缩到 6 宽，圆角得先降下来，不然两端被裁尖
 
-        // 一次到位：收起尺寸 + 位置。
-        // 滑出动画已经把**整个窗口**推出屏幕外了，所以这一步的"变身"（尺寸 92×450 → 8×110 / 6×220、
-        // 内容换视图）用户在屏幕上看不到 —— 不会再出现"没滑出去就突然缩一下"（2026-09-26 修）。
-        //
-        // ⚠️ fadeIn 的落点是**屏幕外的抓手起点**，不是贴边位（2026-10-01 改）：
-        //    面板滑出去之后，抓手再从屏幕外滑回贴边（见下面的 TweenWindow）——
-        //    "大块滑走 + 小条滑回"一口气看完，比"大块滑走 + 小条原地淡入"连贯。
-        //    起点在屏幕外，所以尺寸变身依旧藏得住。
-        PixelPoint? slideFrom = null, slideTo = null;
+        // 一次到位：收起尺寸 + 贴边位。窗口只在内侧缩回去，外边缘和竖线原来的位置完全重合。
         try
         {
             var size = CollapsedSize();
-            var pos = EdgePosition(size.Width, size.Height);
-            var startPos = fadeIn
-                ? OutwardOffset(pos, (IsFlat ? size.Height : size.Width) + 2)   // 整个抓手推到屏幕外 + 2px 余量
-                : pos;
-
-            MoveResizeWin(startPos, size.Width, size.Height);
-
-            if (fadeIn)
-            {
-                slideFrom = startPos;
-                slideTo = pos;
-                _restRect = new PixelRect(pos.X, pos.Y, size.Width, size.Height);  // 滑动期间 CurrentRect 返回它
-            }
+            var pos = CollapsedPosition(size, anchor);
+            MoveResizeWin(pos, size.Width, size.Height);
         }
         catch (Exception ex)
         {
             Log("收尾落位失败: " + ex.Message);
         }
 
-        if (fadeIn)
-        {
-            FadePanelToOpaque(CollapseSlideMs);
-            if (slideFrom is { } f && slideTo is { } t) TweenWindow(f, t, CollapseSlideMs);
-        }
+        if (fadeIn) FadePanelOpacity(1, 90);
         else ResetPanelOpacity();
 
         ReassertCollapsed();
@@ -1102,28 +1183,34 @@ public sealed partial class ToolSidebarWindow : Window
     }
 
     /// <summary>
-    /// 面板从当前透明度淡到不透明（收起后让小条"浮现"而不是"闪现"）。
+    /// 面板透明度从当前值过渡到 <paramref name="to"/>（展开淡入 / 收起淡出共用）。
     /// ⚠️ 移植说明：原版是合成器 ScalarKeyFrameAnimation + 缓出贝塞尔；Avalonia 没有逐 Visual 的
-    ///    合成动画，这里用 16ms 按帧计时器做线性淡入 —— 150ms 的透明度过渡，肉眼差别可以忽略。
+    ///    合成动画，这里用 16ms 按帧计时器做线性过渡 —— 100~140ms 的透明度变化，肉眼差别可以忽略。
     /// </summary>
-    private void FadePanelToOpaque(double ms)
+    private void FadePanelOpacity(double to, double ms, Action? done = null)
     {
         try
         {
             StopFade();
             var from = Panel.Opacity;
-            if (ms <= 0 || from >= 1) { Panel.Opacity = 1; return; }
+            if (ms <= 0 || Math.Abs(to - from) < 0.001)
+            {
+                Panel.Opacity = to;
+                done?.Invoke();
+                return;
+            }
 
             var sw = Stopwatch.StartNew();
             var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
             timer.Tick += (_, _) =>
             {
                 var t = Math.Clamp(sw.Elapsed.TotalMilliseconds / ms, 0, 1);
-                Panel.Opacity = from + (1 - from) * t;    // 缓出近似：直接线性，尾巴没原版柔
+                Panel.Opacity = from + (to - from) * t;
                 if (t >= 1)
                 {
-                    Panel.Opacity = 1;
+                    Panel.Opacity = to;
                     StopFade();
+                    done?.Invoke();
                 }
             };
             _fadeTimer = timer;
@@ -1131,8 +1218,9 @@ public sealed partial class ToolSidebarWindow : Window
         }
         catch (Exception ex)
         {
-            Log("抓手淡入失败: " + ex.Message);
-            ResetPanelOpacity();                            // 出问题就退回"直接可见"，别留个透明的边条
+            Log("面板透明度过渡失败: " + ex.Message);
+            Panel.Opacity = to;
+            done?.Invoke();
         }
     }
 
@@ -1140,6 +1228,87 @@ public sealed partial class ToolSidebarWindow : Window
     {
         _fadeTimer?.Stop();
         _fadeTimer = null;
+    }
+
+    /// <summary>
+    /// 展开滑入的起点：整块面板**完全在屏幕外**，沿"从这条边滑进来"的方向摆。
+    /// 与 <see cref="EdgePosition"/> 用同一套沿边位置 —— 滑动全程只有垂直于那条边的坐标在变。
+    /// </summary>
+    private PixelPoint OffScreenPosition(PixelPoint target, int width, int height)
+    {
+        var work = WorkAreaRect();
+        return _edge switch
+        {
+            "left" => new PixelPoint(work.X - width, target.Y),
+            "right" => new PixelPoint(work.X + work.Width, target.Y),
+            "top" => new PixelPoint(target.X, work.Y - height),
+            _ => new PixelPoint(target.X, work.Y + work.Height)
+        };
+    }
+
+    /// <summary>
+    /// 把窗口从 <paramref name="from"/> 缓出地挪到 <paramref name="to"/>（只挪位置，不改尺寸）。
+    ///
+    /// <para>
+    /// ⚠️ 最后一拍**必须**用精确坐标再挪一次：按帧插值收尾时可能还差一两像素，
+    ///    不补这一下那条缝会一直留在屏幕边上。
+    /// ⚠️ 中断（收起 / 隐藏 / 切缩放 / 重新贴边）一律只调 <see cref="StopSlide"/>：
+    ///    **不要**顺手把窗口挪回去 —— 收起那条路在淡出后会自己落位，两边都动就是
+    ///    用户反复说的「那一条乱飞」。
+    /// </para>
+    /// </summary>
+    private void SlideWindow(PixelPoint from, PixelPoint to, double ms = ExpandSlideMs, Action? done = null)
+    {
+        StopSlide();
+
+        var hwnd = Hwnd();
+        if (ms <= 0 || hwnd == IntPtr.Zero || from == to)
+        {
+            MoveWin(hwnd, to);
+            done?.Invoke();
+            return;
+        }
+
+        try
+        {
+            var epoch = ++_slideEpoch;
+            MoveWin(hwnd, from);
+
+            var sw = Stopwatch.StartNew();
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(SlideFrameMs) };
+            timer.Tick += (_, _) =>
+            {
+                if (epoch != _slideEpoch) return;         // 被中断了：这一拍之后不再碰窗口
+
+                var t = Math.Clamp(sw.Elapsed.TotalMilliseconds / ms, 0, 1);
+                var k = 1 - Math.Pow(1 - t, 3);           // easeOutCubic：起步快、收尾稳
+                var x = from.X + (int)Math.Round((to.X - from.X) * k);
+                var y = from.Y + (int)Math.Round((to.Y - from.Y) * k);
+                MoveWin(hwnd, new PixelPoint(x, y));
+
+                if (t < 1) return;
+
+                MoveWin(hwnd, to);                        // 精确落位
+                StopSlide();
+                done?.Invoke();
+            };
+            _slideTimer = timer;
+            timer.Start();
+        }
+        catch (Exception ex)
+        {
+            Log("滑入动画失败: " + ex.Message);
+            MoveWin(Hwnd(), to);
+            done?.Invoke();
+        }
+    }
+
+    /// <summary>停掉滑入（不动窗口）。批次号 +1，已经排上的那一拍也会自己作废。</summary>
+    private void StopSlide()
+    {
+        _slideEpoch++;
+        _slideTimer?.Stop();
+        _slideTimer = null;
     }
 
     /// <summary>
@@ -1154,11 +1323,6 @@ public sealed partial class ToolSidebarWindow : Window
             try
             {
                 if (_expanded) return;
-
-                // ⚠️ 抓手正在从屏幕外滑入时**别纠位**：这一帧它本来就还在路上，
-                //    抢先挪到贴边位会把滑入动画打断成"闪一下就到了"（2026-10-01）。
-                //    落位交给动画自己的最后一帧（TweenWindow 里那次 MoveWin）。
-                if (_slideTimer is not null) return;
 
                 // ⚠️ 已经落对了就**什么都别做**。多挪一次窗口就多一帧重绘 ——
                 //    动画刚结束那一下最容易看出抖，这里不能无脑再摆一次（2026-09-26 优化）。
@@ -1177,6 +1341,45 @@ public sealed partial class ToolSidebarWindow : Window
                 Log("兜底落位失败: " + ex.Message);
             }
         });
+    }
+
+    /// <summary>
+    /// 显示器缩放 / 分辨率变了：按新缩放把尺寸、贴边位置和隐形热区重算一遍。
+    ///
+    /// <para>
+    /// 为什么必须重算：窗口自己会被 Avalonia 按 DIP 重设尺寸，但贴边位置、收起条空隙、
+    /// 以及用 <see cref="Scale"/> 换算物理像素的隐形热区（<see cref="_hitPad"/>，一个**独立原生窗口**）
+    /// 都不在 Avalonia 的布局里 —— 切完缩放它们还停在旧位置旧大小，用户看到的就是
+    /// 「侧边栏明明在，点上去/贴边滑却没反应」。热区甚至可能横在别处挡住点击。
+    /// </para>
+    ///
+    /// <para>
+    /// ⚠️ 延后一帧（Loaded）再算：<c>ScalingChanged</c> 触发时，系统的 WM_DPICHANGED
+    /// 新尺寸/新位置可能还没落到窗口上，立刻量会量到旧尺寸，贴边会差一截。
+    /// </para>
+    /// </summary>
+    private void OnScalingChanged()
+    {
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        {
+            try
+            {
+                if (Hwnd() == IntPtr.Zero) return;
+
+                StopSlide();                     // 缩放变了：滑入的旧坐标全作废，下面按新缩放重新落位
+                ApplySize();
+                MoveToEdge();                    // 末尾会 UpdateHitPad；展开态热区自己收走
+                ApplyCornerRadius();             // 圆角上限跟收起条厚度走（dip 不变，兜一次）
+                ResetPanelOpacity();             // 变身中途切缩放：别把面板留在半透明
+                InvalidateVisual();              // 让整窗按新缩放重画一遍，别停在旧像素/旧形状
+
+                Log($"缩放变化 → 重排（edge={_edge} scale={Scale():0.##} 展开={_expanded}）");
+            }
+            catch (Exception ex)
+            {
+                Log("缩放变化后重排失败: " + ex.Message);
+            }
+        }, Avalonia.Threading.DispatcherPriority.Loaded);
     }
 
     private void Touch()
@@ -1228,12 +1431,16 @@ public sealed partial class ToolSidebarWindow : Window
     /// <summary>上一拍左键是否按着（用来识别"新的一次按下"）。</summary>
     private bool _lastLeftDown;
 
+    /// <summary>上一拍的前台窗口（触摸不置 VK_LBUTTON，只能靠"前台变了"兜底，见 <see cref="CheckOutsideClick"/>）。</summary>
+    private IntPtr _lastForeground;
+
     private void StartOutsideWatch()
     {
         if (App.Settings.Current.SidebarPinned) return;   // 钉住：不看守
 
         _outsideWatchArmedAt = Environment.TickCount64 + OutsideWatchGraceMs;
         _lastLeftDown = IsLeftButtonDown();               // 展开时如果正按着，别把这一下算成"点外面"
+        _lastForeground = ForegroundOrZero();             // 展开这一刻的前台不算"变了"
 
         if (_outsideWatch is null)
         {
@@ -1243,6 +1450,65 @@ public sealed partial class ToolSidebarWindow : Window
 
         _outsideWatch.Stop();
         _outsideWatch.Start();
+    }
+
+    private static IntPtr ForegroundOrZero()
+    {
+        try { return NativeMethods.GetForegroundWindow(); }
+        catch { return IntPtr.Zero; }
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    //  进程内的"按下"通知（2026-10-29 加）
+    //
+    //  ⛔ 为什么需要：触摸输入在 Windows 上走 WM_POINTER，**不会**把 VK_LBUTTON 置成按下状态，
+    //     所以 <see cref="CheckOutsideClick"/> 里那套 GetAsyncKeyState 轮询在触摸屏上永远看不到"按下"。
+    //     用户原话：「展开时没钉住点别的地方非侧边栏不会关闭」—— 就是这条。
+    //  ✅ 做法：App 给每个 Window 挂一个隧道阶段的 PointerPressed 钩子（触摸/鼠标都有），
+    //     按下时通知这里。点在侧边栏自己的窗口 / 它的弹层上不算，其余窗口（主界面、工具窗…）都算"别处"。
+    //     别的程序 / 桌面上的触摸点击不在本进程里，仍然由 CheckOutsideClick 的"前台变了"兜底。
+    // ══════════════════════════════════════════════════════════════════
+
+    /// <summary>给一个应用窗口挂"按下就通知侧边栏"的钩子。App 在 OnFrameworkInitializationCompleted 里统一注册。</summary>
+    public static void TrackWindowForOutsideClick(Window window)
+    {
+        try
+        {
+            window.AddHandler(InputElement.PointerPressedEvent,
+                (_, _) => NotifyPointerPressedInApp(window),
+                RoutingStrategies.Tunnel, handledEventsToo: true);
+        }
+        catch (Exception ex)
+        {
+            Core.AppLog.Debug("ui", "[sidebar] 挂窗口按下钩子失败: " + ex.Message);
+        }
+    }
+
+    /// <summary>应用内任意窗口收到按下：通知所有没钉住的展开面板"是不是该收了"。</summary>
+    public static void NotifyPointerPressedInApp(Window source)
+    {
+        if (_pool.Count == 0) return;
+        foreach (var w in _pool.Values)
+        {
+            try { w.OnAppPointerPressed(source); }
+            catch (Exception ex) { Log("进程内点别处处理异常: " + ex.Message); }
+        }
+    }
+
+    private void OnAppPointerPressed(Window source)
+    {
+        if (!_visible || !_expanded) return;
+        if (App.Settings.Current.SidebarPinned || _pressed || SuppressAutoCollapse) return;
+        if (Environment.TickCount64 < _outsideWatchArmedAt) return;   // 展开那一下自己的按下不算
+
+        if (ReferenceEquals(source, this)) return;                    // 点在面板里
+
+        var self = Backdrop.TryGetHwnd(this);
+        var other = Backdrop.TryGetHwnd(source);
+        if (self != IntPtr.Zero && other != IntPtr.Zero && IsSelfOrOwnedBy(other, self)) return;  // 自己的弹层
+
+        Log("点外面（进程内按下）→ 收起展开面板（未常驻）");
+        Collapse();
     }
 
     private void StopOutsideWatch()
@@ -1271,7 +1537,14 @@ public sealed partial class ToolSidebarWindow : Window
             var freshPress = down && !_lastLeftDown;      // 这一拍刚按下去
             _lastLeftDown = down;
 
-            if (!freshPress) return;                      // 只认真按下；移出去/焦点变化一律不管
+            // 触摸按下不置 VK_LBUTTON（WM_POINTER 路线）—— 再补一条"前台窗口变了"：
+            // 本进程内的窗口按下由 TrackWindowForOutsideClick 直接通知（见 NotifyPointerPressedInApp），
+            // 这里只管**别的程序 / 桌面**：新前台不属于本进程才算点了外面。
+            var fg = ForegroundOrZero();
+            var fgChanged = fg != IntPtr.Zero && fg != _lastForeground;
+            _lastForeground = fg;
+
+            if (!freshPress && !fgChanged) return;        // 只认真按下 / 前台真的换了；移出去、焦点在被自己抢走都不算
 
             // 钉住（常驻）/ 正按着边条 / 有弹层挂着（Flyout、确认框、模块库菜单…）→ 都不收
             if (App.Settings.Current.SidebarPinned || _pressed || SuppressAutoCollapse) return;
@@ -1282,15 +1555,26 @@ public sealed partial class ToolSidebarWindow : Window
             var self = Backdrop.TryGetHwnd(this);
             if (self == IntPtr.Zero) return;
 
-            if (!NativeMethods.GetCursorPos(out var pt)) return;
+            bool outside;
+            if (freshPress)
+            {
+                if (!NativeMethods.GetCursorPos(out var pt)) return;
 
-            // 光标落在哪个窗口上：自己 → 点在面板里，不是"别处"；
-            // 自己的弹层（owner 链能走到自己）→ 也不收；其余（主界面/桌面/别的程序）才算。
-            var target = NativeMethods.WindowFromPoint(pt);
-            if (target == IntPtr.Zero) return;
-            if (IsSelfOrOwnedBy(target, self)) return;
+                // 光标落在哪个窗口上：自己 → 点在面板里，不是"别处"；
+                // 自己的弹层（owner 链能走到自己）→ 也不收；其余（主界面/桌面/别的程序）才算。
+                var target = NativeMethods.WindowFromPoint(pt);
+                if (target == IntPtr.Zero) return;
+                outside = !IsSelfOrOwnedBy(target, self);
+            }
+            else
+            {
+                _ = NativeMethods.GetWindowThreadProcessId(fg, out var fgPid);
+                outside = fgPid != (uint)Environment.ProcessId;   // 本进程的窗口另有通知钩子，这里不重复处理
+            }
 
-            Log("点外面 → 收起展开面板（未常驻）");
+            if (!outside) return;
+
+            Log(freshPress ? "点外面 → 收起展开面板（未常驻）" : "前台换成别的程序 → 收起展开面板（触摸兜底）");
             Collapse();
         }
         catch (Exception ex)
@@ -1738,6 +2022,11 @@ public sealed partial class ToolSidebarWindow : Window
     private void GridCell_Click(object? sender, RoutedEventArgs e)
     {
         if (sender is not Button b || b.Tag is not string id) return;
+
+        // 这一下是横滑手势的收尾，不是点格子：Button 的 Click 先于 ToolGrid 的抬手处理器触发，
+        // 所以这里看到的 _gridSwiping 还是滑动时置上的标记（见 ToolGrid_PointerMoved）。
+        if (_gridSwiping) return;
+
         try
         {
             if (id == GridHomeId)
@@ -1807,10 +2096,11 @@ public sealed partial class ToolSidebarWindow : Window
 
             BuildPagerDots(pages);
 
-            // 两侧换页小箭头：多页才露面（单页没有可翻的东西）
-            var showArrows = pages > 1;
-            GridPrevPage.IsVisible = showArrows;
-            GridNextPage.IsVisible = showArrows;
+            // 分页行（◀ 点 ▶）：多页才露面（单页没有可翻的东西）
+            var showPager = pages > 1;
+            PagerRow.IsVisible = showPager;
+            GridPrevPage.IsVisible = showPager;
+            GridNextPage.IsVisible = showPager;
         }
         catch (Exception ex)
         {
@@ -1820,11 +2110,11 @@ public sealed partial class ToolSidebarWindow : Window
 
     /// <summary>
     /// 分页点。一页放得下就整行收掉（面板也跟着矮一截，见 <see cref="GridPanelDip"/>）。
-    /// ⚠️ 圆点外面包一层 Button 当触摸靶（7dip 的点在触屏上根本点不中）。
+    /// ⚠️ 圆点外面包一层 Button 当触摸靶（8dip 的点在触屏上根本点不中）。
     /// </summary>
     private void BuildPagerDots(int pages)
     {
-        PagerDots.IsVisible = pages > 1;
+        PagerRow.IsVisible = pages > 1;
         PagerDots.Children.Clear();
         if (pages <= 1) return;
 
@@ -1837,9 +2127,9 @@ public sealed partial class ToolSidebarWindow : Window
             var me = p;
             var dot = new Border
             {
-                Width = 7,
-                Height = 7,
-                CornerRadius = new CornerRadius(3.5),
+                Width = 8,
+                Height = 8,
+                CornerRadius = new CornerRadius(4),
                 Opacity = p == _gridPage ? 1.0 : 0.35,
                 Background = p == _gridPage ? accent : idle,
                 VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
@@ -1848,20 +2138,14 @@ public sealed partial class ToolSidebarWindow : Window
             {
                 MinWidth = 0,
                 MinHeight = 0,
-                Padding = new Thickness(5, 3),
+                Padding = new Thickness(7, 9),
                 Background = new SolidColorBrush(Colors.Transparent),
                 BorderThickness = new Thickness(0),
                 Content = dot
             };
             // ⚠️ Avalonia 的 ToolTip 是**附加属性**，C# 里只能用 SetTip 写，不能塞进对象初始化器
             ToolTip.SetTip(hit, "第 " + (p + 1) + " / " + pages + " 页");
-            hit.Click += (_, _) =>
-            {
-                if (_gridPage == me) return;
-                _gridPage = me;
-                RenderGridPage();
-                Touch();
-            };
+            hit.Click += (_, _) => GoToPage(me);
             PagerDots.Children.Add(hit);
         }
     }
@@ -1896,35 +2180,129 @@ public sealed partial class ToolSidebarWindow : Window
         var next = (_gridPage + dir) % GridPages;
         if (next < 0) next += GridPages;
         if (next == _gridPage) return;
-        _gridPage = next;
+        GoToPage(next);
+    }
+
+    /// <summary>跳到指定页（分页点直接用；其余入口走 <see cref="FlipPage"/>）。</summary>
+    private void GoToPage(int page)
+    {
+        if (page < 0 || page >= GridPages || page == _gridPage) return;
+        _gridPage = page;
         RenderGridPage();
         Touch();
+        Log($"网格翻页 → 第 {_gridPage + 1}/{GridPages} 页");
     }
 
     private void GridPrevPage_Click(object? sender, RoutedEventArgs e) => FlipPage(-1);
     private void GridNextPage_Click(object? sender, RoutedEventArgs e) => FlipPage(1);
 
+    // ── 触屏滑动翻页（2026-10-12 加；2026-10-29 重做；2026-10-30 去掉指针捕获）──
+    //
+    //  用户原话：「悬浮窗里面触摸屏翻页不怎么好用」→「翻页是滑动翻页不好用，按钮是好用的」。
+    //  前两版都靠"横滑 16dip 后 e.Pointer.Capture(ToolGrid) 把指针从格子的 Button 上抢走"。
+    //  ⛔ 这条路在 Win7 真机上不成立：无边框浮窗自己做的指针捕获会立刻丢（PointerCaptureLost），
+    //     捕获一丢状态就被清空，抬手时的位移算不出来 —— 表现就是"滑了没反应"（开发机 DWM 下正常）。
+    //  ✅ 现在的做法：**完全不抢指针**。格子 Button 自己捕获指针时，移动/抬手事件照样会从
+    //     Button 沿视觉树冒泡到 Root（挂的是 handledEventsToo=true，见构造区），位移一直能算；
+    //     唯一要解决的是"滑完抬手，Button 还会照常算一次点击" —— 用 _gridSwiping 标记：
+    //     横滑一过锁判就在 Button 的 Click 之前置位（Click 在 Button 自己的 PointerReleased
+    //     里同步触发，先于冒泡到 Root 的处理器），GridCell_Click 看到标记直接吞掉这一下。
+
+    /// <summary>横向位移到这里就判成"要翻页"：本轮之后格子的 Click 一律作废（dip）。</summary>
+    private const double GridSwipeLockDip = 12;
+
+    /// <summary>判成滑动之后，抬手时横向位移到这里就翻页（dip）。</summary>
+    private const double GridSwipeFlipDip = 24;
+
+    /// <summary>没来得及在移动中判成滑动、只在抬手时才发现是横滑的，仍要这么多位移才算（dip）。</summary>
+    private const double GridSwipeLooseDip = 40;
+
     /// <summary>触屏滑动翻页的起点（PointerPressed 时记下，Released 时算位移）。</summary>
     private Avalonia.Point? _gridSwipeStart;
 
-    private void ToolGrid_PointerPressed(object? sender, PointerPressedEventArgs e)
-        => _gridSwipeStart = e.GetPosition(ToolGrid);
+    /// <summary>这一轮按下已经判成横向滑动 —— 抬手时按"滑动"算，且这一轮格子的 Click 作废。</summary>
+    private bool _gridSwiping;
 
-    private void ToolGrid_PointerReleased(object? sender, PointerReleasedEventArgs e)
+    private void ToolGrid_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        _gridSwiping = false;
+        _gridSwipeStart = null;
+
+        // 单页没什么可翻的：一律不接管，免得这点逻辑掺和到"点格子"里
+        if (!UseGridStyle || !GridPanel.IsVisible || GridPages <= 1) return;
+
+        // 只认"从网格里按下去"的手势：分页行、快捷行、标题条上按下都不算（那里有自己的点击）
+        var p = e.GetPosition(ToolGrid);
+        if (p.X < 0 || p.Y < 0 || p.X > ToolGrid.Bounds.Width || p.Y > ToolGrid.Bounds.Height) return;
+        _gridSwipeStart = p;
+    }
+
+    private void ToolGrid_PointerMoved(object? sender, PointerEventArgs e)
     {
         try
         {
-            var start = _gridSwipeStart;
-            _gridSwipeStart = null;
-            if (start is null || !UseGridStyle || GridPages <= 1) return;
+            if (_gridSwiping || _gridSwipeStart is null) return;
+
+            var now = e.GetPosition(ToolGrid);
+            var dx = now.X - _gridSwipeStart.Value.X;
+            var dy = now.Y - _gridSwipeStart.Value.Y;
+
+            // ⚠️ 必须"横向明显占优"才判：纵向挪动（比如想滚动、或手指歪了）不能当成翻页
+            if (Math.Abs(dx) < GridSwipeLockDip || Math.Abs(dx) < Math.Abs(dy) * 1.2) return;
+
+            _gridSwiping = true;
+        }
+        catch (Exception ex)
+        {
+            Log("网格滑动跟踪失败: " + ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// 抬手前先判一次"这是不是滑动"（隧道阶段，跑在格子 Button 的 Click 之前）。
+    /// 手快的时候按下到抬手之间可能一个 PointerMoved 都没有，只在移动里判会漏；
+    /// 这里按抬手位置补一刀，命中就把格子的 Click 作废（见 <see cref="GridCell_Click"/>）。
+    /// </summary>
+    private void ToolGrid_PointerReleasedTunnel(object? sender, PointerReleasedEventArgs e)
+    {
+        if (_gridSwiping || _gridSwipeStart is null) return;
+
+        try
+        {
+            var end = e.GetPosition(ToolGrid);
+            var dx = end.X - _gridSwipeStart.Value.X;
+            var dy = end.Y - _gridSwipeStart.Value.Y;
+            if (Math.Abs(dx) < GridSwipeFlipDip || Math.Abs(dx) < Math.Abs(dy) * 1.2) return;
+            _gridSwiping = true;
+        }
+        catch (Exception ex)
+        {
+            Log("网格滑动判定失败: " + ex.Message);
+        }
+    }
+
+    private void ToolGrid_PointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        var start = _gridSwipeStart;
+        var swiping = _gridSwiping;
+        _gridSwipeStart = null;
+        _gridSwiping = false;
+
+        try
+        {
+            if (start is null) return;
+            if (!UseGridStyle || GridPages <= 1) return;
 
             var end = e.GetPosition(ToolGrid);
             var dx = end.X - start.Value.X;
             var dy = end.Y - start.Value.Y;
 
-            // 左右滑翻页：横向位移够大、且明显比纵向大（免得跟纵向滚动 / 斜着点格子打架）
-            if (Math.Abs(dx) >= 48 && Math.Abs(dx) > Math.Abs(dy) * 1.4)
-                FlipPage(dx < 0 ? 1 : -1);
+            // 已经判成横滑的只要 24dip；只在抬手时才看出来的按老规矩 40dip、且要明显比纵向大
+            var need = swiping ? GridSwipeFlipDip : GridSwipeLooseDip;
+            var dominance = swiping ? 1.0 : 1.4;
+            if (Math.Abs(dx) < need || Math.Abs(dx) <= Math.Abs(dy) * dominance) return;
+
+            FlipPage(dx < 0 ? 1 : -1);
         }
         catch (Exception ex)
         {
@@ -2401,11 +2779,10 @@ public sealed partial class ToolSidebarWindow : Window
 
     private void Strip_PointerPressed(object? sender, PointerPressedEventArgs e)
     {
-        // ⚠️ 2026-10-04（第 17 轮）：拖拽整条撤除。这里只做三件事 ——
-        //    掐掉还在跑的滑动动画、记下"按着"、把指针捕获住。
+        // ⚠️ 2026-10-04（第 17 轮）：拖拽整条撤除。这里只做两件事 ——
+        //    记下"按着"、把指针捕获住。
         //    ⚠️ 捕获必须留着：手指/鼠标按下后可能挪出收起条再抬起，
         //    没有捕获的话 PointerReleased 不会回到这里，那一"点"就丢了（＝点了没反应）。
-        StopSlide();
         _pressed = true;
         _idle.Stop();                                    // 按住期间别自动收起
 
@@ -2688,8 +3065,10 @@ public sealed partial class ToolSidebarWindow : Window
                 }
             }
 
-            // ⛔ 位置记忆已移除（2026-10-19 上游，2026-10-22 移植）：松手后**不再记录**沿边位置，
-            //    下一次贴边一律从头居中。只保留"换边"这件事本身。
+            // 2026-10-24 上游恢复位置记忆：松手这一刻把沿边比例落盘。
+            // ⚠️ 只在松手写，拖动过程中绝不写 —— 拖动时反复 Save 既卡，
+            //    又会把「开机最小化」启动早期"窗口尺寸还没定"的中间态当成最终位置存下来。
+            App.Settings.Current.SidebarPosRatio = _liveRatio;
 
             App.Settings.Save();
 
@@ -2700,7 +3079,25 @@ public sealed partial class ToolSidebarWindow : Window
             if (edge != _edge)
             {
                 Log("换边: " + _edge + " → " + edge);
-                ApplySetting();
+
+                // 新边上的沿边比例：拖到哪就落在哪（上游 2026-10-23：先按旧比例 Present 会"先在下面出现，再突变上去"）
+                var sizeNow = WinSizePx();
+                var posNow = WinPos();
+                double along, span;
+                if (edge is "left" or "right")
+                {
+                    span = Math.Max(1, work.Height);
+                    along = posNow.Y + sizeNow.Height / 2.0 - work.Y;   // 比例记的是「沿边中心」，见 EdgePosition
+                }
+                else
+                {
+                    span = Math.Max(1, work.Width);
+                    along = posNow.X + sizeNow.Width / 2.0 - work.X;
+                }
+                var newRatio = Math.Clamp(along / span, 0, 1);
+
+                // 比例交给 ApplySetting 在建/取实例时就写好，别在它之后再 SnapToSetting
+                ApplySetting(edge, newRatio);
                 return;
             }
 
@@ -2718,9 +3115,8 @@ public sealed partial class ToolSidebarWindow : Window
     /// <summary>
     /// 双边模式的位置联动：把自己当前的沿边位置算成 0~1 比例甩给对面那条，让它立刻贴到同一高度。
     ///
-    /// 拖动中每帧都会调，所以**故意不落盘** —— 每帧写一次 settings.json 会顿。
-    /// 2026-10-19 上游起位置记忆整个移除：这个比例只活在内存（<see cref="_liveRatio"/>），
-    /// 下次启动 / 重建一律沿边居中。
+    /// 拖动中每帧都会调，所以**故意不落盘** —— 每帧写一次 settings.json 会顿；
+    /// 沿边比例统一在松手时落盘（<see cref="DockToNearestEdge"/>），启动 / 重建时恢复（<see cref="SyncInstances"/>）。
     /// 用 <c>verify: false</c> 挪对面：跟着走的东西要跟手，别一帧里读回位置纠偏好几次。
     /// </summary>
     private void FollowPartner(int myY, int myHeight)
@@ -2730,8 +3126,9 @@ public sealed partial class ToolSidebarWindow : Window
         try
         {
             var work = WorkAreaRect();
-            var free = Math.Max(0, work.Height - myHeight);
-            _liveRatio = free <= 0 ? 0.5 : Math.Clamp((myY - work.Y) / (double)free, 0, 1);
+            // 比例记「沿边中心」（见 EdgePosition），与对面窗口的长度无关
+            var span = Math.Max(1, work.Height);
+            _liveRatio = Math.Clamp((myY + myHeight / 2.0 - work.Y) / span, 0, 1);
             other.MoveToEdge(verify: false);
         }
         catch (Exception ex)
@@ -2741,132 +3138,6 @@ public sealed partial class ToolSidebarWindow : Window
     }
 
     // ── 动画 ─────────────────────────────────────────────────
-
-    /// <summary>
-    /// 展开：**整个窗口**（连亚克力底、圆角、描边一起）从贴的那条边滑进去。
-    /// 以前是"窗口先瞬间铺开成一大块 → 里面的内容才自己滑"，所以先闪一个灰框，很出戏。
-    /// 窗口位置交给不了合成器，只能按帧 Move（16ms 一帧 ≈ 60fps）；
-    /// 而且从"露出半块"起步，不从屏幕外起步 —— 完全挪到屏幕外的窗口 DWM 往往不给它刷帧，
-    /// 滑进来的第一帧会发虚。半块起步肉眼就是"从边上滑进来"。
-    /// </summary>
-    private void SlideInFromEdge()
-    {
-        StopSlide();                                     // 上一次没滑完就再展开：作废重来
-
-        var size = PlannedSize();                        // 展开尺寸（此处 _expanded 已经置为 true）
-        var finalPos = EdgePosition(size.Width, size.Height);
-        _restRect = new PixelRect(finalPos.X, finalPos.Y, size.Width, size.Height);   // 滑动期间 CurrentRect 返回它
-
-        // 起步只推"半块"：保证窗口还有一半留在屏幕里。整块挪到屏幕外的窗口
-        // DWM 常常不给它刷帧，那滑进来的第一帧会发虚（见方法注释）。
-        var start = OutwardOffset(finalPos, (int)((IsFlat ? size.Height : size.Width) / 2.0));
-
-        // 一次把"起点位置 + 展开尺寸"设下去。分成 Resize + Move 两次的话，
-        // 中间那一帧会被系统画出来 —— 那就是"闪一下再滑"的来源（2026-09-26 优化）。
-        try { MoveResizeWin(start, size.Width, size.Height); }
-        catch (Exception ex) { Log("滑入落位失败: " + ex.Message); }
-
-        TweenWindow(start, finalPos, 220);
-    }
-
-    /// <summary>按帧把窗口从 from 挪到 to（缓出）。⚠️ 状态一变（收起/拖动/再展开）这一波就作废，绝不许它回头改窗口。</summary>
-    private void TweenWindow(PixelPoint from, PixelPoint to, double ms, Action? done = null)
-    {
-        StopSlide();
-
-        var epoch = ++_slideEpoch;
-        var sw = Stopwatch.StartNew();
-        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
-        timer.Tick += (_, _) =>
-        {
-            if (epoch != _slideEpoch)                        // 状态已经变了：这一波到此为止
-            {
-                timer.Stop();
-                return;
-            }
-
-            var t = Math.Clamp(sw.Elapsed.TotalMilliseconds / ms, 0, 1);
-            var e = 1 - Math.Pow(1 - t, 3);              // ease-out cubic
-            MoveWin(new PixelPoint(
-                (int)Math.Round(from.X + (to.X - from.X) * e),
-                (int)Math.Round(from.Y + (to.Y - from.Y) * e)));
-
-            if (t < 1) return;
-            StopSlide();
-            MoveWin(to);                                  // 最后一帧对到准确位置
-            try { var sz = WinSizePx(); _restRect = new PixelRect(to.X, to.Y, sz.Width, sz.Height); } catch { }
-            if (done is not null) done();                 // 滑完了再收尾（收起就是靠它）
-        };
-
-        _slideTimer = timer;
-        timer.Start();
-    }
-
-    /// <summary>收起：整个窗口往贴着的那条边**滑出去**（跟展开滑进来同一条路子，方向相反），滑完再真收。</summary>
-    private bool SlideOutToEdge(Action done)
-    {
-        StopSlide();
-
-        var from = WinPos();
-        var size = WinSizePx();
-
-        // ⚠️ 必须滑到**整个窗口都在屏幕外**（推的距离 = 当前厚度 + 2px 余量）。
-        //    以前只推"展开尺寸 − 收起尺寸"（92−20=72），滑完还剩 20dip 的展开态残片贴在屏幕边上，
-        //    紧接着又被 Resize 成抓手 —— 肉眼看就是"没滑出去就突然变身"，很出戏（2026-09-26 修）。
-        //    现在滑到底时屏幕边缘是干净的，"变身"那一下（92×450 → 8×110 / 6×220）用户在屏幕外看不到，
-        //    抓手再淡入接上，就顺了。
-        var thickness = IsFlat ? size.Height : size.Width;
-        var to = OutwardOffset(from, thickness + 2);
-        TweenWindow(from, to, 240, done);
-        return true;
-    }
-
-    private void StopSlide()
-    {
-        _slideEpoch++;                                    // 让在跑的那一波作废（关键：竞态的根治）
-        _slideTimer?.Stop();
-        _slideTimer = null;
-    }
-
-    /// <summary>旧的内容滑入（只动 Panel 里的东西，窗口先铺开）——现在不用了，留着备用。
-    /// ⚠️ 移植说明：合成器 Offset 动画 → RenderTransform 平移 + 透明度按帧过渡。</summary>
-    private void PlaySlideIn()
-    {
-        try
-        {
-            var from = IsFlat
-                ? new Point(0, Edge == "top" ? -56 : 56)
-                : new Point(Edge == "left" ? -56 : 56, 0);
-
-            var translate = new TranslateTransform(from.X, from.Y);
-            Panel.RenderTransform = translate;
-            Panel.Opacity = 0.4;
-
-            var sw = Stopwatch.StartNew();
-            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
-            timer.Tick += (_, _) =>
-            {
-                var t = Math.Clamp(sw.Elapsed.TotalMilliseconds / 190.0, 0, 1);
-                var e = 1 - Math.Pow(1 - t, 3);           // ease-out cubic（近似原版贝塞尔）
-                translate.X = from.X * (1 - e);
-                translate.Y = from.Y * (1 - e);
-                Panel.Opacity = 0.4 + 0.6 * e;
-                if (t >= 1)
-                {
-                    translate.X = 0;
-                    translate.Y = 0;
-                    Panel.Opacity = 1;
-                    Panel.RenderTransform = null;
-                    timer.Stop();
-                }
-            };
-            timer.Start();
-        }
-        catch (Exception ex)
-        {
-            Log("滑入动画失败: " + ex.Message);
-        }
-    }
 
     // ── 排版 / 位置 / 尺寸 ───────────────────────────────────
 
@@ -3326,6 +3597,47 @@ public sealed partial class ToolSidebarWindow : Window
         }
     }
 
+    /// <summary>
+    /// 收起态的落位。
+    ///
+    /// <para>
+    /// <paramref name="anchor"/> = true：把竖线的沿边中心钉在**当前面板的沿边中心**上，再把等价比例写回
+    /// <see cref="_liveRatio"/> —— 这样随后的 <see cref="ReassertCollapsed"/> / <see cref="UpdateHitPad"/> /
+    /// <see cref="MoveToEdge"/> 算出来都是同一个点，竖线不会在收好之后又被搬去别处。
+    /// 用户报「收起时那一条还是乱飞」里，除了动画被跳过，另一半就是收好后的二次落位。
+    /// </para>
+    /// <para>
+    /// <paramref name="anchor"/> = false：按比例重新算（窗口刚出现 / 截图这类面板不在原位的场合）。
+    /// </para>
+    /// </summary>
+    private PixelPoint CollapsedPosition(PixelSize size, bool anchor)
+    {
+        if (anchor)
+        {
+            try
+            {
+                var work = WorkAreaRect();
+                var now = WinSizePx();
+                var at = WinPos();
+                var flat = Edge is "top" or "bottom";
+                var alongLen = flat ? work.Width : work.Height;
+
+                if (now.Width > 0 && now.Height > 0 && alongLen > 0)
+                {
+                    var center = flat ? at.X + now.Width / 2.0 : at.Y + now.Height / 2.0;
+                    var start = flat ? work.X : work.Y;
+                    _liveRatio = Math.Clamp((center - start) / alongLen, 0, 1);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log("收起锚定失败（退回按比例）: " + ex.Message);
+            }
+        }
+
+        return EdgePosition(size.Width, size.Height);
+    }
+
     /// <summary>按当前贴的边算"贴边位置"（**纯计算，不动窗口**）。参数是窗口按哪套尺寸算。
     /// ⚠️ 收起态会往里让空隙（<see cref="CollapsedGapDip"/>，用户可在「侧边布局 → 收起时离屏幕边缘」调），展开态仍贴边。</summary>
     private PixelPoint EdgePosition(int width, int height)
@@ -3342,7 +3654,14 @@ public sealed partial class ToolSidebarWindow : Window
         // ⛔ 位置记忆已移除（2026-10-19 上游，2026-10-22 移植）：它和「开机最小化」相互打架，而且拖完记住的位置
         //    常常不再合适，手动调反而更顺手。启动/重建时一律沿边**居中**；
         //    拖动过程中对面靠 <see cref="_liveRatio"/> 跟随，但那只是内存状态，不落盘。
-        var offset = _liveRatio < 0 ? free / 2.0 : Math.Clamp(_liveRatio * free, 0, free);
+        //
+        // ⚠️ 2026-10-30：_liveRatio 现在是「**沿边中心**在工作区里的比例」（0.5 = 正中），不再是"可移动范围的顶端比例"。
+        //    原因：面板与收起条长度差好几倍，按顶端比例算的话，同一比例在两种状态下中心差半米 ——
+        //    收起时竖线会从面板中间跳到另一处，展开时面板又从竖线上方斜着冒出来（用户：「收起时那一条还是乱飞」）。
+        //    改成中心对齐后，收起/展开两个方向都围绕同一条竖线对称生长。
+        var ratio = _liveRatio < 0 ? 0.5 : Math.Clamp(_liveRatio, 0, 1);
+        var center = (flat ? work.X : work.Y) + ratio * alongLen;
+        var offset = Math.Clamp(center - myLen / 2.0 - (flat ? work.X : work.Y), 0, free);
 
         // 收起态离边空隙（换算成物理像素）；展开面板贴边
         var gap = _expanded ? 0 : (int)Math.Round(CollapsedGapDip * Scale());
@@ -3356,24 +3675,7 @@ public sealed partial class ToolSidebarWindow : Window
         };
     }
 
-    /// <summary>
-    /// 把位置往"屏幕外"方向推开 dist 像素（贴右往右推、贴左往左推，上/下同理）。
-    /// 纯计算，不动窗口；距离由调用方按用途给（滑入起步用半块、滑出收尾用整个厚度）。
-    /// </summary>
-    private PixelPoint OutwardOffset(PixelPoint p, int dist)
-    {
-        if (dist < 1) dist = 1;
-
-        return Edge switch
-        {
-            "left" => new PixelPoint(p.X - dist, p.Y),
-            "top" => new PixelPoint(p.X, p.Y - dist),
-            "bottom" => new PixelPoint(p.X, p.Y + dist),
-            _ => new PixelPoint(p.X + dist, p.Y)
-        };
-    }
-
-    /// <summary>贴到设置里那条边；沿边的位置一律**居中**（位置记忆 2026-10-19 移除，见 <see cref="_liveRatio"/>）。</summary>
+    /// <summary>贴到设置里那条边；沿边位置按记忆比例（<see cref="_liveRatio"/>：松手落盘、启动恢复）。</summary>
     /// <param name="verify">
     /// false = 只挪一次，**不读回位置做纠偏**。纠偏最多会连挪 4 次窗口，放在动画前会把头几帧挤掉，
     /// 所以动画路径上用它（落位精度由动画自己的最后一帧保证）。
@@ -3420,15 +3722,24 @@ public sealed partial class ToolSidebarWindow : Window
     private const uint SWP_NOSIZE = 0x0001;
     private const uint SWP_NOMOVE = 0x0002;
     private const uint SWP_NOZORDER = 0x0004;
+    private const uint SWP_NOREDRAW = 0x0008;
     private const uint SWP_NOACTIVATE = 0x0010;
 
     private IntPtr Hwnd() => Backdrop.TryGetHwnd(this);
 
-    private void MoveWin(PixelPoint p)
+    private void MoveWin(PixelPoint p) => MoveWin(Hwnd(), p);
+
+    /// <summary>
+    /// 动画里每帧都用它：句柄开头取一次，别每帧再走一遍平台查询。
+    /// <paramref name="noRedraw"/> 只给滑动中间帧 —— 一次性的落位**必须**让它重画，
+    /// 否则 Win7（靠 WM_PAINT 出图）挪完那一下会停在旧像素上。
+    /// </summary>
+    private void MoveWin(IntPtr hwnd, PixelPoint p, bool noRedraw = false)
     {
-        var hwnd = Hwnd();
         if (hwnd == IntPtr.Zero) { Position = p; return; }
-        _ = NativeMethods.SetWindowPos(hwnd, IntPtr.Zero, p.X, p.Y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+        var flags = SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE;
+        if (noRedraw) flags |= SWP_NOREDRAW;
+        _ = NativeMethods.SetWindowPos(hwnd, IntPtr.Zero, p.X, p.Y, 0, 0, flags);
     }
 
     private void ResizeWin(int w, int h)

@@ -348,6 +348,7 @@ public sealed partial class ShellPage : PageBase
             "ChangelogPage" => "changelog",
             "SettingsPage" => "settings",
             "SidebarLayoutPage" => "sidebar",
+            "AnnouncePage" => "announce",      // 教室喊话已提为独立功能项（不在 ToolCatalog，必须显式映射）
             _ => null,
         };
         if (byName is not null) return byName;
@@ -643,17 +644,12 @@ public sealed partial class ShellPage : PageBase
     /// <summary>外部（首页卡片等）跳转导航用：先高亮导航项，再切页面。</summary>
     public void NavigateTo(string tag)
     {
-        if (_inSelectTag) return;          // 防重入：SelectTag 触发的 ItemInvoked 回环直接丢掉
-        _inSelectTag = true;
-        try
-        {
-            SelectTag(tag);
-            NavigateTag(tag);
-        }
-        finally
-        {
-            _inSelectTag = false;
-        }
+        // ⚠️ 防重入只挡「SelectTag 内部回环出来的 ItemInvoked」，别再自己压一遍闸 ——
+        //    SelectTag 开头就检查 _inSelectTag，外面先置 true 会让它直接 no-op，
+        //    高亮只能指望导航完成后的 SyncNavSelectionToFrame 兜底（跳同一页时连那次都没有）。
+        if (_inSelectTag) return;
+        SelectTag(tag);
+        NavigateTag(tag);
     }
 
     /// <summary>
@@ -762,12 +758,24 @@ public sealed partial class ShellPage : PageBase
         var toolDef = Data.ToolCatalog.All.FirstOrDefault(t => t.Id == tag);
         if (toolDef?.Page is not null)
         {
-            ContentFrame.Navigate(toolDef.Page);
+            // ⭐ 载体选择（上游 2026-10-25 补，与工具窗口 NavigateTo 同一套）：
+            //    有 Web 版、本机跑得起来 → 宿主页；否则原生页。⛔ 降级对用户是无感的，别加提示。
+            // ⚠️ 为什么补：以前这里直接 Navigate 原生页，漏了载体检查 —— 导航栏点击、--page= 直达
+            //    两条路全都进不了网页版，同一工具两副嘴脸。
+            if (Services.ToolCarrier.RequestFor(toolDef.WebToolId, toolDef.Page, null) is { } toolRequest)
+                ContentFrame.Navigate(typeof(Pages.ToolHostPage), toolRequest);
+            else
+                ContentFrame.Navigate(toolDef.Page);
             return;
         }
 
         switch (tag)
         {
+            case "announce":
+                // 教室喊话（上游 2026-10-25：从工具里提出来单独成项）。纯原生页，不经 ToolCarrier ——
+                // 它的本体是「开关 + 后台轮询 + 全屏播报」，不是可替换的网页小工具。
+                ContentFrame.Navigate(typeof(Pages.Tools.AnnouncePage));
+                return;
             case "submit":
                 ContentFrame.Navigate(typeof(SubmitPage));
                 return;

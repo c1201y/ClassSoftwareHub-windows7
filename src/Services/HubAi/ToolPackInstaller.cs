@@ -32,6 +32,7 @@ public static class ToolPackInstaller
     {
         ConnectTimeout = TimeSpan.FromSeconds(10),
         PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+        SslOptions = Core.HttpTls.SslOptions(),
     })
     {
         Timeout = TimeSpan.FromSeconds(60),

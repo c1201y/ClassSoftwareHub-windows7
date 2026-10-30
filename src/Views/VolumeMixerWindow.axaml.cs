@@ -176,7 +176,7 @@ public sealed partial class VolumeMixerWindow : Window
             _chrome.Finish(Root.ActualThemeVariant == ThemeVariant.Dark);
 
             FlyoutFade.In(ContentHost, 170);
-            _slide.Run(_chrome.Hwnd, start, final, FlyoutSlider.SlideInMs);
+            _slide.Run(this, start, final, FlyoutSlider.SlideInMs);
 
             VolumeFlyoutGroup.HoldSidebar();
             VolumeFlyoutGroup.EnsureMouseWatch();
@@ -200,7 +200,7 @@ public sealed partial class VolumeMixerWindow : Window
             var to = EdgeGeometry.FullyOut(from, VolumeWindow.Edge,
                                            EdgeGeometry.Thickness(VolumeWindow.Edge, size.Width, size.Height));
 
-            _slide.Run(_chrome.Hwnd, from, to, FlyoutSlider.SlideOutMs, () =>
+            _slide.Run(this, from, to, FlyoutSlider.SlideOutMs, () =>
             {
                 _chrome.HideDirect();
                 VolumeFlyoutGroup.OnAnyHidden();

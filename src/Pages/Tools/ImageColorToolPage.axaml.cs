@@ -64,6 +64,9 @@ public sealed partial class ImageColorToolPage : PageBase
     private readonly List<(string Hex, FontIcon Check)> _checks = new();
     private bool _busy;
 
+    /// <summary>当前预览位图（换图 / 重置时要 Dispose，否则旧图的原生内存一直挂着）。</summary>
+    private Bitmap? _preview;
+
     public ImageColorToolPage() => InitializeComponent();
 
 
@@ -142,8 +145,13 @@ public sealed partial class ImageColorToolPage : PageBase
             // 原版 WinRT 解码器天然异步；GDI+ 是同步 API，等价做法是整个解码+取色丢后台线程。
             var r = await Task.Run(() => DecodeAndExtract(path));
 
-            // 预览图（原图，界面自己缩放）
-            if (r.Preview is { } image) Preview.Source = image;
+            // 预览图（界面只有几百像素宽，没必要解码整张原图）
+            if (r.Preview is { } image)
+            {
+                _preview?.Dispose();
+                _preview = image;
+                Preview.Source = image;
+            }
 
             ShowInfo($"原图 {r.SrcW} × {r.SrcH} · 采样 {r.Bw} × {r.Bh}");
 
@@ -226,8 +234,15 @@ public sealed partial class ImageColorToolPage : PageBase
                 }
             }
 
-            // 预览图独立解码（GDI+ 与 Avalonia 是两套解码器；预览失败不影响取色）
-            try { preview = new Bitmap(path); } catch { preview = null; }
+            // 预览图独立解码（GDI+ 与 Avalonia 是两套解码器；预览失败不影响取色）。
+            // ⚠️ 按 480px 宽解码而不是整张原图：手机照片 12 MP 全尺寸解码要几十 MB，
+            //    而这个预览格只有几百像素 —— 旧实现每换一张图就多挂一份原生内存。
+            try
+            {
+                using var fs = File.OpenRead(path);
+                preview = Bitmap.DecodeToWidth(fs, 480);
+            }
+            catch { preview = null; }
 
             var pixels = new List<Rgb>(bytes.Length / 4);
             for (var i = 0; i + 3 < bytes.Length; i += 4)
@@ -261,7 +276,17 @@ public sealed partial class ImageColorToolPage : PageBase
             if (!bmp.PropertyIdList.Contains(PropertyTagOrientation)) return;
             var item = bmp.GetPropertyItem(PropertyTagOrientation);
             if (item.Value is not { Length: > 1 } raw) return;
-            switch (BitConverter.ToUInt16(raw, 0))
+
+            // ⚠️ Orientation 是 SHORT，但 EXIF 的字节序由 TIFF 头决定（II 小端 / MM 大端），
+            //    一律按小端读会让部分相机（写 MM 的机型）竖拍照片依然横躺。
+            //    两种读法里只有一种会落在合法值域 1~8，用这个来判定字节序，不依赖 GDI+ 是否做过归一化。
+            var little = raw[0] | (raw[1] << 8);
+            var big = (raw[0] << 8) | raw[1];
+            var orientation = little is >= 1 and <= 8 ? little
+                : big is >= 1 and <= 8 ? big
+                : 0;
+
+            switch (orientation)
             {
                 case 2: bmp.RotateFlip(SdRotateFlipType.RotateNoneFlipX); break;
                 case 3: bmp.RotateFlip(SdRotateFlipType.Rotate180FlipNone); break;
@@ -404,6 +429,8 @@ public sealed partial class ImageColorToolPage : PageBase
 
     private void ResetAll()
     {
+        _preview?.Dispose();
+        _preview = null;
         Preview.Source = null;
         EmptyState.IsVisible = true;
         LoadedState.IsVisible = false;

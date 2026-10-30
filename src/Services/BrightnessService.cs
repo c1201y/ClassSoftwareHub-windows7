@@ -216,12 +216,21 @@ public static class BrightnessService
                 return false;
             }
 
-            if (!NativeMethodsDisplay.GetMonitorBrightness(hMonitor, out var min, out var cur, out var max)) return false;
+            try
+            {
+                if (!NativeMethodsDisplay.GetMonitorBrightness(hMonitor, out var min, out var cur, out var max)) return false;
 
-            var span = Math.Max(1u, max - min);
-            percent = (int)Math.Round((cur - min) * 100.0 / span);
-            percent = Math.Clamp(percent, 0, 100);
-            return true;
+                var span = Math.Max(1u, max - min);
+                percent = (int)Math.Round((cur - min) * 100.0 / span);
+                percent = Math.Clamp(percent, 0, 100);
+                return true;
+            }
+            finally
+            {
+                // ⚠️ dxva2 的物理显示器句柄每取一次都会加引用，必须还：亮度是每几秒轮询一次的，
+                //    不归还迟早把句柄耗尽（审计 P2 #22）。
+                try { NativeMethodsDisplay.DestroyPhysicalMonitor(hMonitor); } catch { }
+            }
         }
         catch
         {
@@ -234,10 +243,18 @@ public static class BrightnessService
         try
         {
             if (!TryGetPhysicalMonitor(out var hMonitor, out _)) return false;
-            if (!NativeMethodsDisplay.GetMonitorBrightness(hMonitor, out var min, out _, out var max)) return false;
 
-            var target = min + (uint)Math.Round(Math.Clamp(percent, 0, 100) * (max - min) / 100.0);
-            return NativeMethodsDisplay.SetMonitorBrightness(hMonitor, target);
+            try
+            {
+                if (!NativeMethodsDisplay.GetMonitorBrightness(hMonitor, out var min, out _, out var max)) return false;
+
+                var target = min + (uint)Math.Round(Math.Clamp(percent, 0, 100) * (max - min) / 100.0);
+                return NativeMethodsDisplay.SetMonitorBrightness(hMonitor, target);
+            }
+            finally
+            {
+                try { NativeMethodsDisplay.DestroyPhysicalMonitor(hMonitor); } catch { }
+            }
         }
         catch
         {
@@ -273,6 +290,14 @@ public static class BrightnessService
         }
 
         hPhysicalMonitor = arr[0].hPhysicalMonitor;      // 多显示器也先管主显示器
+
+        // 其余显示器的句柄用不上，但已经拿到手了 —— 当场还回去，别漏（见审计 P2 #22）
+        for (var i = 1; i < arr.Length; i++)
+        {
+            if (arr[i].hPhysicalMonitor == IntPtr.Zero) continue;
+            try { NativeMethodsDisplay.DestroyPhysicalMonitor(arr[i].hPhysicalMonitor); } catch { }
+        }
+
         return hPhysicalMonitor != IntPtr.Zero;
     }
 
@@ -531,10 +556,23 @@ public static class BrightnessService
             });
             if (p is null) return null;
 
+            // ⚠️ 两个流必须并发读、且**先**读再等：原来的顺序是「同步 ReadToEnd → WaitForExit(4000)」，
+            //    子进程一旦卡住不退出，ReadToEnd 会一直等下去，4 秒超时形同虚设（审计 P2 #22）。
+            var stdout = p.StandardOutput.ReadToEndAsync();
+            var stderr = p.StandardError.ReadToEndAsync();
+
+            if (!p.WaitForExit(4000))
+            {
+                try { p.Kill(true); } catch { }
+                return null;
+            }
+
             // 中文字节会被按非 UTF8 读成乱码，无所谓 —— 我们只要里面的 0x 十六进制
-            var text = p.StandardOutput.ReadToEnd() + p.StandardError.ReadToEnd();
-            p.WaitForExit(4000);
-            return p.HasExited && p.ExitCode == 0 ? text : null;
+            var text = Task.WaitAll(new Task[] { stdout, stderr }, 1000)
+                ? stdout.Result + stderr.Result
+                : "";
+
+            return p.ExitCode == 0 ? text : null;
         }
         catch
         {

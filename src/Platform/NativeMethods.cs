@@ -19,11 +19,15 @@ internal static class NativeMethods
     // ══════════════════════════════════════════════════════════════════
 
     /// <summary>最低 Win2000。⚠️ 不能用 Environment.OSVersion 判断版本：.NET 会在清单里
-    /// 把 supportedOS 声明过的系统统一报成 6.2，Win7 会被误判成 Win8。</summary>
-    [DllImport("ntdll.dll", SetLastError = true)]
+    /// 把 supportedOS 声明过的系统统一报成 6.2，Win7 会被误判成 Win8。
+    /// ⚠️ 必须 <c>CharSet.Unicode + ExactSpelling</c>：结构里的 <c>szCSDVersion</c> 是
+    /// <b>WCHAR[128]</b>（256 字节），按默认 ANSI 封送只有 128 字节，整个结构会短 128 字节；
+    /// <c>dwOSVersionInfoSize</c> 跟着报错，RtlGetVersion 直接拒绝并退回被垫片欺骗的
+    /// Environment.OSVersion —— Win7 判定就全错了。ExactSpelling 是为了别去找 RtlGetVersionW。</summary>
+    [DllImport("ntdll.dll", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)]
     internal static extern int RtlGetVersion(ref OSVERSIONINFOEX lpVersionInfo);
 
-    [StructLayout(LayoutKind.Sequential)]
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     internal struct OSVERSIONINFOEX
     {
         public uint dwOSVersionInfoSize;

@@ -184,7 +184,7 @@ public static class FunctionAnalyzer
             // 认出了周期 ⇒ 一个周期内的取值就是全部取值，这才是**值域**。
             if (result.Period is { } t && t > 0)
             {
-                var (pmin, pmax) = RangeOverPeriod(f, xs, t);
+                var (pmin, pmax) = RangeOverPeriod(f, t);
                 if (pmin is not null && pmax is not null)
                 {
                     result.MinValue = pmin;
@@ -844,8 +844,11 @@ public static class FunctionAnalyzer
         return checkedCount >= 20;
     }
 
-    /// <summary>取一个周期内的取值上下界（用来给出真正的值域）。</summary>
-    private static (double? Min, double? Max) RangeOverPeriod(Func<double, double> f, double[] xs, double period)
+    /// <summary>
+    /// 取一个周期内的取值上下界（用来给出真正的值域）。
+    /// ⚠️ 只按周期均匀采 4000 点：采样误差是 O((T/4000)²) 量级，对考试范围内能认出的周期函数足够。
+    /// </summary>
+    private static (double? Min, double? Max) RangeOverPeriod(Func<double, double> f, double period)
     {
         var yMin = double.NaN;
         var yMax = double.NaN;

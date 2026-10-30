@@ -229,6 +229,13 @@ public static class LeftoverCleaner
                 ForceDelete(item.Path, isDir);
                 return new CleanupItemResult(item, CleanStatus.RemovedNoBackup, "体积过大未备份，已直接删除");
             }
+            if (moved == MoveOutcome.Failed)
+            {
+                // ⛔ 备份失败**不等于**可以强删。隔离区没拿到副本时，原目录是用户唯一的退路；
+                //    以前这里会继续往下走 ForceDelete，等于"备份没成功就把原件也烧了"，
+                //    跨盘复制失败（磁盘满 / 文件被占用 / 长路径）时就是不可逆的数据丢失。
+                return new CleanupItemResult(item, CleanStatus.Failed, "未能移入隔离区，已保留原文件");
+            }
         }
 
         ForceDelete(item.Path, isDir);
@@ -261,13 +268,41 @@ public static class LeftoverCleaner
 
                 if (isDir) CopyDir(source, target);
                 else File.Copy(source, target, overwrite: false);
+            }
+            catch (Exception ex)
+            {
+                AppLog.Info("cleanup", $"跨盘备份失败，保留原文件（{source}）：{ex.GetType().Name} {ex.Message}");
 
+                // 复制到一半的残片留在隔离区没有意义，也会让"是否已备份"变得含糊。
+                // ⚠️ 只在**复制本身失败**时清残片；下面的删除源失败不能走这里（那时源可能已被删掉一部分）。
+                try
+                {
+                    if (isDir)
+                    {
+                        if (Directory.Exists(target)) Directory.Delete(target, true);
+                    }
+                    else if (File.Exists(target))
+                    {
+                        File.Delete(target);
+                    }
+                }
+                catch (Exception cleanupEx)
+                {
+                    AppLog.Info("cleanup", $"清理跨盘备份残片失败（{target}）：{cleanupEx.GetType().Name} {cleanupEx.Message}");
+                }
+
+                return MoveOutcome.Failed;
+            }
+
+            // 副本已经完整落在隔离区。此后删源失败只是"原位置没清干净"，绝不能反过来删副本。
+            try
+            {
                 ForceDelete(source, isDir);
                 return MoveOutcome.Moved;
             }
             catch (Exception ex)
             {
-                AppLog.Info("cleanup", $"跨盘备份失败，改为直接删除（{source}）：{ex.GetType().Name} {ex.Message}");
+                AppLog.Info("cleanup", $"已备份到隔离区，但原位置未删干净（{source}）：{ex.GetType().Name} {ex.Message}");
                 return MoveOutcome.Failed;
             }
         }
@@ -697,6 +732,19 @@ public static class LeftoverCleaner
     /// </summary>
     public static void ApplyManifestElevated(string manifestPath)
     {
+        // ⛔⛔ 只认自家隔离区里的清单。
+        //    提权助手能删任意「不在禁碰名单里」的路径 —— 如果清单路径不限，
+        //    任何普通进程都可以写一份「删 C:\Users\某人\Documents」的清单，
+        //    再借本程序弹 UAC 执行，等于把管理权限做成了公用工具。
+        //    这条检查必须在读文件之前：连「往任意路径旁边写 .result」都不做。
+        if (!LeftoverResolver.IsInsideOrEqual(manifestPath, QuarantineRoot)
+            || !string.Equals(Path.GetFileName(manifestPath), "admin-tasks.json",
+                              StringComparison.OrdinalIgnoreCase))
+        {
+            AppLog.Warning("cleanup", $"拒绝执行隔离区之外的提权清单：{manifestPath}");
+            return;
+        }
+
         var outcome = new List<ManifestResult>();
 
         try
@@ -709,6 +757,17 @@ public static class LeftoverCleaner
 
             foreach (var e in entries)
             {
+                // 文件路径必须是绝对路径：相对路径会按「提权进程的当前目录」解析，
+                // 结果完全不可预测（清单是普通权限写的，不能信它的相对语义）。
+                if (e.Kind == (int)FootprintKind.Path && !Path.IsPathRooted(e.Path))
+                {
+                    outcome.Add(new ManifestResult
+                    {
+                        Path = e.Path, ValueName = e.ValueName, Ok = false, Note = "相对路径已拒绝",
+                    });
+                    continue;
+                }
+
                 var item = new LeftoverItem(new FootprintNode(
                     (FootprintKind)e.Kind, e.Probe, e.Path,
                     Path.GetFileName(e.Path.TrimEnd('\\')), e.ValueName));

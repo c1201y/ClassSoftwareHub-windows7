@@ -11,6 +11,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using ClassSoftwareHub.Desktop.Core;
+using ClassSoftwareHub.Desktop.Platform;
 using Microsoft.Win32;
 
 namespace ClassSoftwareHub.Desktop.Services;
@@ -91,12 +92,13 @@ public static class SystemRepair
     /// 用户从上往下读，自然会先跑扫描再决定要不要修。
     /// ⛔ 图标只用 E7/E8/E9 老码位（ED 那段在 Win10 上是空框），每个都渲图确认过有字形、彼此不撞脸。
     /// </summary>
-    public static readonly IReadOnlyList<RepairTask> Tasks = new[]
+    private static readonly IReadOnlyList<RepairTask> AllTasks = new[]
     {
         new RepairTask(
             "chkdsk-scan", "磁盘错误扫描", "\uE9F3",
             "只读扫描系统盘的文件系统结构，看有没有错误",
-            "chkdsk C: /scan",
+            // Win7 的 chkdsk 没有 /scan（Win8 才加），不带 /f 就是只读检查，语义一致
+            OsInfo.IsWindows8OrLater ? "chkdsk C: /scan" : "chkdsk C:",
             "1~10 分钟", RepairRisk.Low,
             "只读扫描，不会修改磁盘上的任何数据，也不需要重启。发现错误只会报告出来，不会自动改动。",
             ""),
@@ -159,6 +161,16 @@ public static class SystemRepair
             + "改名可以恢复回去。",
             "执行时会短暂中断 Windows 更新服务。如果系统正在安装更新，请不要执行。"),
     };
+
+    /// <summary>
+    /// 当前系统真正能跑的任务卡。
+    /// ⛔ DISM 的 <c>/ScanHealth</c>、<c>/RestoreHealth</c>、<c>/StartComponentCleanup</c>
+    ///    都是 Windows 8 才引入的参数 —— Win7 上执行只会得到「无法识别的参数」，
+    ///    所以干脆不摆出来，免得用户以为没修好。
+    /// </summary>
+    public static IReadOnlyList<RepairTask> Tasks { get; } = OsInfo.IsWindows8OrLater
+        ? AllTasks
+        : AllTasks.Where(t => !t.Id.StartsWith("dism-", StringComparison.Ordinal)).ToArray();
 
     public static RepairTask? TaskOf(string id) => Tasks.FirstOrDefault(t => t.Id == id);
 

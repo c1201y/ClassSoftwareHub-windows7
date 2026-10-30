@@ -39,9 +39,12 @@
     <LangVersion>10</LangVersion>
     <NoWarn>$(NoWarn);CA1416</NoWarn>
 
-    <!-- 版本号与主程序保持一致（Core/ShellConfig.cs 的 ShellVersion 是唯一来源，这里只是元数据） -->
-    <Version>1.2.0-insider1.2</Version>
-    <InformationalVersion>1.2.0-insider1.2</InformationalVersion>
+    <!-- 版本号与主程序保持一致（Core/ShellConfig.cs 的 ShellVersion 是唯一来源，这里只是元数据）
+         ⛔ InformationalVersion 不要写死：exe 的「产品版本」读的就是它，
+            写死会在 ShellVersion 升级后原地不动（2026-10-29 打包时实测：主程序 1.7、启动器还是 1.2），
+            且命令行 -p:Version 也改不动它。跟着 Version 走。 -->
+    <Version>1.2.0-insider1.7</Version>
+    <InformationalVersion>$(Version)</InformationalVersion>
 
     <!-- ── 发布形状：自包含 + 裁剪 + 单文件 + 压缩 ── -->
     <SelfContained>true</SelfContained>

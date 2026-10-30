@@ -55,9 +55,7 @@ public sealed partial class DownloadsPage : PageBase
 
         // 任务列表是进程内的，重开应用就空了 —— 但「下好待装」的那个包还在硬盘上。
         // 进这一页先把它补成一条已完成的任务，否则用户又回到"不知道下没下好"。
-        // ⚠️ TODO(win7): 仓库的 UpdateFlow 目前还没有 EnsurePendingTaskVisible()（1.3 才加），
-        //    等更新链路 agent / Lead 补上后在这里调用：
-            Services.Updating.UpdateFlow.EnsurePendingTaskVisible();
+        Services.Updating.UpdateFlow.EnsurePendingTaskVisible();
 
         Refresh();
     }
@@ -194,6 +192,8 @@ public sealed partial class DownloadsPage : PageBase
             {
                 s.UpdatePendingPath = "";
                 s.UpdatePendingTag = "";
+                s.UpdatePendingMd5 = "";
+                s.UpdatePendingSha256 = "";
                 App.Settings.Save();
                 Core.AppLog.Info("update", "随文件删除，待装标记已一并清除");
             }

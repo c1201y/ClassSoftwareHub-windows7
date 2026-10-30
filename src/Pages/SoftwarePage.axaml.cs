@@ -21,6 +21,12 @@ namespace ClassSoftwareHub.Desktop.Pages;
 public sealed partial class SoftwarePage : PageBase
 {
     private string _category = "";
+
+    /// <summary>
+    /// 当前选中的操作系统平台 key（空串 = 全部系统）。与 <see cref="_category"/> 是「且」的关系，
+    /// 判定见 <see cref="SoftwareApp.SupportsPlatform"/>。取值来自 软件数据/platforms.json。
+    /// </summary>
+    private string _platform = "";
     /// <summary>
     /// 关键词过滤链（2026-10-18 起**没有 UI 入口** —— 页内搜索框已删，顶部总搜索接手了）。
     /// 刻意保留字段与 <see cref="Apply"/> 里的过滤：以后若要把"筛列表"接回顶部搜索，
@@ -50,6 +56,13 @@ public sealed partial class SoftwarePage : PageBase
 
         // ⚠️ 原版构造函数里还有 Core.WheelRelay.Attach(this, TileGrid, CompactGrid)；
         //    本移植版把 ScrollViewer 提到了页面最外层，滚轮本来就由它统一接管，不需要再接力。
+
+        // 卡片宽度按可用宽度自适应（上游 2026-10-24 Nick：「右边空的能开蜜雪冰城了」）
+        TileGrid.Loaded += (_, _) => FitCards();
+        TileGrid.SizeChanged += (_, _) => FitCards();
+        CompactGrid.Loaded += (_, _) => FitCards();
+        CompactGrid.SizeChanged += (_, _) => FitCards();
+
         _hubAiTransform = new TranslateTransform();
         HubAiPanel.RenderTransform = _hubAiTransform;
     }
@@ -121,7 +134,7 @@ public sealed partial class SoftwarePage : PageBase
     /// 首启同步完页面就不会自己刷新 —— 2026-10-05 实测踩到）。
     /// </summary>
     private string Fingerprint()
-        => string.Join("\u0001", _category, _keyword, _view,
+        => string.Join("\u0001", _category, _platform, _keyword, _view,
                        App.Content.Revision.ToString(), App.Content.Source);
 
     /// <summary>磁贴（3 列，带简介）/ 网格（5 列，紧凑）切换，选择会记进设置。</summary>
@@ -167,6 +180,57 @@ public sealed partial class SoftwarePage : PageBase
             // 回填时不触发 Apply（否则每次切页都会重建一遍列表）
             _loading = false;
         }
+
+        // 分类与系统下拉总是一起变（同一份内容、同一次 Load），顺手在这里重建
+        BuildPlatformPicker();
+    }
+
+    /// <summary>
+    /// 系统筛选下拉：第一项「全部系统」，后面按 platforms.json 的顺序列平台。
+    ///
+    /// ⚠️ 一个平台都没有（或只有 1 个）时整个下拉隐藏 —— 对齐网页版
+    /// <c>v-if="platformItems.length &gt; 1"</c>：只有一种平台时这个筛选没有意义，白占宽度。
+    /// </summary>
+    private void BuildPlatformPicker()
+    {
+        var platforms = App.Content.Platforms;
+
+        PlatformPicker.IsVisible = platforms.Count > 1;
+
+        _loading = true;
+        try
+        {
+            PlatformPicker.Items.Clear();
+            PlatformPicker.Items.Add(new ComboBoxItem { Content = "全部系统" });
+
+            var index = 0;
+            for (var i = 0; i < platforms.Count; i++)
+            {
+                PlatformPicker.Items.Add(new ComboBoxItem { Content = platforms[i].Name });
+                if (platforms[i].Key == _platform) index = i + 1;
+            }
+
+            // 选中的平台在新数据里没了（内容更新过）→ 退回「全部系统」，别留一个指向空集合的状态
+            if (_platform.Length > 0 && index == 0) _platform = "";
+
+            PlatformPicker.SelectedIndex = index;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void PlatformPicker_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_loading) return;
+
+        var index = PlatformPicker.SelectedIndex;
+        _platform = index <= 0 || index > App.Content.Platforms.Count
+            ? ""
+            : App.Content.Platforms[index - 1].Key;
+
+        Apply();
     }
 
     private void AddChip(string text, string key)
@@ -197,6 +261,7 @@ public sealed partial class SoftwarePage : PageBase
     {
         var list = App.Content.Apps
             .Where(a => _category.Length == 0 || a.Category == _category)
+            .Where(a => a.SupportsPlatform(_platform))
             .Where(a => a.Matches(_keyword))
             .ToList();
 
@@ -207,13 +272,59 @@ public sealed partial class SoftwarePage : PageBase
         // 详情页不能"等页面画完再去取色"，否则会先显示一种颜色、过一会儿跳成另一种。
         WarmPalette(list);
 
-        TitleText.Text = _category.Length == 0
+        var baseTitle = _category.Length == 0
             ? (_keyword.Length == 0 ? "软件下载" : $"搜索：{_keyword}")
             : App.Content.CategoryName(_category);
+
+        // 选了系统就在标题后面带上平台名，否则只有一个「软件下载」看不出列表被筛过
+        TitleText.Text = _platform.Length == 0
+            ? baseTitle
+            : $"{baseTitle} · {App.Content.PlatformName(_platform)}";
 
         UpdateEmptyState(list.Count);
 
         _appliedKey = Fingerprint();   // 记下这次是按什么状态建的，下次同状态直接跳过
+    }
+
+    /// <summary>卡片之间的水平间距 = 模板里 Border 的 Margin 右边距。</summary>
+    private const double CardGap = 8;
+
+    private const double TileMinWidth = 300, TileDefaultWidth = 312;
+    private const double CompactMinWidth = 184, CompactDefaultWidth = 184;
+
+    /// <summary>按当前可用宽度重算卡片宽度（上游 2026-10-24 FitCards）。</summary>
+    private void FitCards()
+    {
+        FitOne(TileGrid, TileMinWidth, TileDefaultWidth);
+        FitOne(CompactGrid, CompactMinWidth, CompactDefaultWidth);
+    }
+
+    /// <summary>
+    /// 列数取「塞得下的最多列」，剩余宽度**平摊给每一列**，最右边不留一条空白。
+    /// ⚠️ 移植：上游把宽度写到 ItemsWrapGrid.ItemWidth 上；Avalonia 的 WrapPanel 没有这个概念，
+    ///    改为把卡片宽度写到 ItemsControl.Tag 上，模板里的 Border 宽度绑定到它
+    ///    （<c>Width="{Binding $parent[ItemsControl].Tag}"</c>，见 axaml）。
+    /// </summary>
+    private static void FitOne(ItemsControl grid, double minWidth, double defaultWidth)
+    {
+        var available = grid.Bounds.Width - grid.Padding.Left - grid.Padding.Right;
+        if (available <= minWidth) return;   // 还没量出来 / 窗口太窄 → 保持初值
+
+        var columns = Math.Max(1, (int)Math.Floor((available + CardGap) / (minWidth + CardGap)));
+
+        // 槽宽（含右边距）按「总宽 ÷ 列数」平摊，卡片宽 = 槽宽 - 右边距，往下取整。
+        // ⚠️ 不能用 (available - (columns-1)*gap)/columns 算卡宽再加 gap：
+        //    那样 N 列总共要 N×(卡宽+gap)，比可用宽度多算了最后一个 gap，
+        //    面板判定"放不下"就会少排一列（上游 2026-10-24 实测：1297 宽只排了 5 列）。
+        var cardWidth = Math.Floor(available / columns) - CardGap;
+
+        // 除下来比最小宽还窄（窗口宽度正好卡在临界）→ 退回最小宽，让面板自己决定换行
+        if (cardWidth < minWidth) cardWidth = minWidth;
+
+        // 拖窗口时 SizeChanged 会连发，差值不到 1px 就别动 —— 每设一次宽度所有卡片都要重新测量
+        if (Math.Abs((grid.Tag as double? ?? defaultWidth) - cardWidth) < 1) return;
+
+        grid.Tag = cardWidth;
     }
 
     /// <summary>

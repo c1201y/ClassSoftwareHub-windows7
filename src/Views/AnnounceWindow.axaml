@@ -3,45 +3,66 @@
         xmlns:fa="using:FluentAvalonia.UI.Controls"
         x:Class="ClassSoftwareHub.Desktop.Views.AnnounceWindow"
         SystemDecorations="None" ShowInTaskbar="False" CanResize="False"
-        Background="#FF101418">
+        Title="教室喊话"
+        Background="#FF0B0E13">
 
     <!--
-      教室喊话窗：收到远端喊话后铺满整块屏幕的大字提醒，倒计时到点自动关。
-      结构照抄 MessageFullscreenWindow（Esc / 双击 / 右上角按钮退出），
-      差别只有两处：① 正文底下多一行署名（老师端填了才显示）；
-      ② 不等用户关 —— 播完设定时长自己收，教室里没人碰键盘也走得掉。
+      教室喊话窗 v3（对齐上游 dv1.2.0-insider1.5）：
+      收到远端喊话后铺满整块屏幕的大字提醒，倒计时到点自动关，Esc / 双击 / 右上角按钮可提前退。
+      出场动画按设置走预设（打字机 / 每行交错划入 / 弹入 / 无动画），由 code-behind 驱动。
 
-      ⚠️ 字号由 code-behind 按屏幕尺寸与字数自适应（同 MessageFullscreenWindow.Layout），XAML 里不写。
+      平台差异（Win7 版）：上游用 DesktopAcrylicController 压暗桌面，Win7 上不可用，
+      按上游的兜底路径走不透明深底（#FF0B0E13）；字号自适应、三种出场与三段退场语义对齐上游。
     -->
     <Grid x:Name="Root" IsTabStop="True" KeyDown="Root_KeyDown" DoubleTapped="Root_DoubleTapped"
-          Background="#FF101418">
-        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="40">
-            <TextBlock x:Name="Body" TextWrapping="Wrap" TextAlignment="Center"
-                       Foreground="#FFF2F4F7" />
-            <TextBlock x:Name="FromLine" TextAlignment="Center" Margin="0,18,0,0"
-                       FontSize="20" Opacity="0.75" IsVisible="False"
-                       Foreground="#FFF2F4F7" />
+          Background="#FF0B0E13">
+
+        <!-- 顶部：强调色竖条 + 图标 + 标题（出场淡入） -->
+        <StackPanel x:Name="TopBar" Orientation="Horizontal" HorizontalAlignment="Left"
+                    VerticalAlignment="Top" Margin="48,42,0,0" Spacing="14" Opacity="0">
+            <Border x:Name="AccentBar" Width="6" Height="26" CornerRadius="3"
+                    Background="#FF0078D4" VerticalAlignment="Center" />
+            <fa:FontIcon x:Name="AccentIcon" Glyph="&#xE720;" FontSize="22"
+                         Foreground="#FF0078D4" VerticalAlignment="Center" />
+            <TextBlock Text="教室喊话" FontSize="20" FontWeight="SemiBold"
+                       Foreground="#FFF2F4F7" VerticalAlignment="Center" />
         </StackPanel>
 
-        <!--
-          退出入口：与全屏留言同一套（进来先亮几秒再淡出，鼠标一动 / 手指一碰再亮）。
-          左侧的倒计时提示也挂在这条上 —— 平时看不见，碰一下屏幕能看到还剩几秒。
-        -->
-        <Border x:Name="ExitBar" HorizontalAlignment="Right" VerticalAlignment="Top"
-                Margin="0,18,18,0" CornerRadius="8" Padding="16,6,8,6"
-                Opacity="0" IsHitTestVisible="False"
-                Background="#CC1A1A1A" BorderBrush="#40FFFFFF" BorderThickness="1">
-            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                <TextBlock x:Name="RemainText" Text="" FontSize="14"
-                           Foreground="#FFFFFFFF" VerticalAlignment="Center" />
-                <TextBlock Text="按 Esc、双击屏幕，或单击此处退出" FontSize="14"
-                           Foreground="#FFFFFFFF" VerticalAlignment="Center" />
-                <Button Click="Exit_Click" MinWidth="36" MinHeight="36" Padding="0"
-                        Background="Transparent" BorderThickness="0"
-                        ToolTip.Tip="退出喊话">
-                    <fa:FontIcon Glyph="&#xE711;" FontSize="14" Foreground="#FFFFFFFF" />
-                </Button>
-            </StackPanel>
-        </Border>
+        <!-- 右上角关闭 -->
+        <Button x:Name="CloseButton" Click="Close_Click" HorizontalAlignment="Right"
+                VerticalAlignment="Top" Margin="0,42,48,0" MinWidth="40" MinHeight="40"
+                Padding="0" Background="Transparent" BorderThickness="0" Opacity="0"
+                ToolTip.Tip="关闭（Esc）">
+            <fa:FontIcon Glyph="&#xE711;" FontSize="16" Foreground="#FFF2F4F7" />
+        </Button>
+
+        <!-- 正文：打字机走 BodyText，交错划入改用 LinesPanel（按行摆） -->
+        <StackPanel x:Name="BodyHost" HorizontalAlignment="Center" VerticalAlignment="Center"
+                    Margin="140,40,140,40" Opacity="0">
+            <StackPanel x:Name="LinesPanel" IsVisible="False" HorizontalAlignment="Center" />
+            <!--
+              正文只用 Medium 这一个字面（对齐上游 dv1.2.0-insider1.5 的 BodyText）。
+              ⛔ 不要加 FontWeight="Bold"：内嵌字体集合里只有 Medium(500) 一个字重，
+                 请求 700 时 Avalonia 会去别处找最接近的字面，字宽/字形随之变化 —— 正是「字体不对」的来源。
+                 四种出场动画的行块都由 code-behind 抄 BodyText 的 FontWeight，这里不加，它们也不加。
+            -->
+            <TextBlock x:Name="BodyText" TextWrapping="Wrap" TextAlignment="Center"
+                       Foreground="#FFF7F8FA"
+                       FontFamily="avares://ClassSoftwareHub/Assets/Fonts/HarmonyOS_Sans_SC_Medium.ttf#HarmonyOS Sans SC" />
+            <TextBlock x:Name="FromText" TextAlignment="Center" Margin="0,26,0,0"
+                       FontSize="20" Opacity="0.75" IsVisible="False"
+                       Foreground="#CCF7F8FA"
+                       FontFamily="avares://ClassSoftwareHub/Assets/Fonts/HarmonyOS_Sans_SC_Light.ttf#HarmonyOS Sans SC" />
+        </StackPanel>
+
+        <!-- 底部：倒计时文字 + 进度条 -->
+        <StackPanel x:Name="Footer" HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                    Margin="0,0,0,44" Spacing="12" Opacity="0">
+            <TextBlock x:Name="CountText" TextAlignment="Center" FontSize="14"
+                       Foreground="#8CF2F4F7"
+                       FontFamily="avares://ClassSoftwareHub/Assets/Fonts/HarmonyOS_Sans_SC_Light.ttf#HarmonyOS Sans SC" />
+            <ProgressBar x:Name="RemainBar" Minimum="0" Maximum="100" Height="3"
+                         Width="420" Foreground="#FF0078D4" />
+        </StackPanel>
     </Grid>
 </Window>

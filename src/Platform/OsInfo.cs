@@ -36,6 +36,10 @@ public static class OsInfo
     /// <summary>Windows 8 / 8.1。</summary>
     public static bool IsWindows8 => !SimulateWin7 && Raw.Major == 6 && (Raw.Minor == 2 || Raw.Minor == 3);
 
+    /// <summary>Windows 8 及以上（含 8.1 / 10 / 11）。用于「Win8 才引入的功能」判定，
+    /// 例如 <c>chkdsk /scan</c>、DISM 的 <c>/ScanHealth</c> / <c>/RestoreHealth</c> / <c>/StartComponentCleanup</c>。</summary>
+    public static bool IsWindows8OrLater => !SimulateWin7 && (Raw.Major > 6 || (Raw.Major == 6 && Raw.Minor >= 2));
+
     /// <summary>Windows 10 / 11。</summary>
     public static bool IsWindows10OrLater => !SimulateWin7 && Raw.Major >= 10;
 
@@ -53,6 +57,9 @@ public static class OsInfo
 
     /// <summary>Win10 1809（17763）起才认「深色标题栏」这个 DWM 属性。</summary>
     public static bool SupportsDarkTitleBar => !SimulateWin7 && Raw.Major >= 10 && Raw.Build >= 17763;
+
+    /// <summary>剪贴板历史（Win+V）是 Win10 1809（17763）才有的功能，Win7/8 按下无任何反应。</summary>
+    public static bool SupportsClipboardHistory => !SimulateWin7 && Raw.Major >= 10 && Raw.Build >= 17763;
 
     /// <summary>
     /// DWM 合成是否开着 —— Win7 上「毛玻璃」能不能用全看它。

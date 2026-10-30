@@ -28,6 +28,9 @@ public sealed class ContentStore
 
     public List<SoftwareApp> Apps { get; } = new();
     public List<DownloadCategory> Categories { get; } = new();
+
+    /// <summary>操作系统平台清单（platforms.json 顶层项，按文件顺序）。列表页的系统筛选下拉用它。</summary>
+    public List<DownloadPlatform> Platforms { get; } = new();
     public List<DataIssue> Issues { get; } = new();
 
     /// <summary>系统镜像下载页的内容（text/mirror-sites.json）。</summary>
@@ -89,10 +92,16 @@ public sealed class ContentStore
 
     public int CountInCategory(string key) => Apps.Count(a => a.Category == key);
 
+    /// <summary>某个平台下的软件数量（一个软件可能同时属于多个平台，故各平台数量之和会大于总数）。</summary>
+    public int CountInPlatform(string key) => Apps.Count(a => a.SupportsPlatform(key));
+
+    public string PlatformName(string key) => Platforms.FirstOrDefault(p => p.Key == key)?.Name ?? key;
+
     public void Load()
     {
         Apps.Clear();
         Categories.Clear();
+        Platforms.Clear();
         Issues.Clear();
         Mirror.Sites.Clear();
         Ui.All.Clear();
@@ -114,6 +123,7 @@ public sealed class ContentStore
         Source = root;
         LoadApps(Path.Combine(root, "apps"));
         LoadCategories(Path.Combine(root, "categories.json"));
+        LoadPlatforms(Path.Combine(root, "platforms.json"));
         ApplyCategoryDisplay();
         LoadManifestVersion(Path.Combine(root, "manifest.json"));
 
@@ -298,6 +308,16 @@ public sealed class ContentStore
                     }
                 }
 
+                if (root.TryGetProperty("platforms", out var plats) && plats.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var p in plats.EnumerateArray())
+                    {
+                        if (p.ValueKind != JsonValueKind.String) continue;
+                        var key = (p.GetString() ?? "").Trim();
+                        if (key.Length > 0 && !app.Platforms.Contains(key)) app.Platforms.Add(key);
+                    }
+                }
+
                 if (root.TryGetProperty("downloads", out var downloads) && downloads.ValueKind == JsonValueKind.Array)
                 {
                     foreach (var d in downloads.EnumerateArray())
@@ -375,6 +395,37 @@ public sealed class ContentStore
 
         foreach (var c in Categories)
             c.Display = $"{c.Name}  {CountInCategory(c.Key)}";
+    }
+
+    /// <summary>
+    /// 读 platforms.json 的顶层平台（windows / macos / linux / android / ios / web）。
+    /// 只取 key + name：<c>versions</c> 里那些细分版本（XP / 7 / 10 / 11…）是提交页「系统版本」多选用的，
+    /// 列表筛选不展开（与网页版 HomePage.vue 的下拉一致 —— 它也只列顶层平台）。
+    /// 文件缺失时**不报红条**：列表照样能用，只是系统下拉不出现（对齐网页版 <c>v-if="platformItems.length > 1"</c>）。
+    /// </summary>
+    private void LoadPlatforms(string file)
+    {
+        if (!File.Exists(file)) return;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(file));
+            if (doc.RootElement.ValueKind != JsonValueKind.Array) throw new JsonException("最外层不是数组");
+
+            foreach (var item in doc.RootElement.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object) continue;
+                var key = ReadString(item, "key");
+                if (key.Length == 0) continue;
+                var name = ReadString(item, "name");
+                Platforms.Add(new DownloadPlatform { Key = key, Name = name.Length > 0 ? name : key });
+            }
+        }
+        catch (Exception ex)
+        {
+            Platforms.Clear();
+            Issues.Add(new DataIssue { File = "platforms.json", Message = "平台清单读取失败：" + FriendlyJsonHint(ex.Message) });
+        }
     }
 
     private void RebuildCategoriesFromApps()

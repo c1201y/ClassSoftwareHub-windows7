@@ -136,8 +136,13 @@ internal static class NativeMethodsShell
     /// 最低 Win2000。挂/改/删托盘图标 + 弹气泡。
     /// ⚠️ Win7 上气泡就是**托盘气泡**（<c>NOTIFYICONDATA</c> 的 <c>uTimeout</c> 字段，实际时长由系统定）；
     ///    Win10+ 才会被转成 Action Center 的 toast。
+    /// ⚠️ <c>SetLastError = true</c> 是**排障刚需**：NIM_ADD 在 explorer 无响应 / 完整性不足 /
+    ///    参数不被接受时返回 FALSE，没有这个修饰符 <c>Marshal.GetLastWin32Error</c> 拿到的是
+    ///    上一条无关调用的残留值（实测拿到 0，把"静默拒绝"伪装成"没有错误"），根因直接瞎掉。
+    /// ⚠️ <c>EntryPoint</c> 显式写 W 后缀：CharSet 自动探测依赖 CLR 的后缀回退链，
+    ///    显式指定可避免任何模糊解析（Ansi 版结构体按 Unicode 布局解释会直接错位）。
     /// </summary>
-    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    [DllImport("shell32.dll", EntryPoint = "Shell_NotifyIconW", CharSet = CharSet.Unicode, SetLastError = true)]
     internal static extern bool Shell_NotifyIcon(uint dwMessage, ref NOTIFYICONDATA lpData);
 
     /// <summary>
@@ -212,6 +217,40 @@ internal static class NativeMethodsShell
     internal const uint MF_STRING = 0x0000;
     internal const uint MF_SEPARATOR = 0x0800;
     internal const uint MF_DEFAULT = 0x1000;
+
+    // ══════════════════════════════════════════════════════════════════
+    //  user32 / kernel32 / advapi32 —— 排障用：完整性级别 & 窗口定时器
+    //  托盘挂不上（NIM_ADD 返回 FALSE）时要把「本进程 IL vs 资源管理器 IL」写进日志：
+    //  UIPI 只认完整性级别，不看「是不是管理员」，光凭错误码 5 猜方向会猜反。
+    // ══════════════════════════════════════════════════════════════════
+
+    /// <summary>最低 Vista。查询进程基本信息（读令牌用）。</summary>
+    internal const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    internal static extern IntPtr OpenProcess(uint desiredAccess, bool inheritHandle, int processId);
+
+    [DllImport("kernel32.dll")]
+    internal static extern uint GetCurrentProcessId();
+
+    [DllImport("user32.dll")]
+    internal static extern IntPtr GetShellWindow();
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    internal static extern bool GetTokenInformation(IntPtr tokenHandle, int infoClass, IntPtr info, int length, out int returnLength);
+
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    internal static extern bool ConvertSidToStringSidW(IntPtr sid, out IntPtr stringSid);
+
+    [DllImport("kernel32.dll")]
+    internal static extern IntPtr LocalFree(IntPtr handle);
+
+    /// <summary>最低 Win2000。挂在窗口上的毫秒定时器（WM_TIMER 回到该窗口的 WndProc）。</summary>
+    [DllImport("user32.dll")]
+    internal static extern IntPtr SetTimer(IntPtr hWnd, uint id, uint elapse, IntPtr timerProc);
+
+    [DllImport("user32.dll")]
+    internal static extern bool KillTimer(IntPtr hWnd, uint id);
 
     // ══════════════════════════════════════════════════════════════════
     //  user32 —— 全局低级鼠标钩子（触摸监听）

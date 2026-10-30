@@ -141,6 +141,13 @@ public static class DownloadService
     /// <summary>分片/单流的读缓冲大小：256 KB。</summary>
     private const int StreamBufferBytes = 256 * 1024;
 
+    /// <summary>
+    /// 两次收到数据之间的最长间隔（2026-10-27）。
+    /// 半开连接不会自己报错，读请求会永远挂着 —— 界面表现为进度条永久停住。
+    /// 45 秒与更新下载同一口径：正常 CDN 再慢也不会静默 45 秒。
+    /// </summary>
+    private static readonly TimeSpan IdleTimeout = TimeSpan.FromSeconds(45);
+
     /// <summary>单个分片最多试几次（含首次）。</summary>
     private const int SegmentAttempts = 3;
 
@@ -154,6 +161,7 @@ public static class DownloadService
             AutomaticDecompression = DecompressionMethods.All,
             // 并行分片需要同时建立多条连接，显式设置上限（默认不限制）
             MaxConnectionsPerServer = 16,
+            SslProtocols = Core.HttpTls.Protocols,   // Win7 默认不开 TLS 1.2
         };
         var client = new HttpClient(handler)
         {
@@ -193,12 +201,14 @@ public static class DownloadService
         Core.AppLog.Step("download", $"原始链接 {url}");
 
         // 将原始链接翻译为候选链接，按序尝试，一条失败切换下一条（路由语义见 DownloadRoute）。
-        IReadOnlyList<string> candidates = route switch
+        // ⛔ 必须保留完整的 DownloadCandidate（而不只是 Url 字符串）：
+        //    自建节点的签名链接要求带 Referer / X-Api-Key，剥成字符串后这些头就丢了，
+        //    探速和真下载都会被节点拒绝（表现为"明明有线路却全都不可用"）。
+        IReadOnlyList<DownloadCandidate> candidates = route switch
         {
-            DownloadRoute.Official => new[] { url },
-            DownloadRoute.Accelerated => await GithubRoute.ResolveAcceleratedAsync(url, ct).ConfigureAwait(false),
-            // 默认（Setting）走全局设置，但这里要的是纯字符串候选，所以抖一层
-            _ => (await GithubRoute.ResolveAsync(url, ct).ConfigureAwait(false)).Select(c => c.Url).ToList(),
+            DownloadRoute.Official => new[] { DownloadCandidate.Direct(url) },
+            // ⚠️ Accelerated 与 Setting 目前都按设置解析（与改动前 ResolveAcceleratedAsync 的行为一致）
+            _ => await GithubRoute.ResolveAsync(url, ct).ConfigureAwait(false),
         };
 
         Exception? lastError = null;
@@ -270,8 +280,9 @@ public static class DownloadService
     public static async Task<long> DownloadToFileAsync(
         string url, string path, IProgress<DownloadProgress>? progress, CancellationToken ct)
     {
-        var probe = await ProbeAsync(url, ct).ConfigureAwait(false);
-        return await FetchAsync(url, path, probe, progress, ct).ConfigureAwait(false);
+        var candidate = DownloadCandidate.Direct(url);
+        var probe = await ProbeAsync(candidate, ct).ConfigureAwait(false);
+        return await FetchAsync(candidate, path, probe, progress, ct).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -280,18 +291,19 @@ public static class DownloadService
     /// ⚠️ 速度计时从开始接收数据时启动：代签、探测等前置往返不计入下载速度。
     /// </summary>
     private static async Task<long> FetchAsync(
-        string url, string part, ProbeInfo probe, IProgress<DownloadProgress>? progress, CancellationToken ct)
+        DownloadCandidate candidate, string part, ProbeInfo probe,
+        IProgress<DownloadProgress>? progress, CancellationToken ct)
     {
         var total = probe.Total;
         var segments = SegmentCountFor(total);
 
         if (probe.SupportsRange && segments > 1)
         {
-            Core.AppLog.Info("download", $"并行 {segments} 路 · {DownloadProgress.Size(total)} · {url}");
+            Core.AppLog.Info("download", $"并行 {segments} 路 · {DownloadProgress.Size(total)} · {candidate.Url}");
             try
             {
                 return await DownloadParallelAsync(
-                        url, part, total, segments, progress, ct, Stopwatch.StartNew())
+                        candidate, part, total, segments, progress, ct, Stopwatch.StartNew())
                     .ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -302,8 +314,8 @@ public static class DownloadService
             }
         }
 
-        Core.AppLog.Info("download", $"单流 · {DownloadProgress.Size(total)} · {url}");
-        return await DownloadSingleAsync(url, part, total, progress, ct, Stopwatch.StartNew())
+        Core.AppLog.Info("download", $"单流 · {DownloadProgress.Size(total)} · {candidate.Url}");
+        return await DownloadSingleAsync(candidate, part, total, progress, ct, Stopwatch.StartNew())
             .ConfigureAwait(false);
     }
 
@@ -311,18 +323,42 @@ public static class DownloadService
     private sealed record ProbeInfo(long Total, bool SupportsRange, string? ServerFileName);
 
     /// <summary>
+    /// 统一给探测、单流、分片请求贴路由头：优先用候选自带（自建节点签名链接要求 Referer / X-Api-Key），
+    /// 纯加速前缀链接没有候选头时退回旧规则的 Referer，避免漏发导致节点 403。
+    /// </summary>
+    private static void ApplyRouteHeaders(HttpRequestMessage request, DownloadCandidate candidate)
+    {
+        candidate.ApplyTo(request);
+        if (string.IsNullOrEmpty(candidate.Referer) && GithubRoute.IsAcceleratedUrl(candidate.Url))
+            request.Headers.Referrer = new Uri(GithubRoute.AcceleratorReferer);
+    }
+
+    /// <summary>
     /// 先要一个字节看看：总多大、支不支持 <c>Range</c>、以及 <c>Content-Disposition</c> 里的文件名。
     /// <c>HttpCompletionOption.ResponseHeadersRead</c> + 立刻 Dispose ⇒ 只握手、不拉正文。
     /// </summary>
-    private static async Task<ProbeInfo> ProbeAsync(string url, CancellationToken ct)
+    private static async Task<ProbeInfo> ProbeAsync(DownloadCandidate candidate, CancellationToken ct)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        using var request = new HttpRequestMessage(HttpMethod.Get, candidate.Url);
         request.Headers.Range = new RangeHeaderValue(0, 0);
-        if (GithubRoute.IsAcceleratedUrl(url))
-            request.Headers.Referrer = new Uri(GithubRoute.AcceleratorReferer);
+        ApplyRouteHeaders(request, candidate);
 
-        using var response = await Http
-            .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+        // 探测也要掐表：半开连接会让「换个线路试试」这一步自己先挂死
+        using var probeCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        probeCts.CancelAfter(TimeSpan.FromSeconds(20));
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await Http
+                .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, probeCts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new IOException("探测下载线路超时（20 秒无响应）。");
+        }
+
+        using var responseScope = response;
         response.EnsureSuccessStatusCode();
 
         long total;
@@ -352,38 +388,49 @@ public static class DownloadService
 
     /// <summary>单流下载：顺序读取写入。服务端不支持区间请求时使用。</summary>
     private static async Task<long> DownloadSingleAsync(
-        string url, string part, long total,
+        DownloadCandidate candidate, string part, long total,
         IProgress<DownloadProgress>? progress, CancellationToken ct, Stopwatch watch)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        if (GithubRoute.IsAcceleratedUrl(url))
-            request.Headers.Referrer = new Uri(GithubRoute.AcceleratorReferer);
+        using var request = new HttpRequestMessage(HttpMethod.Get, candidate.Url);
+        ApplyRouteHeaders(request, candidate);
 
-        using var response = await Http
-            .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
+        // 连接/响应头/正文读都受同一个空闲看门狗约束：每次收到数据就重新计时。
+        using var idle = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        idle.CancelAfter(IdleTimeout);
 
-        if (total <= 0) total = response.Content.Headers.ContentLength ?? -1;
-
-        var pump = new ProgressPump(progress, total, watch);
-        pump.Reset();
-
-        await using var source = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-        await using var sink = new FileStream(part, FileMode.Create, FileAccess.Write, FileShare.None,
-            StreamBufferBytes, true);
-
-        var buffer = new byte[StreamBufferBytes];
-        while (true)
+        try
         {
-            var read = await source.ReadAsync(buffer, ct).ConfigureAwait(false);
-            if (read <= 0) break;
+            using var response = await Http
+                .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, idle.Token).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
 
-            await sink.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
-            pump.Add(read);
+            if (total <= 0) total = response.Content.Headers.ContentLength ?? -1;
+
+            var pump = new ProgressPump(progress, total, watch);
+            pump.Reset();
+
+            await using var source = await response.Content.ReadAsStreamAsync(idle.Token).ConfigureAwait(false);
+            await using var sink = new FileStream(part, FileMode.Create, FileAccess.Write, FileShare.None,
+                StreamBufferBytes, true);
+
+            var buffer = new byte[StreamBufferBytes];
+            while (true)
+            {
+                var read = await source.ReadAsync(buffer, idle.Token).ConfigureAwait(false);
+                if (read <= 0) break;
+                idle.CancelAfter(IdleTimeout);   // 有数据进来 = 连接还活着，重新计时
+
+                await sink.WriteAsync(buffer.AsMemory(0, read), idle.Token).ConfigureAwait(false);
+                pump.Add(read);
+            }
+
+            pump.Complete();
+            return pump.Received;
         }
-
-        pump.Complete();
-        return pump.Received;
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new IOException($"连续 {IdleTimeout.TotalSeconds:0} 秒没有收到数据，下载已中断。");
+        }
     }
 
     /// <summary>
@@ -391,7 +438,7 @@ public static class DownloadService
     /// 每个分片持有独立的 <see cref="FileStream"/>，写入区间互不重叠，无需加锁。
     /// </summary>
     private static async Task<long> DownloadParallelAsync(
-        string url, string part, long total, int segments,
+        DownloadCandidate candidate, string part, long total, int segments,
         IProgress<DownloadProgress>? progress, CancellationToken ct, Stopwatch watch)
     {
         // 预先将 .part 扩展到最终大小，各分片按偏移直接写入
@@ -407,7 +454,7 @@ public static class DownloadService
             // 按乘除切分区间：无遗漏，最后一片自动包含余数
             var start = total * i / segments;
             var end = total * (i + 1) / segments - 1;
-            tasks[i] = DownloadSegmentAsync(url, part, start, end, pump, ct);
+            tasks[i] = DownloadSegmentAsync(candidate, part, start, end, pump, ct);
         }
 
         await Task.WhenAll(tasks).ConfigureAwait(false);
@@ -417,7 +464,7 @@ public static class DownloadService
 
     /// <summary>下载指定区间并写入 .part 的对应偏移；失败时按 <see cref="SegmentAttempts"/> 重试。</summary>
     private static async Task DownloadSegmentAsync(
-        string url, string part, long start, long end, ProgressPump pump, CancellationToken ct)
+        DownloadCandidate candidate, string part, long start, long end, ProgressPump pump, CancellationToken ct)
     {
         var want = end - start + 1;
         Exception? last = null;
@@ -426,19 +473,20 @@ public static class DownloadService
         {
             // 重试将重写本分片：先回退已计入进度的字节数，避免进度偏高
             long billed = 0;
+            using var idle = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            idle.CancelAfter(IdleTimeout);
             try
             {
-                using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                using var request = new HttpRequestMessage(HttpMethod.Get, candidate.Url);
                 request.Headers.Range = new RangeHeaderValue(start, end);
-                if (GithubRoute.IsAcceleratedUrl(url))
-                    request.Headers.Referrer = new Uri(GithubRoute.AcceleratorReferer);
+                ApplyRouteHeaders(request, candidate);
 
                 using var response = await Http
-                    .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+                    .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, idle.Token).ConfigureAwait(false);
                 if (response.StatusCode != HttpStatusCode.PartialContent)
                     throw new IOException($"服务端没按区间返回（HTTP {(int)response.StatusCode}）");
 
-                await using var source = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+                await using var source = await response.Content.ReadAsStreamAsync(idle.Token).ConfigureAwait(false);
                 await using var sink = new FileStream(part, FileMode.Open, FileAccess.Write, FileShare.ReadWrite,
                     0, true);
                 sink.Seek(start, SeekOrigin.Begin);
@@ -447,11 +495,12 @@ public static class DownloadService
                 long got = 0;
                 while (got < want)
                 {
-                    var read = await source.ReadAsync(buffer, ct).ConfigureAwait(false);
+                    var read = await source.ReadAsync(buffer, idle.Token).ConfigureAwait(false);
                     if (read <= 0) break;
+                    idle.CancelAfter(IdleTimeout);   // 有数据进来 = 连接还活着，重新计时
                     if (read > want - got) read = (int)(want - got);
 
-                    await sink.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
+                    await sink.WriteAsync(buffer.AsMemory(0, read), idle.Token).ConfigureAwait(false);
                     pump.Add(read);
                     billed += read;
                     got += read;
@@ -460,6 +509,14 @@ public static class DownloadService
                 if (got != want)
                     throw new IOException($"区间 {start}-{end} 只收到 {got}/{want} 字节");
                 return;
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                // 空闲看门狗触发：与网络错误同样处理（重试本分片，重试用尽再报错）
+                last = new IOException($"连续 {IdleTimeout.TotalSeconds:0} 秒没有收到数据，分片下载已中断。");
+                if (billed > 0) pump.Add(-billed);
+                if (attempt < SegmentAttempts)
+                    await Task.Delay(TimeSpan.FromMilliseconds(400 * attempt), ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {

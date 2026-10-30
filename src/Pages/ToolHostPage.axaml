@@ -1,0 +1,15 @@
+<platform:PageBase
+    x:Class="ClassSoftwareHub.Desktop.Pages.ToolHostPage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:platform="using:ClassSoftwareHub.Desktop.Platform">
+
+    <!--
+      工具宿主页（2026-10-23 上游）：把本地工具包（HTML）当页面跑。
+      Win7 版平台差异：Avalonia 没有 WebView2 控件，本页只放一个占位 Border，
+      真正的网页由 Views/WebSheetHost（子窗口 + CoreWebView2）贴在占位区上，
+      跟随窗口几何变化重摆（MainWindow.ToolHostGeometryChanged）。
+      初始化 / 加载失败时静默退回原生页 —— 降级对用户无感（上游 Nick 定的口径）。
+    -->
+    <Border x:Name="WebHost" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+</platform:PageBase>

@@ -88,7 +88,7 @@ public static class OssUpload
     private const string DefaultContentType = "application/octet-stream";
 
     /// <summary>大文件上传可能很久，超时交给调用方的 CancellationToken 管。</summary>
-    private static readonly HttpClient Http = new(new HttpClientHandler { AllowAutoRedirect = true })
+    private static readonly HttpClient Http = new(Core.HttpTls.Handler())
     {
         Timeout = Timeout.InfiniteTimeSpan,
     };

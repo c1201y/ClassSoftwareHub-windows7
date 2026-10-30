@@ -43,6 +43,13 @@ internal static class NativeMethodsDisplay
     [DllImport("dxva2.dll", SetLastError = true)]
     internal static extern bool SetMonitorBrightness(IntPtr hMonitor, uint newBrightness);
 
+    /// <summary>
+    /// 最低 WinVista。释放 <see cref="GetPhysicalMonitorsFromHMONITOR"/> 拿到的物理显示器句柄。
+    /// ⚠️ 每取一次都会加引用，不还回去的话反复读写亮度会把句柄耗尽。
+    /// </summary>
+    [DllImport("dxva2.dll", SetLastError = true)]
+    internal static extern bool DestroyPhysicalMonitor(IntPtr hMonitor);
+
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     internal struct PHYSICAL_MONITOR
     {

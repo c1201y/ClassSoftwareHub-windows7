@@ -296,7 +296,7 @@ public partial class EquationPage : Platform.PageBase
         ResultPanel.Children.Add(copy);
     }
 
-    private void Copy(Button source)
+    private async void Copy(Button source)
     {
         if (_lastPlain.Length == 0) return;
 
@@ -304,14 +304,14 @@ public partial class EquationPage : Platform.PageBase
         {
             var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
             if (clipboard is null) return;
-            _ = clipboard.SetTextAsync(_lastPlain);
+
+            // ⚠️ 必须 await：剪贴板被别的进程占住时失败只体现在 Task 上，
+            //    fire-and-forget 会让「已复制」照常显示、异常直接消失（审计 P2 #16）。
+            await clipboard.SetTextAsync(_lastPlain);
 
             source.Content = "已复制";
-            _ = Dispatcher.UIThread.InvokeAsync(async () =>
-            {
-                await Task.Delay(1600);
-                source.Content = "复制结果";
-            });
+            await Task.Delay(1600);
+            source.Content = "复制结果";
         }
         catch (Exception ex)
         {

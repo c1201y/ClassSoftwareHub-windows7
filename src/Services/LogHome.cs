@@ -153,6 +153,8 @@ public static class LogHome
                 "显示      : " + SystemInfo.DisplaySummary(),
                 "数据目录  : " + SettingsStore.Dir,
                 "会话目录  : " + sessionName,
+                "程序位置  : " + (Environment.ProcessPath ?? "(未知)"),
+                "启动命令  : " + Environment.CommandLine,
             };
 
             lines.AddRange(SettingsSnapshot());

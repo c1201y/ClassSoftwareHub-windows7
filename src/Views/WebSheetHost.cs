@@ -57,7 +57,8 @@ internal sealed class WebSheetHost : IDisposable
     public event Action<string>? NewWindowRequested;
 
     /// <summary>网页发来的消息（JSON）。</summary>
-    public event Action<string>? WebMessageReceived;
+    /// <summary>网页 → 原生消息。第二个参数是发出消息的文档地址（用于来源校验）。</summary>
+    public event Action<string, string?>? WebMessageReceived;
 
     private WebSheetHost(IntPtr parent, NativeMethodsShell.WndProcDelegate proc)
     {
@@ -150,7 +151,11 @@ internal sealed class WebSheetHost : IDisposable
                     try { json = e.TryGetWebMessageAsString(); } catch { }
                 }
                 if (string.IsNullOrEmpty(json)) return;
-                WebMessageReceived?.Invoke(json!);
+                // ⚠️ 必须把消息来源一起传出去：浮层可以导航到任意第三方网页（网盘、软件官网），
+                //    而 shim 是在所有文档上执行的 —— 只有「来源是本家站点」才允许调桥接。
+                string? source = null;
+                try { source = e.Source; } catch { }
+                WebMessageReceived?.Invoke(json!, source);
             };
         }
         catch { /* 事件接不上不影响基本显示 */ }

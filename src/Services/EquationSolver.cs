@@ -356,28 +356,79 @@ public static class EquationSolver
         void Scan(double from, double to, int steps)
         {
             var step = (to - from) / steps;
-            var prevX = from;
-            var prevY = Eval(f, from);
+
+            // 先把这一段的采样值全部算出来：判定阈值要参考**本段**的量级，
+            // 不能拿相邻两点的绝对值硬比 1e-12（见下）。
+            var ys = new double[steps + 1];
+            var magnitude = 0.0;
+            var finite = 0;
+
+            for (var i = 0; i <= steps; i++)
+            {
+                var y = Eval(f, from + step * i);
+                ys[i] = y;
+                if (double.IsNaN(y) || double.IsInfinity(y)) continue;
+
+                finite++;
+                var a = Math.Abs(y);
+                if (a < 1e300 && a > magnitude) magnitude = a;
+            }
+
+            if (finite == 0) return;
+
+            if (magnitude == 0)
+            {
+                // 采样点上恒等于 0（f ≡ 0 之类）：解集是全体实数，交给上面的"无穷多解"文案
+                Push(0);
+                capped = true;
+                return;
+            }
 
             for (var i = 1; i <= steps; i++)
             {
                 var x = from + step * i;
-                var y = Eval(f, x);
+                var y = ys[i];
+                var prevX = x - step;
+                var prevY = ys[i - 1];
 
-                if (double.IsNaN(y)) { prevX = x; prevY = y; continue; }
+                if (double.IsNaN(y) || double.IsInfinity(y)) continue;
 
-                if (Math.Abs(y) < 1e-12)
+                if (y == 0)
                 {
                     Push(x);
                 }
-                else if (!double.IsNaN(prevY) && prevY != 0 && Math.Sign(y) != Math.Sign(prevY))
+                else if (!double.IsNaN(prevY) && !double.IsInfinity(prevY) && prevY != 0 &&
+                         Math.Sign(y) != Math.Sign(prevY))
                 {
                     var root = Bisect(f, prevX, x, prevY);
                     if (root is { } r) Push(r);
                 }
+                else if (i >= 2)
+                {
+                    // 偶重根（x²、x⁴、(x−1)²…）两侧不变号，只靠变号是永远抓不到的。
+                    // 这里找 |f| 的**严格**局部极小，再用黄金分割细化到谷底。
+                    // ⚠️ 收敛值必须和**谷两侧的量级**比，不能只和绝对值比：
+                    //    x² − 1e-9 在 0 处 |f| = 1e-9，它只是"浅坑"，不是根。
+                    var prevPrevY = ys[i - 2];
+                    if (double.IsNaN(prevPrevY) || double.IsInfinity(prevPrevY)) continue;
+                    if (Math.Sign(prevY) != Math.Sign(prevPrevY) || Math.Sign(prevY) != Math.Sign(y)) continue;
 
-                prevX = x;
-                prevY = y;
+                    var ay = Math.Abs(prevY);
+                    var a0 = Math.Abs(prevPrevY);
+                    var a2 = Math.Abs(y);
+
+                    // ⛔ 必须是**谷底**：两侧都不比它小。只判"有一侧更大"会把单调坡上的
+                    //    点也当成候选，黄金分割随后滑到区间端点，把 f = x² + 1e-9 的
+                    //    浅坑端点误判成根（2026-10-27 冒烟测试抓到）。
+                    if (!(ay <= a0 && ay <= a2 && (ay < a0 || ay < a2))) continue;
+
+                    var valley = MinimizeAbs(f, prevX - step, x);
+                    if (valley is not { } v) continue;
+
+                    var fv = Math.Abs(Eval(f, v));
+                    var localScale = Math.Max(a0, a2);
+                    if (!double.IsNaN(fv) && fv <= 1e-10 * localScale) Push(v);
+                }
 
                 if (roots.Count > cap) { capped = true; return; }
             }
@@ -395,6 +446,41 @@ public static class EquationSolver
         Scan(-100_000, 100_000, 120_000);  // 大根（x² = 1e10 这种）
         roots.Sort();
         return (roots, capped);
+    }
+
+    /// <summary>
+    /// 黄金分割找 |f| 在 [a, b] 上的谷底（用于偶重根：两侧同号、只有 |f| 下探到 0）。
+    /// ⚠️ 返回的只是候选点，是否算根由调用方按谷两侧的量级再判一次。
+    /// </summary>
+    private static double? MinimizeAbs(Func<double, double> f, double a, double b)
+    {
+        const double phi = 0.6180339887498949;
+        var c = b - (b - a) * phi;
+        var d = a + (b - a) * phi;
+        var fc = Math.Abs(Eval(f, c));
+        var fd = Math.Abs(Eval(f, d));
+
+        for (var i = 0; i < 80; i++)
+        {
+            if (double.IsNaN(fc) || double.IsNaN(fd)) return null;
+
+            if (fc < fd)
+            {
+                b = d; d = c; fd = fc;
+                c = b - (b - a) * phi;
+                fc = Math.Abs(Eval(f, c));
+            }
+            else
+            {
+                a = c; c = d; fc = fd;
+                d = a + (b - a) * phi;
+                fd = Math.Abs(Eval(f, d));
+            }
+        }
+
+        var mid = (a + b) / 2;
+        var m = Eval(f, mid);
+        return double.IsNaN(m) || double.IsInfinity(m) ? null : mid;
     }
 
     /// <summary>二分。⛔ 必须核对"收敛点真的是零点"：tan(x) 的极点也会造成变号，那是假根。</summary>

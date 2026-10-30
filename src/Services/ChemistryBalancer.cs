@@ -235,7 +235,29 @@ public static class ChemistryBalancer
     {
         error = null;
         var list = new List<string>();
-        foreach (var part in side.Split('+'))
+
+        // ⛔ 不能直接 side.Split('+')：电荷也写作「Na+ / Fe3+ / H+」，
+        //    那样会把「Na+ + Cl-」拆成「Na」和「 Cl-」，还会多出一个空项直接报错。
+        //    判据：一个 + 后面（跳过空格）若是**另一个 + / = / 结尾**，它就是电荷；
+        //    否则它就是分隔符（下一个物质以字母 / ( / [ / 数字开头）。
+        var parts = new List<string>();
+        var start = 0;
+        for (var i = 0; i < side.Length; i++)
+        {
+            if (side[i] != '+') continue;
+
+            var j = i + 1;
+            while (j < side.Length && char.IsWhiteSpace(side[j])) j++;
+
+            var isCharge = j >= side.Length || side[j] == '+' || side[j] == '=';
+            if (isCharge) continue;
+
+            parts.Add(side[start..i]);
+            start = i + 1;
+        }
+        parts.Add(side[start..]);
+
+        foreach (var part in parts)
         {
             var p = part.Trim();
             if (p.Length == 0)

@@ -25,7 +25,6 @@ namespace ClassSoftwareHub.Desktop.Services;
 internal static class Tts
 {
     private static object? _voice;
-    private static bool _probed;
     private static bool _failed;
 
     /// <summary>本机是否找到了中文语音（只用于设置页提示，读不到就当有，别拿它堵功能）。</summary>

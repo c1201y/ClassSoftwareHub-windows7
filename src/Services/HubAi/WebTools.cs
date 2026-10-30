@@ -1,7 +1,10 @@
 using System;
 using ClassSoftwareHub.Desktop.Core;
 using System.Collections.Generic;
+using System.IO;
+using System.Net;
 using System.Net.Http;
+using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -58,7 +61,7 @@ public static class WebTools
 
     private static HttpClient CreateClient()
     {
-        var client = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+        var client = new HttpClient(Core.HttpTls.Handler()) { Timeout = TimeSpan.FromSeconds(20) };
 
         // ⚠️ 不带 UA 会被 DuckDuckGo 直接返 403
         client.DefaultRequestHeaders.TryAddWithoutValidation(
@@ -193,6 +196,15 @@ public static class WebTools
         if (uri.Scheme != "http" && uri.Scheme != "https")
             return "只支持 http / https 地址。";
 
+        // ⛔ 拒绝内网 / 本机地址：URL 是模型（可能刚读完一段被注入的网页）给的，
+        //    不加限制就等于把「读本机/内网任意 HTTP 服务」的能力交给它 ——
+        //    路由器管理页、只监听 127.0.0.1 的各种后台都会变成可读资料。
+        if (IsInternalTarget(uri))
+        {
+            AppLog.Warn("hubai-web", $"拒绝抓取内网/本机地址：{uri}");
+            return "该地址指向本机或内网，出于安全考虑不能读取。请改用公开网址。";
+        }
+
         try
         {
             using var response = await Http.GetAsync(uri, ct);
@@ -209,7 +221,9 @@ public static class WebTools
                 return $"该地址不是文本内容（{contentType}），无法读取正文。";
             }
 
-            var html = await response.Content.ReadAsStringAsync(ct);
+            // ⚠️ 先限量读取再截字：ReadAsStringAsync 会把整页（可能是几十 MB 的 HTML/JSON）
+            //    完整缓冲进内存，之后才截到 3500 字 —— 一次抓取就能让老机器卡住甚至 OOM。
+            var html = await ReadLimitedAsync(response.Content, 512 * 1024, ct);
             var text = ToPlainText(html);
 
             if (text.Length == 0)
@@ -229,6 +243,83 @@ public static class WebTools
             AppLog.Warn("hubai-web", "抓取失败：" + ex.Message);
             return "打开页面失败（网络不可达或站点拒绝访问）。请如实告知用户，不要编造页面内容。";
         }
+    }
+
+    /// <summary>
+    /// 这个地址是不是指向本机 / 局域网。
+    /// ⚠️ 域名也要解析后逐个判：<c>127.0.0.1.nip.io</c> 这类域名直接就是回环地址。
+    /// </summary>
+    private static bool IsInternalTarget(Uri uri)
+    {
+        if (uri.IsLoopback) return true;
+
+        var host = uri.Host;
+        if (host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
+            host.EndsWith(".localhost", StringComparison.OrdinalIgnoreCase) ||
+            host == "0.0.0.0")
+            return true;
+
+        if (IPAddress.TryParse(host, out var literal)) return IsInternalAddress(literal);
+
+        try
+        {
+            foreach (var address in Dns.GetHostAddresses(host))
+                if (IsInternalAddress(address)) return true;
+        }
+        catch
+        {
+            // 解析不了就交给后面的 HTTP 请求去失败（报"网络不可达"）
+        }
+
+        return false;
+    }
+
+    private static bool IsInternalAddress(IPAddress ip)
+    {
+        if (IPAddress.IsLoopback(ip)) return true;
+        if (ip.IsIPv4MappedToIPv6) ip = ip.MapToIPv4();
+
+        if (ip.AddressFamily == AddressFamily.InterNetworkV6)
+            return ip.IsIPv6LinkLocal || ip.IsIPv6SiteLocal || ip.IsIPv6Multicast
+                   || ip.Equals(IPAddress.IPv6Any);
+
+        if (ip.AddressFamily != AddressFamily.InterNetwork) return true;
+
+        var b = ip.GetAddressBytes();
+        if (b[0] == 0 || b[0] == 10 || b[0] == 127 || b[0] >= 224) return true;   // 本网络/私网/回环/组播保留
+        if (b[0] == 172 && b[1] is >= 16 and <= 31) return true;
+        if (b[0] == 192 && b[1] == 168) return true;
+        if (b[0] == 169 && b[1] == 254) return true;                              // link-local
+        if (b[0] == 100 && b[1] is >= 64 and <= 127) return true;                 // CGNAT
+        return false;
+    }
+
+    /// <summary>
+    /// 只读前 <paramref name="limit"/> 个字节。页面正文最终只留 3500 字，没必要把整页读进内存。
+    /// </summary>
+    private static async Task<string> ReadLimitedAsync(HttpContent content, int limit, CancellationToken ct)
+    {
+        var encoding = Encoding.UTF8;
+        var charset = content.Headers.ContentType?.CharSet;
+        if (!string.IsNullOrWhiteSpace(charset))
+        {
+            try { encoding = Encoding.GetEncoding(charset.Trim('"')); }
+            catch { /* 不认识的字符集 → 按 UTF-8 解 */ }
+        }
+
+        using var stream = await content.ReadAsStreamAsync(ct);
+        using var buffer = new MemoryStream();
+
+        var chunk = new byte[8192];
+        while (buffer.Length < limit)
+        {
+            var want = (int)Math.Min(chunk.Length, limit - buffer.Length);
+            var read = await stream.ReadAsync(chunk.AsMemory(0, want), ct);
+            if (read <= 0) break;
+            buffer.Write(chunk, 0, read);
+        }
+
+        return encoding.GetString(buffer.GetBuffer(), 0, (int)buffer.Length);
     }
 
     // ══════════════════════════════════════════════════════

@@ -43,8 +43,12 @@ public partial class DiskMapPage : Platform.PageBase
         AttachedToVisualTree += (_, _) =>
         {
             if (_initialized) return;
-            _initialized = true;
+
+            // ⚠️ 顺序很重要：FillDrives 里会设置 SelectedIndex，若先把 _initialized 置真，
+            //    SelectionChanged 会再起一次扫描，紧接着下面又起一次 —— 两次扫描互相取消，
+            //    前一次的 catch/finally 还会把后一次的"正在统计"状态冲掉。
             FillDrives();
+            _initialized = true;
         };
 
         // 离开页面就把扫描停掉，别让后台线程继续啃硬盘
@@ -112,10 +116,17 @@ public partial class DiskMapPage : Platform.PageBase
 
     private async Task ScanAsync(string path)
     {
+        // ⚠️ 上一轮的 CTS 只 Cancel 不 Dispose：此刻它可能还挂在某个 await 上，
+        //    立刻 Dispose 会让取消回调抛 ObjectDisposedException；由它自己的 finally 释放。
         _cts?.Cancel();
-        _cts?.Dispose();
-        _cts = new CancellationTokenSource();
-        var token = _cts.Token;
+
+        var cts = new CancellationTokenSource();
+        _cts = cts;
+        var token = cts.Token;
+
+        // 被新一轮扫描接替后，这一轮就只是"退出"，不许再碰任何 UI ——
+        // 否则它的 catch/finally 会把新一轮的转圈和按钮状态复位掉（审计 P2 #29）。
+        bool IsCurrent() => ReferenceEquals(_cts, cts);
 
         _currentPath = path;
         UpdateCrumb();
@@ -141,17 +152,19 @@ public partial class DiskMapPage : Platform.PageBase
                 ShowProgress(dir, bytes, files);
             });
 
-            if (token.IsCancellationRequested) return;
+            if (token.IsCancellationRequested || !IsCurrent()) return;
 
             _result = result;
             Render(result);
         }
         catch (OperationCanceledException)
         {
-            StatusText.Text = "已取消。";
+            if (IsCurrent()) StatusText.Text = "已取消。";
         }
         catch (Exception ex)
         {
+            if (!IsCurrent()) return;
+
             AppLog.Exception("diskmap", ex, "扫描目录占用");
             StatusText.Text = "读取这个位置失败：" + ex.Message;
             EmptyText.Text = "读取失败：可能没有访问权限。\r\n可以选择别的目录，或用管理员身份运行。";
@@ -159,8 +172,14 @@ public partial class DiskMapPage : Platform.PageBase
         }
         finally
         {
-            BusyRing.IsActive = false;
-            ScanButton.Content = "重新扫描";
+            if (IsCurrent())
+            {
+                BusyRing.IsActive = false;
+                ScanButton.Content = "重新扫描";
+                _cts = null;
+            }
+
+            cts.Dispose();
         }
     }
 

@@ -18,7 +18,8 @@ public static class ShutdownMethods
     /// 调系统的 <c>SlideToShutDown.exe</c>，弹出那个"下滑关机"界面。
     /// ⚠️ 它**只负责弹界面**：用户把滑块拉到底才真关，不拉就一直停在那儿 —— 这是刻意选的"高级感"，
     ///    也意味着这种方式**没有"取消"的概念**（滑块自己就能取消），所以它不需要延迟。
-    /// ⚠️ Win7 没有这个 exe（Win8 起才有）—— 代码里已带缺文件兜底，选了也只会记一条日志。
+    /// ⚠️ Win7 没有这个 exe（Win8 起才有）—— <see cref="AutoShutdownConfig.NormalizeMethod"/>
+    ///    会在缺文件时归一到「直接关机」，保证到点真的会关，而不是静默什么都不做。
     /// </summary>
     public const string Slide = "slide";
 
@@ -160,11 +161,20 @@ public sealed class AutoShutdownConfig
         !string.IsNullOrWhiteSpace(s)
         && TimeSpan.TryParseExact(s.Trim(), @"hh\:mm", null, out _);
 
-    /// <summary>认不出的方式一律当「直接关机」（手改 json 写错时的兜底）。</summary>
+    /// <summary>
+    /// 认不出的方式一律当「直接关机」（手改 json 写错时的兜底）。
+    /// Win7 没有 <c>SlideToShutDown.exe</c> —— 选了「滑动关机」也归一到直接关机，
+    /// 否则到点只会静默什么都不做（用户只会觉得"自动关机坏了"）。
+    /// </summary>
     public static string NormalizeMethod(string? method) =>
         string.Equals(method, ShutdownMethods.Slide, StringComparison.OrdinalIgnoreCase)
+        && SlideToShutDownAvailable
             ? ShutdownMethods.Slide
             : ShutdownMethods.Shutdown;
+
+    /// <summary>系统里有没有 <c>SlideToShutDown.exe</c>（Windows 8 起才有）。</summary>
+    public static bool SlideToShutDownAvailable { get; } = File.Exists(Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.System), "SlideToShutDown.exe"));
 }
 
 /// <summary>

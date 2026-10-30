@@ -306,10 +306,12 @@ public static class UpdateFlow
             DownloadTask? tracked = null;
             try
             {
-                tracked = DownloadManager.Current.TrackUpdate(
+                // ⚠️ 必须回 UI 线程登记：TrackUpdate 往 ObservableCollection 里 Insert，
+                //    而这里整段跑在 Task.Run 的线程池线程上（进度/收尾早就用 RunOnUi 了，唯独漏了登记这一步）。
+                tracked = RunOnUiGet(() => DownloadManager.Current.TrackUpdate(
                     $"更新 {release.Tag}", release.Tag,
                     "正在下载更新包。下载完成后可点「安装」立即安装（安装时会先退出本程序）。",
-                    package.Url?.ToString() ?? "");
+                    package.Url?.ToString() ?? ""));
             }
             catch
             {
@@ -329,7 +331,11 @@ public static class UpdateFlow
                 var progress = new Progress<DownloadProgress>(p =>
                 {
                     // ① 任务页卡片：与普通下载同一套快照（百分比 / 已收 / 速度）
-                    if (tracked is not null) DownloadManager.Current.ReportProgress(tracked, p);
+                    // ⚠️ 必须回 UI 线程：Progress<T> 是在 Task.Run 里 new 的，没有同步上下文，
+                    //    回调直接跑在线程池；而 ReportProgress 会改绑定到界面的任务对象/集合。
+                    if (tracked is not null)
+                        RunOnUi(() => DownloadManager.Current.ReportProgress(tracked, p));
+
                     // ② 续期空闲超时
                     try { cts.CancelAfter(TimeSpan.FromSeconds(45)); } catch { /* 已取消 */ }
                 });
@@ -346,6 +352,9 @@ public static class UpdateFlow
                 var settings = App.Settings;
                 settings.Current.UpdatePendingPath = downloaded.FilePath;
                 settings.Current.UpdatePendingTag = release.Tag;
+                // 记下校验值：安装前要据此重新核验（见 VerifyPendingPackageAsync）
+                settings.Current.UpdatePendingMd5 = downloaded.Md5;
+                settings.Current.UpdatePendingSha256 = downloaded.Sha256;
                 settings.Save();
 
                 if (tracked is not null)
@@ -389,6 +398,8 @@ public static class UpdateFlow
         var path = App.Settings.Current.UpdatePendingPath;
         if (string.IsNullOrEmpty(path) || !File.Exists(path)) return;
 
+        if (!await VerifyPendingPackageAsync(path)) return;
+
         if (!await TryStartInstallerAsync(path)) return;
 
         await Task.Delay(400);       // 让 cmd 来得及把延迟启动安排下去，再走
@@ -410,11 +421,97 @@ public static class UpdateFlow
         var path = task.Path;
         if (string.IsNullOrEmpty(path) || !File.Exists(path)) return false;
 
+        // 如果这条任务正好是"待装包"，同样要按下载时记下的校验值复核（见 VerifyPendingPackageAsync）
+        var pendingPath = App.Settings.Current.UpdatePendingPath;
+        if (string.Equals(pendingPath, path, StringComparison.OrdinalIgnoreCase)
+            && !await VerifyPendingPackageAsync(path))
+            return false;
+
         if (!await TryStartInstallerAsync(path)) return false;
 
         await Task.Delay(400);
         ExitAppNow();
         return true;
+    }
+
+    /// <summary>
+    /// 安装前重新核验待装包。
+    /// ⛔ 下载时校验过，不代表**现在**还是那个文件 —— 落盘之后可能被磁盘错误写坏、
+    ///    被同名文件覆盖、被人替换。执行安装包是整条更新链路里破坏性最大的一步，
+    ///    不能"文件还在"就直接运行。
+    /// 没有记录校验值的待装标记来自旧版本 → 放行并记日志（否则会凭空作废用户已下好的包）。
+    /// </summary>
+    private static async Task<bool> VerifyPendingPackageAsync(string path)
+    {
+        var s = App.Settings.Current;
+        var expectedMd5 = s.UpdatePendingMd5 ?? "";
+        var expectedSha = s.UpdatePendingSha256 ?? "";
+
+        if (expectedMd5.Length == 0 && expectedSha.Length == 0)
+        {
+            Core.AppLog.Info("update", $"待装包没有记录校验值（旧版本遗留），跳过安装前复核：{path}");
+            return true;
+        }
+
+        try
+        {
+            var (actualMd5, actualSha) = await UpdateService.HashFileAsync(path, expectedSha.Length > 0, CancellationToken.None);
+
+            var ok = expectedMd5.Length > 0
+                ? string.Equals(expectedMd5, actualMd5, StringComparison.OrdinalIgnoreCase)
+                : string.Equals(expectedSha, actualSha, StringComparison.OrdinalIgnoreCase);
+
+            // MD5 对上但发布方还给了 SHA256 时，一并核对
+            if (ok && expectedMd5.Length > 0 && expectedSha.Length > 0 && actualSha.Length > 0)
+                ok = string.Equals(expectedSha, actualSha, StringComparison.OrdinalIgnoreCase);
+
+            if (ok) return true;
+
+            Core.AppLog.Warn("update",
+                $"待装包复核不通过（期望 MD5={expectedMd5} / SHA256={expectedSha}，" +
+                $"实际 MD5={actualMd5} / SHA256={actualSha}）：{path}");
+
+            s.UpdatePendingPath = "";
+            s.UpdatePendingTag = "";
+            s.UpdatePendingMd5 = "";
+            s.UpdatePendingSha256 = "";
+            App.Settings.Save();
+
+            try { File.Delete(path); }
+            catch (Exception ex) { Core.AppLog.Warn("update", $"删除复核失败的安装包失败：{ex.Message}"); }
+
+            await ShowMessageAsync("安装包校验失败",
+                "安装包在下载完成后发生了变化（可能已损坏或被替换）。为安全起见已删除，请重新下载更新。");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Core.AppLog.Exception("update", ex, "安装前复核待装包");
+            await ShowMessageAsync("安装没有开始",
+                "无法读取安装包完成校验：" + ex.Message + "\n\n应用没有退出，安装包也还在原处，可稍后重试。");
+            return false;
+        }
+    }
+
+    /// <summary>一个只有一个「知道了」按钮的提示框（失败路径用，异常不外抛）。</summary>
+    private static async Task ShowMessageAsync(string title, string text)
+    {
+        try
+        {
+            var dialog = new ContentDialog
+            {
+                Title = title,
+                Content = new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap },
+                CloseButtonText = "知道了",
+            };
+            var owner = App.MainWindow;
+            if (owner is null) await dialog.ShowAsync();
+            else await dialog.ShowAsync(owner);
+        }
+        catch (Exception ex)
+        {
+            Core.AppLog.Warn("update", $"提示框显示失败（{title}）：{ex.Message}");
+        }
     }
 
     /// <summary>
@@ -512,6 +609,13 @@ public static class UpdateFlow
         //    队列取不到（主窗没了）时直接跑。Avalonia 用 Dispatcher.UIThread.Post 投递到 UI 线程。
         if (App.MainWindow is null) { action(); return; }
         Dispatcher.UIThread.Post(action);
+    }
+
+    /// <summary>需要返回值的版本（如登记任务要拿回 DownloadTask）：在 UI 线程同步执行并取结果。</summary>
+    private static T RunOnUiGet<T>(Func<T> func)
+    {
+        if (App.MainWindow is null || Dispatcher.UIThread.CheckAccess()) return func();
+        return Dispatcher.UIThread.Invoke(func);
     }
 
     /// <summary>

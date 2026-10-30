@@ -110,6 +110,19 @@ public sealed class SoftwareApp : System.ComponentModel.INotifyPropertyChanged
     public string Version { get; set; } = "";
     public string Size { get; set; } = "";
     public string System { get; set; } = "";
+
+    /// <summary>
+    /// 适用的操作系统 key 列表（数据里 <c>platforms[]</c>，取值为 软件数据/platforms.json 的顶层 key：
+    /// windows / macos / linux / android / ios / web）。
+    /// ⚠️ 和 <see cref="System"/> 是两回事，别合并：System 是给人看的自由文字（「Windows XP+」「Android 8.0+」），
+    /// platforms 是给筛选用的机器值。桌面版原来只读了 System，所以「按系统筛选」一直做不了
+    /// （2026-10-24 对齐网页版 HomePage.vue 的 platformItems 才补上）。
+    /// </summary>
+    public List<string> Platforms { get; set; } = new();
+
+    /// <summary>这条软件是否适配某个平台 key（空 key = 全部系统，恒真）。</summary>
+    public bool SupportsPlatform(string key) => key.Length == 0 || Platforms.Contains(key);
+
     public string Website { get; set; } = "";
     public string Github { get; set; } = "";
     public string Notice { get; set; } = "";
@@ -510,6 +523,17 @@ public sealed class DownloadCategory
 }
 
 /// <summary>数据加载问题（首屏红条用；逻辑与网页端 dataLoadIssues 一致）。</summary>
+/// <summary>
+/// 一个操作系统平台（对应 软件数据/platforms.json 的顶层项）。
+/// 只取 key / name 两级：versions 里那些细分版本（XP / 7 / 10 / 11…）
+/// 现在只有提交页的「系统版本」多选会用到，列表筛选不展开（与网页版下拉一致）。
+/// </summary>
+public sealed class DownloadPlatform
+{
+    public string Key { get; set; } = "";
+    public string Name { get; set; } = "";
+}
+
 public sealed class DataIssue
 {
     public string File { get; set; } = "";

@@ -103,21 +103,33 @@ internal static class WindowProbe
     /// <summary>按进程名找出同名的其它进程（不含自己）。</summary>
     internal static List<int> SiblingPids(string processName)
     {
-        var result = new List<int>();
+        TrySiblingPids(processName, out var result);
+        return result;
+    }
+
+    /// <summary>
+    /// 按进程名找出同名进程。
+    /// ⚠️ 返回 <c>false</c> 表示**枚举本身失败**（权限 / WMI 异常），此时 <paramref name="pids"/> 为空
+    ///    但**不能**当成"没有兄弟进程"：单实例判定若把它当"对方已退出"，就会在僵尸还在时静默退出，
+    ///    正是「双击没反应」要修的那个毛病。
+    /// </summary>
+    internal static bool TrySiblingPids(string processName, out List<int> pids)
+    {
+        pids = new List<int>();
         try
         {
             var me = Environment.ProcessId;
             foreach (var p in System.Diagnostics.Process.GetProcessesByName(processName))
             {
-                try { if (p.Id != me) result.Add(p.Id); }
+                try { if (p.Id != me) pids.Add(p.Id); }
                 finally { p.Dispose(); }
             }
+            return true;
         }
-        catch
+        catch (Exception ex)
         {
-            // 权限不足 → 当作没有兄弟进程
+            Core.AppLog.Info("single", $"枚举同名进程失败：{ex.GetType().Name} {ex.Message}");            return false;
         }
-        return result;
     }
 
     /// <summary>同名进程里，有没有谁才刚启动（老机器启动慢，别急着当僵尸杀掉）。</summary>

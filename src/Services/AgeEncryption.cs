@@ -92,6 +92,19 @@ public static class AgeEncryption
         using var output = new MemoryStream();
         byte[] nonce = new byte[12];
         int offset = 0;
+
+        // ⚠️ 空明文也必须写一个 last=1 的空块：age 的 payload 至少要有一块，
+        //    否则解密端永远等不到结束标志（审计 P2 #7）。
+        if (plaintext.Length == 0)
+        {
+            nonce[11] = 1;
+            using var emptyCipher = new ChaCha20Poly1305(key);
+            var emptyTag = new byte[16];
+            emptyCipher.Encrypt(nonce, ReadOnlySpan<byte>.Empty, Span<byte>.Empty, emptyTag);
+            output.Write(emptyTag);
+            return output.ToArray();
+        }
+
         while (offset < plaintext.Length)
         {
             int n = Math.Min(chunkSize, plaintext.Length - offset);

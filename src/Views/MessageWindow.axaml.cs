@@ -215,7 +215,10 @@ public sealed partial class MessageWindow : Window
     {
         try
         {
-            TransparencyLevelHint = _cfg.Transparent
+            // ⚠️ Win8+ 即使不要"整窗透明"，也要把 Transparent 写进 hint ——
+            //    圆角要靠内容 alpha 抠（见 ApplyAppearance 里的 alpha 分支），
+            //    平台不允许透明时四角就会退回窗口底色。
+            TransparencyLevelHint = _cfg.Transparent || BackdropTheme.SupportsAlphaCorners
                 ? new[] { WindowTransparencyLevel.Transparent, WindowTransparencyLevel.None }
                 : new[] { WindowTransparencyLevel.None };
         }
@@ -238,11 +241,11 @@ public sealed partial class MessageWindow : Window
             else
             {
                 var back = Brush(_cfg.BackColor, Colors.White);
-                if (OsInfo.SupportsWindowRounding)
+                if (BackdropTheme.SupportsAlphaCorners)
                 {
-                    // ⚠️ Win11：NOREDIRECTIONBITMAP 浮窗 DWM 不认 SetWindowRgn（区域裁剪无效），
-                    //    底色铺满窗口矩形会让四角变成方角。改走内容 alpha 抠角 —— 底色只刷 Panel，
-                    //    窗口底保持全透，月牙由 DWM 合成时露出桌面（见 Backdrop.EnablePerPixelCorners）。
+                    // ⚠️ Win8+（尤其是 Win10/11 的 GPU 渲染）：窗口带 WS_EX_NOREDIRECTIONBITMAP，
+                    //    DWM 不认 SetWindowRgn，区域裁剪无效。底色只刷 Panel，窗口底保持全透，
+                    //    月牙由 DWM 合成时露出桌面（见 Backdrop.EnablePerPixelCorners）。
                     Background = Brushes.Transparent;
                     TransparencyBackgroundFallback = Brushes.Transparent;
                 }
@@ -261,8 +264,10 @@ public sealed partial class MessageWindow : Window
 
             // ⚠️ 不透明才裁圆角：透明窗口裁掉四角会连"圆角之外本该透出桌面"的部分一起切掉
             if (_realTransparent) return;
-            // ⚠️ force=true：Win11 上无边框浮窗 DWM 拒绝给圆角（见 Core/RoundedCorners 类注释）。
-            _corners ??= RoundedCorners.Attach(this, RoundedCorners.DefaultCornerRadiusDip, force: true);
+            // Win8+ 且 DWM 合成时，圆角由面板 alpha 抠（见 Platform.BackdropTheme）；
+            // 区域裁剪只在 Win7 / 无 DWM（此时窗口走重定向位图）才挂得上。
+            if (!BackdropTheme.SupportsAlphaCorners)
+                _corners ??= RoundedCorners.Attach(this, RoundedCorners.DefaultCornerRadiusDip, force: true);
         }
         catch (Exception ex)
         {

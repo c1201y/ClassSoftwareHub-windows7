@@ -107,35 +107,50 @@ public static class NameRoster
                         new XAttribute("sheetId", "1"),
                         new XAttribute(relNs + "id", "rId1")))));
 
-        // picker 已经替我们建了一个空文件 —— 直接 Create 会因"文件已存在"抛异常
-        if (File.Exists(path)) File.Delete(path);
+        // picker 已经替我们建了一个空文件 —— 不直接 Create（会因"文件已存在"抛异常）。
+        // ⚠️ 但也不能先删原文件再写：写到一半失败，用户原来那份就没了。
+        //    先写同目录临时文件，全部写成功后再整体替换。
+        var tmp = path + ".tmp";
+        try
+        {
+            try { if (File.Exists(tmp)) File.Delete(tmp); } catch { /* 残留临时文件删不掉就让下面 Create 报错 */ }
 
-        using var zip = ZipFile.Open(path, ZipArchiveMode.Create);
+            using (var zip = ZipFile.Open(tmp, ZipArchiveMode.Create))
+            {
+                AddXml(zip, "[Content_Types].xml",
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
+                    "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">" +
+                    "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>" +
+                    "<Default Extension=\"xml\" ContentType=\"application/xml\"/>" +
+                    "<Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>" +
+                    "<Override PartName=\"/xl/worksheets/sheet1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>" +
+                    "</Types>");
 
-        AddXml(zip, "[Content_Types].xml",
-            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
-            "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">" +
-            "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>" +
-            "<Default Extension=\"xml\" ContentType=\"application/xml\"/>" +
-            "<Override PartName=\"/xl/workbook.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>" +
-            "<Override PartName=\"/xl/worksheets/sheet1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>" +
-            "</Types>");
+                AddXml(zip, "_rels/.rels",
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
+                    "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+                    "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/>" +
+                    "</Relationships>");
 
-        AddXml(zip, "_rels/.rels",
-            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
-            "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
-            "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/>" +
-            "</Relationships>");
+                AddDocument(zip, "xl/workbook.xml", workbook);
 
-        AddDocument(zip, "xl/workbook.xml", workbook);
+                AddXml(zip, "xl/_rels/workbook.xml.rels",
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
+                    "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+                    "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/>" +
+                    "</Relationships>");
 
-        AddXml(zip, "xl/_rels/workbook.xml.rels",
-            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
-            "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
-            "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/>" +
-            "</Relationships>");
+                AddDocument(zip, "xl/worksheets/sheet1.xml", worksheet);
+            }
 
-        AddDocument(zip, "xl/worksheets/sheet1.xml", worksheet);
+            if (File.Exists(path)) File.Move(tmp, path, overwrite: true);
+            else File.Move(tmp, path);
+        }
+        catch
+        {
+            try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
+            throw;
+        }
     }
 
     private const string MainNs = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
@@ -181,7 +196,7 @@ public static class NameRoster
             //    默认是 **ANSI（简体中文即 GBK）且不带 BOM**；原先直接按 UTF-8 读，
             //    一个汉字会变成两三个 U+FFFD，界面就成了「已抽取 1 人：������」。
             //    改成先嗅探编码再解码 —— 见 DecodeText。
-            var text = DecodeText(File.ReadAllBytes(path));
+            var text = DecodeText(ReadTextBytes(path));
             foreach (var line in text.Split('\n'))
             {
                 // 不按空格切：英文名 "John Smith" 会被切碎
@@ -191,6 +206,9 @@ public static class NameRoster
                     var name = piece.Trim().Trim('"', '\uFEFF');
                     if (name.Length > 0) result.Add(name);
                 }
+
+                // ⚠️ 名单上限远小于文件行数：误选一篇长文/日志时没必要把每一行都解析一遍
+                if (result.Count >= MaxNames * 4) return result;
             }
         }
         catch
@@ -198,6 +216,53 @@ public static class NameRoster
             // 交给外层当"一个名字都没读到"处理
         }
         return result;
+    }
+
+    /// <summary>名单文字最多读这么多字节 —— 2000 个名字撑死几十 KB，再大基本就不是名单了。</summary>
+    private const int MaxTextBytes = 8 * 1024 * 1024;
+
+    /// <summary>
+    /// 按上限读文本文件。⚠️ 不再无脑 <see cref="File.ReadAllBytes"/>：用户手滑选中一个几百 MB 的
+    /// 日志 / 镜像文件时，整份读进内存够 32 位进程喝一壶，而名单只用到开头那点内容。
+    /// 截断后按 UTF-8 规则去掉不完整的尾巴，免得把多字节汉字切成半个、连带把编码判成 ANSI。
+    /// </summary>
+    private static byte[] ReadTextBytes(string path)
+    {
+        using var stream = File.OpenRead(path);
+        if (stream.Length <= MaxTextBytes) return File.ReadAllBytes(path);
+
+        var buffer = new byte[MaxTextBytes];
+        var read = 0;
+        while (read < buffer.Length)
+        {
+            var n = stream.Read(buffer, read, buffer.Length - read);
+            if (n <= 0) break;
+            read += n;
+        }
+
+        var usable = CompleteUtf8Prefix(buffer, read);
+        if (usable == read) return buffer;
+        Array.Resize(ref buffer, usable);
+        return buffer;
+    }
+
+    /// <summary>
+    /// <paramref name="length"/> 之内最后一个完整字符的结尾位置：被截断的多字节尾巴会被丢掉。
+    /// （GBK 文件的尾字节若碰巧长得像 UTF-8 的半截字符，少读一两个字节也无害。）
+    /// </summary>
+    private static int CompleteUtf8Prefix(byte[] buffer, int length)
+    {
+        var back = 1;
+        while (back <= 4 && back <= length && (buffer[length - back] & 0xC0) == 0x80) back++;
+        if (back > length) return length;
+
+        var lead = buffer[length - back];
+        var need = (lead & 0xE0) == 0xC0 ? 2
+            : (lead & 0xF0) == 0xE0 ? 3
+            : (lead & 0xF8) == 0xF0 ? 4
+            : 1;
+
+        return need > back ? length - back : length;
     }
 
     private static readonly UTF8Encoding StrictUtf8 =

@@ -109,6 +109,9 @@ public static class FunctionExact
 
     private static string? ParityOf(Expression expr, ParameterExpression param, AngleMode mode)
     {
+        // 常数是偶函数（也是奇函数）；闭式匹配会拒绝纯常数，这里直接给结论。
+        if (Strip(expr) is ConstantExpression) return "偶函数";
+
         var form = FunctionClosedForm.Match(Expression.Lambda(expr, param), mode);
         if (form is null) return null;
 
@@ -118,8 +121,13 @@ public static class FunctionExact
         return null;
     }
 
-    /// <summary>两个因子的奇偶性合成商（奇/奇=偶，偶/偶=偶，奇/偶=奇，偶/奇=奇）。</summary>
-    private static string CombineParity(string? num, string? den)
+    /// <summary>
+    /// 两个因子的奇偶性合成商（奇/奇=偶，偶/偶=偶，奇/偶=奇，偶/奇=奇）。
+    /// ⛔ 任一因子"不知道"时必须返回 null（不列这一项）：
+    ///    把未知当成"非奇非偶"是在把「证不出来」冒充成「已证伪」——
+    ///    比如分子是 sin(x)+x 时闭式分析给不出结论，但商确实可能是偶函数。
+    /// </summary>
+    private static string? CombineParity(string? num, string? den)
     {
         var n = num?.StartsWith('奇') == true;
         var nc = num?.StartsWith('偶') == true;
@@ -130,7 +138,11 @@ public static class FunctionExact
         if (nc && dc) return "偶函数";
         if (n && dc) return "奇函数";
         if (nc && d) return "奇函数";
-        return "非奇非偶";
+
+        // 只有两个因子都明确是"非奇非偶"时，才能断言商非奇非偶
+        if (num?.StartsWith('非') == true && den?.StartsWith('非') == true) return "非奇非偶";
+
+        return null;
     }
 
     // ────────────────────────── 形状判定 ──────────────────────────

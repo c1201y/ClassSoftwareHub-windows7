@@ -3,13 +3,15 @@
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:local="using:ClassSoftwareHub.Desktop.Pages.Tools"
     xmlns:fa="using:FluentAvalonia.UI.Controls">
 
     <!--
-      教室喊话（收发一体）：
-        · 接收：开启开关后以本机配对码轮询，收到弹全屏大字（可选朗读）；
-        · 发送：互填对方配对码配对（同 UU 远程），勾选已配对设备定向/批量发送；
-        · 配对码：每台电脑一个，由设备指纹确定性导出（MyPairCode），重装不变。
+      教室喊话（对齐上游 dv1.2.0-insider1.5：双分页 + 局域网通道）：
+        · 接收页：接收开关 / 本机标识 / 本机配对码（含预览）/ 局域网通道 / 放行防火墙 /
+          「谁保存了本机配对码」（可删除、可清空）/ 显示设置（间隔 / 安静 / 朗读 / 出场 / 提示音）；
+        · 发送页：局域网设备列表 + 手动填码（可保存）+ 已保存的电脑（勾选即发）+ 内容 / 署名 / 时长 / 发送。
+      发送链路双通道：发现得到的设备局域网直达，不在同一网段的自动回落服务器。
     -->
     <Grid Margin="24,10,24,12">
         <Grid.RowDefinitions>
@@ -17,60 +19,186 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- ═══ 标题 ═══ -->
-        <StackPanel Spacing="2">
-            <TextBlock Text="教室喊话" FontSize="24" FontWeight="Bold" />
-            <TextBlock FontSize="12.5" Opacity="0.6" TextWrapping="Wrap"
-                       Text="本机可接收喊话并全屏展示，也可按配对码向其他电脑定向发送。" />
-        </StackPanel>
+        <!-- ═══ 标题行：标题 + 默认分页 ═══ -->
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Spacing="2">
+                <TextBlock Text="教室喊话" FontSize="24" FontWeight="Bold" />
+                <TextBlock FontSize="12.5" Opacity="0.6" TextWrapping="Wrap"
+                           Text="打开接收后，同网段的电脑可直接发过来（零延迟、不经过服务器），其他情况走服务器，最长一个检查间隔送达。" />
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <TextBlock Text="打开时默认显示" FontSize="12" Opacity="0.65" VerticalAlignment="Center" />
+                <ComboBox x:Name="DefaultViewCombo" MinWidth="110" SelectionChanged="DefaultView_Changed"
+                          ToolTip.Tip="下次从导航栏点进这一页时先停在哪一页">
+                    <ComboBoxItem Tag="receive"><TextBlock Text="接收" /></ComboBoxItem>
+                    <ComboBoxItem Tag="send"><TextBlock Text="发送" /></ComboBoxItem>
+                </ComboBox>
+            </StackPanel>
+        </Grid>
 
         <ScrollViewer Grid.Row="1" Margin="0,10,0,0" VerticalScrollBarVisibility="Auto">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="352" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
+            <StackPanel MaxWidth="960" HorizontalAlignment="Stretch" Spacing="0">
 
-                <!-- ── 左栏：接收开关 + 固定配对码 + 展示设置 ── -->
-                <StackPanel>
+                <!-- ═══ 分页切换 ═══ -->
+                <StackPanel Orientation="Horizontal" Spacing="4" Margin="0,0,0,8">
+                    <RadioButton x:Name="TabReceive" GroupName="announceTab" Content="接收"
+                                 IsChecked="True" IsCheckedChanged="Tab_Changed" MinWidth="88" Height="32" />
+                    <RadioButton x:Name="TabSend" GroupName="announceTab" Content="发送"
+                                 IsCheckedChanged="Tab_Changed" MinWidth="88" Height="32" />
+                </StackPanel>
+
+                <!-- ═══════════ 第一页：接收 ═══════════ -->
+                <StackPanel x:Name="ReceiveView" Spacing="12">
+
                     <Border Classes="cshCard">
-                        <StackPanel>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Spacing="2" VerticalAlignment="Center">
+                                <TextBlock Text="接收喊话" FontSize="13" FontWeight="Bold" />
+                                <TextBlock x:Name="StatusText" FontSize="12" Opacity="0.7" TextWrapping="Wrap"
+                                           Text="未开启，打开后开始接收消息。" />
+                            </StackPanel>
+                            <ToggleSwitch x:Name="EnableToggle" Grid.Column="1" VerticalAlignment="Center"
+                                          IsCheckedChanged="EnableToggle_Changed" />
+                        </Grid>
+                    </Border>
+
+                    <Border Classes="cshCard">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Spacing="2" VerticalAlignment="Center">
+                                <TextBlock Text="本机标识" FontSize="13" FontWeight="Bold" />
+                                <TextBlock FontSize="12" Opacity="0.7" TextWrapping="Wrap"
+                                           Text="例如「高28班」「三楼办公室」。同网段的电脑会在列表里看到它。" />
+                            </StackPanel>
+                            <TextBox x:Name="LabelBox" Grid.Column="1" MinWidth="220" MaxLength="24"
+                                     Watermark="例如：高28班" VerticalAlignment="Center"
+                                     TextChanged="Label_Changed" />
+                        </Grid>
+                    </Border>
+
+                    <Border Classes="cshCard">
+                        <StackPanel Spacing="8">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Spacing="2" VerticalAlignment="Center">
-                                    <TextBlock Text="接收喊话" FontSize="13" FontWeight="Bold" />
-                                    <TextBlock Text="开启后后台轮询（默认 30 秒一次）。"
-                                               FontSize="12" Opacity="0.7" TextWrapping="Wrap" />
+                                    <TextBlock Text="本机配对码" FontSize="13" FontWeight="Bold" />
+                                    <TextBlock FontSize="12" Opacity="0.7" TextWrapping="Wrap"
+                                               Text="把这个码告诉要发消息的人；每台电脑固定一个，换机器才会变。" />
                                 </StackPanel>
-                                <ToggleSwitch x:Name="EnableToggle" Grid.Column="1" VerticalAlignment="Center"
-                                              IsCheckedChanged="EnableToggle_Changed" />
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top">
+                                    <Button Click="CopyCode_Click" ToolTip.Tip="复制配对码" Content="复制" />
+                                    <DropDownButton Content="预览" ToolTip.Tip="在本机弹一条示例消息（不联网）">
+                                        <DropDownButton.Flyout>
+                                            <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                                <MenuItem Header="短消息" Click="PreviewShort_Click" />
+                                                <MenuItem Header="长消息（看字号自适应）" Click="PreviewLong_Click" />
+                                                <MenuItem Header="不带署名" Click="PreviewNoFrom_Click" />
+                                            </MenuFlyout>
+                                        </DropDownButton.Flyout>
+                                    </DropDownButton>
+                                </StackPanel>
                             </Grid>
-
-                            <!-- 轮询状态行（1 秒一刷） -->
-                            <TextBlock x:Name="StatusText" Margin="0,10,0,0" FontSize="12" Opacity="0.75"
-                                       TextWrapping="Wrap" Text="已停止" />
-
-                            <!-- 固定配对码大字 -->
-                            <Border Margin="0,12,0,0" Padding="12,10" CornerRadius="4"
-                                    Background="{DynamicResource ControlFillColorDefaultBrush}"
-                                    BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
-                                    BorderThickness="1">
-                                <StackPanel>
-                                    <TextBlock Text="本机配对码" FontSize="12" Opacity="0.65" />
-                                    <TextBlock x:Name="PairCodeText" FontSize="30" FontWeight="Bold" Margin="0,2,0,0"
-                                               HorizontalAlignment="Center"
-                                               Foreground="{DynamicResource SystemAccentColorPrimaryBrush}" />
-                                    <TextBlock Margin="0,6,0,0" FontSize="11.5" Opacity="0.6" TextWrapping="Wrap"
-                                               Text="每台电脑唯一，由设备指纹导出、重装不变。对方凭此码向本机发送喊话，请勿对外公开。" />
-                                </StackPanel>
-                            </Border>
+                            <TextBlock x:Name="PairCodeText" Text="000000" FontSize="32" FontWeight="Bold"
+                                       HorizontalAlignment="Left" LetterSpacing="6"
+                                       Foreground="{DynamicResource SystemAccentColorPrimaryBrush}" />
                         </StackPanel>
                     </Border>
 
-                    <Border Classes="cshCard" Margin="0,12,0,0">
+                    <Border Classes="cshCard">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Spacing="2" VerticalAlignment="Center">
+                                <TextBlock Text="局域网通道" FontSize="13" FontWeight="Bold" />
+                                <TextBlock FontSize="12" Opacity="0.7" TextWrapping="Wrap"
+                                           Text="同网段的电脑互相发现、直接送达，不经过服务器；需要放行防火墙。" />
+                            </StackPanel>
+                            <ToggleSwitch x:Name="LanToggle" Grid.Column="1" VerticalAlignment="Center"
+                                          IsCheckedChanged="Lan_Changed" />
+                        </Grid>
+                    </Border>
+
+                    <!-- 防火墙：只在检测到真的拦住了才出现（见 FirewallGateway）。
+                         ⚠️ 以前这里常驻 + 每次都要点一次「放行」再弹一次 UAC，
+                            根因是检测判据太窄（只看规则在不在，没看覆不覆盖公用网络）。 -->
+                    <Border x:Name="FirewallCard" Classes="cshCard" IsVisible="False">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Spacing="2" VerticalAlignment="Center">
+                                <TextBlock Text="局域网通道被 Windows 防火墙拦截" FontSize="13" FontWeight="Bold" />
+                                <TextBlock x:Name="FirewallDesc" FontSize="12" Opacity="0.7" TextWrapping="Wrap"
+                                           Text="修复需要一次管理员确认，完成后不会再询问。" />
+                            </StackPanel>
+                            <Button x:Name="FirewallButton" Grid.Column="1" Content="修复" Click="Firewall_Click"
+                                    VerticalAlignment="Center" />
+                        </Grid>
+                    </Border>
+
+                    <!-- 谁保存了本机配对码（防滥用：可查看、可删除、可清空） -->
+                    <Border Classes="cshCard">
+                        <StackPanel Spacing="8">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Spacing="2" VerticalAlignment="Center">
+                                    <TextBlock Text="谁保存了本机配对码" FontSize="13" FontWeight="Bold" />
+                                    <TextBlock FontSize="12" Opacity="0.7" TextWrapping="Wrap"
+                                               Text="同一局域网内的电脑在保存本机配对码时会登记到这里。删除只是把这条记录移除，对方手里仍可能留着这个码；发现异常请联系对方或更换本机标识。" />
+                                </StackPanel>
+                                <Button x:Name="ClearBindersButton" Grid.Column="1" Content="全部清空"
+                                        Click="ClearBinders_Click" VerticalAlignment="Top" />
+                            </Grid>
+
+                            <ItemsControl x:Name="BinderList" MaxHeight="220" IsVisible="False">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="local:BinderItem">
+                                        <Grid Margin="0,3">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Spacing="1" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Display}" FontSize="13" />
+                                                <TextBlock Text="{Binding Detail}" FontSize="11.5" Opacity="0.6" />
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="1" Text="{Binding When}" FontSize="11.5" Margin="12,0,0,0"
+                                                       Opacity="0.6" VerticalAlignment="Center" />
+                                            <Button Grid.Column="2" Content="删除" Padding="10,2" Margin="12,0,0,0"
+                                                    Tag="{Binding Source.Name}" Click="DeleteBinder_Click"
+                                                    VerticalAlignment="Center" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <TextBlock x:Name="BinderEmpty" FontSize="12" Opacity="0.6"
+                                       Text="还没有电脑保存过本机配对码。" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Classes="cshCard">
                         <StackPanel>
                             <TextBlock Text="展示设置" FontSize="13" FontWeight="Bold" />
 
@@ -79,8 +207,12 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Text="轮询间隔" FontSize="12.5" VerticalAlignment="Center" />
-                                <ComboBox x:Name="IntervalCombo" Grid.Column="1" MinWidth="140"
+                                <StackPanel Spacing="2" VerticalAlignment="Center">
+                                    <TextBlock Text="多久检查一次消息" FontSize="12.5" />
+                                    <TextBlock Text="只影响服务器通道；局域网直达不受它影响。" FontSize="11.5"
+                                               Opacity="0.65" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <ComboBox x:Name="IntervalCombo" Grid.Column="1" MinWidth="130"
                                           SelectionChanged="Interval_Changed">
                                     <ComboBoxItem Tag="15"><TextBlock Text="15 秒" /></ComboBoxItem>
                                     <ComboBoxItem Tag="30"><TextBlock Text="30 秒（推荐）" /></ComboBoxItem>
@@ -94,9 +226,9 @@
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Spacing="2" VerticalAlignment="Center">
-                                    <TextBlock Text="安静模式" FontSize="12.5" />
-                                    <TextBlock Text="仅展示字幕，无提示音与朗读。"
-                                               FontSize="11.5" Opacity="0.65" TextWrapping="Wrap" />
+                                    <TextBlock Text="不响提示音" FontSize="12.5" />
+                                    <TextBlock Text="安静模式：只弹窗，不出声。" FontSize="11.5" Opacity="0.65"
+                                               TextWrapping="Wrap" />
                                 </StackPanel>
                                 <ToggleSwitch x:Name="QuietToggle" Grid.Column="1" VerticalAlignment="Center"
                                               IsCheckedChanged="Quiet_Changed" />
@@ -108,12 +240,47 @@
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Spacing="2" VerticalAlignment="Center">
-                                    <TextBlock Text="朗读正文" FontSize="12.5" />
-                                    <TextBlock Text="提示音后朗读正文。"
-                                               FontSize="11.5" Opacity="0.65" TextWrapping="Wrap" />
+                                    <TextBlock Text="把内容念出来" FontSize="12.5" />
+                                    <TextBlock Text="用系统中文语音朗读；系统没有中文语音时自动跳过。" FontSize="11.5"
+                                               Opacity="0.65" TextWrapping="Wrap" />
                                 </StackPanel>
                                 <ToggleSwitch x:Name="SpeakToggle" Grid.Column="1" VerticalAlignment="Center"
                                               IsCheckedChanged="Speak_Changed" />
+                            </Grid>
+
+                            <Grid Margin="0,14,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Spacing="2" VerticalAlignment="Center">
+                                    <TextBlock Text="出现方式" FontSize="12.5" />
+                                    <TextBlock Text="文字怎么出现、怎么退场；「不带动画」用于不喜欢动画的场合。" FontSize="11.5"
+                                               Opacity="0.65" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <ComboBox x:Name="AnimationCombo" Grid.Column="1" MinWidth="132"
+                                          SelectionChanged="Animation_Changed">
+                                    <ComboBoxItem Tag="typewriter"><TextBlock Text="打字机" /></ComboBoxItem>
+                                    <ComboBoxItem Tag="slide"><TextBlock Text="按行交错划入" /></ComboBoxItem>
+                                    <ComboBoxItem Tag="pop"><TextBlock Text="弹入" /></ComboBoxItem>
+                                    <ComboBoxItem Tag="none"><TextBlock Text="不带动画" /></ComboBoxItem>
+                                </ComboBox>
+                            </Grid>
+
+                            <Grid Margin="0,14,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Spacing="2" VerticalAlignment="Center">
+                                    <TextBlock Text="提示音" FontSize="12.5" />
+                                    <TextBlock x:Name="SoundNameText" FontSize="11.5" Opacity="0.65" Text="默认提示音" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                    <Button Content="选择" Click="PickSound_Click" />
+                                    <Button Content="试听" Click="TestSound_Click" />
+                                    <Button Content="恢复默认" Click="ResetSound_Click" />
+                                </StackPanel>
                             </Grid>
 
                             <fa:InfoBar x:Name="TtsHint" Severity="Warning" IsClosable="False" IsOpen="False"
@@ -124,102 +291,132 @@
                     </Border>
                 </StackPanel>
 
-                <!-- ── 右栏：发送区 + 已配对设备 + 说明 ── -->
-                <StackPanel Grid.Column="1" Margin="16,0,0,0">
-                    <Border Classes="cshCard" VerticalAlignment="Top">
-                        <StackPanel>
-                            <TextBlock Text="发送喊话" FontSize="13" FontWeight="Bold" />
-                            <TextBlock Margin="0,2,0,0" FontSize="11.5" Opacity="0.6" TextWrapping="Wrap"
-                                       Text="勾选目标设备后发送，可多选批量；同一配对码 10 秒内限发一条。" />
+                <!-- ═══════════ 第二页：发送 ═══════════ -->
+                <StackPanel x:Name="SendView" Spacing="12" IsVisible="False">
 
-                            <TextBox x:Name="ContentBox" Margin="0,10,0,0" Height="96"
-                                     AcceptsReturn="True" TextWrapping="Wrap"
-                                     VerticalContentAlignment="Top"
-                                     Watermark="输入喊话内容，最多 100 字"
-                                     TextChanged="Content_Changed" />
-                            <TextBlock x:Name="CountText" Margin="0,4,0,0" FontSize="11.5" Opacity="0.55"
-                                       HorizontalAlignment="Right" Text="0 / 100" />
-
-                            <Grid Margin="0,8,0,0">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <TextBox x:Name="FromBox" Watermark="署名（可选，如：教导处）" MaxLength="20"
-                                         VerticalAlignment="Center" />
-                                <ComboBox x:Name="DurationCombo" Grid.Column="1" MinWidth="120" Margin="10,0,0,0"
-                                          SelectedIndex="1" VerticalAlignment="Center">
-                                    <ComboBoxItem Tag="10"><TextBlock Text="显示 10 秒" /></ComboBoxItem>
-                                    <ComboBoxItem Tag="30"><TextBlock Text="显示 30 秒" /></ComboBoxItem>
-                                    <ComboBoxItem Tag="60"><TextBlock Text="显示 60 秒" /></ComboBoxItem>
-                                    <ComboBoxItem Tag="120"><TextBlock Text="显示 2 分钟" /></ComboBoxItem>
-                                </ComboBox>
-                                <Button x:Name="SendButton" Grid.Column="2" Margin="10,0,0,0" Height="34"
-                                        Content="发送" Theme="{StaticResource AccentButtonStyle}"
-                                        Click="Send_Click"
-                                        ToolTip.Tip="发送后目标教室机在一个轮询间隔内弹出" />
-                            </Grid>
-
-                            <fa:InfoBar x:Name="SendResult" IsClosable="True" IsOpen="False" Margin="0,10,0,0" />
-                        </StackPanel>
-                    </Border>
-
-                    <!-- ── 已配对设备：互填配对码即配对，名单与勾选状态本地持久化 ── -->
-                    <Border Classes="cshCard" Margin="0,14,0,0" VerticalAlignment="Top">
-                        <StackPanel>
+                    <!-- 局域网里的电脑：勾选即发 -->
+                    <Border Classes="cshCard">
+                        <StackPanel Spacing="8">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <StackPanel Spacing="2">
-                                    <TextBlock Text="已配对设备" FontSize="13" FontWeight="Bold" />
-                                    <TextBlock Text="输入对方配对码添加；勾选后定向发送，可多选。"
-                                               FontSize="11.5" Opacity="0.6" TextWrapping="Wrap" />
+                                <StackPanel Spacing="2" VerticalAlignment="Center">
+                                    <TextBlock Text="局域网里的电脑" FontSize="13" FontWeight="Bold" />
+                                    <TextBlock x:Name="PeerHint" FontSize="12" Opacity="0.7" TextWrapping="Wrap"
+                                               Text="局域网通道未开启。请到「接收」页打开「局域网通道」，同一网段的电脑才会出现在这里。" />
                                 </StackPanel>
-                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                    <Button x:Name="RefreshDevices" Content="刷新" MinWidth="64"
-                                            Click="RefreshDevices_Click" />
-                                    <Button x:Name="ClearSelection" Content="全不选" MinWidth="64"
-                                            Click="ClearSelection_Click" />
-                                </StackPanel>
+                                <Button Grid.Column="1" Content="刷新" Click="RefreshPeers_Click"
+                                        VerticalAlignment="Center" />
                             </Grid>
 
-                            <!-- 添加行：对方配对码 -->
-                            <Grid Margin="0,10,0,0">
+                            <ItemsControl x:Name="PeerList" MaxHeight="260" IsVisible="False">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="local:LanPeerItem">
+                                        <Grid Margin="0,3">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <CheckBox MinWidth="0" VerticalAlignment="Center"
+                                                      IsChecked="{Binding IsSelected, Mode=TwoWay}" />
+                                            <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center" Margin="12,0,0,0">
+                                                <TextBlock Text="{Binding Display}" FontSize="13" />
+                                                <TextBlock Text="{Binding Detail}" FontSize="11.5" Opacity="0.6" />
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="2" Text="{Binding PairCode}" FontSize="11.5"
+                                                       Opacity="0.6" FontFamily="Consolas" VerticalAlignment="Center"
+                                                       Margin="12,0,0,0" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Classes="cshCard">
+                        <StackPanel Spacing="10">
+                            <!-- 手动填码 + 保存：填过的存下来，下次直接勾选 -->
+                            <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <TextBox x:Name="NewCodeBox" Watermark="对方配对码（6 位数字）"
-                                         MaxLength="6" VerticalAlignment="Center" />
-                                <Button x:Name="AddDevice" Grid.Column="1" Margin="8,0,0,0" Content="添加" MinWidth="64"
-                                        VerticalAlignment="Center" Click="AddDevice_Click" />
+                                <StackPanel Grid.Column="0" Spacing="2" Margin="0,0,10,0">
+                                    <TextBlock Text="或者直接填对方的配对码" FontSize="12.5" />
+                                    <TextBox x:Name="TargetCodeBox" MaxLength="6" Watermark="6 位数字" />
+                                </StackPanel>
+                                <Button x:Name="SavePeerButton" Grid.Column="1" Content="保存" Click="SavePeer_Click"
+                                        VerticalAlignment="Bottom" Padding="14,5"
+                                        ToolTip.Tip="把这个配对码存进下面的「已保存的电脑」" />
                             </Grid>
 
-                            <!-- 设备名单（勾选 = 发送目标；ItemsControl 在代码后置铺） -->
-                            <ItemsControl x:Name="DeviceList" Margin="0,10,0,0" />
+                            <!-- 已保存的电脑：勾选即发 -->
+                            <StackPanel Spacing="6">
+                                <Grid>
+                                    <TextBlock Text="已保存的电脑" FontSize="13" FontWeight="Bold" />
+                                    <TextBlock x:Name="SavedHint" FontSize="11.5" Opacity="0.6"
+                                               HorizontalAlignment="Right" VerticalAlignment="Center" Text="" />
+                                </Grid>
+                                <ItemsControl x:Name="SavedList" MaxHeight="200" IsVisible="False">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="local:SavedPeerItem">
+                                            <Grid Margin="0,3">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <CheckBox MinWidth="0" VerticalAlignment="Center"
+                                                          IsChecked="{Binding IsSelected, Mode=TwoWay}" />
+                                                <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center" Margin="12,0,0,0">
+                                                    <TextBlock Text="{Binding Display}" FontSize="13" />
+                                                    <TextBlock Text="{Binding Detail}" FontSize="11.5" Opacity="0.6" />
+                                                </StackPanel>
+                                                <Button Grid.Column="2" Content="删除" Padding="10,2" Margin="12,0,0,0"
+                                                        Tag="{Binding Code}" Click="DeleteSaved_Click"
+                                                        VerticalAlignment="Center" ToolTip.Tip="从已保存的电脑里移除" />
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
 
-                            <TextBlock x:Name="DeviceEmptyHint" Margin="0,8,0,0" FontSize="11.5" Opacity="0.55"
-                                       TextWrapping="Wrap"
-                                       Text="暂无设备。输入对方页面上的「本机配对码」并点击添加；对方开启「接收喊话」后可显示其机器名。" />
-                        </StackPanel>
-                    </Border>
+                            <Grid>
+                                <TextBox x:Name="ContentBox" Height="96" AcceptsReturn="True" TextWrapping="Wrap"
+                                         VerticalContentAlignment="Top" Watermark="要展示的文字，例如：请李明同学到办公室拿东西"
+                                         MaxLength="100" TextChanged="Content_Changed" />
+                                <TextBlock x:Name="CountText" Text="0 / 100" FontSize="11.5" Opacity="0.6"
+                                           HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,8,6"
+                                           IsHitTestVisible="False" />
+                            </Grid>
 
-                    <Border Classes="cshCard" Margin="0,14,0,0" VerticalAlignment="Top">
-                        <StackPanel>
-                            <TextBlock Text="使用说明" FontSize="13" FontWeight="Bold" />
-                            <TextBlock Margin="0,8,0,0" FontSize="12.5" Opacity="0.75" TextWrapping="Wrap"
-                                       Text="· 配对：两台电脑互填对方的「本机配对码」即可，一侧添加、一侧接收，互不影响；一台设备的配对码可被多方保存。" />
-                            <TextBlock Margin="0,6,0,0" FontSize="12.5" Opacity="0.75" TextWrapping="Wrap"
-                                       Text="· 接收：教室机打开「接收喊话」开关，收到后全屏展示，倒计时结束自动消失，Esc 可提前关闭。" />
-                            <TextBlock Margin="0,6,0,0" FontSize="12.5" Opacity="0.75" TextWrapping="Wrap"
-                                       Text="· 发送：本页或官网「教室喊话」页输入对方配对码发送；消息在服务端最多保留 3 分钟，每台设备仅接收一次。" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="FromBox" Watermark="署名（可选，如：教务处）" MaxLength="20"
+                                         VerticalAlignment="Center" />
+                                <ComboBox x:Name="DurationCombo" Grid.Column="1" MinWidth="120" SelectedIndex="1"
+                                          VerticalAlignment="Center" Margin="10,0,0,0">
+                                    <ComboBoxItem Tag="15"><TextBlock Text="显示 15 秒" /></ComboBoxItem>
+                                    <ComboBoxItem Tag="30"><TextBlock Text="显示 30 秒" /></ComboBoxItem>
+                                    <ComboBoxItem Tag="60"><TextBlock Text="显示 60 秒" /></ComboBoxItem>
+                                </ComboBox>
+                                <Button x:Name="SendButton" Grid.Column="2" Content="发送喊话" Click="Send_Click" Margin="10,0,0,0"
+                                        Theme="{StaticResource AccentButtonStyle}" Padding="18,7" Height="34"
+                                        IsEnabled="False" VerticalAlignment="Center" />
+                            </Grid>
+
+                            <fa:InfoBar x:Name="SendResult" IsClosable="True" IsOpen="False" Margin="0,4,0,0" />
                         </StackPanel>
                     </Border>
                 </StackPanel>
-            </Grid>
+            </StackPanel>
         </ScrollViewer>
     </Grid>
 </platform:PageBase>

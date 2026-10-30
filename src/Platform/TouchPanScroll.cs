@@ -68,6 +68,13 @@ internal static class TouchPanScroll
         public Vector Velocity;        // dip/ms
         public bool Inertia;
         public long LastTickMs;
+
+        /// <summary>
+        /// 到这个时刻之前，把手势层冒出来的 Tapped 一律吞掉（见 End）。
+        /// 触摸驱动偶尔会先发 PointerCaptureLost 再发 Released —— 那时 End(null) 已经把快照清干净，
+        /// 后面那次 Released 走的是"没在跟踪"的早退路径，于是手指下面的卡片/按钮照样收到一次点击。
+        /// </summary>
+        public long SuppressTapUntilMs;
     }
 
     public static void Attach(ScrollContentPresenter presenter)
@@ -145,6 +152,16 @@ internal static class TouchPanScroll
                 state.Tracking = false;
                 state.Dragging = false;
 
+                if (wasDragging)
+                {
+                    // ⛔ 用户反馈「触摸屏滑动时有时会识别为点击」：滑完手指抬起，
+                    //    底下那张卡片/按钮照样收到一次 Click/Tapped —— 等于滑一下顺手点进了某个软件。
+                    //    这里做两道：①抬手事件当场吞掉（拦住 Button 的 Click）；
+                    //    ②留一个短窗口，把随后冒出来的 Tapped 也吞掉
+                    //    （触摸驱动偶尔先发 CaptureLost 再发 Released，那次 Released 已经不在跟踪状态里了）。
+                    state.SuppressTapUntilMs = state.Clock.ElapsedMilliseconds + 400;
+                    if (pe is not null) pe.Handled = true;
+                }
                 if (wasDragging && pe is not null)
                 {
                     TrackSample(state, pe.GetPosition(presenter));
@@ -170,7 +187,35 @@ internal static class TouchPanScroll
             }
 
             presenter.AddHandler(InputElement.PointerReleasedEvent,
-                (_, e) => End(e), Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
+                (_, e) =>
+                {
+                    if (e.Pointer.Type != PointerType.Touch) return;
+
+                    if (!state.Tracking)
+                    {
+                        // 拖动已经以 CaptureLost 收尾（触摸驱动的常见收场）：这次抬手只是滑动收尾，不是点击
+                        if (state.Clock.ElapsedMilliseconds <= state.SuppressTapUntilMs)
+                        {
+                            state.SuppressTapUntilMs = 0;
+                            e.Handled = true;
+                        }
+                        return;
+                    }
+
+                    End(e);
+                },
+                Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
+
+            // 手势层（TapGestureRecognizer）不受 PointerReleased 的 Handled 影响时，
+            // 它还会在源控件上补一个 Tapped —— 这一层的兜底必须自己拦。
+            presenter.AddHandler(Gestures.TappedEvent,
+                (_, e) =>
+                {
+                    if (state.Clock.ElapsedMilliseconds > state.SuppressTapUntilMs) return;
+                    state.SuppressTapUntilMs = 0;
+                    e.Handled = true;
+                },
+                Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
 
             presenter.AddHandler(InputElement.PointerCaptureLostEvent,
                 (_, _) => End(null), Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);

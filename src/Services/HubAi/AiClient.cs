@@ -37,11 +37,19 @@ public static class AiClient
     {
         ConnectTimeout = TimeSpan.FromSeconds(15),
         PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+        SslOptions = Core.HttpTls.SslOptions(),
     })
     {
-        // 思考型模型（如 deepseek-reasoner）首个 token 可能要等几十秒，给足余量
-        Timeout = TimeSpan.FromSeconds(120),
+        // ⛔ 不能给 HttpClient 设总超时：流式回答要读几分钟，总超时到点会把**正在输出的正文**砍掉。
+        //    超时改由两处分别控制：发请求等响应头（RequestTimeout）、两次收到数据之间（IdleReadTimeout）。
+        Timeout = Timeout.InfiniteTimeSpan,
     };
+
+    /// <summary>连接建立后等响应头的上限（思考型模型首个 token 可能要等几十秒）。</summary>
+    private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(120);
+
+    /// <summary>流式读取时，两次收到数据之间的最长间隔。</summary>
+    private static readonly TimeSpan IdleReadTimeout = TimeSpan.FromSeconds(120);
 
     /// <summary>
     /// 连通性测试：发一个 <c>max_tokens=1</c> 的最小请求。
@@ -63,7 +71,11 @@ public static class AiClient
                 stream = false,
             });
 
-            using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseContentRead, ct);
+            // HttpClient 已放开总超时，这里补上"测试请求"自己的上限
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(RequestTimeout);
+
+            using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseContentRead, timeout.Token);
             var body = await response.Content.ReadAsStringAsync(ct);
             watch.Stop();
 
@@ -120,7 +132,13 @@ public static class AiClient
         if (!cfg.IsUsable) throw new InvalidOperationException("尚未配置模型服务。");
 
         using var request = BuildRequest(EndpointOf(cfg.BaseUrl), cfg, BuildBody(cfg, messages, tools, stream: true));
-        using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+
+        // 只给"等响应头"设上限；拿到响应头后 disarm，否则总超时到点会把长回答拦腰砍断。
+        using var headerTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        headerTimeout.CancelAfter(RequestTimeout);
+
+        using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, headerTimeout.Token);
+        headerTimeout.CancelAfter(Timeout.InfiniteTimeSpan);
 
         if (!response.IsSuccessStatusCode)
         {
@@ -143,15 +161,24 @@ public static class AiClient
             ct.ThrowIfCancellationRequested();
 
             // ⚠️ 移植：.NET 6 的 StreamReader.ReadLineAsync 没有带 CancellationToken 的重载
-            //    （上游 net8 有）。这里用 WhenAny 把取消接上：取消时 Delay 先完成，随即抛出，
-            //    读任务随 response/stream 的 Dispose 一起结束。
+            //    （上游 net8 有）。这里用 WhenAny 把取消接上，并额外加一道**空闲超时**：
+            //    连接没断、但对方再也不吐数据时，绝不能无限期挂着。
+            // ⚠️ 每行一个独立的 CTS，读完就 Cancel：Delay 任务随之结束、定时器立刻释放。
+            //    以前用 Task.Delay(Infinite, ct) 且从不释放，一整个回答下来会攒下几十上百个
+            //    永不完成的定时器，直到整轮对话被取消才回收。
             var readTask = reader.ReadLineAsync();
-            var cancelled = Task.Delay(Timeout.Infinite, ct);
-            if (await Task.WhenAny(readTask, cancelled) != readTask)
+            using var idle = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            idle.CancelAfter(IdleReadTimeout);
+            var idleTask = Task.Delay(Timeout.Infinite, idle.Token);
+
+            if (await Task.WhenAny(readTask, idleTask) != readTask)
             {
                 ct.ThrowIfCancellationRequested();
-                break;
+                throw new TimeoutException(
+                    $"模型服务已连接，但连续 {IdleReadTimeout.TotalSeconds:0} 秒没有返回新数据。");
             }
+
+            idle.Cancel();      // 让 idleTask 立即结束，释放定时器
 
             var line = await readTask;
             if (line is null) break;
@@ -206,9 +233,9 @@ public static class AiClient
             if (doc.RootElement.TryGetProperty("usage", out var u) && u.ValueKind == JsonValueKind.Object)
             {
                 usage = new AiUsage(
-                    u.TryGetProperty("prompt_tokens", out var pt) && pt.ValueKind == JsonValueKind.Number ? pt.GetInt32() : 0,
-                    u.TryGetProperty("completion_tokens", out var ctk) && ctk.ValueKind == JsonValueKind.Number ? ctk.GetInt32() : 0,
-                    u.TryGetProperty("total_tokens", out var tt) && tt.ValueKind == JsonValueKind.Number ? tt.GetInt32() : 0);
+                    u.TryGetProperty("prompt_tokens", out var pt) ? IntOf(pt) : 0,
+                    u.TryGetProperty("completion_tokens", out var ctk) ? IntOf(ctk) : 0,
+                    u.TryGetProperty("total_tokens", out var tt) ? IntOf(tt) : 0);
             }
 
             if (!doc.RootElement.TryGetProperty("choices", out var choices))
@@ -247,9 +274,7 @@ public static class AiClient
             {
                 foreach (var tc in tcs.EnumerateArray())
                 {
-                    var index = tc.TryGetProperty("index", out var idx) && idx.ValueKind == JsonValueKind.Number
-                        ? idx.GetInt32()
-                        : 0;
+                    var index = tc.TryGetProperty("index", out var idx) ? IntOf(idx) : 0;
 
                     if (!buffers.TryGetValue(index, out var buffer))
                     {
@@ -277,6 +302,17 @@ public static class AiClient
             // 个别服务商会插非 JSON 的心跳，忽略即可
             return null;
         }
+    }
+
+    /// <summary>
+    /// 宽容地读一个整数。⚠️ 不能直接 <c>GetInt32()</c>：服务商偶尔把 token 数 / index 写成
+    /// <c>12.0</c>（JSON 浮点），GetInt32 会抛 InvalidOperationException，而这里只兜了 JSON 语法错误。
+    /// </summary>
+    private static int IntOf(JsonElement el)
+    {
+        if (el.ValueKind != JsonValueKind.Number) return 0;
+        if (el.TryGetInt32(out var i)) return i;
+        return el.TryGetDouble(out var d) && double.IsFinite(d) ? (int)Math.Round(d) : 0;
     }
 
     /// <summary>拼请求体。工具清单只在传了的时候才带，避免"没装工具包却收到空 tools 数组"。</summary>

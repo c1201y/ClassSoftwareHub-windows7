@@ -360,7 +360,17 @@ public sealed partial class SidebarLayoutPage : PageBase
             // 「关机方式」：侧边栏「关机」按钮走滑动关机还是立即关机（2026-10-18 上游；2026-10-22 移植）
             if (ShutdownModeCombo is not null)
             {
-                var index = App.Settings.Current.ShutdownMode == "shutdown" ? 1 : 0;
+                // Win7 没有 SlideToShutDown.exe：把「滑动关机」置灰，并如实选中「直接关机」
+                if (!Data.AutoShutdownConfig.SlideToShutDownAvailable
+                    && ShutdownModeCombo.Items.Count > 1
+                    && ShutdownModeCombo.Items[0] is ComboBoxItem slideItem)
+                {
+                    slideItem.IsEnabled = false;
+                    slideItem.Content = "手动关机（本系统不支持）";
+                }
+
+                var index = Data.AutoShutdownConfig.NormalizeMethod(App.Settings.Current.ShutdownMode)
+                            == Data.ShutdownMethods.Shutdown ? 1 : 0;
                 if (ShutdownModeCombo.SelectedIndex != index) ShutdownModeCombo.SelectedIndex = index;
             }
 
@@ -698,39 +708,6 @@ public sealed partial class SidebarLayoutPage : PageBase
         tile.PointerReleased += OnPointerReleased;
         tile.PointerCaptureLost += (_, _) => CancelDrag();
 
-        return tile;
-    }
-
-
-    /// <summary>固定按钮（收起 / 位置复原 / 隐藏）现在不画在预览里了，这个方法暂时留着备用。</summary>
-    private Border BuildFixedTile(string glyph, string label)
-    {
-        var content = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
-        content.Children.Add(new FontIcon
-        {
-            Glyph = glyph,
-            FontSize = 16,
-            Opacity = 0.6,
-            HorizontalAlignment = HorizontalAlignment.Center
-        });
-        content.Children.Add(new TextBlock
-        {
-            Text = label,
-            FontSize = 10,
-            Opacity = 0.6,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            Foreground = Br("ModTextDim")
-        });
-
-        var tile = new Border
-        {
-            Width = 96,
-            Height = 46,
-            CornerRadius = new CornerRadius(6),
-            HorizontalAlignment = HorizontalAlignment.Left,
-            Child = content
-        };
-        ToolTip.SetTip(tile, "侧边栏自带按钮，不参与拼接");
         return tile;
     }
 

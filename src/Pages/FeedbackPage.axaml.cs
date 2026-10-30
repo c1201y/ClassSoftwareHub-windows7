@@ -36,9 +36,23 @@ public sealed partial class FeedbackPage : PageBase
     public FeedbackPage()
     {
         InitializeComponent();
-        // 每次进本页都跑一遍：从表单页返回时 Frame 会重建本页，草稿条要据此重算
-        Loaded += (_, _) => Init();
+
+        // ⚠️ 每次进本页重算草稿条（从表单页返回时 Frame 会重建本页），
+        //    但图标与主题事件只装一次：反复 Init 会重复订阅 ActualThemeVariantChanged，
+        //    还会把上一批 Bitmap 晾着不释放（审计 P2 #32）。
+        Loaded += (_, _) =>
+        {
+            if (!_initialized)
+            {
+                _initialized = true;
+                Init();
+            }
+
+            RefreshDraftBar();
+        };
     }
+
+    private bool _initialized;
 
     private void Init()
     {
@@ -47,8 +61,6 @@ public sealed partial class FeedbackPage : PageBase
         _iconSuggestion = LoadIcon("suggest.png", "feedback-suggest.png");
         KindIconReport.Source = _iconReport;
         KindIconSuggestion.Source = _iconSuggestion;
-
-        RefreshDraftBar();
 
         // 主视觉横幅是主题色渐变，深/浅色各一套 —— 主题变了要重画
         ApplyHeroBrush();

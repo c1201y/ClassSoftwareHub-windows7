@@ -22,14 +22,16 @@ public sealed class AnnounceMessage
             var root = doc.RootElement;
             if (root.ValueKind != JsonValueKind.Object) return null;
 
-            var text = root.TryGetProperty("text", out var t) ? t.GetString() : null;
+            // ⚠️ GetString() 只在 ValueKind=String 时合法，字段类型不对会抛 InvalidOperationException
+            //    （不在 JsonException 的 catch 范围内）—— 先看类型再取值。
+            var text = StringOf(root, "text");
             if (string.IsNullOrWhiteSpace(text)) return null;
 
             return new AnnounceMessage
             {
-                Id = root.TryGetProperty("id", out var i) ? (i.GetString() ?? "") : "",
+                Id = StringOf(root, "id") ?? "",
                 Text = text,
-                From = root.TryGetProperty("from", out var f) ? (f.GetString() ?? "") : "",
+                From = StringOf(root, "from") ?? "",
                 Duration = root.TryGetProperty("duration", out var d) && d.TryGetInt32(out var dur) ? dur : 30,
                 Ts = root.TryGetProperty("ts", out var ts) && ts.TryGetInt64(out var l) ? l : 0,
             };
@@ -39,4 +41,9 @@ public sealed class AnnounceMessage
             return null;
         }
     }
+
+    private static string? StringOf(JsonElement root, string name)
+        => root.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
 }

@@ -57,6 +57,13 @@ public sealed class ClockPreset
     /// <summary>列表里那行小字：背景图 / 蒙版 / 底色 / 字体，让人一眼认出是哪套。</summary>
     public string Summary()
     {
+        // 存档是用户能手改的 json：枚举可能被写成越界值，裸索引会直接抛 IndexOutOfRange，
+        // 一条坏预设就能让整个预设栏刷不出来（见审计 P2 #13）。
+        var veil = Math.Clamp((int)Veil, 0, ClockRender.VeilLabels.Length - 1);
+        var tone = Math.Clamp((int)Tone, 0, ClockRender.ToneLabels.Length - 1);
+        var font = Array.IndexOf(ClockRender.FontFamilies, FontFamily);
+        font = font >= 0 && font < ClockRender.FontLabels.Length ? font : 0;
+
         var bits = new List<string>
         {
             string.IsNullOrWhiteSpace(BackgroundImagePath)
@@ -64,9 +71,9 @@ public sealed class ClockPreset
                 : "背景图 " + Path.GetFileName(BackgroundImagePath),
             Veil == ClockVeil.None
                 ? "无蒙版"
-                : $"{ClockRender.VeilLabels[(int)Veil]} {Math.Round(VeilStrength)}%",
-            ClockRender.ToneLabels[(int)Tone],
-            ClockRender.FontLabels[Math.Max(0, Array.IndexOf(ClockRender.FontFamilies, FontFamily))],
+                : $"{ClockRender.VeilLabels[veil]} {Math.Round(VeilStrength)}%",
+            ClockRender.ToneLabels[tone],
+            ClockRender.FontLabels[font],
         };
         return string.Join(" · ", bits);
     }

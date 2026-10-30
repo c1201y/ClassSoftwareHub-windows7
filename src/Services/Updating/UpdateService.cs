@@ -60,6 +60,7 @@ public sealed class UpdateService
     private static readonly HttpClient Http = new(new SocketsHttpHandler
     {
         PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+        SslOptions = Core.HttpTls.SslOptions(),   // Win7 默认不开 TLS 1.2，必须显式指定
     })
     {
         Timeout = Timeout.InfiniteTimeSpan,   // 下载大文件不设总超时，靠 CancellationToken 控制
@@ -240,9 +241,9 @@ public sealed class UpdateService
                     var actualMd5 = Convert.ToHexString(md5.GetHashAndReset()).ToLowerInvariant();
                     var actualSha = Convert.ToHexString(sha.GetHashAndReset()).ToLowerInvariant();
 
-                    // 到这里 expected 至少有一项非空（上面已拦），所以 verified 必然会被置 true
+                    // 到这里 expected 至少有一项非空（上面已拦），下面两个分支必然有一个置 true
                     var verified = false;
-                    var note = "未提供校验值（已跳过校验）";
+                    var note = "";
 
                     // 校验不过就把现场记全（期望值 / 实际值 / 哪个算法）—— 这类问题必须能事后复盘，
                     // 只往界面弹一句"校验失败"是查不出所以然的。
@@ -272,8 +273,8 @@ public sealed class UpdateService
                         note = "SHA256 已校验通过（该发布未提供 MD5）";
                     }
 
-                    if (File.Exists(destinationFile)) File.Delete(destinationFile);
-                    File.Move(temp, destinationFile);
+                    // ⚠️ 不能先删旧包再挪：中间失败就新旧都没了。File.Move(overwrite) 原子替换。
+                    File.Move(temp, destinationFile, overwrite: true);
 
                     long finalSize = 0;
                     try { finalSize = new FileInfo(destinationFile).Length; } catch { }
@@ -291,8 +292,8 @@ public sealed class UpdateService
                 catch (Exception ex)
                 {
                     // 候选失败（传输中断 / 校验不过 / 磁盘满）：删除 .part，尝试下一条候选。
-                    // ⚠️ .part 残片没有回收路径（InstallerCleanup 匹配不到 *.part），
-                    //    必须当场清理，否则反复更新失败会耗尽 %LOCALAPPDATA% 所在分区。
+                    // ⚠️ 当场清理残片：虽然 InstallerCleanup 启动时也会扫掉 *.part，
+                    //    但同一次运行里连续失败多条候选会一直占着 %LOCALAPPDATA% 所在分区。
                     TryDelete(temp);
                     lastError = ex;
 
@@ -451,7 +452,8 @@ public sealed class UpdateService
     // ⚠️ 只按**主机名**记，不按完整 URL：坏的是那台机器，不是那一个文件。
     // ⚠️ 不落盘 + 有 TTL（重启或半小时后自动忘掉）：节点修好了不该被永久拉黑。
 
-    private static readonly Dictionary<string, DateTime> _badRouteUntil = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, DateTime> _badRouteUntil =
+        new(StringComparer.OrdinalIgnoreCase);
     private static readonly TimeSpan BadRouteTtl = TimeSpan.FromMinutes(30);
 
     /// <summary>日志里说"哪条线路"时用主机名 —— 完整 URL 太长，还带着签名参数。</summary>
@@ -511,12 +513,18 @@ public sealed class UpdateService
         // Inno Setup 静默参数：/SP- 不显示"准备安装"提示，/CLOSEAPPLICATIONS 自动关掉占用的应用，
         // Inno Setup 静默参数：/SP- 不显示"准备安装"提示，/CLOSEAPPLICATIONS 自动关掉占用的应用。
         // ⚠️ 桌面快捷方式（desktopicon 任务）**不再强制勾选**：升级时尊重用户当前的选择 ——
-        //    桌面上还留着旧图标就带上 /TASKS="desktopicon" 保留它；用户之前删过就别再建回来。
+        //    桌面上还留着旧图标就保留它；用户之前删过就显式取消勾选，别再建回来。
         //    （手动重跑安装包走交互式「附加任务」页时，.iss 的 InitializeWizard 会按同一逻辑预填。）
+        // ⛔⛔ 两种情况都必须**显式表态**，不能「不存在就不传参数」：
+        //    静默安装不带任务参数时用的是**默认勾选集**，而 desktopicon 在 .iss 里默认是勾上的
+        //    ⇒ 用户把桌面图标删了，更新一次又被装回来。这里用 /MERGETASKS（合并语义）：
+        //    将来 .iss 加新任务时不会被顶掉；`!` 前缀表示取消勾选。
         var desktopLnk = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory),
             "ClassSoftwareHub.lnk");
-        var tasksArg = File.Exists(desktopLnk) ? " /TASKS=\"desktopicon\"" : "";
+        var tasksArg = File.Exists(desktopLnk)
+            ? " /MERGETASKS=\"desktopicon\""
+            : " /MERGETASKS=\"!desktopicon\"";
         var innoArgs =
             "/SP- /SILENT /NORESTART /CLOSEAPPLICATIONS /SUPPRESSMSGBOXES" + tasksArg;
 

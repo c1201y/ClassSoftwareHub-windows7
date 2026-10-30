@@ -190,11 +190,18 @@
                                 </StackPanel>
                             </Grid>
 
+                            <!-- 适用系统（上游 2026-10-24 对齐网页版 submit.platforms）：
+                                 复选项由代码按 软件数据/platforms.json 生成（见 BuildPlatformChecks）。 -->
                             <StackPanel Spacing="6">
                                 <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="系统限制" FontSize="12.5" Opacity="0.8" />
+                                    <TextBlock Text="适用系统" FontSize="12.5" Opacity="0.8" />
                                     <TextBlock Text=" *" FontSize="12.5" Foreground="{DynamicResource SystemFillColorCriticalBrush}" />
                                 </StackPanel>
+                                <StackPanel x:Name="PlatformChecks" Orientation="Horizontal" Spacing="14" />
+                            </StackPanel>
+
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="系统说明（选填）" FontSize="12.5" Opacity="0.8" />
                                 <TextBox x:Name="SystemBox" Watermark="如 Windows 10/11（x86 / x64 / ARM64）" />
                             </StackPanel>
 

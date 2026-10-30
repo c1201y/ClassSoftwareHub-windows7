@@ -42,7 +42,7 @@ public sealed class FlyoutChrome
     private readonly Window _window;
     private readonly Control _root;
     private readonly Border _panel;
-    private readonly RoundedCorners _corners;
+    private readonly RoundedCorners? _corners;
     private bool _backdropApplied;
 
     private const uint SWP_NOSIZE = 0x0001;
@@ -69,11 +69,12 @@ public sealed class FlyoutChrome
         _window.CanResize = false;
         _window.Topmost = true;
 
-        // 圆角：Win11 走 DWM，Win7/10 走窗口区域裁剪（见 Core/RoundedCorners）。
-        // 这个窗口是"宽固定 + 高实测"的，尺寸每次都可能变 → 由 RoundedCorners 挂在 Resized 上自动重算。
-        // ⚠️ force=true（2026-10-14）：Win11 上无边框浮窗 DWM 拒绝给圆角（见 Core/RoundedCorners 类注释），
-        //    Win11 也得靠区域裁剪。
-        _corners = RoundedCorners.Attach(_window, RoundedCorners.DefaultCornerRadiusDip, force: true);
+        // 圆角：Win8+（DWM 合成）由内容 alpha 抠（见 Platform.BackdropTheme），
+        // 区域裁剪只在 Win7 / 无 DWM 时才有意义 —— 那边挂 Resized 自动重算，
+        // 治"宽固定 + 高实测"每次尺寸变化后区域过期。Win8+ 上 SetWindowRgn 本来就被 DWM 无视，
+        // 挂在 Resized 上只会白做（滑入/滑出改尺寸那一帧多一次全窗重设）。
+        if (!BackdropTheme.SupportsAlphaCorners)
+            _corners = RoundedCorners.Attach(_window, RoundedCorners.DefaultCornerRadiusDip, force: true);
 
         ApplyMaterial();
 
@@ -224,10 +225,9 @@ public sealed class FlyoutChrome
         if (!_backdropApplied)
         {
             _backdropApplied = true;
-            try { Backdrop.Apply(_window, null, "acrylic"); } catch { }
-            // ⚠️ Win11：NOREDIRECTIONBITMAP 浮窗 DWM 不认 SetWindowRgn，圆角靠内容 alpha 抠
-            //    —— 底色全透，否则面板圆角外的月牙漏窗口白底（见 Backdrop.EnablePerPixelCorners）。
-            if (OsInfo.SupportsWindowRounding) Backdrop.EnablePerPixelCorners(_window);
+            // ⚠️ alphaCorners: Win10 默认 GPU 渲染的浮窗带 WS_EX_NOREDIRECTIONBITMAP，
+            //    区域裁剪无效 —— 圆角改由面板自身的 alpha 抠（见 Platform.BackdropTheme）。
+            try { BackdropTheme.Apply(_window, null, "acrylic", alphaCorners: true); } catch { }
         }
     }
 
@@ -270,7 +270,7 @@ public sealed class FlyoutChrome
     {
         EnsureHwnd();
         WindowChrome.RemoveBorder(Hwnd, rounded: true, dark: dark);
-        _corners.Refresh();       // 显示之后才量得到真实尺寸，这里补裁一次
+        _corners?.Refresh();       // 显示之后才量得到真实尺寸，这里补裁一次
     }
 
     /// <summary>立刻藏起来（滑出动画播完后由动画回调调它）。</summary>
@@ -307,7 +307,7 @@ public sealed class FlyoutChrome
             /* ⚠️ TopLevel.ClientSize 只读 → 等价的 Width/Height（DIP） */
             _window.Width = w / Scale;
             _window.Height = h / Scale;
-            _corners.Refresh();
+            _corners?.Refresh();
             return;
         }
 
@@ -315,7 +315,7 @@ public sealed class FlyoutChrome
 
         // 尺寸变了 → 圆角区域要按新尺寸重裁。Avalonia 的 Resized 是异步派发的，
         // 这里同步补一次，免得中间那一两帧露出没裁到的直角/白角。
-        _corners.Refresh();
+        _corners?.Refresh();
     }
 
     // ══════════════════════════════════════════════════════════════════

@@ -23,7 +23,8 @@ public static class WindowChrome
     private const int DwmwaWindowCornerPreference = 33;
     private const int DwmwaBorderColor = 34;
 
-    private const int NcRenderingDisabled = 2;             // 关掉 DWM 给窗口画的非客户区（那条灯线的元凶）
+    // DWMNCRENDERINGPOLICY：0 = USEWINDOWSTYLE，1 = DISABLED，2 = ENABLED（⚠️ 不是属性编号，别写成 2）
+    private const int NcRenderingDisabled = 1;             // 关掉 DWM 给窗口画的非客户区（那条灯线的元凶）
 
     private const int CornerDefault = 0;
     private const int CornerDoNotRound = 1;

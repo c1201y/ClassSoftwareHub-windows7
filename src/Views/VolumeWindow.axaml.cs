@@ -289,7 +289,7 @@ public sealed partial class VolumeWindow : Window
             _chrome.Finish(Root.ActualThemeVariant == ThemeVariant.Dark);   // ⚠️ 必须在显示之后调
 
             FlyoutFade.In(ContentHost, 160);
-            _slide.Run(_chrome.Hwnd, start, final, FlyoutSlider.SlideInMs);
+            _slide.Run(this, start, final, FlyoutSlider.SlideInMs);
 
             VolumeFlyoutGroup.HoldSidebar();             // 边条按住，别让它缩回去
             VolumeFlyoutGroup.EnsureMouseWatch();        // 鼠标移开就收起（不用失焦判据，见 VolumeFlyoutGroup 注释）
@@ -316,7 +316,7 @@ public sealed partial class VolumeWindow : Window
             var from = _chrome.Position;
             var to = EdgeGeometry.FullyOut(from, Edge, EdgeGeometry.Thickness(Edge, size.Width, size.Height));
 
-            _slide.Run(_chrome.Hwnd, from, to, FlyoutSlider.SlideOutMs, () =>
+            _slide.Run(this, from, to, FlyoutSlider.SlideOutMs, () =>
             {
                 _chrome.HideDirect();
                 VolumeFlyoutGroup.OnAnyHidden();          // 都收完了才放开边条

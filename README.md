@@ -14,7 +14,7 @@
 
 ClassSoftwareHub 桌面版 —— **Windows 7 移植版**（代号 `csh-win7`）。把「电教委员常用软件下载站」装进教室里的老机器：内容跟随网站自动更新，提供软件下载、常用工具与工具侧边栏，断网时回退到离线副本。本版用 **Avalonia** 重做了 UI 层，把系统底线降到 **Windows 7 SP1**，布局、间距、圆角、颜色、图标、文案都与原版 1:1 对齐。
 
-- 网站：[classsoftwarehub.us.ci](https://classsoftwarehub.us.ci)
+- 网站：[classsoftwarehub.cn](https://classsoftwarehub.cn)
 - 原版（WinUI 3 / Windows 10 1809+）：[c1201y/ClassSoftwareHub-Desktop](https://github.com/c1201y/ClassSoftwareHub-Desktop)
 - 网站源码：[c1201y/ClassSoftwareHub](https://github.com/c1201y/ClassSoftwareHub)
 

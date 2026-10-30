@@ -94,7 +94,7 @@
   var currentTheme = null;     // 'light' | 'dark'
 
   // 只有主站页面才做「界面融合」；外站标签页（应用内新标签打开的第三方站点）完全不动
-  var SITE_HOSTS = ['classsoftwarehub.us.ci', 'classsoftwarehub.xfane.com', '127.0.0.1', 'localhost'];
+  var SITE_HOSTS = ['classsoftwarehub.cn', 'classsoftwarehub.us.ci', 'classsoftwarehub.xfane.com', '127.0.0.1', 'localhost'];
   function isSitePage() {
     try {
       if (document.querySelector('.win-titlebar')) return true;      // 站点特征

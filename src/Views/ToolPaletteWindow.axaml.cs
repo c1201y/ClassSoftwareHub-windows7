@@ -36,9 +36,10 @@ namespace ClassSoftwareHub.Desktop.Views;
 ///     WS_EX_TOOLWINDOW 由 ShowInTaskbar=false 在 Windows 上代为设置，不再单独 P/Invoke；
 ///   · ResizeClient(dip×scale) → ClientSize（Avalonia 直接吃逻辑像素，不用再乘 DPI）；
 ///   · 材质/圆角必须等窗口真显示之后再上（构造期拿不到 HWND），挪进了 ShowPalette；
-///   · 标题栏方案：Win10/11 用客户区扩展（系统画三大金刚）；Win7 用 <see cref="Core.SelfDrawnFrame"/>
-///     自己接管非客户区，关闭键由 AppTitleBar 里那个 Button.caption 承担；
-///   · UpdateCaptionButtonColors 砍掉了：PreferSystemChrome 的系统按钮颜色 Avalonia 没有对应 API。
+///   · 标题栏方案：**所有系统**都用 <see cref="Core.SelfDrawnFrame"/> 接管非客户区
+///     （系统标题栏/边框/三大金刚键一个像素都不留），关闭键由 AppTitleBar 里那个 Button.caption 承担；
+///     ⛔ 别退回「客户区扩展 + PreferSystemChrome」：用户实测那样右上角会顶着原生关闭/最小化/最大化按钮；
+///   · UpdateCaptionButtonColors 砍掉了：系统按钮已经不存在了。
 /// </summary>
 public sealed partial class ToolPaletteWindow : Window
 {
@@ -51,12 +52,7 @@ public sealed partial class ToolPaletteWindow : Window
     /// <summary>位置记忆的版本号。改了默认位置算法就 +1：老版本存的坐标会被忽略，重新按新默认摆一次。</summary>
     private const int PositionVersion = 2;
 
-    /// <summary>
-    /// Win7 路线：自己接管窗口非客户区（方案与理由见 <see cref="MainWindow.ConfigureTitleBar"/> 的长注释）。
-    /// </summary>
-    private static readonly bool UseExtendedTitleBar = !OsInfo.IsWindows7;
-
-    /// <summary>自绘窗口框架（只在 Win7 路线上非 null）。</summary>
+    /// <summary>自绘窗口框架（挂载失败时为 null，退回原生标题栏）。</summary>
     private SelfDrawnFrame? _frame;
 
     /// <summary>圆角：Win11 走 DWM，Win7/10 走窗口区域裁剪（见 Core/RoundedCorners）。</summary>
@@ -176,25 +172,22 @@ public sealed partial class ToolPaletteWindow : Window
 
             try
             {
-                if (UseExtendedTitleBar)
-                {
-                    ExtendClientAreaToDecorationsHint = true;
-                    ExtendClientAreaChromeHints = Avalonia.Platform.ExtendClientAreaChromeHints.PreferSystemChrome;
-                    ExtendClientAreaTitleBarHeightHint = TitleBarHeightDip;   // 跟 AppTitleBar 一样高
-                }
-                else
-                {
-                    ExtendClientAreaToDecorationsHint = false;
-                    AttachSelfDrawnFrame();     // Win7：系统标题栏/边框一个像素都不留
-                }
+                // ⛔ 2026-10-29（用户反馈「常用工具有原生关闭/最小化/最大化按钮」）：
+                //    这里原来在 Win10/11 上走 `ExtendClientAreaToDecorationsHint=true + PreferSystemChrome`，
+                //    那是「客户区扩展 + 让系统画标题栏按钮」—— 结果就是窗口右上角顶着三个原生按钮，
+                //    和我们自己那条 32px 的 AppTitleBar 两套并存。
+                //    现在**所有系统**都走自绘：系统标题栏/边框一个像素都不留，
+                //    拖动/贴边/双击最大化/边缘缩放仍然由系统执行（HTCAPTION / HT*），手感 100% 原生。
+                ExtendClientAreaToDecorationsHint = false;
+                AttachSelfDrawnFrame();
             }
             catch (Exception ex2)
             {
                 Core.AppLog.Debug("port", "[toolwin] 标题栏定制不可用: " + ex2.Message);
             }
 
-            // 圆角：Win11 用 DWM 的 CORNER_PREFERENCE，Win7/10 那个属性不认，得靠 SetWindowRgn 裁剪。
-            // ⚠️ 2026-10-03 起窗口可缩放：区域只裁掉四角外侧的弧，缩放边（6dip，在窗口矩形内侧）仍能命中；
+            // 圆角：Win11 用 DWM 的 CORNER_PREFERENCE，Win7/8/10 那个属性不认，得靠 SetWindowRgn 裁剪。
+            // ⚠️ 窗口可缩放：区域只裁掉四角外侧的弧，缩放边（6dip，在窗口矩形内侧）仍能命中；
             //    只有四角最尖上那一小条弧内的角落抓手感会打折 —— 换来的圆角值这个价。
             try { _corners = RoundedCorners.Attach(this); } catch { }
 
@@ -225,12 +218,12 @@ public sealed partial class ToolPaletteWindow : Window
     }
 
     /// <summary>
-    /// Win7 路线：自己接管窗口的非客户区，把系统那圈标题栏/边框吃掉。
+    /// 自己接管窗口的非客户区，把系统那圈标题栏/边框/三大金刚键吃掉（所有系统都走这条）。
     ///
     /// <para>
     /// 和主窗口是**同一个方案**（见 <see cref="Core.SelfDrawnFrame"/>）：一个字节的窗口样式都不改，
     /// 只在消息层声明「非客户区 0 像素」+ 自己报鼠标命中。所以：
-    /// 拖整条 32px 标题栏 = 系统的原生拖动（含贴边、双击、触屏）；边缘不报缩放（本窗口不可缩放）。
+    /// 拖整条 32px 标题栏 = 系统的原生拖动（含贴边、双击、触屏）；六条边报 HT* = 系统原生缩放。
     /// </para>
     ///
     /// <para>
@@ -325,12 +318,11 @@ public sealed partial class ToolPaletteWindow : Window
                     ApplySelection();
                 }, Avalonia.Threading.DispatcherPriority.Loaded);
 
-                // ⚠️ 扩展客户区会把窗口圆角偏好按回 Default（Win11 上渲染出来是**直角**），
-                //    所以显示之后必须再要一次圆角。Win7 上这个调用不认，改由 RoundedCorners
-                //    用 SetWindowRgn 裁剪窗口形状（见 Core/RoundedCorners）。
+                // ⚠️ 圆角要在显示之后补一次（构造期窗口尺寸还没有最终定）：
+                //    Win10/7 走 SetWindowRgn 裁剪，尺寸/半径没变时是空转。
                 _corners?.Refresh();
                 // ⚠️ 材质必须等窗口真显示出来之后再上（构造期拿不到 HWND，上了也是纯色兜底）
-                Backdrop.Apply(this, Root, _backdropPrefer);
+                BackdropTheme.Apply(this, Root, _backdropPrefer);
                 ApplyPosition();
             }
             else

@@ -47,7 +47,7 @@ public static class MirrorSign
     /// 抓签名链接时必须携带的 Referer（节点 Referer 白名单里的站点域）。
     /// ⚠️ 这是节点放行的**硬要求**，不是可选优化 —— 实测不带它必被 403。
     /// </summary>
-    public const string Referer = "https://classsoftwarehub.us.ci/";
+    public const string Referer = "https://classsoftwarehub.cn/";
 
     /// <summary>节点密钥的文件名。⛔ **这个文件绝不进 git**（.gitignore 里已挡）。</summary>
     public const string KeyFileName = "gh-node-key.txt";
@@ -64,6 +64,7 @@ public static class MirrorSign
     private static readonly HttpClient Http = new(new HttpClientHandler
     {
         AllowAutoRedirect = true,
+        SslProtocols = Core.HttpTls.Protocols,   // Win7 默认不开 TLS 1.2
     })
     {
         Timeout = Timeout.InfiniteTimeSpan,     // 靠 CancellationToken 控制单次超时
@@ -117,10 +118,26 @@ public static class MirrorSign
         // 密钥由 Worker 端持有。我们之前只走本地密钥直签（`/sign` + `X-Api-Key`），
         // 密钥一旦轮换就全面 401，只能退到公益镜像（而公益镜像限并发）。
         // 现在先试代签：不依赖本机任何密钥文件，能通就不会再掉进公益镜像。
-        // ⚠️ 代签接口会间歇性抽风（TLS 被重置 / 超时），单次失败不代表不可用 —— 重试 3 轮、间隔 800ms
+        // ⚠️ 代签接口会间歇性抽风（TLS 被重置 / 超时），单次失败不代表不可用 —— 重试 2 轮、间隔 300ms。
+        // ⚠️ 每轮必须单独掐表：静态 HttpClient 是 InfiniteTimeSpan，不自己限时的话一次 TLS 卡死
+        //    会把整次下载挂到系统级超时（几分钟），用户看到的就是"点了下载没反应"。
         for (var attempt = 1; attempt <= 2; attempt++)
         {
-            var viaServer = await TryServerSignAsync(githubUrl, ct).ConfigureAwait(false);
+            string? viaServer;
+            using (var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
+            {
+                attemptCts.CancelAfter(RequestTimeoutMs);
+                try
+                {
+                    viaServer = await TryServerSignAsync(githubUrl, attemptCts.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                {
+                    Core.AppLog.Warn(LogTag, $"自建加速：服务端代签第 {attempt} 轮超时（{RequestTimeoutMs}ms）");
+                    viaServer = null;
+                }
+            }
+
             if (viaServer is not null)
             {
                 RememberSigned(githubUrl, viaServer);
@@ -268,12 +285,7 @@ public static class MirrorSign
     };
 
     /// <summary>
-    /// 解析 <c>{"url":"https://download.classsoftwarehub.cn/d?u=…&amp;e=…&amp;s=…", "expiresAt":…, "ttl":900}</c>。
-    /// 只认绝对 http(s) 地址 —— 拿到的必须是能直接抓的链接，别的都当失败。
-    /// </summary>
-    /// <summary>
     /// 服务端代签（免密钥）。回包形如 <c>{"success":true,"url":"https://..."}</c>。
-    /// ⚠️ 多个入口依次试：主域名优先，再试 Win7 版用的那两个 Worker 域名。
     /// </summary>
     private static async Task<string?> TryServerSignAsync(string githubUrl, CancellationToken ct)
     {
@@ -281,14 +293,10 @@ public static class MirrorSign
 
         var endpoints = new[]
         {
-            // ⚠️ 2026-10-22：cshapi / submit 两个 132614.xyz 域名在部分家庭宽带下被 TLS(SNI) 级阻断
-            //    （TCP 可通、ClientHello 发出即被 RST），签名永远拿不到。sign.* 挂在主站
-            //    classsoftwarehub.us.ci 的 Worker 自定义域上，不在阻断名单，放最前。
-            //    download.* 域名并不提供代签接口（返回 400），放最后免得白走一次。
-            "https://sign.classsoftwarehub.us.ci/api/mirror-sign",
-            "https://cshapi.132614.xyz/api/mirror-sign",
-            "https://submit.132614.xyz/api/mirror-sign",
-            NodeBaseUrl + "/api/mirror-sign",
+            // ⚠️ 2026-10-22：cshapi / submit 两个 132614.xyz 域名在部分家庭宽带下被 TLS(SNI) 级阻断，
+            //    现已整体迁移到新后端 csh-api（api.classsoftwarehub.cn），单入口即可用，放最前。
+            //    download.* 域名并不提供代签接口（返回 400），不再列入。
+            "https://api.classsoftwarehub.cn/api/mirror-sign",
         };
 
         foreach (var endpoint in endpoints)
@@ -362,6 +370,10 @@ public static class MirrorSign
         }
     }
 
+    /// <summary>
+    /// 解析 <c>{"url":"https://download.classsoftwarehub.cn/d?u=…&amp;e=…&amp;s=…", "expiresAt":…, "ttl":900}</c>。
+    /// 只认绝对 http(s) 地址 —— 拿到的必须是能直接抓的链接，别的都当失败。
+    /// </summary>
     private static string? Parse(string body)
     {
         try

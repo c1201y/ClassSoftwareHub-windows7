@@ -45,7 +45,7 @@ public static class ContentUpdater
 
     private static HttpClient CreateClient()
     {
-        var handler = new HttpClientHandler { AllowAutoRedirect = true };
+        var handler = Core.HttpTls.Handler();
         var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(60) };
         // ⚠️ 版本别写死：这里原来是 "ClassSoftwareHub/1.2"，而 ShellConfig.ShellVersion 早就是 1.1.0 ——
         //    同步客户端向内容服务器自报了一个**不存在的版本**，排查服务端日志时会误导人。

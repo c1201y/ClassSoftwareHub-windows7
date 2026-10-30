@@ -101,6 +101,10 @@ public sealed partial class StickerWindow : Window
             _ = w.LoadAsync(bmp);
 
             w.Show();                                  // ShowActivated=false：不抢前台地建出窗口
+            // ⚠️ 构造期窗口句柄还没建出来，构造函数里那次 ApplyRect 是空转；
+            //    Show 之后必须再摆一次，否则贴图会先以系统的默认尺寸/位置出现，
+            //    直到用户拖它一下才归位（1:1 和落点全丢）。
+            w.ApplyRect(screenX, screenY, pxW, pxH);
             w.ApplyWindowStyles();                     // NOACTIVATE + TOOLWINDOW（句柄就绪后）
             w.SetTopmostNoActivate();
 

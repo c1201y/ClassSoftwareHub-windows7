@@ -411,6 +411,8 @@ public sealed class SelfDrawnFrame
     ///    那两个系统本来也没有这个毛病 —— 失败也记一条日志，方便真机上对账。
     /// </para>
     /// </summary>
+    private static readonly HashSet<IntPtr> DwmPolicyLogged = new();
+
     private static void DisableDwmNonClientRendering(IntPtr hWnd)
     {
         try
@@ -419,9 +421,15 @@ public sealed class SelfDrawnFrame
             var hr = NativeMethods.DwmSetWindowAttribute(
                 hWnd, NativeMethodsEx.DWMWA_NCRENDERING_POLICY, ref policy, sizeof(int));
 
-            PortLog.Step(hr == 0
-                ? "窗口框架: 已要求 DWM 不绘制非客户区（DWMNCRP_DISABLED）—— 原生标题栏按钮不会再冒出来"
-                : $"窗口框架: DWM 非客户区策略设置返回 0x{hr:X8}（该系统不支持/已废弃，属正常）");
+            // ⚠️ 这里在 WM_NCACTIVATE 的热路径上（每次切焦点都走一遍），
+            //    而 PortLog.Step 是同步写盘 —— 每次都记会把日志刷爆、还卡 UI。
+            //    每个窗口只记第一条即可，真机上对账够用（审计 P2 #23）。
+            if (DwmPolicyLogged.Add(hWnd))
+            {
+                PortLog.Step(hr == 0
+                    ? "窗口框架: 已要求 DWM 不绘制非客户区（DWMNCRP_DISABLED）—— 原生标题栏按钮不会再冒出来"
+                    : $"窗口框架: DWM 非客户区策略设置返回 0x{hr:X8}（该系统不支持/已废弃，属正常）");
+            }
         }
         catch
         {

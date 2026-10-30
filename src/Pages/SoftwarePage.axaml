@@ -27,7 +27,7 @@
         -->
         <!-- Background="Transparent" 是给滚轮接力用的（见 Core/WheelRelay.cs）：不画任何像素，
              但要让两侧留白参与命中测试 —— 否则鼠标停在留白上滚，列表纹丝不动（与首页手感不一致）。 -->
-        <ScrollViewer Padding="24,36,24,44" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+        <ScrollViewer Padding="24,36,24,44" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Disabled"
                       Background="Transparent">
             <Grid MaxWidth="960" HorizontalAlignment="Center">
                 <Grid.RowDefinitions>
@@ -52,13 +52,20 @@
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
 
-                    <ScrollViewer Grid.Column="0" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                    <ScrollViewer Grid.Column="0" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled"
                                   Margin="0,0,12,0">
                         <StackPanel x:Name="Chips" Orientation="Horizontal" Spacing="8" />
                     </ScrollViewer>
 
                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"
                                 VerticalAlignment="Center">
+                        <!--
+                          系统筛选下拉（上游 2026-10-24）：第一项「全部系统」，后面按 platforms.json 顺序。
+                          ⚠️ 只有一个平台时由代码隐藏整个下拉 —— 对齐网页版 v-if="platformItems.length > 1"。
+                        -->
+                        <ComboBox x:Name="PlatformPicker" MinWidth="112"
+                                  SelectionChanged="PlatformPicker_SelectionChanged" />
+
                         <ComboBox x:Name="ViewPicker" MinWidth="112"
                                   SelectionChanged="ViewPicker_SelectionChanged">
                             <ComboBoxItem Content="磁贴视图" Tag="tile" />
@@ -83,7 +90,8 @@
                     -->
                     <Grid>
                     <!-- ===== 磁贴视图（3 列 = 312 + 8 间距，正好 960；带简介） ===== -->
-                    <ItemsControl x:Name="TileGrid" Padding="0,2,0,0" Tapped="AppGrid_Tapped">
+                    <!-- Tag = FitCards 算出的卡片宽度初值；模板里的 Border 宽度绑定到它（上游 2026-10-24 FitCards） -->
+                    <ItemsControl x:Name="TileGrid" Padding="0,2,0,0" Tapped="AppGrid_Tapped" Tag="312">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
                                 <WrapPanel />
@@ -96,7 +104,7 @@
                                   首页入口卡 = cshNavCard（圆角 8、更宽松的留白），
                                   之前这里用的是内容卡 cshCard（圆角 4），看着就是两套东西。
                                 -->
-                                <Border Width="312" Height="126" Padding="16,12" Margin="0,0,8,8"
+                                <Border Width="{Binding $parent[ItemsControl].Tag}" Height="126" Padding="16,12" Margin="0,0,8,8"
                                         Classes="cshNavCard card"
                                         Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
                                         BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
@@ -153,7 +161,7 @@
                     </ItemsControl>
 
                     <!-- ===== 网格视图（5 列 = 184 + 8 间距，正好 960；紧凑） ===== -->
-                    <ItemsControl x:Name="CompactGrid" IsVisible="False" Padding="0,2,0,0" Tapped="AppGrid_Tapped">
+                    <ItemsControl x:Name="CompactGrid" IsVisible="False" Padding="0,2,0,0" Tapped="AppGrid_Tapped" Tag="184">
                         <ItemsControl.ItemsPanel>
                             <ItemsPanelTemplate>
                                 <WrapPanel />
@@ -162,7 +170,7 @@
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <!-- 同磁贴视图：改用入口卡 cshNavCard；内联 Padding/Height 优先于 Style，所以另写适配 184 宽的值 -->
-                                <Border Width="184" Height="114" Padding="14,12" Margin="0,0,8,8"
+                                <Border Width="{Binding $parent[ItemsControl].Tag}" Height="114" Padding="14,12" Margin="0,0,8,8"
                                         Classes="cshNavCard card"
                                         Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
                                         BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"

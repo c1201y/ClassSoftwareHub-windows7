@@ -88,26 +88,39 @@ public static class Backdrop
                 kind = "acrylic";                          // 云母失败 → 退亚克力
             }
 
-            // ── Win10 1803+：Acrylic ───────────────────────────────────────
+            // ── Acrylic ───────────────────────────────────────────────────
             if (kind == "acrylic" && OsInfo.SupportsAcrylicBlur)
             {
                 EnableAvaloniaTransparency(win);
-                if (TryApplyAcrylic(hwnd))
-                {
-                    win.Background = Brushes.Transparent;
-                    if (root is not null) root.Background = null;
-                    return "acrylic";
-                }
-                // 亚克力不支持 → 退云母（与原版 BackdropHost 的互备顺序一致）
+
+                // ⛔ Win11 必须走 DWM 的 SYSTEMBACKDROP_TYPE（3 = TRANSIENTWINDOW = 亚克力）。
+                //    别在 Win11 上碰 ACCENT_ENABLE_ACRYLICBLURBEHIND：它**返回成功但根本没有模糊**，
+                //    窗口只是变成一块透明/发黑的脏玻璃（2026-10-29 实测：整窗发黑、内容发灰）。
+                //    ——Win10 没有 DWMWA_SYSTEMBACKDROP_TYPE，那台机器才用 AccentPolicy。
                 if (OsInfo.SupportsMica)
                 {
-                    var v = NativeMethods.DWMSBT_MAINWINDOW;
-                    if (NativeMethods.DwmSetWindowAttribute(hwnd, NativeMethods.DWMWA_SYSTEMBACKDROP_TYPE, ref v, sizeof(int)) == 0)
+                    var a = NativeMethods.DWMSBT_TRANSIENTWINDOW;
+                    if (NativeMethods.DwmSetWindowAttribute(hwnd, NativeMethods.DWMWA_SYSTEMBACKDROP_TYPE, ref a, sizeof(int)) == 0)
+                    {
+                        win.Background = Brushes.Transparent;
+                        if (root is not null) root.Background = null;
+                        return "acrylic";
+                    }
+
+                    // DWM 不认（22000 早期版本）→ 退云母，至少是块正常材质，别落进"透明无模糊"
+                    var m = NativeMethods.DWMSBT_MAINWINDOW;
+                    if (NativeMethods.DwmSetWindowAttribute(hwnd, NativeMethods.DWMWA_SYSTEMBACKDROP_TYPE, ref m, sizeof(int)) == 0)
                     {
                         win.Background = Brushes.Transparent;
                         if (root is not null) root.Background = null;
                         return "mica";
                     }
+                }
+                else if (TryApplyAcrylic(hwnd))     // Win10 1803+：这条才是真的亚克力（见 TryApplyAcrylic 的 BOOL 注释）
+                {
+                    win.Background = Brushes.Transparent;
+                    if (root is not null) root.Background = null;
+                    return "acrylic";
                 }
             }
 
@@ -173,6 +186,10 @@ public static class Backdrop
     //  各系统的具体实现
     // ══════════════════════════════════════════════════════════════════
 
+    /// <summary>
+    /// Win10 1803+ 的亚克力。<b>只有 Win10 该走这里</b> —— Win11 上这个 API 也"成功"，
+    /// 只是没有模糊（见 <see cref="Apply"/> 里的分支说明）。
+    /// </summary>
     private static bool TryApplyAcrylic(IntPtr hwnd)
     {
         var fn = GetSetComposition();
@@ -199,7 +216,11 @@ public static class Backdrop
                     Data = ptr,
                     SizeOfData = size
                 };
-                return fn(hwnd, ref data) == 0;
+                // ⛔ 这里原来是 `== 0`，方向搞反了：SetWindowCompositionAttribute 返回的是
+                //    **BOOL**（成功 = 非 0），不是 HRESULT。于是「亚克力成功」被当成失败：
+                //    Win10 上必然落到纯色兜底（用户报的「Win10 亚克力不能用」就是它），
+                //    Win11 上则总是退到 mica 分支 —— 看起来"有材质"，实际从没上过亚克力。
+                return fn(hwnd, ref data) != 0;
             }
             finally { Marshal.FreeHGlobal(ptr); }
         }

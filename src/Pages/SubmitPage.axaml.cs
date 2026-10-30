@@ -95,9 +95,45 @@ public sealed partial class SubmitPage : PageBase
             CategoryCombo.Items.Add(new ComboBoxItem { Content = category.Name, Tag = category.Key });
         CategoryCombo.SelectedIndex = -1;
 
+        BuildPlatformChecks();
         AddDownload();
         RefreshDraftButton();
     }
+
+    /// <summary>内容还没同步下来时用的平台兜底清单（与 软件数据/platforms.json 顶层 key/顺序一致）。</summary>
+    private static readonly (string Key, string Name)[] DefaultPlatforms =
+    {
+        ("windows", "Windows"),
+        ("macos", "macOS"),
+        ("linux", "Linux"),
+        ("android", "Android"),
+        ("ios", "iOS"),
+        ("web", "网页版"),
+    };
+
+    /// <summary>
+    /// 适用系统复选框：平台清单取自 <see cref="Core.ContentStore.Platforms"/>（= 软件数据/platforms.json）。
+    /// 数据到位后以文件为准 —— 文件里新增平台会自动多出一个框，不用改这里。
+    /// </summary>
+    private void BuildPlatformChecks()
+    {
+        var platforms = App.Content.Platforms.Count > 0
+            ? App.Content.Platforms.Select(p => (p.Key, p.Name)).ToList()
+            : DefaultPlatforms.Select(p => (p.Key, p.Name)).ToList();
+
+        PlatformChecks.Children.Clear();
+        foreach (var (key, name) in platforms)
+            PlatformChecks.Children.Add(new CheckBox { Content = name, Tag = key, MinWidth = 0 });
+    }
+
+    /// <summary>当前勾选的平台 key（保持复选框顺序，便于和网页端产出一致）。</summary>
+    private List<string> SelectedPlatforms()
+        => PlatformChecks.Children
+            .OfType<CheckBox>()
+            .Where(c => c.IsChecked == true)
+            .Select(c => c.Tag as string ?? "")
+            .Where(k => k.Length > 0)
+            .ToList();
 
     // ══════════ 下载项 ══════════
     private void AddDownload_Click(object? sender, RoutedEventArgs e) => AddDownload();
@@ -527,6 +563,21 @@ public sealed partial class SubmitPage : PageBase
         Put("详细介绍", DescBox.Text ?? "", repo.Description, text => DescBox.Text = text);
         Put("版本号", VersionBox.Text ?? "", release?.TagName ?? "", text => VersionBox.Text = text);
         Put("系统限制", SystemBox.Text ?? "", result.System, text => SystemBox.Text = text);
+
+        // 适用系统：GuessSystem 的输出形如 "Windows / macOS / Linux"，按分隔符拆开自动勾上，
+        // 省得用户导入完还得自己再点一遍；识别不出任何平台就保持不动（留给用户手选）。
+        var detectedPlatforms = result.System
+            .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        if (detectedPlatforms.Count > 0)
+        {
+            foreach (var box in PlatformChecks.Children.OfType<CheckBox>())
+            {
+                if (box.Content is string platformName && detectedPlatforms.Contains(platformName))
+                    box.IsChecked = true;
+            }
+        }
         Put("官网地址", WebsiteBox.Text ?? "", repo.Homepage, text => WebsiteBox.Text = text);
         Put("GitHub 仓库", GithubBox.Text ?? "", repo.HtmlUrl, text => GithubBox.Text = text);
         if (repo.Homepage.Contains("apps.microsoft.com"))
@@ -720,6 +771,8 @@ public sealed partial class SubmitPage : PageBase
             ["version"] = (VersionBox.Text ?? "").Trim(),
             ["size"] = (SizeBox.Text ?? "").Trim(),
             ["system"] = (SystemBox.Text ?? "").Trim(),
+            // 列表页的系统筛选只认这个字段（网页端 HomePage.vue 的 app.platforms）
+            ["platforms"] = SelectedPlatforms(),
             ["website"] = (WebsiteBox.Text ?? "").Trim(),
             ["github"] = (GithubBox.Text ?? "").Trim(),
             ["notice"] = (NoticeBox.Text ?? "").Trim(),
@@ -752,10 +805,13 @@ public sealed partial class SubmitPage : PageBase
                       || ((string?)payload["category"] ?? "").Length == 0
                       || ((string?)payload["tagline"] ?? "").Length == 0
                       || ((string?)payload["description"] ?? "").Length == 0
-                      || ((string?)payload["system"] ?? "").Length == 0
                       || ((string?)payload["_联系方式"] ?? "").Length == 0
                       || ((List<Dictionary<string, object?>>)payload["downloads"]!).Count == 0;
         if (missing) return "带 * 的必填项尚未填写完整（至少需一条下载直链）。";
+
+        // 适用系统（上游 2026-10-24：system 文本降为选填说明，平台改走复选框）
+        if (((List<string>)payload["platforms"]!).Count == 0)
+            return "请至少勾选一个适用系统。";
 
         var downloads = (List<Dictionary<string, object?>>)payload["downloads"]!;
         for (var i = 0; i < downloads.Count; i++)
@@ -924,6 +980,21 @@ public sealed partial class SubmitPage : PageBase
         VersionBox.Text = Text("version");
         SizeBox.Text = Text("size");
         SystemBox.Text = Text("system");
+
+        // 适用系统：草稿里存的是 platforms 数组。老草稿没有这个字段 → 保持全不勾，
+        // 与「没填过」等价（用户恢复草稿后会看到全是空的，得自己补勾）。
+        if (draft.TryGetValue("platforms", out var platsValue) && platsValue is JsonElement plats
+            && plats.ValueKind == JsonValueKind.Array)
+        {
+            var keys = plats.EnumerateArray()
+                .Where(e => e.ValueKind == JsonValueKind.String)
+                .Select(e => e.GetString() ?? "")
+                .ToHashSet();
+
+            foreach (var box in PlatformChecks.Children.OfType<CheckBox>())
+                box.IsChecked = keys.Contains(box.Tag as string ?? "");
+        }
+
         WebsiteBox.Text = Text("website");
         GithubBox.Text = Text("github");
         NoticeBox.Text = Text("notice");

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -51,11 +52,9 @@ public sealed partial class MainWindow : Window
 
     private readonly SettingsStore _settings = App.Settings;
     private readonly BridgeService _bridge;
-    private readonly WebViewRuntimeService _runtime = new();
+    private readonly WebViewRuntimeService _runtime = App.WebRuntime;
     private readonly DispatcherTimer _loadTimer;
 
-    private bool _webReady;
-    private bool _navigatedOk;
     private bool _themeFromWeb;
     private bool _firstActivated;
     private readonly bool _startMinimized;
@@ -65,6 +64,12 @@ public sealed partial class MainWindow : Window
     private Win32TrayIcon? _trayTools;      // 第二个托盘图标：常用工具（左键直接开工具窗口）
     private bool _exitRequested;
     private bool _finishing;                 // FinishExit 防重入（ExitApp / OnWindowClosed 两条路都会走到）
+
+    /// <summary>
+    /// 「托盘不可用」时用户点了几次关闭。第一次拦成最小化并说明原因，第二次放行退出 ——
+    /// 托盘挂了还死拦着，用户就只能去任务管理器了。
+    /// </summary>
+    private int _trayUnavailableCloses;
 
     /// <summary>
     /// 主窗口是不是**我们自己**收进托盘的（点 × / 托盘菜单 / 启动参数 --minimized、--palette）。
@@ -80,15 +85,28 @@ public sealed partial class MainWindow : Window
     /// <summary>托盘气泡被点的时候要干什么（不同的通知点进去该去不同的地方）。</summary>
     private Action? _balloonAction;
 
-    /// <summary>当前正开着的下载进度弹窗 + 它盯着的那条任务（同时只有一个弹窗）。</summary>
+    /// <summary>当前正开着的下载进度弹窗（同时只有一个）。</summary>
     private ContentDialog? _downloadDialog;
-    private string? _downloadDialogTaskId;
+
+    /// <summary>
+    /// 由下载弹窗负责报结果的任务 id 集合。
+    /// ⚠️ 不能只存一个字段：两次下载前后脚触发时，后一条会把前一条的 id 覆盖掉，
+    ///    前一条跑完就既没有弹窗报结果、又被这条记录挡掉系统通知（审计 P2 #28）。
+    /// 下载线程会读它（Finished 事件），所以用并发容器。
+    /// </summary>
+    private readonly ConcurrentDictionary<string, byte> _dialogDownloadTaskIds = new(StringComparer.Ordinal);
 
     /// <summary>网页上报的「可拖动矩形」（物理像素），仅在开启原生 caption 区域时使用。</summary>
     private readonly List<Rect> _webCaptionRects = new();
 
     // ── 网页浮层宿主（CoreWebView2 子窗口） ──
     private Views.WebSheetHost? _sheetHost;
+
+    /// <summary>
+    /// 窗口几何变化（含拖拽期间的合并帧）做完重活之后触发：
+    /// 工具宿主页（Pages/ToolHostPage）用它重摆自己的网页子窗口。
+    /// </summary>
+    internal event Action? ToolHostGeometryChanged;
     private bool _sheetReady;
     private string _sheetUrl = "";
 
@@ -146,6 +164,10 @@ public sealed partial class MainWindow : Window
             .Any(a => a.Equals("--palette", StringComparison.OrdinalIgnoreCase));
         Activated += OnFirstActivated;
 
+        // 系统主题（跟随系统）/ 设置切换后，ActualThemeVariant 可能晚一拍才传播到位 ——
+        // 深色标题栏和材质着色都要按最终结果再对一次（Win10 上尤其明显）。
+        RootGrid.ActualThemeVariantChanged += (_, _) => ApplyDarkTitleBar();
+
         StartWindowVisibilityWatchdog();
 
         _ = BootAsync();
@@ -172,6 +194,9 @@ public sealed partial class MainWindow : Window
         // 窗口真正显示之后再兜一次圆角：框架在首帧还会碰一次标题栏，
         // 早于显示设的值有可能被它按回去（图标那边也踩过同样的重置）。
         ApplyWindowRounding();
+
+        // 首帧会按系统主题重刷一次非客户区，深色标题栏也得在这之后补一次。
+        ApplyDarkTitleBar();
 
         // 显示之后确认一下窗口真的落在屏幕里 —— 存档尺寸/位置换了机器之后可能跑到屏幕外
         EnsureWindowOnScreen();
@@ -353,7 +378,7 @@ public sealed partial class MainWindow : Window
     private void OnDownloadFinished(DownloadTask task)
     {
         // 进度弹窗正开着它 → 弹窗自己会弹「下载完成 / 下载失败」，别再叠一条系统通知
-        if (task.Id == _downloadDialogTaskId) return;
+        if (_dialogDownloadTaskIds.ContainsKey(task.Id)) return;
 
         // 更新包不走"下载完成"这条通知（2026-10-18 自上游 1.2.0 移植）：
         // 它已经有一条「更新 x.y.z」任务卡片在那儿，点卡片的「安装」才是用户要做的事 ——
@@ -422,36 +447,8 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private Views.SubmitWindow? _submitWindow;
-
-    public Views.SubmitWindow? SubmitWindowRef => _submitWindow;
-
     /// <summary>原生外壳（首页卡片等要从这里跳导航）。</summary>
     public Pages.ShellPage Shell => NativeShell;
-
-    /// <summary>
-    /// ⚠️ 遗留路径：「提交软件」的网页版小窗口（Views/SubmitWindow）。提交页早已原生化（Pages/SubmitPage），
-    /// 现在没有入口调用这里（OpenSubmitWindow 无人调用），留着当兜底；缺 WebView2 时给替代方案。
-    /// </summary>
-    public async void OpenSubmitWindow()
-    {
-        if (_submitWindow is not null)
-        {
-            _submitWindow.Activate();
-            return;
-        }
-
-        // 兜底：这是唯一需要 WebView2 的地方。系统里没有运行时 → 给两条退路，别让它白屏报错。
-        if (!_runtime.Probe())
-        {
-            await ShowRuntimeMissingDialogAsync(ShellConfig.SubmitPageUrl);
-            return;
-        }
-
-        _submitWindow = new Views.SubmitWindow();
-        _submitWindow.Closed += (_, _) => _submitWindow = null;
-        _submitWindow.Show();
-    }
 
     // ============================================================
     // 窗口 & 标题栏
@@ -521,6 +518,11 @@ public sealed partial class MainWindow : Window
         try { NativeMethods.SetCurrentProcessExplicitAppUserModelID("c1201y.ClassSoftwareHub.Desktop"); }
         catch { /* 设不上不影响使用 */ }
 
+        // 自启项自愈：Run 值不会自己跟着 exe 走。换安装位置、升级、跑过构建产物之后，
+        // 它就指向一条已经不存在的路径 —— 开机时「什么都没启动」，但界面上开关还是开着的。
+        // ⚠️ 只在开着自启时校正；关着就一个字都别动。
+        if (_settings.Current.AutoStart) ApplyAutoStart();
+
         var hwnd = TryGetHwnd();
         if (hwnd != IntPtr.Zero)
         {
@@ -586,20 +588,43 @@ public sealed partial class MainWindow : Window
             SaveWindowState();
         };
 
-        // 点右上角 × 默认收进托盘（可在设置 / 内置工具页关掉）；托盘挂不上就直接退，别把用户困在后台
+        // 点右上角 × 默认收进托盘（可在设置 / 内置工具页关掉）
         Closing += (_, args) =>
         {
             Core.AppLog.Info("exit", $"主窗 Closing: exitRequested={_exitRequested} "
-                + $"closeToTray={_settings.Current.CloseToTray} trayReady={_tray?.IsReady}");
+                + $"closeToTray={_settings.Current.CloseToTray} trayReady={_tray?.IsReady} "
+                + $"trayErr={_tray?.LastError}");
 
-            if (_exitRequested || !_settings.Current.CloseToTray || _tray?.IsReady != true)
+            // 这一支是"真的要走"（托盘退出 / 用户关掉了「收进托盘」）。
+            // ⚠️ 必须打上全局退出标记：工具浮窗与 Q 群反馈窗的 Closing 会把关闭拦成"收起来"，
+            //    而 desktop.Shutdown() 撞上被取消的关闭就会中止整条退出流程 ——
+            //    结果就是"窗口都关了、托盘也摘了、进程却一直不走"（2026-10-04 实测）。
+            if (_exitRequested || !_settings.Current.CloseToTray)
             {
-                // 这一支是"真的要走"（托盘退出 / 用户关掉了「收进托盘」/ 托盘没挂上）。
-                // ⚠️ 必须打上全局退出标记：工具浮窗与 Q 群反馈窗的 Closing 会把关闭拦成"收起来"，
-                //    而 desktop.Shutdown() 撞上被取消的关闭就会中止整条退出流程 ——
-                //    结果就是"窗口都关了、托盘也摘了、进程却一直不走"（2026-10-04 实测）。
                 App.IsExiting = true;
                 Core.AppLog.Info("exit", "主窗 Closing -> 放行（真的要走）");
+                return;
+            }
+
+            if (_tray?.IsReady != true)
+            {
+                // 用户要的是「收进托盘」，但托盘根本没挂上 —— 直接退出等于把程序弄没了，
+                // 用户只会觉得"点一下 × 程序就崩了"（2026-10-28 实机反馈）。
+                // 托盘挂不上最常见的原因是 UIPI：explorer.exe 以管理员身份运行（High），
+                // 本进程是普通权限（Medium），NIM_ADD 直接被拒（err=5），与程序代码无关。
+                //   · 第一次点 × ：最小化 + 说明一次（窗口还在，点桌面图标也能唤回）
+                //   · 再点一次 × ：放行退出 —— 不能让人没有退出路径
+                if (_trayUnavailableCloses++ == 0)
+                {
+                    args.Cancel = true;
+                    Core.AppLog.Info("exit", "主窗 Closing -> 托盘不可用，改为最小化并提示");
+                    try { WindowState = WindowState.Minimized; } catch { }
+                    ShowTrayUnavailableOnce();
+                    return;
+                }
+
+                App.IsExiting = true;
+                Core.AppLog.Info("exit", "主窗 Closing -> 托盘不可用，第二次关闭放行");
                 return;
             }
 
@@ -690,6 +715,7 @@ public sealed partial class MainWindow : Window
             SendCaptionInsets();
             RequestTitlebarRegions();
             RepositionSheetHost();
+            ToolHostGeometryChanged?.Invoke();
         }
         catch
         {
@@ -1027,6 +1053,7 @@ public sealed partial class MainWindow : Window
                 RootGrid.Background = new SolidColorBrush(FallbackSolidColor());
             else
                 ApplyBackdrop(_settings.Current.Backdrop);
+            ApplyDarkTitleBar();
         }
     }
 
@@ -1190,9 +1217,26 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void ApplyBackdrop(string kind)
     {
-        var applied = Backdrop.Apply(this, RootGrid, kind);
+        // ⚠️ 走 BackdropTheme 而不是 Backdrop：Win10 的亚克力着色必须跟深浅色走
+        //    （Backdrop 里写死 60% 白，深色下会糊成奶白雾），顺带补深色标题栏。
+        var applied = BackdropTheme.Apply(this, RootGrid, kind);
         _settings.Current.Backdrop = applied;
         _bridge.Send("shell.backdropChanged", new { value = applied });
+    }
+
+    /// <summary>
+    /// Win10 1809+ 的 <c>DWMWA_USE_IMMERSIVE_DARK_MODE</c>：深色主题下把窗口外圈
+    /// 那条系统边框 / 系统绘制的部分切成深色。Win11 上也有效，Win7/8 上是空操作。
+    /// </summary>
+    private void ApplyDarkTitleBar()
+    {
+        try
+        {
+            var hwnd = TryGetHwnd();
+            if (hwnd != IntPtr.Zero)
+                WindowChrome.SetDarkMode(hwnd, RootGrid.ActualThemeVariant == ThemeVariant.Dark);
+        }
+        catch { }
     }
 
     private Color FallbackSolidColor()
@@ -1225,6 +1269,8 @@ public sealed partial class MainWindow : Window
             RootGrid.Background = new SolidColorBrush(FallbackSolidColor());
         else
             ApplyBackdrop(_settings.Current.Backdrop);   // 主题变了 → tint 颜色跟着重算
+
+        ApplyDarkTitleBar();
 
         Services.ThemeBrush.Probe(RootGrid, "MainWindow.ApplyTheme(" + theme + ")");
         _bridge.Send("shell.themeChanged", new { value = theme, actual = RootGrid.ActualThemeVariant.ToString() });
@@ -1325,14 +1371,7 @@ public sealed partial class MainWindow : Window
 
     private void ExitApp_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => ExitApp();
 
-    private void RetryButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
-    {
-        if (!_webReady)
-        {
-            _ = BootAsync();
-            return;
-        }
-    }
+    private void RetryButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => _ = BootAsync();
 
     // ============================================================
     // 桥接动作
@@ -1582,6 +1621,31 @@ public sealed partial class MainWindow : Window
             () => ShowFromTray());
     }
 
+    /// <summary>
+    /// 托盘挂不上时，第一次点关闭说明一次（每次运行只弹一次）。
+    ///
+    /// 不说清楚，用户看到的就是"点了 × 程序直接没了"，反复重装也找不到原因 ——
+    /// 2026-10-28 实机（explorer 是管理员权限、本程序是普通权限）就卡在这里。
+    /// </summary>
+    private static bool _trayUnavailableHintShown;
+
+    private void ShowTrayUnavailableOnce()
+    {
+        if (_trayUnavailableHintShown) return;
+        _trayUnavailableHintShown = true;
+
+        var detail = _tray?.LastError == 5
+            ? "最常见原因：资源管理器（explorer.exe）以管理员身份运行，完整性级别比本程序高，"
+              + "系统因此拒绝了托盘注册。\n\n"
+              + "解决办法（任选其一）：\n"
+              + "  · 右键本程序 →「以管理员身份运行」；\n"
+              + "  · 把资源管理器恢复成普通权限后，重新启动本程序。"
+            : "系统拒绝了托盘图标的注册（错误详见 app.log 里 [tray] 开头的行）。";
+
+        App.WarnUserVisible("托盘图标没能挂上，窗口关不到托盘里。\n\n" + detail
+            + "\n\n这次已改为最小化，程序仍在运行；再点一次关闭才会真正退出。");
+    }
+
     /// <summary>从托盘把主窗口叫回来。</summary>
     public void ShowFromTray()
     {
@@ -1687,8 +1751,28 @@ public sealed partial class MainWindow : Window
             {
                 var exe = Environment.ProcessPath;
                 if (string.IsNullOrEmpty(exe)) return;
+
+                // ⛔ 跑的是构建产物（路径含 \bin\）时，别把自启指到 bin 下 ——
+                //    那个目录随时会被清理/重建（重新编译就没了），指过去就是
+                //    「开机时什么都没启动」、界面上开关却还开着。装了正式版就让自启走正式版。
+                if (exe.Contains(@"\bin\", StringComparison.OrdinalIgnoreCase))
+                {
+                    var installed = System.IO.Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                        "Programs", "ClassSoftwareHub", "ClassSoftwareHub.exe");
+                    if (System.IO.File.Exists(installed)) exe = installed;
+                }
+
                 var cmd = _settings.Current.MinimizeOnStart ? $"\"{exe}\" --minimized" : $"\"{exe}\"";
-                key.SetValue(valueName, cmd);
+
+                // 值没变就别写：避免每次启动都碰注册表（时间戳变了，排查问题时会误导）
+                var current = key.GetValue(valueName) as string;
+                if (!string.Equals(current, cmd, StringComparison.OrdinalIgnoreCase))
+                {
+                    key.SetValue(valueName, cmd);
+                    AppLog.Info("startup",
+                        $"开机自启项已校正：{(string.IsNullOrEmpty(current) ? "(原本没有)" : current)} → {cmd}");
+                }
             }
             else if (key.GetValue(valueName) is not null)
             {
@@ -1870,7 +1954,17 @@ public sealed partial class MainWindow : Window
                     if (u.StartsWith("http", StringComparison.OrdinalIgnoreCase)) _sheetHost?.Navigate(u);
                     else OpenExternal(u);
                 });
-                _sheetHost.WebMessageReceived += json => _bridge.HandleWebMessage(json);
+                _sheetHost.WebMessageReceived += (json, source) =>
+                {
+                    // ⛔ 只认本家站点：浮层里的第三方页面（网盘 / 软件官网）也会执行 shim，
+                    //    不校验来源等于把 setAutoStart / setTelemetry / 窗口命令交出去。
+                    if (!IsTrustedBridgeSource(source))
+                    {
+                        Core.AppLog.Warn("bridge", "拒绝非本家网页的桥接消息，来源：" + (source ?? "未知"));
+                        return;
+                    }
+                    _bridge.HandleWebMessage(json);
+                };
 
                 _sheetReady = true;
             }
@@ -1883,6 +1977,18 @@ public sealed partial class MainWindow : Window
             WebSheetRing.IsActive = false;
             WebSheetTitle.Text = "网页无法打开：" + ex.Message;
         }
+    }
+
+    /// <summary>
+    /// 桥接消息的来源校验：只接受官网本体/子域与自有服务端点。
+    /// 消息地址必须是绝对 http(s)；<c>about:blank</c>、<c>file:</c>、第三方域名一律拒绝。
+    /// </summary>
+    private static bool IsTrustedBridgeSource(string? source)
+    {
+        if (string.IsNullOrWhiteSpace(source)) return false;
+        if (!Uri.TryCreate(source, UriKind.Absolute, out var uri)) return false;
+        if (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp) return false;
+        return Core.ShellConfig.IsTrustedWebHost(uri.Host);
     }
 
     /// <summary>把网页宿主摆到 <c>SheetWeb</c> 占位块的位置（父窗口客户区坐标，物理像素）。</summary>
@@ -2001,7 +2107,7 @@ public sealed partial class MainWindow : Window
         if (string.IsNullOrWhiteSpace(url)) return;
 
         var task = DownloadManager.Current.Start(url, suggestedName, suggestedName, route);
-        _downloadDialogTaskId = task.Id;   // 这条由本方法负责收尾，别让系统通知重复报一次
+        _dialogDownloadTaskIds[task.Id] = 0;   // 这条由本方法负责收尾，别让系统通知重复报一次
 
         // 同一时刻只允许一个 ContentDialog：上一条下载的弹窗先收掉（它自己的下载转后台继续）
         if (_downloadDialog is { } previous)
@@ -2072,7 +2178,7 @@ public sealed partial class MainWindow : Window
         }
 
         // 从这儿往后是**收尾**：完成 / 失败由下面自己弹，不再叠一条系统通知
-        _downloadDialogTaskId = null;
+        _dialogDownloadTaskIds.TryRemove(task.Id, out _);
 
         // 「后台继续」→ 任务还在跑：放手让它下，收尾交给系统通知
         if (task.IsRunning) return;
@@ -2292,6 +2398,6 @@ public sealed partial class MainWindow : Window
         webTransparent = _settings.Current.WebTransparent,
         zoom = _settings.Current.WebZoom,
         isMaximized = WindowState == WindowState.Maximized,
-        navigated = _navigatedOk,
+        navigated = _sheetHost is { IsReady: true },
     };
 }

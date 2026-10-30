@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
 using System.Linq.Expressions;
 using Avalonia;
@@ -466,26 +465,6 @@ public partial class FunctionPlotPage : Platform.PageBase
         DrawCurves(frame);
     }
 
-    /// <summary>统一的数字显示：4 位小数、去尾零，极端量级转科学计数法。</summary>
-    private static string Num(double v)
-    {
-        if (double.IsNaN(v)) return "NaN";
-        if (double.IsPositiveInfinity(v)) return "+∞";
-        if (double.IsNegativeInfinity(v)) return "-∞";
-
-        var abs = Math.Abs(v);
-
-        // ⛔ 精化出来的是 2.1e-24、-2.2e-16 这种"数值上的零"。
-        //    按科学计数法显示出来会让「零点 x = ...、2.118e-24、...」看着像出了错，
-        //    直接归零 —— 这个量级在绘图场景里本来就等于 0。
-        if (abs < 1e-9) return "0";
-
-        if (abs >= 1e5 || abs < 1e-4)
-            return v.ToString("0.###e+0", CultureInfo.InvariantCulture);
-
-        return Math.Round(v, 4).ToString("0.####", CultureInfo.InvariantCulture);
-    }
-
     private void DrawChrome(PlotFrame f)
     {
         ChromeLayer.Children.Clear();
@@ -567,7 +546,7 @@ public partial class FunctionPlotPage : Platform.PageBase
         StartPoint = a,
         IsClosed = false,
         IsFilled = false,
-        Segments = { new LineSegment { Point = b } },
+        Segments = new PathSegments { new LineSegment { Point = b } },
     };
 
     /// <summary>x 轴刻度：水平居中于 <paramref name="px"/>，贴住 <paramref name="py"/>。位置夹在绘图区内，别把字切掉。</summary>

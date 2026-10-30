@@ -7,6 +7,7 @@ using System.Threading;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using ClassSoftwareHub.Desktop.Services;
@@ -41,6 +42,13 @@ public partial class App : Application
     ///    退出流程一开始就把它置 true，那两个窗口的 Closing 看到它就放行，不再拦。
     /// </summary>
     public static bool IsExiting { get; set; }
+
+    /// <summary>
+    /// 全应用**共享**的 WebView2 运行时服务（2026-10-23 上游加，本轮跟随移植）。
+    /// ⛔ 必须是同一个实例：同一个 UserDataFolder 建两个环境，WebView2 会互相打架。
+    /// 主窗口的网页浮层、工具宿主页都从这里取环境。
+    /// </summary>
+    public static Services.WebViewRuntimeService WebRuntime { get; } = new();
 
     /// <summary>
     /// 主窗口是否**至少显示过一次**（首次 Activated 时置位）。
@@ -203,6 +211,24 @@ public partial class App : Application
             m.Dispose();
             Thread.Sleep(100);
         }
+
+        // ⛔ 5 秒都没抢到 ⇒ 另一个实例在这期间抢先启动了。绝不能继续往下走：
+        //    没有互斥体护体，两个实例会同时建托盘、同时监听热键、共用同一份设置文件。
+        if (_instanceMutex is null)
+        {
+            _exitReason = "检测到另一个 ClassSoftwareHub 实例正在启动，本程序将退出。"
+                        + "如果没有看到窗口，请稍后重新运行，或在任务管理器中结束 ClassSoftwareHub.exe 后再试。";
+            Core.AppLog.Warning("single", "清掉僵尸后重抢互斥体失败（50 次 / 5 秒），按已有实例处理并退出");
+            Platform.PortLog.Step("单实例: 重抢互斥体失败，退出");
+
+#if CSH_CONSOLE
+            Platform.DiagConsole.NoteExit(_exitReason);
+            Platform.DiagConsole.Pause();
+#endif
+            Environment.Exit(0);
+            return;
+        }
+
         TryCreateActivateSignal();
     }
 
@@ -266,9 +292,17 @@ public partial class App : Application
         // 4) 判定僵尸 → 结束它，本实例接管。
         Platform.PortLog.Step("单实例: 现有实例活着但主窗口始终不可见 → 判定为僵尸，开始清理");
 
+        if (!Platform.WindowProbe.TrySiblingPids(name, out var siblings))
+        {
+            _exitReason = "检测到一个没有界面的 ClassSoftwareHub 实例，但无法读取进程列表（权限不足）。"
+                        + "请打开任务管理器，结束所有 ClassSoftwareHub.exe，然后再运行本程序。";
+            WarnUser(_exitReason);
+            return true;
+        }
+
         var killed = 0;
         var failed = new List<string>();
-        foreach (var pid in Platform.WindowProbe.SiblingPids(name))
+        foreach (var pid in siblings)
         {
             try
             {
@@ -324,7 +358,13 @@ public partial class App : Application
                 var deadline = Environment.TickCount64 + timeoutMs;
                 while (Environment.TickCount64 < deadline)
                 {
-                    var siblings = Platform.WindowProbe.SiblingPids(processName);
+                    // ⛔ 枚举失败（权限等）不等于"对方已退出"：当成退出会让僵尸还在时本实例静默消失。
+                    if (!Platform.WindowProbe.TrySiblingPids(processName, out var siblings))
+                    {
+                        Thread.Sleep(100);
+                        continue;
+                    }
+
                     if (siblings.Count == 0) { ok = true; break; }                            // 对方自己退了
                     if (Platform.WindowProbe.HasVisibleMainWindow(siblings)) { ok = true; break; }  // 界面看得见
                     Thread.Sleep(100);
@@ -386,23 +426,32 @@ public partial class App : Application
 #else
         try
         {
-            MessageBoxW(IntPtr.Zero, message, "ClassSoftwareHub", MB_OK | MB_ICONINFORMATION | MB_SETFOREGROUND);
+            MessageBoxW(IntPtr.Zero, message, "ClassSoftwareHub", MB_OK | MB_ICONWARNING | MB_SETFOREGROUND);
         }
         catch { }
 #endif
     }
+
+    /// <summary>
+    /// 给主窗口用的"必须让用户看到"的提示（托盘挂不上、关闭不生效这类）。
+    /// 与单实例冲突共用同一个 MessageBox，避免各写一套 P/Invoke。
+    /// </summary>
+    internal static void WarnUserVisible(string message) => WarnUser(message);
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "MessageBoxW")]
     private static extern int MessageBoxW(IntPtr hWnd, string text, string caption, uint type);
 
     private const uint MB_OK = 0x00000000;
     private const uint MB_ICONINFORMATION = 0x00000040;
+    private const uint MB_ICONWARNING = 0x00000030;
     private const uint MB_SETFOREGROUND = 0x00010000;
 
     public override void Initialize() => AvaloniaXamlLoader.Load(this);
 
     public override void OnFrameworkInitializationCompleted()
     {
+        Core.AppLog.BootDiag(); // 旁路诊断（临时）：排「零日志」用的启动写入探针，排障完移除。
+
         // 对应原版 OnLaunched：先读设置，再建主窗口。
         Settings.Load();
 
@@ -441,6 +490,11 @@ public partial class App : Application
             ["osBuild"] = Platform.OsInfo.Version.Build
         });
 
+        // TLS 口径留痕：Win7 上「检查更新/投稿永远网络错误」最常见的原因就是系统默认协议没开 TLS 1.2。
+        // 全工程出网客户端都走 Core.HttpTls（显式指定协议），这里把实际配置写进日志，方便对账。
+        Core.AppLog.Info("net", "出网 TLS：" + Core.HttpTls.Describe()
+            + (Platform.OsInfo.IsWindows7 ? "（Win7 分支）" : ""));
+
         // 弹出层（下拉菜单等）在深色模式下会露白边 —— 在无 DWM 合成的机器上，
         // 弹窗窗口没有逐像素透明度，圆角之外那圈露出的是窗口自己的白底。
         // 修复必须在任何弹窗出现之前挂好（设置页那个主题下拉框首帧就要用到）。
@@ -455,6 +509,19 @@ public partial class App : Application
             {
                 try { Services.BrightnessService.RestoreGamma(); } catch { }
             };
+
+            // 侧边栏「未钉住时点别处收起」的触摸路径：触摸走 WM_POINTER，不会置 VK_LBUTTON，
+            // 只能靠进程内每个窗口的按下通知（见 ToolSidebarWindow.TrackWindowForOutsideClick）。
+            // 必须在主窗口创建之前挂好，否则第一扇窗口就漏了。
+            try
+            {
+                Window.WindowOpenedEvent.AddClassHandler<Window>(
+                    (w, _) => Views.ToolSidebarWindow.TrackWindowForOutsideClick(w));
+            }
+            catch (Exception ex)
+            {
+                Core.AppLog.Debug("ui", "[sidebar] 注册窗口按下钩子失败: " + ex.Message);
+            }
 
             Platform.PortLog.Step("App: 开始构造主窗口");
             try
@@ -534,9 +601,25 @@ public partial class App : Application
         // 走后台线程，不沾首帧；新版本装完后的第一次启动正好把旧包收掉。
         Services.Updating.InstallerCleanup.Start();
 
-        // 教室喊话（2026-10-12）：总开关默认关 —— 关着时 Start() 第一句就 return，
-        // 不建 HTTP 连接不占线程（见 AnnounceService）。
-        Services.AnnounceService.Start();
+        // 「内置工具 → 教室喊话」主动打开后才真正上电 —— 不替所有用户默认后台轮询。
+        try
+        {
+            Services.AnnounceService.Start();
+        }
+        catch (Exception ex)
+        {
+            Core.AppLog.Exception("announce", ex, "启动喊话轮询");
+        }
+
+        // 教室喊话的局域网通道（发现 + 收件）。同样看开关，默认关。
+        try
+        {
+            Services.AnnounceLanService.Start();
+        }
+        catch (Exception ex)
+        {
+            Core.AppLog.Exception("announce-lan", ex, "启动局域网通道");
+        }
 
         base.OnFrameworkInitializationCompleted();
     }
@@ -719,6 +802,42 @@ public partial class App : Application
         e.Handled = false;
 #else
         e.Handled = true;
+        NotifyUiFailure(ex);
 #endif
+    }
+
+    private static readonly object AlertGate = new();
+    private static int _uiAlertsShown;
+    private static long _lastUiAlertAt;
+
+    /// <summary>
+    /// 发布版「不崩」不等于「静默」（2026-10-27）。
+    ///
+    /// <para>
+    /// 以前 Release 下 UI 异常一律 <c>Handled=true</c> 且不提示：老师看到的是「按钮点了没反应 /
+    /// 页面一直转圈」，日志在 <c>%LOCALAPPDATA%</c> 深处，没人会去翻。这里补一次可见提示，
+    /// 但仍限流（20 秒一次、每次运行最多 3 次）—— 连环异常弹一屏对话框同样上不了课。
+    /// </para>
+    /// </summary>
+    private static void NotifyUiFailure(Exception? ex)
+    {
+        lock (AlertGate)
+        {
+            var now = Environment.TickCount64;
+            if (_uiAlertsShown >= 3 || now - _lastUiAlertAt < 20_000) return;
+            _uiAlertsShown++;
+            _lastUiAlertAt = now;
+        }
+
+        var message = "刚才的操作出错了，但程序会继续运行。\n\n"
+                      + (string.IsNullOrWhiteSpace(ex?.Message) ? "未知错误" : ex!.Message)
+                      + "\n\n详细信息已写入日志（设置 → 日志）。";
+
+        try
+        {
+            MessageBoxW(IntPtr.Zero, message, "ClassSoftwareHub",
+                MB_OK | MB_ICONWARNING | MB_SETFOREGROUND);
+        }
+        catch { /* 提示失败也不能再抛 */ }
     }
 }

@@ -12,6 +12,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using ClassSoftwareHub.Desktop.Platform;
 
 namespace ClassSoftwareHub.Desktop.Pages.Tools;
@@ -44,9 +45,22 @@ public sealed partial class EncodingToolPage : PageBase
     private Dictionary<string, string> _fileHashes = new();
     private CancellationTokenSource? _fileCts;
 
+    /// <summary>
+    /// 文本哈希的防抖定时器：每敲一个字符就全量算 4 种哈希，长文本粘贴时会把 UI 线程堵住。
+    /// 停手 150ms 后再算一次即可（见审计 P2 #15）。
+    /// </summary>
+    private readonly DispatcherTimer _textHashTimer;
+
     public EncodingToolPage()
     {
         InitializeComponent();
+
+        _textHashTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+        _textHashTimer.Tick += (_, _) =>
+        {
+            _textHashTimer.Stop();      // 一次性：停手后才算
+            RefreshTextHashes();
+        };
 
         // 两侧留白 / 标题行上的滚轮也转给内容区（见 Core/WheelRelay.cs）：
         BuildHashRows(HashPanel, _fileHashTexts);
@@ -341,7 +355,13 @@ public sealed partial class EncodingToolPage : PageBase
     }
 
     // ══════════ 文本（编解码 + 实时哈希） ══════════
-    private void Input_TextChanged(object? sender, TextChangedEventArgs e) => RefreshTextHashes();
+    private void Input_TextChanged(object? sender, TextChangedEventArgs e)
+    {
+        // 防抖：连续输入只算最后一次；空文本仍然立刻清空，别让旧哈希停在屏幕上
+        _textHashTimer.Stop();
+        if (string.IsNullOrEmpty(InputBox.Text)) RefreshTextHashes();
+        else _textHashTimer.Start();
+    }
 
     private void Output_TextChanged(object? sender, TextChangedEventArgs e)
     {

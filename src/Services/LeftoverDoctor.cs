@@ -83,6 +83,25 @@ public static class LeftoverDoctor
                 }
             }
 
+            // ⚠️ 完整链路会真的卸载：关键字命中多个时不能拿第一个动手 ——
+            //    "QQ" 这种关键字能把腾讯全家桶全命中，卸载的很可能不是用户想测的那个（审计 P2 #10）。
+            //    只有唯一精确同名命中时才继续，否则要求换更具体的关键字。
+            if (!scanOnly && hits.Count > 1)
+            {
+                var exact = hits
+                    .Where(a => string.Equals(a.Name, keyword, StringComparison.CurrentCultureIgnoreCase))
+                    .ToList();
+
+                if (exact.Count != 1)
+                {
+                    Say($"!! 关键字「{keyword}」命中 {hits.Count} 个软件，无法确定要卸载哪一个。");
+                    Say("   请用更完整的显示名重跑（例如带上版本号或厂商名）。");
+                    return 2;
+                }
+
+                hits = exact;
+            }
+
             var app = hits.FirstOrDefault();
 
             var probe = app ?? new InstalledApp(keyword, "", "", "", Category: AppCategory.Desktop);

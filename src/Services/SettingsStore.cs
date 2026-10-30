@@ -97,7 +97,13 @@ public sealed class AppSettings
     /// </summary>
     public string SidebarMode { get; set; } = "dock";
 
-    /// <summary>侧边栏沿边位置（0~1）；-1 = 居中（默认）。拖动收起状态的抓手时记下来。两种模式共用。</summary>
+    /// <summary>
+    /// 侧边栏沿边位置（0~1）；-1 = 居中（默认）。两种模式共用。
+    /// 历史：2026-10-19 一度废弃、2026-10-22 移植时保持不落盘；**2026-10-24 按 Nick 要求恢复**
+    /// （他反馈"每次重启都跑回右边居中，明明调过位置"）。写入时机只有一处：
+    /// <c>ToolSidebarWindow.DockToNearestEdge()</c>（松手那一下），拖动过程中绝不写盘 ——
+    /// 当初出问题正是拖动时反复 Save（卡顿 + 把启动早期的中间尺寸当成最终位置）。
+    /// </summary>
     public double SidebarPosRatio { get; set; } = -1;
 
     /// <summary>
@@ -310,6 +316,14 @@ public sealed class AppSettings
     public string UpdatePendingTag { get; set; } = "";
 
     /// <summary>
+    /// 待装包下载时记下的校验值。⛔ 安装前必须据此**重新核验**：
+    /// 下载那一刻校验通过，不代表几天后这个文件还是同一个 —— 它可能被磁盘错误写坏、
+    /// 被同名文件覆盖、被人替换。执行安装包是整条链路里破坏性最大的一步，不能只看文件存在。
+    /// </summary>
+    public string UpdatePendingMd5 { get; set; } = "";
+    public string UpdatePendingSha256 { get; set; } = "";
+
+    /// <summary>
     /// 素材缓存保留数量（1~10，默认 3）：启动时自动清理 <c>cache</c> 下「按版本分的子目录」，
     /// 按目录名里的时间从新到旧留 N 个、其余删掉。**当前正在用的那个版本目录永不删**。
     /// 使用处会自行夹取（见 CacheHome.Clean），存档里不夹是为了老档出现怪值时不至于越界。
@@ -380,7 +394,51 @@ public sealed class AppSettings
     /// </summary>
     public List<AnnounceDevice> AnnounceDevices { get; set; } = new();
 
+    /// <summary>
+    /// 打开教室喊话页时默认展开哪一栏：<c>receive</c> | <c>send</c>（2026-10-25 Nick：
+    /// 有些用户主要是发，不该每次都先看到接收）。认不出的值按接收处理。
+    /// </summary>
+    public string AnnounceDefaultView { get; set; } = "receive";
+
+    /// <summary>
+    /// 本机标识（2026-10-25 Nick 提）：例如「高28班」「三楼办公室」。
+    /// 随局域网心跳广播出去，发送端的设备列表直接显示它 —— 老师一眼知道这台机是哪里的。
+    /// 空 = 显示机器名。
+    /// </summary>
+    public string AnnounceLabel { get; set; } = "";
+
+    /// <summary>局域网接收开关（默认关：开了会占用 UDP/TCP 两个端口并接受同网段的喊话）。</summary>
+    public bool AnnounceLanEnabled { get; set; }
+
+    /// <summary>发送端「已保存的电脑」（手动填过的配对码，勾选即发）。</summary>
+    public List<AnnounceSavedPeer> AnnounceSavedPeers { get; set; } = new();
+
+    /// <summary>
+    /// 接收端「谁保存了本机配对码」（对方保存时经局域网登记的）。
+    /// ⚠️ 只是登记记录，不是白名单：删掉它不等于对方失去发送能力（见页面上的说明）。
+    /// </summary>
+    public List<AnnounceBinder> AnnounceBinders { get; set; } = new();
+
+    /// <summary>删除登记时对方不在线、还没通知到它的移除请求（等它下次出现再补发）。</summary>
+    public List<PendingUnbind> AnnouncePendingUnbinds { get; set; } = new();
+
+    /// <summary>
+    /// 全屏喊话的出场方式（2026-10-25）：<c>typewriter</c> 打字机 / <c>slide</c> 按行交错划入 /
+    /// <c>pop</c> 弹入 / <c>none</c> 不做动画（兜底，给不喜欢动画的人）。认不出的值按 none 处理。
+    /// </summary>
+    public string AnnounceAnimation { get; set; } = "typewriter";
+
+    /// <summary>提示音路径；空 = 用内嵌的 announce-alert.wav。文件不存在时自动退回内嵌。</summary>
+    public string AnnounceSoundPath { get; set; } = "";
+
     // ══ Hub AI / 学科工具 等新设置（2026-10-22 自上游 1.2.0-insider1.3 移植）
+
+    /// <summary>
+    /// Hub AI **上次停留的那个会话 id**（空 = 新对话）。
+    /// 2026-10-23 加：对话到一半切到别的页面，回来对话被吞 —— 页面一旦因任何原因被重建
+    /// （缓存被顶掉 / 导航栈清理），内存里的会话与当前 id 全丢；把 id 落到存档，重建后能自动选回那一段。
+    /// </summary>
+    public string HubAiLastSessionId { get; set; } = "";
 /// <summary>
     /// 学科工具窗上次停在哪个工具（<c>function-plot</c> / <c>equation</c> / <c>chemistry</c>）。
     /// 侧边栏那颗「学科」只传 null，窗口就按这个值恢复 —— 上次算化学，下次点开还是化学。
@@ -568,6 +626,13 @@ public sealed class SettingsStore
     /// </summary>
     private bool _loadFailed;
 
+    /// <summary>
+    /// Save 会被 UI 线程和各种后台任务同时调用（主题切换、下载完成、语言设置……），
+    /// 而它共用同一个 <c>settings.json.tmp</c>。两路同时写同一个临时文件会互相截断/占用，
+    /// 轻则本次保存失败，重则把半个 JSON 换到正式文件上。整段串行化。
+    /// </summary>
+    private readonly object _saveGate = new();
+
     public void Load()
     {
         try
@@ -730,6 +795,14 @@ public sealed class SettingsStore
 
     public void Save()
     {
+        lock (_saveGate)
+        {
+            SaveCore();
+        }
+    }
+
+    private void SaveCore()
+    {
         try
         {
             // 上次没读成功：写盘前再试一次。读得到说明文件其实是好的，先用它覆盖内存，
@@ -741,7 +814,10 @@ public sealed class SettingsStore
                     var existing = ReadTolerant();
                     if (existing is not null)
                     {
-                        Current = JsonSerializer.Deserialize<AppSettings>(existing, JsonOpts) ?? Current;
+                        var saved = JsonSerializer.Deserialize<AppSettings>(existing, JsonOpts);
+                        // ⚠️ 不能直接 Current = saved：启动后用户可能已经改过设置（比如刚切的主题），
+                        //    直接换掉就把这些改动吞了。以旧存档为底，只把「与默认值不同」的字段盖上去。
+                        if (saved is not null) Current = MergePendingOnto(saved);
                         _loadFailed = false;
                     }
                 }
@@ -775,6 +851,37 @@ public sealed class SettingsStore
         {
             // 设置写失败不影响主流程
             Log("保存设置失败: " + ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// 把内存里「改过的」设置合并到刚读回来的旧存档上（读盘失败后的补救路径）。
+    /// 判据是「与 <see cref="AppSettings"/> 的默认值不同」—— 读盘失败时 Current 就是默认值，
+    /// 所以不同的那些字段只可能是用户后来改的。合并失败就保守地用旧存档。
+    /// </summary>
+    private AppSettings MergePendingOnto(AppSettings saved)
+    {
+        try
+        {
+            var defaults = JsonSerializer.SerializeToNode(new AppSettings(), JsonOpts)!.AsObject();
+            var pending = JsonSerializer.SerializeToNode(Current, JsonOpts)!.AsObject();
+            var target = JsonSerializer.SerializeToNode(saved, JsonOpts)!.AsObject();
+
+            foreach (var (key, value) in pending)
+            {
+                // .NET 6 没有 JsonNode.DeepEquals / DeepClone，比较/复制都走一次 JSON 文本
+                if (string.Equals(value?.ToJsonString(), defaults[key]?.ToJsonString(),
+                        StringComparison.Ordinal))
+                    continue;
+                target[key] = value is null ? null : System.Text.Json.Nodes.JsonNode.Parse(value.ToJsonString());
+            }
+
+            return target.Deserialize<AppSettings>(JsonOpts) ?? saved;
+        }
+        catch (Exception ex)
+        {
+            Log("合并设置失败，沿用旧存档: " + ex.Message);
+            return saved;
         }
     }
 

@@ -189,21 +189,45 @@ public sealed partial class ClockToolPage : PageBase
         => PhotoBrushOf(_settings.BackgroundImagePath, ClockRender.BaseBrush(_settings, Dark));
 
     /// <summary>
-    /// 背景图刷子。解不开就用 <paramref name="fallback"/>（底色刷），不会崩。
+    /// 已解码的背景图缓存。⚠️ <see cref="Bitmap"/> 攥着非托管像素内存：外观滑杆每动一下
+    /// <see cref="Apply"/> 都会重建 ImageBrush，不缓存就等于每拖一格都重新解一张原图。
+    /// key 里带文件长度 + 修改时间，用户原地换图也能拿到新内容。
     /// TODO(win7): 原版 <c>BitmapImage.DecodePixelWidth</c>（按需缩小解码）在 Avalonia 没有对应 API，
-    /// <paramref name="decodeWidth"/> 只能忽略 —— 预设卡也会按原图尺寸解到内存（预设卡只有 138 宽）。
+    /// 预设卡也只能按原图尺寸解进内存（卡片只有 138 宽）。
     /// </summary>
-    private static Brush PhotoBrushOf(string path, Brush fallback, int decodeWidth = 0)
+    private static readonly Dictionary<string, Bitmap> PhotoCache = new(StringComparer.OrdinalIgnoreCase);
+
+    private static Bitmap? DecodePhoto(string path)
     {
+        string key = path;
+        try
+        {
+            var info = new System.IO.FileInfo(path);
+            key = $"{path}|{info.Length}|{info.LastWriteTimeUtc.Ticks}";
+        }
+        catch { /* 取不到元信息就只按路径缓存 */ }
+
+        if (PhotoCache.TryGetValue(key, out var hit)) return hit;
+
         try
         {
             var bmp = new Bitmap(path);
-            return new ImageBrush { Source = bmp, Stretch = Stretch.UniformToFill };
+            PhotoCache[key] = bmp;
+            return bmp;
         }
         catch
         {
-            return fallback;
+            return null;
         }
+    }
+
+    /// <summary>背景图刷子。解不开就用 <paramref name="fallback"/>（底色刷），不会崩。</summary>
+    private static Brush PhotoBrushOf(string path, Brush fallback)
+    {
+        var bmp = DecodePhoto(path);
+        return bmp is null
+            ? fallback
+            : new ImageBrush { Source = bmp, Stretch = Stretch.UniformToFill };
     }
 
     private void Tick()
@@ -326,7 +350,7 @@ public sealed partial class ClockToolPage : PageBase
             // 先规范化再找下标：旧存档里的 Georgia 已从候选表剔除，不折一下会掉到默认项上去（丢用户的字体选择）
             var savedFont = ClockRender.NormalizeFont(_settings.FontFamily);
             var fontIndex = Array.IndexOf(ClockRender.FontFamilies, savedFont);
-            FontBox.SelectedIndex = fontIndex < 0 ? 1 : fontIndex;
+            FontBox.SelectedIndex = Math.Max(0, fontIndex);
             VeilSlider.Value = _settings.VeilStrength;
             ScaleSlider.Value = _settings.Scale;
             ShowSecondsBox.IsChecked = _settings.ShowSeconds;
@@ -388,7 +412,7 @@ public sealed partial class ClockToolPage : PageBase
         {
             CornerRadius = new CornerRadius(6),
             Background = hasPhoto
-                ? PhotoBrushOf(ps.BackgroundImagePath, ClockRender.BaseBrush(ps, Dark), decodeWidth: 320)
+                ? PhotoBrushOf(ps.BackgroundImagePath, ClockRender.BaseBrush(ps, Dark))
                 : ClockRender.BaseBrush(ps, Dark),
         });
         preview.Children.Add(new Border
@@ -597,26 +621,11 @@ public sealed partial class ClockToolPage : PageBase
         Toast.Text = "已恢复默认外观。";
     }
 
-    private static void CopyInto(ClockSettings target, ClockSettings source)
-    {
-        target.BackgroundImagePath = source.BackgroundImagePath;
-        target.Veil = source.Veil;
-        target.VeilStrength = source.VeilStrength;
-        target.Tone = source.Tone;
-        target.Ink = source.Ink;
-        target.FontFamily = source.FontFamily;
-        target.Scale = source.Scale;
-        target.ShowSeconds = source.ShowSeconds;
-        target.ShowDate = source.ShowDate;
-        target.Hour12 = source.Hour12;
-    }
+    // ⚠️ 复制逻辑只在 ClockSettings.CopyFrom / Clone 里维护一份：
+    //    这里以前把字段列表手抄了一遍，加字段时必然漏同步。
+    private static void CopyInto(ClockSettings target, ClockSettings source) => target.CopyFrom(source);
 
-    private static ClockSettings CopyOf(ClockSettings source)
-    {
-        var copy = new ClockSettings();
-        CopyInto(copy, source);
-        return copy;
-    }
+    private static ClockSettings CopyOf(ClockSettings source) => source.Clone();
 
     private Brush Res(string key) => Services.ThemeBrush.Get(this, key);
 }

@@ -464,23 +464,26 @@ public static class FunctionClosedForm
     private static (string?, string?) SinCosSpecial(bool isSin, double t, AngleMode mode)
     {
         var deg = mode == AngleMode.Degrees;
-        var d = deg ? "°" : "";
 
         // (比值, sin 第一组, sin 第二组, cos)
+        // ⚠️ 角度模式必须写「30°/150°」这种纯角度，不能复用弧度串再拼 ° ——
+        //    以前是 "π/6°"，写出来既不是弧度也不是角度。
         (double V, string S1, string S2, string C)[] table =
         {
-            (0.5,              $"π/6{d}",  $"5π/6{d}",  deg ? "60°" : "π/3"),
-            (Math.Sqrt(2) / 2, $"π/4{d}",  $"3π/4{d}",  deg ? "45°" : "π/4"),
-            (Math.Sqrt(3) / 2, $"π/3{d}",  $"2π/3{d}",  deg ? "30°" : "π/6"),
+            (0.5,              deg ? "30°" : "π/6",  deg ? "150°" : "5π/6", deg ? "60°" : "π/3"),
+            (Math.Sqrt(2) / 2, deg ? "45°" : "π/4",  deg ? "135°" : "3π/4", deg ? "45°" : "π/4"),
+            (Math.Sqrt(3) / 2, deg ? "60°" : "π/3",  deg ? "120°" : "2π/3", deg ? "30°" : "π/6"),
         };
 
         foreach (var (v, s1, s2, cAlpha) in table)
         {
             if (Math.Abs(Math.Abs(t) - v) > 1e-12) continue;
 
-            return t < 0
-                ? (isSin ? $"−{s1}" : $"−{cAlpha}", isSin ? $"−{s2}" : null)
-                : (isSin ? s1 : cAlpha, isSin ? s2 : null);
+            // cos 的解由调用方写成「±α + 2kπ」，所以这里只给正的 α；
+            // 返回负串会让调用方拼出「−-60°」这种东西。
+            if (!isSin) return (cAlpha, null);
+
+            return t < 0 ? ($"−{s1}", $"−{s2}") : (s1, s2);
         }
 
         return (null, null);
@@ -579,7 +582,7 @@ public static class FunctionClosedForm
         ("值域", a > 0 ? $"[{Num(c)}, +∞)" : $"(−∞, {Num(c)}]"),
         ("单调递增", a > 0 ? "定义域内处处递增" : null),
         ("单调递减", a < 0 ? "定义域内处处递减" : null),
-        ("零点", ZeroOfPower(-c / a)),
+        ("零点", ZeroOfSqrt(-c / a)),
         ("奇偶性", "非奇非偶"),
         ("渐近线", "无"),
         };
@@ -614,12 +617,23 @@ public static class FunctionClosedForm
 
     // ────────────────────────── 零点辅助 ──────────────────────────
 
-    /// <summary>解 x² = t 或 √x = t 的零点（t = −c/a）。</summary>
+    /// <summary>解 x² = t 的零点（t = −c/a）。</summary>
     private static string ZeroOfPower(double t)
     {
         if (t < -1e-12) return "无";
         if (Math.Abs(t) < 1e-12) return "x = 0";
         return $"x = ±√{Num(t)}";
+    }
+
+    /// <summary>
+    /// 解 √x = t 的零点（t = −c/a）。⚠️ 这里**不能**用 <see cref="ZeroOfPower"/>：
+    /// 那是 x² = t 的解。√x − 2 = 0 的零点只有一个 x = 4，不是 «x = ±√2»。
+    /// </summary>
+    private static string ZeroOfSqrt(double t)
+    {
+        if (t < -1e-12) return "无";
+        if (Math.Abs(t) < 1e-12) return "x = 0";
+        return $"x = {Num(t * t)}";
     }
 
     /// <summary>解 |x| = t 的零点。</summary>

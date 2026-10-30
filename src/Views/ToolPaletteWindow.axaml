@@ -24,9 +24,9 @@
         </Grid.RowDefinitions>
 
         <!--
-          自绘标题栏 = 窗口真正的顶边。整条都能拖（Win7 路线上由 SelfDrawnFrame 报 HTCAPTION，
-          Win10/11 路线上由客户区扩展 + 系统 titlebar 机制处理）。
-          ⚠️ 关闭键必须自己画：Win7 路线下系统标题栏被吃掉了，没有这个按钮窗口就关不掉。
+          自绘标题栏 = 窗口真正的顶边。整条都能拖（所有系统都由 SelfDrawnFrame 报 HTCAPTION，
+          系统模态移动循环执行，贴边 / 双击 / 触屏都和原生一致）。
+          ⚠️ 关闭键必须自己画：系统标题栏被整个吃掉了，没有这个按钮窗口就关不掉。
         -->
         <Grid x:Name="AppTitleBar" Height="32">
             <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="12,0,0,0">

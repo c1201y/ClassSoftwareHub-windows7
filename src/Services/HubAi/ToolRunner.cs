@@ -62,6 +62,35 @@ public static class ToolRunner
     /// <summary>给模型的单条结果最多多少字符。太长的清单它读不完，也浪费额度。</summary>
     private const int MaxResultChars = 2400;
 
+    /// <summary>只读工具：随便调，不需要问人。</summary>
+    private static readonly HashSet<string> ReadOnlyTools = new(StringComparer.Ordinal)
+    {
+        "get_machine_snapshot",
+        "list_disk_folders",
+        "search_software_library",
+        "list_installed_apps",
+        "list_startup_items",
+        "web_search",
+        "fetch_url",
+    };
+
+    /// <summary>
+    /// 会改动系统的工具。⛔ 目前**故意为空** —— 写操作通道没做好之前不加进来。
+    /// 加之前必须先确认 UI 侧的审批对话框已经通了（<see cref="RequiresApproval"/> 会拦住它）。
+    /// </summary>
+    private static readonly HashSet<string> MutatingTools = new(StringComparer.Ordinal);
+
+    public static bool IsReadOnly(string id) => ReadOnlyTools.Contains(id);
+
+    /// <summary>
+    /// 执行前是否必须问过用户。
+    /// 未知 id 返回 false —— 它反正会被 <see cref="ExecuteAsync"/> 的 default 分支拒绝。
+    /// </summary>
+    public static bool RequiresApproval(string id) => MutatingTools.Contains(id);
+
+    /// <summary>白名单里认得的工具（只读 + 改动）。</summary>
+    public static bool IsKnown(string id) => ReadOnlyTools.Contains(id) || MutatingTools.Contains(id);
+
     public static async Task<string> ExecuteAsync(
         string id,
         string argumentsJson,
@@ -159,8 +188,28 @@ public static class ToolRunner
         //    统一成正斜杠再补反斜杠，否则会拼出 `C://\` 这种扫不到的路径。
         target = target.Trim().Replace('/', '\\');
 
+        // ⛔ 只允许本机磁盘路径：UNC（\\server\share）会让扫描卡在网络共享上，
+        //    也可能把内网共享里的文件名当成"本机磁盘占用"喂给模型。
+        if (target.StartsWith(@"\\", StringComparison.Ordinal))
+            return "只支持本机磁盘路径，不支持网络共享（\\\\server\\share）。请改用 C:\\ 这类路径。";
+
         if (target.Length == 1) target += ":\\";
         else if (target.EndsWith(':')) target += "\\";
+
+        try { target = Path.GetFullPath(target); }
+        catch { return $"路径无效：{target}"; }
+
+        // 映射的网络驱动器同样是网络路径（Z:\ 之类），整盘扫描可能卡很久
+        try
+        {
+            var root = Path.GetPathRoot(target);
+            if (!string.IsNullOrEmpty(root) && new DriveInfo(root).DriveType == DriveType.Network)
+                return "不支持扫描网络驱动器，请改用本机磁盘路径。";
+        }
+        catch
+        {
+            // 盘符不存在等 → 交给下面的扫描自己报
+        }
 
         var scan = await DiskUsage.ScanAsync(target, ct, budget: DiskBudget);
 

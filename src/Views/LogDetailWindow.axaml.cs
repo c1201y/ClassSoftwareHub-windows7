@@ -122,7 +122,7 @@ public sealed partial class LogDetailWindow : Window
             //    本窗口是日志页的子窗口，用户开着「分体主题 + 外部分体=dark」时，
             //    external 会把它染成深色而主界面是浅色 —— 看起来就是"没适配"。
             ThemeCompat.Apply(Root, mainScope: true);
-            Backdrop.Apply(this, Root, App.Settings.Current.Backdrop);
+            BackdropTheme.Apply(this, Root, App.Settings.Current.Backdrop);
             _chips.RefreshTheme();          // 筛选芯片的画刷是构造期写死的实例值，得跟着重算
         }
         catch (Exception ex)
@@ -174,7 +174,7 @@ public sealed partial class LogDetailWindow : Window
             // Avalonia 版保留系统标题栏（标题由 XAML 的 Title 属性给），只补上"可拉伸"。
             CanResize = true;
 
-            Backdrop.Apply(this, Root, App.Settings.Current.Backdrop);
+            BackdropTheme.Apply(this, Root, App.Settings.Current.Backdrop);
             // ⚠️ main 作用域：跟主界面颜色模式走（理由见 ApplyThemeNow 的注释）
             ThemeCompat.Apply(Root, mainScope: true);
 

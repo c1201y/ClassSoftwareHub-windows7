@@ -63,6 +63,11 @@ public static class AudioService
         {
             return false;
         }
+        finally
+        {
+            // 激活出来的接口每次读完就放掉：音量页会反复刷新，攒着只能等 GC 终结器收拾
+            ReleaseCom(vol);
+        }
     }
 
     /// <summary>设主音量（0~100）。</summary>
@@ -80,6 +85,10 @@ public static class AudioService
         {
             return false;
         }
+        finally
+        {
+            ReleaseCom(vol);
+        }
     }
 
     /// <summary>主音量静音开关。</summary>
@@ -96,6 +105,10 @@ public static class AudioService
         catch
         {
             return false;
+        }
+        finally
+        {
+            ReleaseCom(vol);
         }
     }
 

@@ -125,10 +125,14 @@ public static class FunctionPlot
 
             var ok = double.IsFinite(y);
 
-            // ⛔⛔ 渐近线：相邻两点数值跳变极大**且**分居 0 的两侧。
-            //    光看跳变幅度不行（y=1000x 这种陡直线也会跳很大），必须同时跨过 0
-            //    —— ±∞ 必然跨 0，而连续陡增不会。
-            if (ok && double.IsFinite(prevY) && (y > 0) != (prevY > 0) && Math.Abs(y - prevY) > jumpLimit)
+            // ⛔⛔ 渐近线：相邻两点数值跳变极大**且**（分居 0 的两侧 或 两点都在视口外同一侧）。
+            //    光看跳变幅度不行（y=1000x 这种陡直线也会跳很大）。
+            //    跨 0 覆盖 ±∞；而在视口外同一侧的大跳变覆盖 **同号无穷**（1/x² 两侧都是 +∞，
+            //    不切断的话会在顶部画出一条横线，见审计 P2 #1）。
+            var bothAbove = y > yMax && prevY > yMax;
+            var bothBelow = y < yMin && prevY < yMin;
+            if (ok && double.IsFinite(prevY) && Math.Abs(y - prevY) > jumpLimit
+                && ((y > 0) != (prevY > 0) || bothAbove || bothBelow))
                 ok = false;
 
             if (!ok)

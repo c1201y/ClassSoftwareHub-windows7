@@ -44,7 +44,12 @@ internal static class Program
             if (!File.Exists(appExe))
             {
                 var flat = Path.Combine(root, AppExeName);
-                if (File.Exists(flat))
+                // ⛔ flat 必须不是启动器自己：在 dist\win7-launcher 这种「只有启动器、没有 app\」的
+                //    目录里原地双击时，flat 就是本 exe —— 不挡住的话它会拉起自己，一代一代永不停
+                //    （2026-10-27 实测：进程列表里 launcher 链自己续命，怎么杀都杀不完）。
+                var ownPath = Environment.ProcessPath;
+                if (File.Exists(flat)
+                    && !string.Equals(ownPath, flat, StringComparison.OrdinalIgnoreCase))
                 {
                     appDir = root;
                     appExe = flat;

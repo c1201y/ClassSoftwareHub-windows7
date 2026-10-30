@@ -100,6 +100,14 @@ public sealed partial class SnipEditorWindow : Window
 
         // 快捷键（原版 KeyboardAccelerators：Ctrl+Z/Y/C/S，Avalonia 没有，手判）
         KeyDown += Editor_KeyDown;
+
+        // ⚠️ 状态字定时器 2.5 秒一跳，Tick 委托把窗口吊住：关窗时必须停，
+        //    否则每次截图都留一个活着的定时器 + 一整个窗口对象。
+        Closed += (_, _) =>
+        {
+            _statusTimer?.Stop();
+            _statusTimer = null;
+        };
     }
 
     /// <summary>截完一块 → 打开编辑窗（必须在 UI 线程调用）。</summary>
@@ -248,7 +256,7 @@ public sealed partial class SnipEditorWindow : Window
 
         // 系统背景（云母 / 亚克力，跟着「设置」里主窗口那个选择走）：根底置空让背景透出来，
         // 工具条那行透明、图片区是 in-app 亚克力——不支持就退纯色（Backdrop 管）。
-        Backdrop.Apply(this, RootGrid);
+        BackdropTheme.Apply(this, RootGrid);
         ThemeCompat.Apply(RootGrid);                     // 深浅色跟「设置」走（不只是跟系统走）
 
         _scale = DpiScale();
@@ -845,7 +853,10 @@ public sealed partial class SnipEditorWindow : Window
 
             var w = Math.Max(1, (int)Math.Ceiling(_dipW * _scale));
             var h = Math.Max(1, (int)Math.Ceiling(_dipH * _scale));
-            var rtb = new RenderTargetBitmap(new PixelSize(w, h), new Vector(96 * _scale, 96 * _scale));
+
+            // ⚠️ 必须 using：RenderTargetBitmap 背后是一整张 GPU/CPU 位图，
+            //    每次截图/剪贴板都 new 一个而不 Dispose，连着截十几次就是几百 MB。
+            using var rtb = new RenderTargetBitmap(new PixelSize(w, h), new Vector(96 * _scale, 96 * _scale));
             rtb.Render(CanvasHost);
 
             StatusText.Text = status;

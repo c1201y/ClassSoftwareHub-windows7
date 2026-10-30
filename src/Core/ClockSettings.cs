@@ -1,4 +1,7 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
 using Avalonia.Media;
 
 namespace ClassSoftwareHub.Desktop.Core;
@@ -55,17 +58,72 @@ public sealed class ClockSettings
 /// <summary>把设置翻译成颜色 / 画刷 / 文字（页面预览与全屏窗口共用，保证两边一致）。</summary>
 public static class ClockRender
 {
-    public static readonly string[] VeilLabels = { "无", "白色蒙版", "黑色蒙版", "亚克力（Acrylic）", "云母（Mica）" };
+    public static readonly string[] VeilLabels = { "无", "白色蒙版", "黑色蒙版", "半透明 · 亚克力（近似）", "半透明 · 云母（近似）" };
     public static readonly string[] ToneLabels = { "跟随应用主题", "白色", "黑色" };
     public static readonly string[] InkLabels = { "自动（跟随底色）", "白色字", "黑色字" };
-    public static readonly string[] FontLabels = { "等宽 · 与课堂计时器一致", "工业风 · Bahnschrift", "现代等宽 · Cascadia", "系统 UI · Segoe", "优雅衬线 · Cambria" };
-    public static readonly string[] FontFamilies = { "Consolas", "Bahnschrift", "Cascadia Mono", "Segoe UI Variable Display", "Cambria" };
 
     /// <summary>
-    /// 把一个字体名规范化成候选表里认识的那个。
-    /// 主要用来兜**旧存档**：老版本存过 <c>Georgia</c>（已剔除，见 <see cref="FontFamilies"/> 的说明），
-    /// 直接拿它去 new FontFamily 会让那台机器继续抖 —— 这里统一折成 Cambria。
-    /// 空值 / 不认识的一律回默认的 Bahnschrift。
+    /// 时钟字体候选。**按本机实际安装的字体过滤**（2026-10-27）：
+    /// 干净 Win7 上 Bahnschrift / Cascadia Mono / Segoe UI Variable Display 都不存在，
+    /// 原表却把它们列出来 —— 选中后静默回退，界面上还写着那个字体名，等于骗用户。
+    /// 现在只列装得上的，标签与字体一一对应。
+    /// </summary>
+    private static readonly (string Family, string Label)[] FontChoices =
+    {
+        ("Consolas", "等宽 · 与课堂计时器一致"),
+        ("Bahnschrift", "工业风 · Bahnschrift"),
+        ("Cascadia Mono", "现代等宽 · Cascadia"),
+        ("Segoe UI Variable Display", "系统 UI · Segoe"),
+        ("Cambria", "优雅衬线 · Cambria"),
+    };
+
+    // Lazy：本类型可能在 Avalonia 字体管理器就绪前被设置反序列化碰到，推迟到真正用的时候再探测。
+    private static readonly Lazy<(string[] Families, string[] Labels)> FontTable =
+        new(BuildFontTable, LazyThreadSafetyMode.ExecutionAndPublication);
+
+    public static string[] FontFamilies => FontTable.Value.Families;
+    public static string[] FontLabels => FontTable.Value.Labels;
+
+    private static (string[] Families, string[] Labels) BuildFontTable()
+    {
+        HashSet<string>? installed = null;
+        try
+        {
+            installed = FontManager.Current.SystemFonts
+                .Select(f => f.Name)
+                .Where(n => !string.IsNullOrEmpty(n))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            // 字体管理器还没起来 / 平台异常：退回完整候选表（与旧行为一致，不凭空删选项）
+        }
+
+        var families = new List<string>();
+        var labels = new List<string>();
+        foreach (var (family, label) in FontChoices)
+        {
+            if (installed is null || installed.Count == 0 || installed.Contains(family))
+            {
+                families.Add(family);
+                labels.Add(label);
+            }
+        }
+
+        if (families.Count == 0)
+        {
+            // 理论上不会（Consolas / Cambria 是系统自带），兜底保证至少有一项，避免下拉框空掉
+            families.Add(FontChoices[0].Family);
+            labels.Add(FontChoices[0].Label);
+        }
+
+        return (families.ToArray(), labels.ToArray());
+    }
+
+    /// <summary>
+    /// 把一个字体名规范化成候选表里认识、且本机装得上的那个。
+    /// 主要用来兜**旧存档**：老版本存过 <c>Georgia</c>（已剔除）、或在 Win10 上存过
+    /// Win7 没有的字体 —— 直接拿它去 new FontFamily 会让那台机器继续抖 / 静默回退。
     ///
     /// ⚠️ 剔除 Georgia 的原因（自上游 dv1.1.3 移植）：它的 <c>tnum</c> 只重映射货币符号、不碰数字
     ///    （<c>1</c>=880 vs <c>0</c>=1257），靠等宽数字拉不平 ⇒ 大号时间居中排时每跳一秒整行宽度就变一次，
@@ -73,10 +131,13 @@ public static class ClockRender
     /// </summary>
     public static string NormalizeFont(string? family)
     {
-        if (string.IsNullOrWhiteSpace(family)) return FontFamilies[1];
+        var fallbackIndex = Array.IndexOf(FontFamilies, "Bahnschrift");
+        if (fallbackIndex < 0) fallbackIndex = 0;
+
+        if (string.IsNullOrWhiteSpace(family)) return FontFamilies[fallbackIndex];
         var f = family.Trim();
-        if (f == "Georgia") return "Cambria";
-        return Array.IndexOf(FontFamilies, f) >= 0 ? f : FontFamilies[1];
+        if (f == "Georgia") f = "Cambria";
+        return Array.IndexOf(FontFamilies, f) >= 0 ? f : FontFamilies[fallbackIndex];
     }
 
     /// <summary>
@@ -150,14 +211,10 @@ public static class ClockRender
     {
         // tint / opacity 保留只为与调用处一一对应（原 AcrylicBrush 的 TintColor / TintOpacity）；
         // Avalonia 下没有亚克力画刷可用，真正生效的是 fallback。
-        try
-        {
-            return new SolidColorBrush(fallback);
-        }
-        catch
-        {
-            return new SolidColorBrush(fallback);
-        }
+        // ⚠️ 界面标签已改成「半透明 · 亚克力（近似）」，不再暗示这里有真模糊。
+        _ = tint;
+        _ = opacity;
+        return new SolidColorBrush(fallback);
     }
 
     /// <summary>时间文字（网页版：12 小时制不带前导零，24 小时制补零）。</summary>

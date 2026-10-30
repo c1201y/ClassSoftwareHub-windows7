@@ -203,6 +203,9 @@ public partial class AppDataPage : Platform.PageBase
     /// <summary>行对象 → 可视件（统计时逐行刷新）。</summary>
     private readonly Dictionary<AppDataRow, RowVisual> _visuals = new();
 
+    /// <summary>已经挂过 PropertyChanged 的行（行对象跨分类共用，卡片却会反复重建）。</summary>
+    private readonly HashSet<AppDataRow> _subscribed = new();
+
     private CategoryOption? _category;
     private CancellationTokenSource? _cts;
 
@@ -523,7 +526,7 @@ public partial class AppDataPage : Platform.PageBase
             check.IsCheckedChanged += (_, _) =>
             {
                 row.IsChecked = check.IsChecked == true;
-                UpdateActionBar();
+                if (!_suppressCheckEvent) UpdateActionBar();
             };
             grid.Children.Add(check);
         }
@@ -593,13 +596,18 @@ public partial class AppDataPage : Platform.PageBase
         };
         _visuals[row] = visual;
 
-        // 行对象状态变化时同步文字（体积统计完 / 清理中）
-        row.PropertyChanged += (_, e) =>
+        // 行对象状态变化时同步文字（体积统计完 / 清理中）。
+        // ⚠️ 行对象在各分类之间是共用的，而卡片每次切换分类都会重建：不做标记的话，
+        //    来回切几次就会给同一行挂上几十个一模一样的处理器（只增不减，审计 P2 #33）。
+        if (_subscribed.Add(row))
         {
-            if (!_visuals.TryGetValue(row, out var v)) return;
-            if (e.PropertyName == nameof(AppDataRow.SizeText)) v.SizeText.Text = row.SizeText;
-            if (e.PropertyName == nameof(AppDataRow.CountText)) v.CountText.Text = row.CountText;
-        };
+            row.PropertyChanged += (_, e) =>
+            {
+                if (!_visuals.TryGetValue(row, out var v)) return;
+                if (e.PropertyName == nameof(AppDataRow.SizeText)) v.SizeText.Text = row.SizeText;
+                if (e.PropertyName == nameof(AppDataRow.CountText)) v.CountText.Text = row.CountText;
+            };
+        }
 
         return grid;
     }

@@ -96,7 +96,7 @@ public sealed partial class QqFeedbackGuideWindow : Window
             // Avalonia 版保留系统标题栏，只继承「不可拉伸」这一条；最小化按钮系统默认就有。
             CanResize = false;
 
-            Backdrop.Apply(this, Root, App.Settings.Current.Backdrop);
+            BackdropTheme.Apply(this, Root, App.Settings.Current.Backdrop);
             ThemeCompat.Apply(Root);
 
             ApplySize();

@@ -76,8 +76,8 @@ public sealed partial class PickNumberToolPage : PageBase
         _rollTimer.Interval = TimeSpan.FromMilliseconds(65);
         _rollTimer.Tick += (_, _) => RollTick();
 
-        // 离开页面把抽号滚动停掉
-        Unloaded += (_, _) => _rollTimer.Stop();
+        // 离开页面把抽号滚动停掉（并恢复按钮状态，回来还能继续用）
+        Unloaded += (_, _) => CancelRoll();
 
         foreach (var item in GroupModeItems) GroupModeBox.Items.Add(item);
         GroupModeBox.SelectedIndex = 0;
@@ -525,12 +525,36 @@ public sealed partial class PickNumberToolPage : PageBase
         if (roster)
         {
             var total = _roster.Count;
+
+            // ⛔ 名单可能在滚动途中被清空/替换（点「清空名单」、导入新名单、离开页面）。
+            //    Random.Next(0) 会抛 ArgumentOutOfRangeException，直接把整个应用带走。
+            if (total == 0)
+            {
+                CancelRoll();
+                ShowError("名单是空的，请单击上方的「导入名单」；不清楚格式可先单击「示例名单」。");
+                return;
+            }
+
             ShowNames(Enumerable.Range(0, _pendingNames.Count).Select(_ => _roster[RollRandom.Next(total)]).ToList(), rolling: true);
         }
         else
         {
             ShowResult(Enumerable.Range(0, _pending.Count).Select(_ => Lo + RollRandom.Next(PoolSize)).ToList(), rolling: true);
         }
+    }
+
+    /// <summary>
+    /// 中止正在进行的滚动并恢复按钮。清空/替换名单、离开页面时必须调用 ——
+    /// 否则定时器停了但按钮还停在「抽号中」且不可用，回来就点不动了。
+    /// </summary>
+    private void CancelRoll()
+    {
+        if (!_rollTimer.IsEnabled) return;
+
+        _rollTimer.Stop();
+        _ticks = 0;
+        DrawButton.IsEnabled = true;
+        DrawButton.Content = "开始抽号";
     }
 
     private void ShowResult(IReadOnlyList<int> numbers, bool rolling)
@@ -952,7 +976,8 @@ public sealed partial class PickNumberToolPage : PageBase
         _savedMode = cfg.Mode;
 
         // 2026-10-06：名字大小（滑块还没挂事件，这里设值不会触发回调；_ready 也还是 false）
-        _nameScale = cfg.NameScale;
+        // 存档里可能是越界值：滑块会自己夹，但 _nameScale 是真正参与字号计算的，必须同样夹一遍
+        _nameScale = Math.Clamp(cfg.NameScale, 0.5, 3.0);
         if (NameScaleSlider is not null)
         {
             NameScaleSlider.Value = _nameScale;
@@ -1063,6 +1088,9 @@ public sealed partial class PickNumberToolPage : PageBase
             _usedNames.Clear();          // 名单换了，上一份名单的抽号记录就没意义了
             _rosterSource = System.IO.Path.GetFileName(picked.Files[0]);
 
+            // 滚动中换名单：先把这一轮停掉，别让 tick 继续从旧名单里取名字
+            CancelRoll();
+
             // 导完直接切到名单模式，省得再点一次
             if (!UseRoster) ModeRosterRadio.IsChecked = true;
 
@@ -1079,6 +1107,7 @@ public sealed partial class PickNumberToolPage : PageBase
 
     private void ClearRoster_Click(object? sender, RoutedEventArgs e)
     {
+        CancelRoll();          // 先停滚动，避免 tick 从清空后的名单里取下标
         _roster.Clear();
         _usedNames.Clear();
         _rosterSource = "";

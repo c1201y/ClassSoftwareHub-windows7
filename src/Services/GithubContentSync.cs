@@ -78,7 +78,7 @@ public static class GithubContentSync
 
     private static HttpClient CreateClient()
     {
-        var client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = true })
+        var client = new HttpClient(Core.HttpTls.Handler())
         {
             Timeout = TimeSpan.FromSeconds(30),
         };

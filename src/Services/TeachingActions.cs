@@ -45,7 +45,7 @@ public static class TeachingActions
                 // 系统快捷三件套（2026-10-11，自上游 dv1.1.3 移植）：任务管理器 / 剪贴板历史 /
                 // 安全选项里的那几项（锁定 / 切换用户 / 注销）
                 case "taskmgr": OpenTaskManager(); break;
-                case "clipboard": ClipboardHistory(); break;
+                case "clipboard": return ClipboardHistory();
                 case "lock": LockScreen(); break;
                 case "switchuser": SwitchUser(); break;
                 case "logout": return PrepareLogout();
@@ -201,8 +201,15 @@ public static class TeachingActions
     ///    内容是往**打开面板时的活动窗口**里粘的；焦点要是还杵在侧边栏上，粘过去就掉进侧边栏了。
     ///    还焦点是异步排队的（见 <see cref="RefocusPrevious"/>），所以这里再隔一拍才发键。
     /// </summary>
-    private static void ClipboardHistory()
+    private static string? ClipboardHistory()
     {
+        // Win7/8 没有剪贴板历史 —— Win+V 发出去不会有任何反应，与其让用户以为按钮坏了，不如直接说明
+        if (!OsInfo.SupportsClipboardHistory)
+        {
+            Log("剪贴板历史：当前系统不支持（Win10 1809 起才有）");
+            return "当前系统没有剪贴板历史（该功能从 Windows 10 开始提供）";
+        }
+
         RefocusPrevious();
 
         var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
@@ -217,6 +224,7 @@ public static class TeachingActions
             catch { }
         };
         timer.Start();
+        return null;
     }
 
     /// <summary>
@@ -267,11 +275,12 @@ public static class TeachingActions
         return null;
     }
 
-    /// <summary>把存档里可能写歪的关机方式归一到合法值（认不出的一律当「滑动关机」）。</summary>
+    /// <summary>
+    /// 把存档里可能写歪的关机方式归一到**这台机器真正能执行**的值：
+    /// Win7 没有 SlideToShutDown.exe，滑动关机归一到直接关机（否则确认框说"滑动"、点了却没反应）。
+    /// </summary>
     private static string NormalizeShutdownMode(string? mode) =>
-        string.Equals(mode, Data.ShutdownMethods.Shutdown, StringComparison.OrdinalIgnoreCase)
-            ? Data.ShutdownMethods.Shutdown
-            : Data.ShutdownMethods.Slide;
+        Data.AutoShutdownConfig.NormalizeMethod(mode);
 
     /// <summary>锁定电脑：Win+L 用的就是这个 API，它也是 Ctrl+Alt+Del 界面上的第一项。</summary>
     private static void LockScreen()

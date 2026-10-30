@@ -56,6 +56,13 @@
                     <SolidColorBrush x:Key="HubAiPanelBackground" Color="#FCFCFD" />
                     <SolidColorBrush x:Key="HubAiPanelBorder" Color="#DFE2E2" />
                     <SolidColorBrush x:Key="HubAiBubbleBackground" Color="#F1F2F2" />
+                    <!-- 输入区底色（2026-10-29）：参考图那种"上白下淡蓝"的渐变托底，不加输入框外壳。 -->
+                    <LinearGradientBrush x:Key="HubAiInputBackground" StartPoint="0,0" EndPoint="1,1">
+                        <GradientStop Color="#FFFFFF" Offset="0" />
+                        <GradientStop Color="#F4F7FE" Offset="0.55" />
+                        <GradientStop Color="#E6EDFB" Offset="1" />
+                    </LinearGradientBrush>
+                    <SolidColorBrush x:Key="HubAiInputBorder" Color="#E2E8F4" />
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
                     <!--
@@ -77,10 +84,32 @@
                     <SolidColorBrush x:Key="HubAiPanelBackground" Color="#24282C" />
                     <SolidColorBrush x:Key="HubAiPanelBorder" Color="#3C4247" />
                     <SolidColorBrush x:Key="HubAiBubbleBackground" Color="#2E3338" />
+                    <!-- 深色同样不做多色渐变，靠近乎同色的三段把输入区从页面底上拎起来。 -->
+                    <LinearGradientBrush x:Key="HubAiInputBackground" StartPoint="0,0" EndPoint="1,1">
+                        <GradientStop Color="#272C31" Offset="0" />
+                        <GradientStop Color="#292E36" Offset="0.55" />
+                        <GradientStop Color="#2D3138" Offset="1" />
+                    </LinearGradientBrush>
+                    <SolidColorBrush x:Key="HubAiInputBorder" Color="#3E4449" />
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>
     </platform:PageBase.Resources>
+
+    <platform:PageBase.Styles>
+        <!--
+          ⛔ 2026-10-29（用户截图反馈「输入框还在」）：只给 TextBox 设 BorderThickness=0 不够 ——
+             Fluent 主题的 :focus 样式会**直接给模板里的 PART_BorderElement 设** BorderThickness
+             （1,1,1,2）和强调色描边，模板绑定（TemplateBinding）优先级低于它，所以一聚焦
+             那个圆角框 + 紫色下划线又冒出来了。
+             这里按"模板部件"把背景/描边/厚度全部压掉，只留 caret + 水印。
+        -->
+        <Style Selector="TextBox.bare /template/ Border#PART_BorderElement">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+    </platform:PageBase.Styles>
 
     <Grid Background="Transparent">
         <Grid.ColumnDefinitions>
@@ -318,16 +347,24 @@
                                Foreground="{DynamicResource HubAiSubForeground}"
                                IsVisible="False" Margin="4,0,0,0" />
 
-                    <Border x:Name="InputShell" CornerRadius="16" BorderThickness="1" Padding="12,10,10,8"
-                            Background="{DynamicResource HubAiCardBackground}"
-                            BorderBrush="{DynamicResource HubAiCardBorder}">
+                    <!--
+                      2026-10-29（用户要求）：去掉圆角边框/底色的「输入框外壳」，
+                      就是一行**裸光标输入** —— 只剩 TextBox 自己的 caret + 水印。
+                      外壳一并删掉，不再需要焦点描边（原来 GotFocus/LostFocus 只改外壳边框色）。
+                      同日再调整：整块输入区加一层**渐变托底**（参考图那种上白下淡蓝），
+                      ⛔ 托底是面板背景，不是输入框 —— TextBox 仍然是 bare，没有自己的边框/底色。
+                    -->
+                    <Border Background="{DynamicResource HubAiInputBackground}"
+                            BorderBrush="{DynamicResource HubAiInputBorder}" BorderThickness="1"
+                            CornerRadius="14" Padding="12,10,12,10">
                         <StackPanel Spacing="6">
-                            <TextBox x:Name="HubAiInput" Watermark="描述你的需求，或直接问该装什么"
+                            <!-- ⚠️ Classes="bare" 配合上面的模板部件样式：只留光标和水印，不要任何外壳。 -->
+                            <TextBox x:Name="HubAiInput" Classes="bare"
+                                     Watermark="描述你的需求，或直接问该装什么"
                                      AcceptsReturn="False" MaxHeight="140" TextWrapping="Wrap"
-                                     BorderThickness="0" Background="Transparent" Padding="4,2,4,2"
-                                     KeyDown="HubAiInput_KeyDown"
-                                     GotFocus="HubAiInput_GotFocus"
-                                     LostFocus="HubAiInput_LostFocus" />
+                                     FontSize="14"
+                                     BorderThickness="0" Background="Transparent" Padding="4,6,4,4"
+                                     KeyDown="HubAiInput_KeyDown" />
 
                             <Grid>
                                 <Grid.ColumnDefinitions>
@@ -349,11 +386,21 @@
                                               SelectionChanged="EffortPicker_SelectionChanged" />
                                 </StackPanel>
 
-                                <!-- ⚠️ 发送按钮靠右必须走 Grid 第三列：塞在 StackPanel 里 HorizontalAlignment 是无效的 -->
-                                <Button x:Name="SendButton" Grid.Column="2" Padding="14,8"
-                                        Theme="{StaticResource AccentButtonStyle}"
+                                <!--
+                                  ⚠️ 发送按钮靠右必须走 Grid 第三列：塞在 StackPanel 里 HorizontalAlignment 是无效的。
+                                  ⛔ 图标用矢量 Path，不用图标字体：CshSymbols.ttf 里码位映射不可靠
+                                     （E724 会被画成别的图形），这是"发送图标不对"的根因。
+                                -->
+                                <Button x:Name="SendButton" Grid.Column="2" Padding="12,8"
+                                        Classes="accent"
                                         Click="HubAiSend_Click" ToolTip.Tip="发送">
-                                    <fa:FontIcon x:Name="SendIcon" Glyph="&#xE724;" FontSize="14" />
+                                    <Panel>
+                                        <Path x:Name="SendGlyph" Fill="White" Width="15" Height="15"
+                                              Stretch="Uniform"
+                                              Data="M2,21 L23,12 L2,3 L2,10 L17,12 L2,14 Z" />
+                                        <Path x:Name="StopGlyph" Fill="White" Width="12" Height="12"
+                                              Stretch="Uniform" IsVisible="False" Data="M3,3 H21 V21 H3 Z" />
+                                    </Panel>
                                 </Button>
                             </Grid>
                         </StackPanel>

@@ -275,10 +275,26 @@ public sealed partial class SettingsPage : PageBase
         EchoSubmitButton.Content = "正在提交";
         ShowEchoSubmitStatus("正在提交…");
 
-        var (ok, message) = await Services.EchoCaveService.SubmitAsync(text);
+        // ⚠️ async void 里抛出去会直接带走进程；而且按钮会永远停在「正在提交」且不可点。
+        //    异常必须在本地收口，复位交给 finally。
+        bool ok;
+        string message;
+        try
+        {
+            (ok, message) = await Services.EchoCaveService.SubmitAsync(text);
+        }
+        catch (Exception ex)
+        {
+            Core.AppLog.Exception("echo", ex, "回声洞投稿失败");
+            ok = false;
+            message = "提交失败：" + ex.Message;
+        }
+        finally
+        {
+            EchoSubmitButton.IsEnabled = true;
+            EchoSubmitButton.Content = "提交";
+        }
 
-        EchoSubmitButton.IsEnabled = true;
-        EchoSubmitButton.Content = "提交";
         ShowEchoSubmitStatus(message);
         // 服务端还没接上（或网络被挡）时给条退路：去 GitHub 网页投。成功时不给，免得画蛇添足。
         EchoSubmitFallback.IsVisible = !ok;
@@ -507,7 +523,6 @@ public sealed partial class SettingsPage : PageBase
         UpdateStatus.Text = channel == UpdateChannels.Insider
             ? "Insider 通道：优先收 Pre-release；正式版发出来比当前还新时，也会自动跟上。"
             : "稳定通道：只收 Latest（正式发布）的版本。";
-        UpdateNotes.IsVisible = false;
     }
 
     private void AutoCheckSwitch_Toggled(object? sender, RoutedEventArgs e)
@@ -523,7 +538,6 @@ public sealed partial class SettingsPage : PageBase
         if (_updateBusy) return;
         _updateBusy = true;
         CheckButton.IsEnabled = false;
-        UpdateNotes.IsVisible = false;
         UpdateStatus.Text = "正在检查更新…";
 
         try
@@ -541,10 +555,9 @@ public sealed partial class SettingsPage : PageBase
                 // 记下"有新版本"：首页那颗「立即更新」靠它（2026-10-18 自上游 1.2.0 移植）
                 Services.Updating.UpdateNotice.Set(release);
 
-                var notes = Snip(release.Notes, 400);
-                // ⛔ 不能直接赋 Text：那样把 `![..](..)`、`---`、`#` 原样显示成源码（上游 1.4）
-                MarkdownText.Apply(UpdateNotes, notes);
-                UpdateNotes.IsVisible = notes.Length > 0;
+                // ⛔ 这里原来会把发版正文渲染进设置卡（UpdateNotes）。上游 2026-10-26 去掉：
+                //    一屏 Markdown 撑满整页、还把配图链接显示成源码，用户直接说"排版该改一改"。
+                //    正文改由下面的更新对话框展示（它只挑「前言」要点，已洗干净）。
                 UpdateStatus.Text = $"发现新版本 {release.Tag}，可自行选择是否安装。";
 
                 // 先问；选「稍后」就什么都不做
@@ -856,13 +869,6 @@ public sealed partial class SettingsPage : PageBase
         await UpdateFlow.RunAsync(_updater, release, "正在安装指定版本", TopLevel.GetTopLevel(this));
     }
 
-    private static string Snip(string text, int max)
-    {
-        if (string.IsNullOrWhiteSpace(text)) return "";
-        var t = text.Replace("\r", "").Trim();
-        return t.Length <= max ? t : t[..max] + "…";
-    }
-
     // ── 安装包自动清理（updates 目录） ─────────────────────────
 
     /// <summary>保留数量改动：存档 + 后台立刻清一轮（不用等下次启动），列表若摊开着就跟着刷新。</summary>
@@ -875,9 +881,11 @@ public sealed partial class SettingsPage : PageBase
         App.Settings.Save();
 
         var target = App.Settings.Current.InstallerKeepCount;
+        // 待安装的包不参与「保留 N 个」的淘汰（它在 UI 线程上读好再传，清理线程不再碰设置）
+        var pending = App.Settings.Current.UpdatePendingPath ?? "";
         _ = Task.Run(() =>
         {
-            try { InstallerCleanup.Clean(target); }
+            try { InstallerCleanup.Clean(target, pending); }
             catch { /* 清理失败不打扰界面，下次启动会再试 */ }
         }).ContinueWith(_ =>
         {

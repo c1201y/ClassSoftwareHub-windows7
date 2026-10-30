@@ -47,6 +47,90 @@ public static class AppLog
     /// <summary>崩溃专用日志文件名（模块名传 <c>crash</c> 时进这个）。</summary>
     private const string CrashFile = "crash.log";
 
+    // ── 旁路诊断用的 Win32 事件日志（net6 无 System.Diagnostics.EventLog，走 P/Invoke）──
+
+    [System.Runtime.InteropServices.DllImport("advapi32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+    private static extern System.IntPtr RegisterEventSourceW(string serverName, string sourceName);
+
+    [System.Runtime.InteropServices.DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool ReportEventW(System.IntPtr eventLog, ushort type, ushort category, uint eventId,
+        System.IntPtr userSid, ushort numStrings, uint dataSize, string[] strings, System.IntPtr rawData);
+
+    [System.Runtime.InteropServices.DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool DeregisterEventSource(System.IntPtr eventLog);
+
+    /// <summary>旁路诊断（临时）：走 Windows 事件日志上报。事件日志由系统服务落盘，
+    /// 不受本进程文件写入异常的影响 —— 排查「一行日志都写不出来」的最后通道。排障完移除。</summary>
+    private static void TryEventLog(string text)
+    {
+        try
+        {
+            const string source = "ClassSoftwareHub-Diag";
+            // 报事件前要先在注册表登记来源（指向 .NET 自带的 EventLogMessages.dll），
+            // 已存在就跳过 —— 这一步需要管理员，本程序在 Win7 场景下恒以管理员运行。
+            try
+            {
+                var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(
+                    @"SYSTEM\CurrentControlSet\Services\EventLog\Application", writable: true);
+                using var src = key?.CreateSubKey(source);
+                src?.SetValue("EventMessageFile",
+                    Environment.SystemDirectory + @"\..\" + @"Microsoft.NET\Framework64\v4.0.30319\EventLogMessages.dll");
+            }
+            catch { /* 已登记 / 无权限 —— 直接试报事件 */ }
+
+            var h = RegisterEventSourceW(null, source);
+            if (h == System.IntPtr.Zero) return;
+            try { ReportEventW(h, 2 /* Warning */, 0, 4711, System.IntPtr.Zero, 1, 0, new[] { text }, System.IntPtr.Zero); }
+            finally { DeregisterEventSource(h); }
+        }
+        catch { /* 事件日志也写不进就只能放弃了 */ }
+        UdpDiag(text);
+    }
+
+    /// <summary>旁路诊断（临时）：通过 UDP 回发到本机 47471，绕开一切文件/注册表写入。
+    /// 应用本身能发 UDP（心跳就在发），所以这是唯一「必然通」的诊断通道。排障完移除。</summary>
+    private static void UdpDiag(string text)
+    {
+        try
+        {
+            using var c = new System.Net.Sockets.UdpClient();
+            var bytes = System.Text.Encoding.UTF8.GetBytes("DIAG " + text);
+            c.Send(bytes, bytes.Length, "127.0.0.1", 47471);
+        }
+        catch { }
+    }
+
+    /// <summary>旁路诊断（临时）：启动时对几个关键位置做金丝雀写入，结果整体上报事件日志。排障完移除。</summary>
+    public static void BootDiag()
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("启动写入诊断 " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+        sb.AppendLine("DataDir = " + Desktop.Services.SettingsStore.Dir);
+        sb.AppendLine("TEMP    = " + Path.GetTempPath());
+        sb.AppendLine("用户     = " + Environment.UserName + "  进程=" + Environment.ProcessPath);
+
+        void Probe(string tag, string path)
+        {
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                File.WriteAllText(path, "t");
+                var readBack = File.ReadAllText(path);
+                sb.AppendLine($"{tag}: 写入成功（读回={readBack}）{path}");
+            }
+            catch (Exception e)
+            {
+                sb.AppendLine($"{tag}: 写入失败 {path} -> {e.GetType().FullName}: {e.Message}");
+            }
+        }
+
+        Probe("DataDir", Path.Combine(Desktop.Services.SettingsStore.Dir, "logs", "canary.txt"));
+        Probe("TEMP", Path.Combine(Path.GetTempPath(), "csh-canary.txt"));
+        Probe("ProgramData", @"C:\ProgramData\csh-canary.txt");
+        TryEventLog(sb.ToString());
+        UdpDiag(sb.ToString());
+    }
+
     /// <summary>日常日志文件名（其余所有模块都进这个）。</summary>
     private const string AppFile = "app.log";
 
@@ -63,8 +147,9 @@ public static class AppLog
 
     // ══════════════════ 异常与「操作链路」（2026-10-11 补）══════════════════
     //
-    // 起因：Nick 问「这些日志够吗」—— 审计结果是 **17 个会话里警告 0 条、错误 0 条**。
-    // 全仓库 724 个 catch、269 个是空的 `catch {}`，而记日志的调用点只有 15 个。
+    // 起因：Nick 问「这些日志够吗」—— 当时的审计结果是 **17 个会话里警告 0 条、错误 0 条**。
+    // 那会儿全仓库 724 个 catch、269 个是空的 `catch {}`，而记日志的调用点只有 15 个
+    // （2026-10-26 复核：1064 / 293 / 415 —— 这些数字会继续漂，别当常量用）。
     // 也就是**约 98% 的异常路径是静默的**：某个功能坏了，日志里一个字都没有。
     //
     // 所以补两样东西：
@@ -183,7 +268,25 @@ public static class AppLog
                     new UTF8Encoding(false));
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            // 旁路诊断（临时）：主链路静默失败时把异常细节落到 ProgramData 与事件日志，
+            // 否则「一行日志都没有」永远查不出是哪一步、什么原因炸的。排障完移除。
+            var detail = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] 写日志失败\r\n  {ex.GetType().FullName}: {ex.Message}\r\n{ex.StackTrace}\r\n";
+            try
+            {
+                string dirSnapshot;
+                try { dirSnapshot = Dir; }
+                catch (Exception dex) { dirSnapshot = "<Dir 自身抛 " + dex.GetType().Name + ": " + dex.Message + ">"; }
+                File.AppendAllText(
+                    @"C:\ProgramData\ClassSoftwareHub-log-diag.txt",
+                    detail.Replace("写日志失败", "写日志失败 dir=" + dirSnapshot),
+                    new UTF8Encoding(false));
+            }
+            catch { }
+            TryEventLog(detail);
+            UdpDiag(detail);
+        }
     }
 
     private static string TagOf(LogLevel level) => level switch

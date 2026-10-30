@@ -414,20 +414,19 @@ public partial class ChemistryPage : Platform.PageBase
         Refresh();
     }
 
-    private void Copy(string text, Button source)
+    private async void Copy(string text, Button source)
     {
         try
         {
             var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
             if (clipboard is null) return;
-            _ = clipboard.SetTextAsync(text);
+
+            // ⚠️ 必须 await：失败只体现在 Task 上，fire-and-forget 会吞掉异常还照常显示「已复制」
+            await clipboard.SetTextAsync(text);
 
             source.Content = "已复制";
-            _ = Dispatcher.UIThread.InvokeAsync(async () =>
-            {
-                await Task.Delay(1600);
-                source.Content = "复制方程式";
-            });
+            await Task.Delay(1600);
+            source.Content = "复制方程式";
         }
         catch (Exception ex)
         {

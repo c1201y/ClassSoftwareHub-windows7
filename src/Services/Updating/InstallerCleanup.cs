@@ -131,15 +131,30 @@ public static class InstallerCleanup
     /// <summary>
     /// 按保留数量清理：按修改时间从新到旧留 <paramref name="keep"/> 个，其余删除（连带同名 .md5）。
     /// 顺手清掉「安装包已不在、只剩 .md5」的孤儿校验文件，以及**超过 2 小时没人写过的下载残片**。
+    /// <para>
+    /// <paramref name="pendingPath"/> = 已下载待安装的那个包，**永远不删**：
+    /// 它可能不是最新的（之后又下过别的包），按时间排序正好会把它挤出去 ——
+    /// 删掉后首页「立即安装」找不到文件，只会静默清掉待装标记，用户点一下像是没反应。
+    /// </para>
     /// 返回删除的安装包个数。
     /// </summary>
-    public static int Clean(int keep)
+    public static int Clean(int keep, string? pendingPath = null)
     {
         keep = Math.Clamp(keep, 1, 10);
         var dir = InstallerDirectory;
         if (!Directory.Exists(dir)) return 0;
 
         var all = EnumerateQuiet(dir);
+
+        string pendingFull;
+        try
+        {
+            pendingFull = string.IsNullOrWhiteSpace(pendingPath) ? "" : Path.GetFullPath(pendingPath);
+        }
+        catch
+        {
+            pendingFull = "";
+        }
 
         // ⚠️ 这里原来是 .Select( new FileInfo ) 后直接 OrderByDescending(fi => fi.LastWriteTimeUtc)：
         //    FileInfo 的属性是惰性读入并缓存的，文件在「枚举」与「排序」之间被删掉
@@ -152,7 +167,13 @@ public static class InstallerCleanup
 
         var removed = 0;
         for (var i = keep; i < files.Count; i++)
+        {
+            if (pendingFull.Length > 0
+                && string.Equals(Path.GetFullPath(files[i].Path), pendingFull, StringComparison.OrdinalIgnoreCase))
+                continue;
+
             if (TryDeleteWithMd5(files[i].Path)) removed++;
+        }
 
         // 孤儿校验文件：对应的安装包已经不在了，校验文件留着只会让人困惑。
         // ⚠️ 认两种命名（追加 X.exe.md5 ／ 老的 X.md5），别把仍然有效的那份当孤儿删了。
@@ -236,21 +257,24 @@ public static class InstallerCleanup
         //    原来是在 Task.Run 里读 App.Settings.Current.InstallerKeepCount，与 UI 线程的初始化并发、
         //    没有任何同步 —— 撕裂读 / null 会被下面的 catch 吞成"本次会话静默跳过清理"，故障不可见。
         int keep;
+        string pendingPath;
         try
         {
             keep = App.Settings.Current.InstallerKeepCount;
+            pendingPath = App.Settings.Current.UpdatePendingPath ?? "";
         }
         catch (Exception ex)
         {
             ScreenCapture.Log("[cleanup] 读取「安装包保留数量」失败，按默认值 3 处理: " + ex.Message);
             keep = 3;
+            pendingPath = "";
         }
 
         _ = Task.Run(() =>
         {
             try
             {
-                var removed = Clean(keep);
+                var removed = Clean(keep, pendingPath);
                 if (removed > 0)
                     ScreenCapture.Log($"[cleanup] 已清理 {removed} 个旧安装包（保留最近 {Math.Clamp(keep, 1, 10)} 个）");
             }

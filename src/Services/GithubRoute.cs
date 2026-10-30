@@ -114,6 +114,7 @@ public static class GithubRoute
     private static readonly HttpClient ProbeHttp = new(new HttpClientHandler
     {
         AllowAutoRedirect = true,
+        SslProtocols = Core.HttpTls.Protocols,
     })
     {
         Timeout = Timeout.InfiniteTimeSpan,     // 靠下面的 CancellationToken 控制
@@ -168,17 +169,6 @@ public static class GithubRoute
     }
 
     /// <summary>只取域名（日志里看"走了哪一家"就够，不必把带签名的整条 URL 铺进去）。</summary>
-    /// <summary>
-    /// 原始链接 → 候选链接（纯字符串），供 Win7 版下载实现直接使用。
-    /// ⚠️ Referer/Key 不在这里携带 —— 对方的实现会自己按 <c>IsAcceleratedUrl</c> 贴 Referer。
-    /// </summary>
-    public static async Task<IReadOnlyList<string>> ResolveAcceleratedAsync(
-        string url, CancellationToken ct = default)
-    {
-        var candidates = await ResolveAsync(url, ct).ConfigureAwait(false);
-        return candidates.Select(c => c.Url).ToList();
-    }
-
     private static string HostOf(string url)
     {
         try { return new Uri(url).Host; } catch { return url; }
@@ -416,7 +406,7 @@ public static class GithubRoute
     public const string AcceleratorHost = "download.classsoftwarehub.cn";
 
     /// <summary>访问节点必须带的 Referer（节点侧白名单，不带一律 403）。</summary>
-    public const string AcceleratorReferer = "https://classsoftwarehub.us.ci/";
+    public const string AcceleratorReferer = "https://classsoftwarehub.cn/";
 
     /// <summary>这条链接是不是指向自建节点。</summary>
     public static bool IsAcceleratedUrl(string? url)
