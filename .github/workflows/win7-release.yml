@@ -161,7 +161,14 @@ jobs:
           New-Item -ItemType Directory -Path dist/release -Force | Out-Null
           $path = 'dist/release/notes.md'
 
-          if (-not [string]::IsNullOrWhiteSpace($env:INPUT_NOTES)) {
+          # 发布说明以仓库里的 docs/releases/dv<版本>.md 为准（与历史 Release 同一套正式格式）；
+          # 没有该文件时才用工作流参数 / git log 兜底。
+          $doc = "docs/releases/dv${{ steps.ver.outputs.version }}.md"
+          if (Test-Path -LiteralPath $doc) {
+            Copy-Item -LiteralPath $doc -Destination $path -Force
+            Write-Host "使用发布说明：$doc"
+          }
+          elseif (-not [string]::IsNullOrWhiteSpace($env:INPUT_NOTES)) {
             [System.IO.File]::WriteAllText($path, $env:INPUT_NOTES, (New-Object System.Text.UTF8Encoding($false)))
           } else {
             $lines = @("ClassSoftwareHub dv${{ steps.ver.outputs.version }}（Windows 7 版）", '')
@@ -186,10 +193,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $v = '${{ steps.ver.outputs.version }}'
+          # 正文首行引用的配图要和 Release 资产同名（dv1.2.png），否则正文顶部是 404 图
+          $img = 'Assets/dv1.2.png'
+          if (-not (Test-Path -LiteralPath $img)) { throw "缺少 Release 配图：$img" }
           node tools/publish-release-win7.mjs `
             --version $v `
             --channel ${{ steps.ver.outputs.channel }} `
             --installer "dist/installer/ClassSoftwareHub-Setup-win7-dv$v.exe" `
             --portable  "dist/ClassSoftwareHub-Portable-win7-dv$v.zip" `
+            --image     $img `
             --notes     "${{ steps.notes.outputs.path }}"
           if ($LASTEXITCODE -ne 0) { throw '创建 Release 失败' }
