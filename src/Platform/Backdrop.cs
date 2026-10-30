@@ -76,8 +76,14 @@ public static class Backdrop
             // ── Win11：Mica ────────────────────────────────────────────────
             if (kind == "mica" && OsInfo.SupportsMica)
             {
-                // 先把 Ava 的平台透明提示打开，DWM 材质才透得上来
-                EnableAvaloniaTransparency(win);
+                // 先把 Ava 的平台透明提示打开，DWM 材质才透得上来。
+                // ⛔ Win11 必须只声明 Transparent：声明 AcrylicBlur 会让 Avalonia 自己去调
+                //    SetWindowCompositionAttribute(ACCENT_ENABLE_ACRYLICBLURBEHIND)，
+                //    Win11 上那是"成功但没模糊"的脏玻璃，还会盖掉刚设好的 DWM 背板
+                //    （2026-10-30 实测：选亚克力整窗发灰、标题区发黑）。
+                EnableAvaloniaTransparency(win,
+                    WindowTransparencyLevel.Transparent,
+                    WindowTransparencyLevel.None);
                 var v = NativeMethods.DWMSBT_MAINWINDOW;   // MicaKind.Base（不用 BaseAlt，深色下偏色发脏）
                 if (NativeMethods.DwmSetWindowAttribute(hwnd, NativeMethods.DWMWA_SYSTEMBACKDROP_TYPE, ref v, sizeof(int)) == 0)
                 {
@@ -91,15 +97,23 @@ public static class Backdrop
             // ── Acrylic ───────────────────────────────────────────────────
             if (kind == "acrylic" && OsInfo.SupportsAcrylicBlur)
             {
-                EnableAvaloniaTransparency(win);
-
-                // ⛔ Win11 必须走 DWM 的 SYSTEMBACKDROP_TYPE（3 = TRANSIENTWINDOW = 亚克力）。
+                // ⛔ Win11 主窗口**别再用 DWMSBT_TRANSIENTWINDOW(3)**（2026-10-30 实机复测）。
+                //    3 是 DWM 给「短命浮窗」的亚克力，拿它喂主窗口属于编外用法：有实时模糊的机器上
+                //    看着是亚克力，可一旦模糊不可用（虚拟机 / 云桌面 / 远程会话 / 省电模式），
+                //    DWM 退回的是**它自己的亚克力兜底色** —— 本机实测浅色 #D3D3D3、深色 #545454；
+                //    同一台机器的 Mica 系列兜底却正好是 Fluent 设计色（浅 #F3F3F3 / 深 #202020）。
+                //    结果就是「选亚克力 → 整窗发灰、比纯色还脏」（用户报的「亚克力整窗发灰」）。
+                //    改用受支持的 DWMSBT_TABBEDWINDOW(4，Mica Alt)：材质更浓、和云母(2)仍可区分，
+                //    兜底色也是设计色。
                 //    别在 Win11 上碰 ACCENT_ENABLE_ACRYLICBLURBEHIND：它**返回成功但根本没有模糊**，
                 //    窗口只是变成一块透明/发黑的脏玻璃（2026-10-29 实测：整窗发黑、内容发灰）。
                 //    ——Win10 没有 DWMWA_SYSTEMBACKDROP_TYPE，那台机器才用 AccentPolicy。
                 if (OsInfo.SupportsMica)
                 {
-                    var a = NativeMethods.DWMSBT_TRANSIENTWINDOW;
+                    EnableAvaloniaTransparency(win,
+                        WindowTransparencyLevel.Transparent,
+                        WindowTransparencyLevel.None);
+                    var a = NativeMethods.DWMSBT_TABBEDWINDOW;
                     if (NativeMethods.DwmSetWindowAttribute(hwnd, NativeMethods.DWMWA_SYSTEMBACKDROP_TYPE, ref a, sizeof(int)) == 0)
                     {
                         win.Background = Brushes.Transparent;
@@ -116,11 +130,9 @@ public static class Backdrop
                         return "mica";
                     }
                 }
-                else if (TryApplyAcrylic(hwnd))     // Win10 1803+：这条才是真的亚克力（见 TryApplyAcrylic 的 BOOL 注释）
+                else
                 {
-                    win.Background = Brushes.Transparent;
-                    if (root is not null) root.Background = null;
-                    return "acrylic";
+                    return ApplyWin10Acrylic(win, root, hwnd);
                 }
             }
 
@@ -150,7 +162,10 @@ public static class Backdrop
             }
             if (aeroAllowed && OsInfo.IsDwmCompositionEnabled && TryApplyAeroBlur(hwnd))
             {
-                EnableAvaloniaTransparency(win);
+                EnableAvaloniaTransparency(win,
+                    WindowTransparencyLevel.Blur,
+                    WindowTransparencyLevel.Transparent,
+                    WindowTransparencyLevel.None);
                 win.Background = Brushes.Transparent;
                 if (root is not null) root.Background = null;
                 return "blur";
@@ -160,12 +175,25 @@ public static class Backdrop
                 // Win10+ 的 blur 请求：按 acrylic 处理（走上面的级联），避免落进 Aero 黑屏分支
                 if (OsInfo.SupportsAcrylicBlur)
                 {
-                    EnableAvaloniaTransparency(win);
-                    if (TryApplyAcrylic(hwnd))
+                    if (OsInfo.SupportsMica)
                     {
-                        win.Background = Brushes.Transparent;
-                        if (root is not null) root.Background = null;
-                        return "acrylic";
+                        EnableAvaloniaTransparency(win,
+                            WindowTransparencyLevel.Transparent,
+                            WindowTransparencyLevel.None);
+
+                        // Win11 不认 AccentPolicy 的模糊，按 DWM 亚克力上
+                        // （同样用 4 而不是 3，理由见上面亚克力分支）
+                        var t = NativeMethods.DWMSBT_TABBEDWINDOW;
+                        if (NativeMethods.DwmSetWindowAttribute(hwnd, NativeMethods.DWMWA_SYSTEMBACKDROP_TYPE, ref t, sizeof(int)) == 0)
+                        {
+                            win.Background = Brushes.Transparent;
+                            if (root is not null) root.Background = null;
+                            return "acrylic";
+                        }
+                    }
+                    else
+                    {
+                        return ApplyWin10Acrylic(win, root, hwnd);
                     }
                 }
                 Solid(win, root);
@@ -187,10 +215,60 @@ public static class Backdrop
     // ══════════════════════════════════════════════════════════════════
 
     /// <summary>
-    /// Win10 1803+ 的亚克力。<b>只有 Win10 该走这里</b> —— Win11 上这个 API 也"成功"，
-    /// 只是没有模糊（见 <see cref="Apply"/> 里的分支说明）。
+    /// Win10 亚克力，两级：
+    ///
+    /// <list type="number">
+    ///   <item><b>先让 Avalonia 自己上</b> —— 合成背板（WinUI 合成窗口 + <c>BlurEffect.Acrylic</c>）。
+    ///         依据 Avalonia 11.2.8 <c>WindowImpl.SetTransparencyAcrylicBlur</c>：
+    ///         <c>SetUseHostBackdropBrush(true)</c>（Win11 专属，Win10 上是空操作）
+    ///         + <c>SetLegacyTransparency(false)</c> + 合成面 <c>SetBlur(Acrylic)</c>；
+    ///         <c>WinUiCompositionShared.MinAcrylicVersion = 10.0.15063</c>。</item>
+    ///   <item><b>合成面拿不到时</b>（软件渲染 → <c>_glSurface</c> 不是
+    ///         <c>ICompositionEffectsSurface</c>）再退回老路子：透明提示 + AccentPolicy。</item>
+    /// </list>
+    ///
+    /// ⛔ 绝不能在合成亚克力之上再补 AccentPolicy：合成模式下窗口是
+    ///    <c>WS_EX_NOREDIRECTIONBITMAP</c>，AccentPolicy 对它不生效，只会把窗口搞成
+    ///    「透明但没材质」的脏底 —— 就是用户报的「Win10 亚克力还是有问题」。
     /// </summary>
-    private static bool TryApplyAcrylic(IntPtr hwnd)
+    private static string ApplyWin10Acrylic(Window win, Panel? root, IntPtr hwnd)
+    {
+        EnableAvaloniaTransparency(win,
+            WindowTransparencyLevel.AcrylicBlur,
+            WindowTransparencyLevel.Transparent,
+            WindowTransparencyLevel.None);
+
+        // 平台真的兑现了 AcrylicBlur 才算数（只认实际级别，不认我们的意图）。
+        if (win.ActualTransparencyLevel == WindowTransparencyLevel.AcrylicBlur)
+        {
+            win.Background = Brushes.Transparent;
+            if (root is not null) root.Background = null;
+            return "acrylic";
+        }
+
+        // 拿不到合成亚克力：AccentPolicy 在重定向表面模式下才是真模糊。
+        // 提示切回 Transparent —— 这条老路就靠「透明窗口 + accent」出效果。
+        EnableAvaloniaTransparency(win,
+            WindowTransparencyLevel.Transparent,
+            WindowTransparencyLevel.None);
+        if (TryApplyAcrylic(hwnd, win.ActualThemeVariant == ThemeVariant.Dark))
+        {
+            win.Background = Brushes.Transparent;
+            if (root is not null) root.Background = null;
+            return "acrylic";
+        }
+
+        // ⚠️ 这里必须退纯色：透明提示可能已经生效，留个"透明无材质"的窗口在 Win10 上
+        //    露出来的是黑底/脏底，比没有材质更糟。
+        Solid(win, root);
+        return "solid";
+    }
+
+    /// <summary>
+    /// Win10 1803+ 的 AccentPolicy 亚克力（<b>只作合成背板不可用时的兜底</b>，
+    /// 见 <see cref="ApplyWin10Acrylic"/>）。Win11 上这个 API 也"成功"但没有模糊，不要用。
+    /// </summary>
+    private static bool TryApplyAcrylic(IntPtr hwnd, bool dark)
     {
         var fn = GetSetComposition();
         if (fn is null) return false;
@@ -201,7 +279,8 @@ public static class Backdrop
             {
                 AccentState = NativeMethods.ACCENT_ENABLE_ACRYLICBLURBEHIND,
                 AccentFlags = 0x20,        // 2 = 给整个客户区上模糊
-                GradientColor = unchecked((int)0x99FFFFFF),   // AABBGGRR，白底微透
+                // AABBGGRR：深色 80% #1F1F1F / 浅色 60% 白。写死白底在深色模式下整窗是奶白的雾。
+                GradientColor = dark ? unchecked((int)0xCC1F1F1F) : unchecked((int)0x99FFFFFF),
                 AnimationId = 0
             };
 
@@ -253,18 +332,25 @@ public static class Backdrop
     /// <summary>
     /// Avalonia 侧需要声明「我允许平台给我透明/模糊」，否则窗口会被强制刷成不透明底，
     /// DWM 的材质就被盖住了。声明失败不算致命，照常继续。
+    ///
+    /// ⚠️ 列表**按优先级**尝试，平台会取第一个它能兑现的级别 —— 所以列表内容决定 Avalonia 自己
+    ///    走哪条实现：
+    ///    · DWM 背板（Win11 Mica / 亚克力）：<b>只能给 Transparent</b>。给 AcrylicBlur 会让 Avalonia
+    ///      自己去调 AccentPolicy，Win11 上那是"返回成功但没有模糊"的脏玻璃，还会把刚设好的
+    ///      DWM 背板盖掉（2026-10-30 实测：选亚克力整窗发灰、顶部标题区发黑）。
+    ///    · Win10 亚克力：给 AcrylicBlur（Avalonia 在 Win10 上走 WinUI 合成背板），
+    ///      再读 <see cref="Window.ActualTransparencyLevel"/> 确认平台真的兑现了。
+    ///    · Win8 Aero：给 Blur。
     /// </summary>
-    private static void EnableAvaloniaTransparency(Window win)
+    private static void EnableAvaloniaTransparency(Window win, params WindowTransparencyLevel[] levels)
     {
         try
         {
-            win.TransparencyLevelHint = new[]
-            {
-                WindowTransparencyLevel.AcrylicBlur,
-                WindowTransparencyLevel.Blur,
-                WindowTransparencyLevel.Transparent,
-                WindowTransparencyLevel.None
-            };
+            win.TransparencyLevelHint = levels;
+
+            // 真机排障凭证：Win10 亚克力"有没有真上"就看这一行 ——
+            // 实际级别不是 AcrylicBlur 时窗口没有材质，代码会退纯色/AccentPolicy。
+            PortLog.Step($"透明级别: 提示 [{string.Join(",", levels)}] → 实际 {win.ActualTransparencyLevel}");
         }
         catch { /* 平台不支持时忽略 */ }
     }

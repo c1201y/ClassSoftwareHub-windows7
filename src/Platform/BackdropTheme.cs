@@ -1,7 +1,5 @@
 using System;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
-using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Styling;
 using ClassSoftwareHub.Desktop.Core;
@@ -178,11 +176,6 @@ public static class BackdropTheme
         else
         {
             kind = Backdrop.Apply(win, state.Root, state.Prefer);
-
-            if (kind == "acrylic")
-            {
-                ApplyAcrylicTint(win, dark);
-            }
         }
 
         if (!state.Logged)
@@ -219,83 +212,4 @@ public static class BackdropTheme
         }
         catch { }
     }
-
-    // ══════════════════════════════════════════════════════════════════
-    //  Win10 亚克力着色（SetWindowCompositionAttribute）
-    // ══════════════════════════════════════════════════════════════════
-
-    private delegate int SetWindowCompositionAttributeDelegate(
-        IntPtr hwnd, ref NativeMethods.WINDOWCOMPOSITIONATTRIBDATA data);
-
-    private static SetWindowCompositionAttributeDelegate? _setComposition;
-    private static bool _compositionProbed;
-
-    /// <summary>深色用 80% 的 #1F1F1F（ABGR），浅色保持原来的 60% 白。</summary>
-    private const int TintDark = unchecked((int)0xCC1F1F1F);
-    private const int TintLight = unchecked((int)0x99FFFFFF);
-
-    private static void ApplyAcrylicTint(Window win, bool dark)
-    {
-        if (!OsInfo.SupportsAcrylicBlur) return;
-
-        try
-        {
-            var hwnd = Backdrop.TryGetHwnd(win);
-            var fn = hwnd != IntPtr.Zero ? GetSetComposition() : null;
-            if (fn is null) return;
-
-            var policy = new NativeMethods.ACCENTPOLICY
-            {
-                AccentState = NativeMethods.ACCENT_ENABLE_ACRYLICBLURBEHIND,
-                AccentFlags = 0x20,
-                GradientColor = dark ? TintDark : TintLight,
-                AnimationId = 0
-            };
-
-            var size = Marshal.SizeOf<NativeMethods.ACCENTPOLICY>();
-            var ptr = Marshal.AllocHGlobal(size);
-            try
-            {
-                Marshal.StructureToPtr(policy, ptr, false);
-                var data = new NativeMethods.WINDOWCOMPOSITIONATTRIBDATA
-                {
-                    Attribute = NativeMethods.WCA_ACCENT_POLICY,
-                    Data = ptr,
-                    SizeOfData = size
-                };
-                _ = fn(hwnd, ref data);
-            }
-            finally { Marshal.FreeHGlobal(ptr); }
-        }
-        catch { /* 上不了就维持 Backdrop 给的原样，不影响功能 */ }
-    }
-
-    private static SetWindowCompositionAttributeDelegate? GetSetComposition()
-    {
-        if (_compositionProbed) return _setComposition;
-        _compositionProbed = true;
-
-        try
-        {
-            var user32 = LoadLibrary("user32.dll");
-            if (user32 == IntPtr.Zero) return null;
-
-            var addr = GetProcAddress(user32, "SetWindowCompositionAttribute");
-            if (addr == IntPtr.Zero) return null;
-
-            _setComposition = Marshal.GetDelegateForFunctionPointer<SetWindowCompositionAttributeDelegate>(addr);
-        }
-        catch
-        {
-            _setComposition = null;
-        }
-
-        return _setComposition;
-    }
-
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern IntPtr LoadLibrary(string lpFileName);
-
-    [DllImport("kernel32.dll", CharSet = CharSet.Ansi, SetLastError = true, BestFitMapping = false)]
-    private static extern IntPtr GetProcAddress(IntPtr hModule, string lpProcName);
 }
