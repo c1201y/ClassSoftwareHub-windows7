@@ -770,6 +770,132 @@ public sealed partial class MainWindow : Window
         }
 
         ApplyWindowRounding();   // ⚠️ 必须在扩展客户区之后 —— 那一步会把圆角偏好按回 Default(直角)
+        AttachCaptionHitTest();  // 扩展客户区不会自动给出 HTCAPTION，标题栏拖动得自己补
+    }
+
+    /// <summary>
+    /// 标题栏右侧留给**系统绘制的三大金刚**的宽度（dip）。
+    /// 与 ShellPage 里 <c>TitleBarActions</c> 的右边距（<c>Margin="0,0,170,0"</c>）同值 ——
+    /// 改一处必须改两处，否则要么点按钮变成拖窗口，要么按钮左边多出一条拖不动的死区。
+    /// </summary>
+    private const double SystemCaptionZoneWidth = 170;
+
+    /// <summary>
+    /// Windows 10/11（扩展客户区路线）的标题栏命中测试。
+    ///
+    /// <para>
+    /// ⚠️ 2026-10-30（用户：「Win10 以上拖不动窗口，Win7 可以」）：两条路线的拖动能力原来并不一致。
+    ///    Win7 的 <see cref="Core.SelfDrawnFrame"/> 会把标题栏报成 <c>HTCAPTION</c>，系统自己去跑移动循环；
+    ///    Win10/11 走 Avalonia 的扩展客户区，而 Avalonia 不处理 <c>WM_NCHITTEST</c>
+    ///    （实测整条标题栏一律 <c>HTCLIENT=1</c>，只有四周缩放带是 HTLEFT/…），
+    ///    于是**没有任何地方产生 HTCAPTION** —— 鼠标压在标题栏上拖，系统根本不会进入移动循环。
+    /// </para>
+    ///
+    /// <para>
+    /// 这一层补的正是它：先让 DefWindowProc 算（缩放边照旧），它报 HTCLIENT 时才在
+    /// 「标题栏高度内、且不在交互控件 / 系统三大金刚上」报 HTCAPTION。
+    /// 报了之后拖动、拖到顶部最大化、贴边吸附、双击最大化由系统提供，与 Win7 那条路线同一套机制。
+    /// </para>
+    /// </summary>
+    private void AttachCaptionHitTest()
+    {
+        try
+        {
+            if (PlatformImpl is null)
+            {
+                // 构造期平台实现还没建：等窗口真正显示出来再补挂（只补这一次）
+                Opened += (_, _) =>
+                {
+                    try { AttachCaptionHitTest(); }
+                    catch (Exception ex) { Debug.WriteLine("[shell] 标题栏命中测试挂载失败: " + ex.Message); }
+                };
+                return;
+            }
+
+            var implName = PlatformImpl.GetType().FullName ?? "";
+            if (implName.IndexOf("Win32", StringComparison.Ordinal) < 0)
+            {
+                Platform.PortLog.Step("MainWindow: 非 Win32 后端，跳过标题栏命中测试（" + implName + "）");
+                return;
+            }
+
+            Win32Properties.AddWndProcHookCallback(this, OnCaptionHitTest);
+            Platform.PortLog.Step("MainWindow: 已接管标题栏命中测试（HTCAPTION，右侧 " +
+                                  SystemCaptionZoneWidth + "dip 系统按钮区除外）");
+        }
+        catch (Exception ex)
+        {
+            // 挂不上不影响其它功能：最坏就是标题栏拖不动（和修复前一样）
+            Debug.WriteLine("[shell] 标题栏命中测试挂载失败: " + ex.Message);
+            Platform.PortLog.Step("MainWindow: 标题栏命中测试挂载失败 - " + ex.Message);
+        }
+    }
+
+    private IntPtr OnCaptionHitTest(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg != NativeMethods.WM_NCHITTEST) return IntPtr.Zero;
+
+        // 先听系统的：四周缩放带、它认定的其它非客户区命中，一概照传
+        var sys = NativeMethodsShell.DefWindowProc(hWnd, NativeMethods.WM_NCHITTEST, IntPtr.Zero, lParam);
+        if (sys != new IntPtr(NativeMethodsEx.HTCLIENT))
+        {
+            handled = true;
+            return sys;
+        }
+
+        if (!NativeMethods.GetWindowRect(hWnd, out var wr)) return IntPtr.Zero;
+
+        // lParam 是屏幕坐标，高低 16 位各一个有符号 short
+        var sx = unchecked((short)(long)lParam);
+        var sy = unchecked((short)(((long)lParam >> 16) & 0xFFFF));
+        var x = sx - wr.Left;
+        var y = sy - wr.Top;
+
+        var scale = RenderScaling;
+        if (scale <= 0) scale = 1;
+
+        var titlePx = (int)Math.Round(ShellConfig.TitleBarHeight * scale);
+        if (y < 0 || y >= titlePx) return IntPtr.Zero;
+
+        // 三大金刚是系统画的、系统自己处理点击，抢成 HTCAPTION 就点不动了
+        var sysZonePx = (int)Math.Round(SystemCaptionZoneWidth * scale);
+        if (x >= wr.Width - sysZonePx) return IntPtr.Zero;
+
+        // 标题栏内的交互控件（搜索框 / 主题键 / 返回键）同理：抢了就会变成拖窗口
+        if (IsOverTitleBarControl(x / scale, y / scale)) return IntPtr.Zero;
+
+        // 顶边留给缩放：扩展客户区之后 DefWindowProc 不再上报顶部缩放带（实测顶端整条报 HTCLIENT），
+        // 不补的话顶边既拖不动大小、又变成拖窗口 —— 与原生窗口（顶 10px 报 HTTOP）不一致。
+        // 与 Win7 路线一致：缩放带宽度 6dip，且排在交互控件之后（控件优先）。
+        var bandPx = (int)Math.Round(6 * scale);
+        if (bandPx < 1) bandPx = 1;
+        if (y < bandPx)
+        {
+            handled = true;
+            if (x < bandPx) return new IntPtr(NativeMethodsEx.HTTOPLEFT);
+            if (x >= wr.Width - bandPx) return new IntPtr(NativeMethodsEx.HTTOPRIGHT);
+            return new IntPtr(NativeMethodsEx.HTTOP);
+        }
+
+        handled = true;
+        return new IntPtr(NativeMethods.HTCAPTION);
+    }
+
+    private bool IsOverTitleBarControl(double xDip, double yDip)
+    {
+        try
+        {
+            var pt = new Point(xDip, yDip);
+            foreach (var r in TitleBarInteractiveRegions())
+            {
+                if (r.Width > 0 && r.Height > 0 && r.Contains(pt)) return true;
+            }
+        }
+        catch
+        {
+            // 控件树正在重建时取不到坐标：按"不在控件上"处理，最坏是这一下拖动了窗口
+        }
+        return false;
     }
 
     /// <summary>
