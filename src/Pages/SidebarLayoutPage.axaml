@@ -187,14 +187,14 @@
                         </views:SettingsCard>
 
                         <views:SettingsCard Header="收起样式"
-                                               Description="收起后只留一条竖线（没有内芯小点）。粗 = 8 dip 好点好按；细 = 6 dip 更隐形。长度都能在下面调。">
+                                               Description="收起后留在屏幕边上的那一截。圆角抓手（默认）= 20 dip 的圆角条（紧凑档 12 dip），中间带一截 5×48 的圆角内芯（紧凑档 4×34），好点好按；细竖线 = 6 dip 光溜溜的一条线，更隐形。长度都能在下面调。">
                             <views:SettingsCard.HeaderIcon>
                                 <fa:FontIcon Glyph="&#xE8A0;" />
                             </views:SettingsCard.HeaderIcon>
                             <ComboBox x:Name="CollapsedStyleCombo" MinWidth="170"
                                       SelectionChanged="CollapsedStyle_SelectionChanged">
-                                <ComboBoxItem Content="粗一点（8 dip）" Tag="grip" />
-                                <ComboBoxItem Content="细一点（6 dip）" Tag="line" />
+                                <ComboBoxItem Content="圆角抓手（20 dip）" Tag="grip" />
+                                <ComboBoxItem Content="细竖线（6 dip）" Tag="line" />
                             </ComboBox>
                         </views:SettingsCard>
 
@@ -280,10 +280,10 @@
 
                         <!--
                           收起时离屏幕边缘（2026-10-11 上游：有用户不喜欢那道缝，做成可选；2026-10-22 移植）
-                          ⚠️ 只对**收起态**生效 —— 展开后的面板始终紧贴边缘。
+                          ⚠️ 只对**收起态**生效 —— 展开面板跟屏幕边固定留 5 dip（ToolSidebarWindow.ExpandedGapDip，2026-10-31 用户要求），不跟这一项走。
                         -->
                         <views:SettingsCard Header="收起时离屏幕边缘"
-                                               Description="侧边栏收起成那条小抓手时，与屏幕边缘之间留出的距离。选「0」即紧贴屏幕边缘。此项仅对收起状态生效，展开后的面板始终紧贴边缘。">
+                                               Description="侧边栏收起成那条小抓手时，与屏幕边缘之间留出的距离。选「0」即紧贴屏幕边缘。此项仅对收起状态生效；展开后的面板固定与屏幕边缘留 5 dip 间距。">
                             <views:SettingsCard.HeaderIcon>
                                 <fa:FontIcon Glyph="&#xE71D;" />
                             </views:SettingsCard.HeaderIcon>

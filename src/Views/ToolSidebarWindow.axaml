@@ -28,14 +28,16 @@
             <Grid x:Name="BarHost">
                     <!--
                       收起状态：**两种样式二选一**（「侧边布局」页 → 收起样式）——
-                        · grip 圆角抓手（默认）＝ 8×110 的圆角条；
-                        · line 细竖线         ＝ 6×220 的圆角细条；
+                        · grip 圆角抓手（默认）＝ 20×110 的圆角条 + 中间 5×48 内芯（紧凑档 12×72 + 4×34）；
+                        · line 细竖线         ＝ 6×220 的圆角细条（无内芯）；
                       两者都可在「侧边布局 → 收起条长度」调长短。
-                      ⚠️ 2026-10-17 用户「我只要一个竖线，把现在竖线里面的那一小点去掉」：
-                          **不再画内芯**（原 GripStack / Grip 那截 5×48 小条已删）——
-                          窗口本身就是那条线，悬停反馈走 LineHover 整条亮。
-                          （2026-10-12 的「去掉内芯」当时只做在 line 样式上，grip 还留着内芯，
-                            用户看到的就是「竖线里面有一小点」，这次两套一起干净。）
+                      ⚠️ 2026-10-31 用户「收起时的圆形抓手样式被砍了吗，win7 端怎么没有了，没砍的话补回来」：
+                          查上游 origin/main（WinUI 原版）—— GripStack + Grip 那截 5×48 圆角小条一直都在。
+                          本移植版 2026-10-17 按「我只要一个竖线，把现在竖线里面的那一小点去掉」把**两套**
+                          内芯一起删了，那次的诉求其实只针对细竖线样式，抓手样式被误伤。现在补回：
+                            · grip 圆角抓手 = 上游口径的 20×110 圆角条（紧凑 12×72）+ 里面 5×48 内芯（紧凑 4×34）；
+                            · line 细竖线   = 仍然光溜溜（用户当时要的就是这个，保持不动）。
+                          显隐/横竖由代码按样式和贴的边摆，见 ApplyCollapsedGrip。
                       ⚠️ 两种样式共用同一个 CollapsedView —— 所有按下/抬起/滑动手势的处理器
                          只挂这一层，切样式不用改任何事件接线。
                       ⚠️ 悬停高亮（PointerEntered/Exited）也是共用的，见 UpdateCollapsedLook。
@@ -48,6 +50,16 @@
                           PointerCaptureLost="Strip_PointerCaptureLost"
                           PointerEntered="Strip_PointerEntered"
                           PointerExited="Strip_PointerExited">  <!-- 指向专门的 CaptureLost 处理器（参数类型不同，不能复用 PointerReleased） -->
+                        <!--
+                          抓手内芯（grip 样式专用；尺寸/横竖由 ApplyCollapsedGrip 按边摆）。
+                          ⚠️ 数值照抄上游 origin/main：5×48、圆角 3、透明度 0.6。
+                        -->
+                        <StackPanel x:Name="GripStack" Orientation="Vertical" Spacing="6"
+                                    HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <Border x:Name="Grip" Width="5" Height="48" CornerRadius="3" Opacity="0.6"
+                                    Background="{DynamicResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
+
                         <!-- 悬停高亮层：铺满整条窗口，只做视觉反馈，不吃点击 -->
                         <Border x:Name="LineHover" IsHitTestVisible="False" Opacity="0" CornerRadius="3"
                                 Background="{DynamicResource TextFillColorSecondaryBrush}" />

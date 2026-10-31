@@ -1888,7 +1888,7 @@ public sealed partial class SidebarLayoutPage : PageBase
 
     /// <summary>
     /// 「收起样式」切换：圆角抓手 / 细竖线。
-    /// ⚠️ 换的是**窗口尺寸**（grip 8×110 → line 6×220，长度还可调），所以必须整套 ApplySize + MoveToEdge，
+    /// ⚠️ 换的是**窗口尺寸**（grip 20×110 / 紧凑 12×72 → line 6×220，长度还可调），所以必须整套 ApplySize + MoveToEdge，
     ///    同样走 <see cref="ToolSidebarWindow.ApplyStyle"/>。
     /// </summary>
     private void CollapsedStyle_SelectionChanged(object? sender, SelectionChangedEventArgs e)
