@@ -13,6 +13,7 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using ClassSoftwareHub.Desktop.Platform;
 
 namespace ClassSoftwareHub.Desktop.Pages.Tools;
@@ -196,7 +197,17 @@ public sealed partial class EncodingToolPage : PageBase
     private void PickFile_Click(object? sender, RoutedEventArgs e) => ChooseFile();
 
     /// <summary>拖放区整块也可以点 —— 少一层"我到底该点哪个按钮"的犹豫。</summary>
-    private void DropZone_Tapped(object? sender, TappedEventArgs e) => ChooseFile();
+    /// <remarks>
+    /// ⚠️ 2026-10-31：<c>PickFileButton</c> / <c>ClearFileButton</c> 就在这条 Border 里，
+    /// 按钮自己的 Click 已经处理了动作，但 Tapped 仍会继续冒泡上来 ——
+    /// 实测点一次「选择文件」会**连弹两次**文件对话框（第一次关掉后第二次才出来），
+    /// 点「清除」还会顺带弹出选择器。凡是从按钮冒上来的 Tapped 一律忽略。
+    /// </remarks>
+    private void DropZone_Tapped(object? sender, TappedEventArgs e)
+    {
+        if (e.Source is Visual v && v.FindAncestorOfType<Button>(includeSelf: true) is not null) return;
+        ChooseFile();
+    }
 
     private async void ChooseFile()
     {
