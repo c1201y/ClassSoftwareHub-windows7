@@ -59,7 +59,10 @@ public static class ShellConfig
     // ◀ ● ● ▶（不再压住首末列、点击不再被吞）；收起时一连两次 Collapse 只认第一次
     // （以前第二次会跳过淡出，边上那条看着像"乱飞"）；网格滑动翻页不再抢指针
     // （按钮照样能点，横滑改成"移动中判据 + 抬手隧道补判 + 面板级事件跟踪"，滑完不会误开工具）。
-    public const string ShellVersion = "1.2.0-insider1.3";
+    // 2026-10-30：**1.2.0-insider1.3 → 1.2.0-insider1.4**。新功能：
+    // ① 「文件快搜」工具（自带后台目录索引 + 本机缓存，浮窗 / 完整页 / 侧边栏 / 托盘四处入口）。
+    // 2026-10-31：版本号**保持 1.2.0-insider1.4**（用户明确要求不抬号）。新增「PPT 续播」。
+    public const string ShellVersion = "1.2.0-insider1.4";
 
     /// <summary>当前是不是预览（内测）构建 —— 版本号里带 <c>insider</c> 即为真。</summary>
     public static bool IsInsider =>
