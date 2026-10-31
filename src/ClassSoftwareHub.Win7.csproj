@@ -35,10 +35,10 @@
     <ApplicationResourceIncludeAssetsFromPackages>true</ApplicationResourceIncludeAssetsFromPackages>
 
     <!-- 版本号规则见 Core/ShellConfig.cs（ShellVersion 是唯一来源，这里只是写进 exe 的元数据） -->
-    <Version>1.2.0-insider1.3</Version>
+    <Version>1.2.0-insider1.4</Version>
     <AssemblyVersion>1.2.0.0</AssemblyVersion>
     <FileVersion>1.2.0.0</FileVersion>
-    <InformationalVersion>1.2.0-insider1.3</InformationalVersion>
+    <InformationalVersion>1.2.0-insider1.4</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Product>ClassSoftwareHub</Product>
     <AssemblyTitle>ClassSoftwareHub</AssemblyTitle>
@@ -138,6 +138,10 @@
     <EmbeddedResource Include="..\Assets\roster\roster-sample.txt" Link="Assets\roster\roster-sample.txt" />
     <EmbeddedResource Include="..\Assets\roster\roster-sample.xlsx" Link="Assets\roster\roster-sample.xlsx" />
     <EmbeddedResource Include="..\Assets\Audio\timer-alarm.wav" Link="Assets\Audio\timer-alarm.wav" />
+    <!-- ⚠️ 2026-10-31：announce-alert.wav 漏了这行 —— AnnounceSound 一直在按这个名字找内嵌资源，
+         Embed 名单里却只有 timer-alarm.wav，于是教室喊话的默认提示音永远取不到（静默不响）。
+         加资源时记得两边（文件 + 本清单）一起加。 -->
+    <EmbeddedResource Include="..\Assets\Audio\announce-alert.wav" Link="Assets\Audio\announce-alert.wav" />
   </ItemGroup>
 
   <ItemGroup>

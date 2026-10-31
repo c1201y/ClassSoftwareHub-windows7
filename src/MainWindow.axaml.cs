@@ -1586,13 +1586,14 @@ public sealed partial class MainWindow : Window
             _tray.LeftClick += ToggleMainWindow;
             _tray.CommandInvoked += OnTrayCommand;
             _tray.BalloonClicked += OnBalloonClicked;
-            _tray.MenuItems.Add(new TrayMenuItem { Text = "打开主界面", Command = "show", IsDefault = true });
-            _tray.MenuItems.Add(new TrayMenuItem { Text = "常用工具", Command = "palette" });
-            _tray.MenuItems.Add(new TrayMenuItem { Text = "工具侧边栏", Command = "sidebar" });
+            _tray.MenuItems.Add(new TrayMenuItem { Text = "打开主界面", Command = "show", IsDefault = true, Glyph = "\uE80F" });
+            _tray.MenuItems.Add(new TrayMenuItem { Text = "常用工具", Command = "palette", Glyph = "\uE71D" });
+            _tray.MenuItems.Add(new TrayMenuItem { Text = "文件快搜", Command = "file-search", Glyph = "\uE721" });
+            _tray.MenuItems.Add(new TrayMenuItem { Text = "工具侧边栏", Command = "sidebar", Glyph = "\uE8A0" });
             _tray.MenuItems.Add(new TrayMenuItem { Separator = true });
-            _tray.MenuItems.Add(new TrayMenuItem { Text = "检查更新", Command = "update" });
+            _tray.MenuItems.Add(new TrayMenuItem { Text = "检查更新", Command = "update", Glyph = "\uE72C" });
             _tray.MenuItems.Add(new TrayMenuItem { Separator = true });
-            _tray.MenuItems.Add(new TrayMenuItem { Text = "退出", Command = "exit" });
+            _tray.MenuItems.Add(new TrayMenuItem { Text = "退出", Command = "exit", Glyph = "\uE7E8" });
 
             if (!_tray.Setup(ShellConfig.WindowTitle))
                 Debug.WriteLine("[tray] 托盘图标没挂上（挂不上时关闭窗口仍然直接退出）");
@@ -1601,10 +1602,10 @@ public sealed partial class MainWindow : Window
             _trayTools = new Win32TrayIcon(ToolIconPath());
             _trayTools.LeftClick += () => Views.ToolPaletteWindow.TogglePalette();
             _trayTools.CommandInvoked += OnTrayCommand;
-            _trayTools.MenuItems.Add(new TrayMenuItem { Text = "打开常用工具", Command = "palette", IsDefault = true });
-            _trayTools.MenuItems.Add(new TrayMenuItem { Text = "打开主界面", Command = "show" });
+            _trayTools.MenuItems.Add(new TrayMenuItem { Text = "打开常用工具", Command = "palette", IsDefault = true, Glyph = "\uE71D" });
+            _trayTools.MenuItems.Add(new TrayMenuItem { Text = "打开主界面", Command = "show", Glyph = "\uE80F" });
             _trayTools.MenuItems.Add(new TrayMenuItem { Separator = true });
-            _trayTools.MenuItems.Add(new TrayMenuItem { Text = "退出", Command = "exit" });
+            _trayTools.MenuItems.Add(new TrayMenuItem { Text = "退出", Command = "exit", Glyph = "\uE7E8" });
 
             if (!_trayTools.Setup("常用工具"))
                 Debug.WriteLine("[tray] 第二个托盘图标没挂上");
@@ -1647,6 +1648,9 @@ public sealed partial class MainWindow : Window
                 break;
             case "palette":
                 Views.ToolPaletteWindow.ShowTool();
+                break;
+            case "file-search":
+                Views.FileSearchWindow.ShowWindow();
                 break;
             case "sidebar":
                 Views.ToolSidebarWindow.ShowSidebar();
@@ -2434,6 +2438,8 @@ public sealed partial class MainWindow : Window
         try { Views.MessageWindow.CloseForExit(); } catch { }   // 桌面留言悬浮窗（可拖动、置顶，同样会撑住消息循环）
         try { Views.LogDetailWindow.CloseForExit(); } catch { }
         try { Views.SubjectToolsWindow.CloseForExit(); } catch { }   // 学科工具独立窗口（1.3） // 日志详细视图（独立窗口，开发者排障用）
+        try { Views.FileSearchWindow.CloseForExit(); } catch { }     // 文件快搜浮窗（1.4）
+        try { Views.PptResumeWindow.CloseForExit(); } catch { }      // PPT 续播浮窗（1.4）
 
         // 兜底扫一遍：其它自建窗口（贴纸 / 音量 / 截图 / 虚拟键盘…）一并收掉，
         // 谁家窗口忘了自己关，这里统一兜住。App.IsExiting 已经置位，拦关闭的窗口会放行。

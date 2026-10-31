@@ -27,6 +27,9 @@ public sealed partial class ToolsPage : PageBase
         _loading = false;
     }
 
+    /// <summary>当前显示的是哪一组（导航回高亮时据此区分「课堂工具 / 系统工具」两个父项）。</summary>
+    public ToolGroup Group { get; private set; } = ToolGroup.Classroom;
+
     /// <summary>
     /// 按导航传进来的参数决定显示哪一组（<c>classroom</c> / <c>system</c>）。
     /// ⚠️ 两个导航父项共用这一个页面：板式、卡片、交互全部一样，只是数据集与标题不同。
@@ -39,6 +42,7 @@ public sealed partial class ToolsPage : PageBase
         var group = string.Equals(parameter as string, "system", StringComparison.OrdinalIgnoreCase)
             ? ToolGroup.System
             : ToolGroup.Classroom;
+        Group = group;
 
         var items = ToolCatalog.All.Where(t => t.Group == group).ToList();
 

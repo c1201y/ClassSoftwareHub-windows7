@@ -1,0 +1,46 @@
+<platform:PageBase
+    x:Class="ClassSoftwareHub.Desktop.Pages.Tools.FileSearchPage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:views="using:ClassSoftwareHub.Desktop.Views">
+
+    <!--
+      文件快搜的完整页面（2026-10-29 insider1.4）。
+      搜索本体与浮窗共用 Views/FileSearchView；这里多出来的是标题、索引范围（磁盘勾选）
+      与「打开浮窗」入口 —— 浮窗里放不下这些，但用户细调时得有地方去。
+    -->
+    <Grid Background="Transparent">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="1*" />
+            <ColumnDefinition Width="998*" MaxWidth="960" />
+            <ColumnDefinition Width="1*" />
+        </Grid.ColumnDefinitions>
+
+        <Grid Grid.Column="1" Margin="24,14,24,20" RowDefinitions="Auto,Auto,*">
+            <StackPanel Spacing="2">
+                <TextBlock Text="文件快搜" FontSize="28" FontWeight="Bold" />
+                <TextBlock FontSize="12" Opacity="0.6" TextWrapping="Wrap"
+                           Text="在本机磁盘里快速查找文件与文件夹。索引在后台建立并缓存在本机，输入关键词即时出结果；全部在本机完成，不联网。" />
+            </StackPanel>
+
+            <Border Grid.Row="1" Margin="0,12,0,0" Padding="12,10"
+                    CornerRadius="6" BorderThickness="1"
+                    BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+                    Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                    <TextBlock Text="索引范围" FontSize="12" Opacity="0.65"
+                               VerticalAlignment="Center" Margin="0,0,12,0" />
+                    <StackPanel x:Name="DrivePanel" Grid.Column="1" Orientation="Horizontal"
+                                Spacing="14" VerticalAlignment="Center" />
+                    <Button x:Name="OpenWindowButton" Grid.Column="2" Content="打开浮窗" MinWidth="0"
+                            Padding="12,5" Margin="0,0,8,0" Click="OpenWindow_Click" />
+                    <Button x:Name="RebuildButton" Grid.Column="3" Content="重建索引" MinWidth="0"
+                            Padding="12,5" Click="Rebuild_Click" />
+                </Grid>
+            </Border>
+
+            <views:FileSearchView x:Name="SearchView" Grid.Row="2" Margin="0,10,0,0" />
+        </Grid>
+    </Grid>
+</platform:PageBase>

@@ -94,6 +94,13 @@ public static class SidebarModules
         new() { Id = "encoding", Name = "编码 / 哈希转换", ShortName = "编码", Glyph = "\uE943", Kind = SidebarModuleKinds.Page, Page = typeof(Pages.Tools.EncodingToolPage) },
         new() { Id = "mirror-download", Name = "系统镜像下载", ShortName = "镜像", Glyph = "\uE896", Kind = SidebarModuleKinds.Page, Page = typeof(Pages.Tools.MirrorToolPage) },
 
+        // 文件快搜（2026-10-29 insider1.4）：独立浮窗，点一下就搜本机文件，不必拉主界面。
+        // Kind 仍走 Window（独立窗口）；ToolSidebarWindow 按 WindowTool 分派到 FileSearchWindow。
+        new() { Id = "file-search", Name = "文件快搜", ShortName = "找文件", Glyph = "\uE721", Kind = SidebarModuleKinds.Window, WindowTool = "file-search", Note = "在独立浮窗中搜索本机文件与文件夹，不必打开主界面" },
+
+        // PPT 续播（2026-10-31）：独立浮窗，上课时点一下就从上次那一页继续放映。
+        new() { Id = "ppt-resume", Name = "PPT 续播", ShortName = "续播", Glyph = "\uE714", Kind = SidebarModuleKinds.Window, WindowTool = "ppt-resume", Note = "在独立浮窗中按科目续播课件：从上次停下的那一页继续放映" },
+
         // ── 学科工具（2026-10-18 上游 Nick 要；2026-10-22 移植）──
         // 函数图像 / 方程求解 / 化学配平**各占一项**，点哪项就直接开那件工具，单开一扇窗、**不拉主界面**。
         // ⛔ Nick 明确否过"合并成一个「学科」入口"：三个工具要有三个按钮。

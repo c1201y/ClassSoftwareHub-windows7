@@ -247,6 +247,12 @@
                                 <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xE80A;" />
                             </fa:NavigationViewItem.IconSource>
                         </fa:NavigationViewItem>
+                        <!-- PPT 续播（2026-10-31）：与 ToolCatalog / 侧边栏模块同一条目，漏了它窄条二级菜单里就没有入口 -->
+                        <fa:NavigationViewItem Content="PPT 续播" Tag="ppt-resume">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xE714;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
                     </fa:NavigationViewItem.MenuItems>
                 </fa:NavigationViewItem>
                 <!--
@@ -277,6 +283,11 @@
                         <fa:NavigationViewItem Content="磁盘空间" Tag="disk-map">
                             <fa:NavigationViewItem.IconSource>
                                 <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xE7F1;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
+                        <fa:NavigationViewItem Content="文件快搜" Tag="file-search">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xE721;" />
                             </fa:NavigationViewItem.IconSource>
                         </fa:NavigationViewItem>
                     </fa:NavigationViewItem.MenuItems>

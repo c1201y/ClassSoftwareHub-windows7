@@ -1,0 +1,94 @@
+<platform:PageBase
+    x:Class="ClassSoftwareHub.Desktop.Pages.Tools.PptResumePage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:platform="using:ClassSoftwareHub.Desktop.Platform">
+
+    <!--
+      PPT 续播的完整页面（2026-10-31）。
+
+      用法：内置工具 → PPT 续播（侧边栏也可加「续播」模块，直接开浮窗）。
+      课表走 CSES（Course Schedule Exchange Schema v1）的 JSON；每科课件记录由后台服务
+      在放映时自动写入，这里负责导入课表、指定课件、查看/清除各科进度。
+    -->
+    <Grid Background="Transparent">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="1*" />
+            <ColumnDefinition Width="998*" MaxWidth="960" />
+            <ColumnDefinition Width="1*" />
+        </Grid.ColumnDefinitions>
+
+        <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="24,14,24,28" Spacing="12">
+                <StackPanel Spacing="2">
+                    <TextBlock Text="PPT 续播" FontSize="28" FontWeight="Bold" />
+                    <TextBlock FontSize="12" Opacity="0.6" TextWrapping="Wrap"
+                               Text="按课表记住每个科目讲到了第几页：放映时自动记录，课件关掉后从侧边栏浮窗点一下就从上次那一页继续。需要本机安装 PowerPoint 或 WPS 演示。" />
+                </StackPanel>
+
+                <!-- ① 课表 -->
+                <Border Padding="14" CornerRadius="6" BorderThickness="1"
+                        BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="课表" FontSize="14" FontWeight="SemiBold" />
+
+                        <Grid ColumnDefinitions="*,Auto,Auto">
+                            <TextBlock x:Name="TimetableText" FontSize="12.5" Opacity="0.75"
+                                       VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,12,0" />
+                            <Button x:Name="ImportButton" Grid.Column="1" Content="导入 CSES 课表"
+                                    MinWidth="0" Padding="12,5" Margin="0,0,8,0" Click="Import_Click" />
+                            <Button x:Name="ClearTimetableButton" Grid.Column="2" Content="清除"
+                                    MinWidth="0" Padding="12,5" Click="ClearTimetable_Click" />
+                        </Grid>
+
+                        <Grid ColumnDefinitions="Auto,150,Auto,*">
+                            <TextBlock Text="本学期第一周周一" FontSize="12.5" Opacity="0.7"
+                                       VerticalAlignment="Center" Margin="0,0,10,0" />
+                            <TextBox x:Name="SemesterStartBox" Grid.Column="1" FontSize="12.5"
+                                     Watermark="2026-09-01" Height="30" VerticalContentAlignment="Center" />
+                            <Button x:Name="ApplySemesterButton" Grid.Column="2" Content="应用"
+                                    MinWidth="0" Padding="12,5" Margin="8,0,6,0" Click="ApplySemester_Click" />
+                            <TextBlock x:Name="ParityText" Grid.Column="3" FontSize="12"
+                                       Opacity="0.6" VerticalAlignment="Center" TextWrapping="Wrap" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- ② 当前 -->
+                <Border Padding="14" CornerRadius="6" BorderThickness="1"
+                        BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="当前" FontSize="14" FontWeight="SemiBold" />
+
+                        <TextBlock x:Name="LessonText" FontSize="19" FontWeight="SemiBold"
+                                   TextWrapping="Wrap" />
+                        <TextBlock x:Name="LiveText" FontSize="12.5" Opacity="0.7" TextWrapping="Wrap" />
+
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button x:Name="ResumeCurrentButton" Classes="accent" Content="续播当前科目"
+                                    MinWidth="0" Padding="14,6" Click="ResumeCurrent_Click" />
+                            <Button x:Name="OpenWindowButton" Content="打开浮窗"
+                                    MinWidth="0" Padding="14,6" Click="OpenWindow_Click" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- ③ 各科进度 -->
+                <Border Padding="14" CornerRadius="6" BorderThickness="1"
+                        BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="各科进度" FontSize="14" FontWeight="SemiBold" />
+                        <TextBlock FontSize="12" Opacity="0.6" TextWrapping="Wrap"
+                                   Text="放映时会自动记录当前页；也可以给某个科目指定课件，它会从头开始记。" />
+                        <StackPanel x:Name="SubjectList" Spacing="4" Margin="0,2,0,0" />
+                    </StackPanel>
+                </Border>
+
+                <TextBlock x:Name="StatusText" FontSize="12" Opacity="0.75" TextWrapping="Wrap" />
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</platform:PageBase>

@@ -50,6 +50,20 @@ public sealed class AppSettings
     /// </summary>
     public bool TrayHideHintShown { get; set; }
 
+    // ── 文件快搜（2026-10-29 insider1.4）──────────────────────────────
+
+    /// <summary>
+    /// 「文件快搜」索引哪些磁盘（根路径，如 <c>C:\</c>）。空数组 = 所有已就绪的固定 / 可移动磁盘。
+    /// 改选会在「文件快搜」页里触发一次重建（见 <see cref="FileSearchService.RebuildForScopeChange"/>）。
+    /// </summary>
+    public string[] FileSearchDrives { get; set; } = Array.Empty<string>();
+
+    /// <summary>「文件快搜」浮窗是否始终置顶，默认开。</summary>
+    public bool FileSearchOnTop { get; set; } = true;
+
+    /// <summary>「PPT 续播」浮窗是否始终置顶，默认开。</summary>
+    public bool PptResumeOnTop { get; set; } = true;
+
     /// <summary>工具浮窗是否始终置顶，默认开。</summary>
     public bool PaletteOnTop { get; set; } = true;
 
@@ -162,7 +176,7 @@ public sealed class AppSettings
     /// <summary>
     /// 侧边栏**收起条**的大小样式（2026-10-18 自上游 1.2.0 移植；Nick：有用户嫌默认那套悬浮按钮太大）：
     /// <list type="bullet">
-    ///   <item><c>standard</c>（默认）= 现在这套：抓手 8×110，展开后面板宽 92 dip，按钮 52 高、图标 20、图标下面带短名。</item>
+    ///   <item><c>standard</c>（默认）= 现在这套：抓手 20×110，展开后面板宽 92 dip，按钮 52 高、图标 20、图标下面带短名。</item>
     ///   <item><c>compact</c> = 紧凑：细条 + 小图标小字，但**按钮本身的点击区域不跟着缩到底**
     ///         （否则细条上的键点不准，Nick 特意提的）。</item>
     /// </list>
@@ -460,7 +474,8 @@ public sealed class AppSettings
     /// 侧边栏**收起**时那条小抓手离屏幕边缘留多少 dip（2026-10-11 Nick：有用户不喜欢那道缝）。
     /// <c>0</c> = 紧贴屏幕边缘；默认 <c>6</c>（与 <c>ToolSidebarWindow.CollapsedGapDip</c> 的默认值一致）。
     ///
-    /// ⚠️ 只在**收起态**生效 —— 展开态的面板始终紧贴边缘（面板悬空一条缝很难看），这是刻意的行为差异。
+    /// ⚠️ 只在**收起态**生效 —— 展开态的面板跟屏幕边也有间距，但那是写死的 5 dip
+    ///    （<c>ToolSidebarWindow.ExpandedGapDip</c>，2026-10-31 用户要求），不跟这一项走。
     /// ⚠️ 值会被夹到 0~24（见 <c>ToolSidebarWindow.CollapsedGapDip</c>）：存档里万一存了离谱的数，
     ///    边条会被推到屏幕中间去，那就不是"贴边"了。
     /// </summary>
@@ -772,6 +787,31 @@ public sealed class SettingsStore
             }
 
             Current.SidebarModulesRevision = 3;
+            changed = true;
+        }
+
+        if (Current.SidebarModulesRevision < 4)
+        {
+            // revision 4（文件快搜，2026-10-29）：插在工具类最后、讲台动作类最前，
+            // 跟「图片取色 / 编码」这些一次性工具排在一起。
+            try
+            {
+                var list = (Current.SidebarModuleIds ?? Array.Empty<string>()).ToList();
+
+                if (!list.Contains("file-search"))
+                {
+                    var at = list.FindIndex(id => Data.SidebarModules.Find(id)?.Kind == Data.SidebarModuleKinds.Action);
+                    if (at < 0) list.Add("file-search");
+                    else list.Insert(at, "file-search");
+                    Current.SidebarModuleIds = list.ToArray();
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"补侧边栏新模块失败: {ex.Message}");
+            }
+
+            Current.SidebarModulesRevision = 4;
             changed = true;
         }
 

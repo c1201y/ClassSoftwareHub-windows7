@@ -1,0 +1,65 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:fa="using:FluentAvalonia.UI.Controls"
+             x:Class="ClassSoftwareHub.Desktop.Views.FileSearchView">
+
+    <!--
+      文件快搜的主体（浮窗与主界面「文件快搜」页共用这一份）。
+      浮窗只负责套一条 32px 的自绘标题栏；页面只负责在它上面加标题与磁盘范围设置，
+      搜索框 / 结果列表 / 底部操作三者两边完全一致，避免两套实现慢慢跑偏。
+
+      结果列表用 ListBox：键盘上下键、悬停底色、圆角行容器都是现成的。
+      行内只绑定 FileSearchItem 的四个展示字段（见 Services/FileSearchService）。
+    -->
+    <Grid RowDefinitions="Auto,*,Auto" Background="Transparent">
+        <Grid Grid.Row="0" Margin="16,12,16,6" ColumnDefinitions="*,Auto">
+            <TextBox x:Name="QueryBox" FontSize="14" MinHeight="36"
+                     Watermark="搜索本机文件与文件夹（空格分隔多个关键词）"
+                     KeyDown="Query_KeyDown" TextChanged="Query_TextChanged" />
+            <fa:ProgressRing x:Name="Busy" Grid.Column="1" Width="20" Height="20"
+                             Margin="10,0,0,0" IsActive="False" VerticalAlignment="Center" />
+        </Grid>
+
+        <Grid Grid.Row="1" Margin="10,0,10,0">
+            <ListBox x:Name="ResultList" DoubleTapped="List_DoubleTapped"
+                     SelectionChanged="List_SelectionChanged"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Grid ColumnDefinitions="Auto,*,Auto" Margin="4,5,8,5">
+                            <fa:FontIcon Glyph="{Binding Glyph}" FontSize="18"
+                                         Margin="0,0,10,0" VerticalAlignment="Center" Opacity="0.85" />
+                            <StackPanel Grid.Column="1" Spacing="2">
+                                <TextBlock Text="{Binding Name}" FontSize="13.5"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{Binding Folder}" FontSize="11.5" Opacity="0.55"
+                                           TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                            <TextBlock Grid.Column="2" Text="{Binding Meta}" FontSize="11.5"
+                                       Opacity="0.55" Margin="14,0,4,0" VerticalAlignment="Center" />
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <TextBlock x:Name="EmptyHint" IsHitTestVisible="False"
+                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                       TextAlignment="Center" FontSize="12.5" Opacity="0.55"
+                       Text="输入文件名或路径片段开始搜索，多个关键词用空格分开" />
+        </Grid>
+
+        <Grid Grid.Row="2" Margin="16,8,16,10" ColumnDefinitions="*,Auto,Auto,Auto,Auto">
+            <TextBlock x:Name="StatusText" VerticalAlignment="Center" FontSize="11.5" Opacity="0.6"
+                       TextTrimming="CharacterEllipsis" Margin="0,0,10,0" />
+
+            <Button x:Name="RebuildButton" Grid.Column="1" Content="重建索引" MinWidth="0"
+                    Padding="10,5" Click="Rebuild_Click" Margin="0,0,6,0" />
+            <Button x:Name="CopyButton" Grid.Column="2" Content="复制路径" MinWidth="0"
+                    Padding="10,5" Click="Copy_Click" Margin="0,0,6,0" IsEnabled="False" />
+            <Button x:Name="RevealButton" Grid.Column="3" Content="所在位置" MinWidth="0"
+                    Padding="10,5" Click="Reveal_Click" Margin="0,0,6,0" IsEnabled="False" />
+            <Button x:Name="OpenButton" Grid.Column="4" Content="打开" Classes="accent" MinWidth="0"
+                    Padding="14,5" Click="Open_Click" IsEnabled="False" />
+        </Grid>
+    </Grid>
+</UserControl>

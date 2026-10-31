@@ -210,6 +210,25 @@ public static class ToolCatalog
             // E80A = 九宫格（像元素周期表）。⛔ 只用 E7/E8/E9 老码位，ED 段在 Win10 是空框
             Glyph = "\uE80A", Page = typeof(ClassSoftwareHub.Desktop.Pages.Tools.ChemistryPage)
         },
+        // PPT 续播（2026-10-31）：导入 CSES 课表后，按科目记住每份课件停在第几页，
+        // 下次上这门课时在浮窗里一键从那一页继续放映（PowerPoint / WPS 都认）。
+        new ToolDef
+        {
+            Id = "ppt-resume", Name = "PPT 续播",
+            Desc = "导入 CSES 课表，按科目记住课件停在哪一页；换了别的科目上课后，回来一键从上次那一页继续放映。",
+            // E714 = 播放画面（CshSymbols 里已映射；⛔ 别用 E768，字体没映射会落到无关字形）
+            Glyph = "\uE714", Page = typeof(PptResumePage)
+        },
+        // 文件快搜（2026-10-29 insider1.4）：后台建立本机文件索引，输入即搜；
+        // 独立浮窗（Views/FileSearchWindow）与侧边栏模块共用同一份索引（Services/FileSearchService）。
+        new ToolDef
+        {
+            Id = "file-search", Name = "文件快搜",
+            Desc = "快速查找本机文件与文件夹：索引在后台建立并缓存在本机，输入关键词即时出结果。可单独开浮窗使用。",
+            // E721 = 放大镜
+            Glyph = "\uE721", Page = typeof(ClassSoftwareHub.Desktop.Pages.Tools.FileSearchPage),
+            Group = ToolGroup.System
+        },
         // 「教室喊话」上游曾于 2026-10-25 上午作为工具加在这里，当天下午 Nick 要求「提出来单独做」——
         // 已改为导航栏一级功能项（ShellPage 的 Tag=announce），不要再往工具清单里加回来（否则导航里会出现两个入口）。
     };

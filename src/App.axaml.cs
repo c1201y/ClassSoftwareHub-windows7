@@ -601,6 +601,28 @@ public partial class App : Application
         // 走后台线程，不沾首帧；新版本装完后的第一次启动正好把旧包收掉。
         Services.Updating.InstallerCleanup.Start();
 
+        // 文件快搜的索引（2026-10-29 insider1.4）：晚 5 秒再碰磁盘，别和首帧、内容包抢 I/O。
+        // 已有缓存时这 5 秒后几乎是空跑；缓存过期才真的全盘遍历（旧索引在重建完成前仍可用）。
+        try
+        {
+            Services.FileSearchService.Current.EnsureStarted(delayMs: 5000);
+        }
+        catch (Exception ex)
+        {
+            Core.AppLog.Exception("file-search", ex, "启动文件索引");
+        }
+
+        // PPT 续播（2026-10-31）：后台 STA 线程每隔两秒问一下正在放映的 PPT 停在第几页，
+        // 按科目记下来。没有 PPT 在跑时只是一句进程检查，开销可以忽略。
+        try
+        {
+            Services.PptResumeService.Current.EnsureStarted();
+        }
+        catch (Exception ex)
+        {
+            Core.AppLog.Exception("ppt-resume", ex, "启动 PPT 续播服务");
+        }
+
         // 「内置工具 → 教室喊话」主动打开后才真正上电 —— 不替所有用户默认后台轮询。
         try
         {

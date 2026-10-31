@@ -112,15 +112,33 @@ public sealed partial class ShellPage : PageBase
         try
         {
             // 2026-10-22：内置工具拆成「课堂工具 / 系统工具」两个父项，子项按 ToolDef.Group 分派，
-            // 校验时把两组合起来比（集合相等即可，父项顺序不影响）。
-            var nav = ClassroomToolsNav.MenuItems.OfType<NavigationViewItem>()
+            // 校验时把两组合起来比。2026-10-29：按**集合**比而不是按顺序 ——
+            // 分组之后两组的声明顺序与 ToolCatalog 的混合顺序本来就不一致，按 SequenceEqual
+            // 每次启动都会误报一条不一致；真正要防的是"少一项 / 多一项"。
+            // 「教室喊话」在 ToolCatalog 里但走导航一级项（见 ToolCatalog 末尾注释），不参与分组校验。
+            // 「实验性功能」组混装两类：ToolCatalog 里的工具（如自动关机，Group=System 却按风险放实验性），
+            // 以及不进 ToolCatalog 的实验功能（程序专杀 / 虚拟键盘）—— 所以这一组只要求"能覆盖 catalog"，
+            // 不要求反过来一一对应。
+            var grouped = ClassroomToolsNav.MenuItems.OfType<NavigationViewItem>()
                 .Concat(SystemToolsNav.MenuItems.OfType<NavigationViewItem>())
-                .Select(i => i.Tag as string ?? "").ToList();
-            var cat = Data.ToolCatalog.All.Select(t => t.Id).ToList();
-            if (!nav.SequenceEqual(cat))
+                .Select(i => i.Tag as string ?? "").Where(id => id.Length > 0)
+                .ToHashSet(StringComparer.Ordinal);
+            var experimental = ExperimentalNav.MenuItems.OfType<NavigationViewItem>()
+                .Select(i => i.Tag as string ?? "").Where(id => id.Length > 0)
+                .ToHashSet(StringComparer.Ordinal);
+            var cat = Data.ToolCatalog.All
+                .Where(t => !string.Equals(t.Id, "announce", StringComparison.Ordinal))
+                .Select(t => t.Id)
+                .ToHashSet(StringComparer.Ordinal);
+
+            var missing = cat.Except(grouped).Except(experimental).OrderBy(x => x).ToList();
+            var extra = grouped.Except(cat).OrderBy(x => x).ToList();
+            if (missing.Count > 0 || extra.Count > 0)
             {
-                Platform.PortLog.Step("⚠️ 导航「内置工具」子项与 ToolCatalog 不一致：nav=[" + string.Join(",", nav)
-                                      + "] catalog=[" + string.Join(",", cat) + "]（两处要一起改）");
+                Platform.PortLog.Step("⚠️ 导航「内置工具」子项与 ToolCatalog 不一致："
+                                      + (missing.Count > 0 ? "缺导航项=[" + string.Join(",", missing) + "] " : "")
+                                      + (extra.Count > 0 ? "导航项不在 catalog=[" + string.Join(",", extra) + "] " : "")
+                                      + cat.Count + " 个工具（两处要一起改）");
             }
         }
         catch
@@ -289,6 +307,13 @@ public sealed partial class ShellPage : PageBase
         {
             var tag = TagForPage(ContentFrame.CurrentSourcePageType);
             if (tag is null) return;
+
+            // 「课堂工具 / 系统工具」共用同一个 ToolsPage，页型反查不出是哪一组 ——
+            // 不纠正的话进系统工具页也会算成 tools-classroom，高亮被打回课堂工具
+            // （现象：点系统工具，左侧指示条却压在课堂工具上）。
+            if (tag == "tools-classroom" && ContentFrame.Content is ToolsPage toolsPage
+                && toolsPage.Group == Data.ToolGroup.System)
+                tag = "tools-system";
 
             // ⚠️ 2026-10-07：这里原来是 `if (CurrentTag == tag) return;`（"高亮本来就对，不动作"）——
             //    结果把**起点那一次 SelectTag 没生效**（Init 阶段项容器还没 realize）永久固化：
