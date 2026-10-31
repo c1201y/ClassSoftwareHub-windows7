@@ -109,7 +109,7 @@ public sealed partial class MessageToolPage : PageBase
         PreviewCard.BorderBrush = new SolidColorBrush(ColorOf(cfg.TextColor, Colors.Black), 0.18);
         PreviewHint.Text = cfg.Transparent ? "预览 · 悬浮窗无底色" : "预览";
 
-        ScaleLabel.Text = $"全屏放大 {cfg.FullscreenScale:0} 倍";
+        ScaleLabel.Text = $"{cfg.FullscreenScale:0} 倍";
 
         PaintSwatches();
 

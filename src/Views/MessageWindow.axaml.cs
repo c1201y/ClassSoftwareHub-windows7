@@ -182,7 +182,11 @@ public sealed partial class MessageWindow : Window
 
         // 显示之后收尾：去掉系统给无边框窗画的那 1px 边框 + 补一次圆角裁剪
         var hwnd2 = Backdrop.TryGetHwnd(this);
-        if (hwnd2 != IntPtr.Zero) WindowChrome.RemoveBorder(hwnd2, rounded: !_realTransparent, dark: false);
+        if (hwnd2 != IntPtr.Zero)
+        {
+            WindowChrome.RemoveBorder(hwnd2, rounded: !_realTransparent, dark: false);
+            WindowChrome.MarkToolWindow(hwnd2);   // 别让任务管理器把留言单列成一条「应用」
+        }
         _corners?.Refresh();
 
         AppLog.Info("message",

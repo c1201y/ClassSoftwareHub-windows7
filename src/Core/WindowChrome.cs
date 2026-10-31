@@ -153,6 +153,43 @@ public static class WindowChrome
     }
 
     /// <summary>
+    /// 把这个窗口标成「工具窗口」（<c>WS_EX_TOOLWINDOW</c>）。
+    ///
+    /// ⛔ <c>ShowInTaskbar=false</c> 在 Avalonia/Win32 上只是把窗口挂到一个隐藏父窗下
+    ///    （确实不进任务栏、不进 Alt+Tab），窗口本身仍是**普通顶级窗** ——
+    ///    任务管理器「应用」列表照旧按窗口标题单列一条（实测：「桌面留言」「工具侧边栏」）。
+    ///    只有 <c>WS_EX_TOOLWINDOW</c> 会被那套窗口枚举过滤掉（侧边栏那两条命中条一直靠它隐身）。
+    ///
+    /// ⚠️ 必须在 <c>Show()</c> 之后调：Avalonia 每次显示都会重写自己的扩展样式，会把这一位清掉
+    ///    （实测收起→再显示后读回来又没了），所以每次显示收尾都要补一遍。
+    /// </summary>
+    public static void MarkToolWindow(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero) return;
+        try
+        {
+            const long toolWindow = NativeMethods.WS_EX_TOOLWINDOW;   // 0x80，Win2000 起就有
+
+            if (IntPtr.Size == 8)
+            {
+                var ex = NativeMethodsEx.GetWindowLongPtrW(hwnd, NativeMethodsEx.GWL_EXSTYLE).ToInt64();
+                if ((ex & toolWindow) != 0) return;
+                _ = NativeMethodsEx.SetWindowLongPtrW(hwnd, NativeMethodsEx.GWL_EXSTYLE, new IntPtr(ex | toolWindow));
+            }
+            else
+            {
+                var ex = NativeMethodsEx.GetWindowLongW(hwnd, NativeMethodsEx.GWL_EXSTYLE);
+                if ((ex & (int)toolWindow) != 0) return;
+                _ = NativeMethodsEx.SetWindowLongW(hwnd, NativeMethodsEx.GWL_EXSTYLE, ex | (int)toolWindow);
+            }
+        }
+        catch
+        {
+            // 标不上顶多还在任务管理器里多列一条，不影响使用
+        }
+    }
+
+    /// <summary>
     /// 去掉窗口那圈边框；<paramref name="rounded"/> 决定四角是圆角还是直角，
     /// <paramref name="dark"/> 告诉系统"这个窗口是深色的" —— 不告诉它的话，
     /// 深色界面的无边框窗口外边会被画一圈**浅色/白色**的框（就是用 SystemBackdrop 那套材质时最明显）。

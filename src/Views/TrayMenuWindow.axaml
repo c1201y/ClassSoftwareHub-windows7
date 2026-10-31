@@ -1,0 +1,85 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="ClassSoftwareHub.Desktop.Views.TrayMenuWindow"
+        SystemDecorations="None" ShowInTaskbar="False" CanResize="False" Topmost="True"
+        WindowStartupLocation="Manual" SizeToContent="Manual">
+
+    <!--
+      托盘右键菜单（自绘）。
+
+      为什么不用原生 TrackPopupMenu（2026-10-31 用户：「系统托盘右键菜单好难看」）：
+        原生菜单是 Win7 主题画的灰底 3D 菜单 —— 跟全站 Fluent 卡片完全两个世界。
+        这里换成一张圆角卡片：卡片底 + 1px 描边 + 34dip 行高 + 悬停淡底 + 首项文字加粗，
+      样式口径跟常用工具窗 / 音量浮窗一致（见 FlyoutChrome）。
+
+      ⚠️ Win7 关键：**不能指望窗口透明/亚克力**（Avalonia 在 Win7 上拿不到逐像素透明）。
+         卡片底色是不透明纯色（#FCFCFC / #202020，代码里按深浅色刷），四角靠
+         RoundedCorners 的 SetWindowRgn 区域裁剪 —— 区域外的像素压根不存在，不需要合成支持。
+
+      ⚠️ 窗口尺寸由代码算（行高固定），不要改成 SizeToContent：
+         菜单是从鼠标位置往上/往左翻出来的，显示前就必须知道最终尺寸才能一次摆对，
+         否则会先出现在错误位置再跳一下。
+    -->
+    <Window.Resources>
+        <!--
+          菜单行：透明底 + 圆角高亮。
+          ⚠️ 高亮只认代码加的 traySelected class（下面 Window.Styles 里），
+             不写 ^:pointerover —— 否则"鼠标悬着 + 上下键换行"会同时亮两行。
+          ⚠️ 高亮色用应用级 ThemeDictionaries 里的 CshCaptionHoverBrush / CshCaptionPressedBrush，
+             不要用 FluentAvalonia 的 SubtleFillColor*Brush（那些键在 FA 2.4.1 dll 里搜不到，
+             DynamicResource 取不到值会静默留空 —— App.axaml 里记过同样的坑）。
+        -->
+        <ControlTheme x:Key="TrayMenuItemTheme" TargetType="Button">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="5" />
+            <Setter Property="Padding" Value="10,0" />
+            <Setter Property="Height" Value="34" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border x:Name="ItemBg" Background="{TemplateBinding Background}"
+                            CornerRadius="{TemplateBinding CornerRadius}"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter Content="{TemplateBinding Content}"
+                                          ContentTemplate="{TemplateBinding ContentTemplate}"
+                                          HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                          VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+                    </Border>
+                </ControlTemplate>
+            </Setter>
+
+            <Style Selector="^:pressed /template/ Border#ItemBg">
+                <Setter Property="Background" Value="{DynamicResource CshCaptionPressedBrush}" />
+            </Style>
+        </ControlTheme>
+    </Window.Resources>
+
+    <Window.Styles>
+        <Style Selector="Border.traySeparator">
+            <Setter Property="Height" Value="1" />
+            <Setter Property="Margin" Value="8,4" />
+            <Setter Property="Background" Value="#E8E8E8" />
+        </Style>
+
+        <!--
+          当前行（鼠标悬停 / 上下键）：菜单同一时刻只高亮一行，由代码统一切 class。
+          ⛔ 不用按钮自己的 :focus 焦点态 —— 那样"一弹出就默认高亮第一项"，
+             跟原生菜单"什么都不选"的观感不一致。
+        -->
+        <Style Selector="Button.traySelected /template/ Border#ItemBg">
+            <Setter Property="Background" Value="{DynamicResource CshCaptionHoverBrush}" />
+        </Style>
+    </Window.Styles>
+
+    <Grid x:Name="Root" Background="Transparent" Focusable="True">
+        <Border x:Name="Panel" CornerRadius="8" BorderThickness="1"
+                BorderBrush="#E1E1E1" Background="#FCFCFC">
+            <StackPanel x:Name="ItemsHost" Margin="4" />
+        </Border>
+    </Grid>
+</Window>

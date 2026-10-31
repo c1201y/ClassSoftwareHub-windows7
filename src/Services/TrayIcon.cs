@@ -19,12 +19,16 @@ public sealed class TrayMenuItem
 
     /// <summary>双击托盘图标时默认执行的那项（生成本默认项，画粗体）。</summary>
     public bool IsDefault { get; set; }
+
+    /// <summary>自绘菜单左边那颗图标（CshSymbols 码位，如 "\uE80F"）；留空就只显示文字。</summary>
+    public string Glyph { get; set; } = "";
 }
 
 /// <summary>
 /// 系统托盘图标（走 <c>Shell_NotifyIcon</c>）。
 /// 做法：建一个不可见的普通顶层窗口当"消息窗口"，托盘消息都发到它；
-/// 左键单击 → <see cref="LeftClick"/>；右键 → 弹原生菜单 → <see cref="CommandInvoked"/>。
+/// 左键单击 → <see cref="LeftClick"/>；右键 → 弹自绘菜单（<see cref="Views.TrayMenuWindow"/>，
+/// 自绘失败退回原生菜单）→ <see cref="CommandInvoked"/>。
 /// 用法：new TrayIcon(path) → Setup(tip) → 事件挂上；不用了 Dispose。
 ///
 /// ⚠️ Win7 移植说明（为什么没用 <c>Avalonia.Controls.TrayIcon</c>）：
@@ -513,10 +517,47 @@ public sealed class TrayIcon : IDisposable
         return NativeMethodsShell.DefWindowProc(hWnd, msg, wParam, lParam);
     }
 
+    /// <summary>
+    /// 右键菜单：自绘（Fluent 卡片，见 <see cref="Views.TrayMenuWindow"/>）。
+    /// ⚠️ Avalonia 窗口只能在 UI 线程建 → Post 到 Dispatcher；自绘这条路失败（或抢不到前台）
+    /// 一律退回原生 <see cref="ShowNativeMenu"/>，托盘入口任何时候都不能变成"点了没反应"。
+    /// </summary>
     private void ShowMenu()
     {
-        var items = MenuItems.Count > 0 ? MenuItems : DefaultMenu();
+        // 先快照：菜单显示后调用方可能改 MenuItems，不该影响这一张已经弹出来的菜单
+        var items = MenuItems.Count > 0 ? new List<TrayMenuItem>(MenuItems) : DefaultMenu();
 
+        try
+        {
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                var shown = false;
+                try
+                {
+                    shown = Views.TrayMenuWindow.TryShowAt(items, item =>
+                    {
+                        try { CommandInvoked?.Invoke(item.Command); }
+                        catch (Exception ex) { Log("托盘菜单命令异常: " + ex); }
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Log("自绘菜单异常，改用原生菜单: " + ex);
+                }
+
+                if (!shown) ShowNativeMenu(items);
+            });
+        }
+        catch (Exception ex)
+        {
+            Log("调度自绘菜单失败，改用原生菜单: " + ex);
+            ShowNativeMenu(items);
+        }
+    }
+
+    /// <summary>原生 popup 菜单（自绘菜单的兜底路线，也是 Win7 上抢不到前台时的退路）。</summary>
+    private void ShowNativeMenu(IReadOnlyList<TrayMenuItem> items)
+    {
         var menu = NativeMethodsShell.CreatePopupMenu();
         if (menu == IntPtr.Zero) return;
         try
@@ -546,7 +587,7 @@ public sealed class TrayIcon : IDisposable
         }
         catch (Exception ex)
         {
-            Log("ShowMenu 异常: " + ex);
+            Log("ShowNativeMenu 异常: " + ex);
         }
         finally
         {
@@ -556,12 +597,12 @@ public sealed class TrayIcon : IDisposable
 
     private static List<TrayMenuItem> DefaultMenu() => new()
     {
-        new TrayMenuItem { Text = "打开主界面", Command = "show", IsDefault = true },
-        new TrayMenuItem { Text = "常用工具", Command = "palette" },
+        new TrayMenuItem { Text = "打开主界面", Command = "show", IsDefault = true, Glyph = "\uE80F" },
+        new TrayMenuItem { Text = "常用工具", Command = "palette", Glyph = "\uE71D" },
         new TrayMenuItem { Separator = true },
-        new TrayMenuItem { Text = "检查更新", Command = "update" },
+        new TrayMenuItem { Text = "检查更新", Command = "update", Glyph = "\uE72C" },
         new TrayMenuItem { Separator = true },
-        new TrayMenuItem { Text = "退出", Command = "exit" },
+        new TrayMenuItem { Text = "退出", Command = "exit", Glyph = "\uE7E8" },
     };
 
     public void Dispose()

@@ -190,6 +190,11 @@ public sealed partial class AnnounceWindow : Window
             //    （默认出场就是 typewriter，于是默认配置下「朗读」从来没响过）。
             if (_speak) Tts.Speak(_fullText);
         }
+        else
+        {
+            // 「没声音」的第一嫌疑人就是安静模式：日志里留一行，省得再猜
+            AppLog.Info("announce", "安静模式开着，本次不播提示音");
+        }
 
         _countdown.Start();
     }
