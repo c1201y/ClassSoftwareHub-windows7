@@ -62,7 +62,9 @@ public static class ShellConfig
     // 2026-10-30：**1.2.0-insider1.3 → 1.2.0-insider1.4**。新功能：
     // ① 「文件快搜」工具（自带后台目录索引 + 本机缓存，浮窗 / 完整页 / 侧边栏 / 托盘四处入口）。
     // 2026-10-31：版本号**保持 1.2.0-insider1.4**（用户明确要求不抬号）。新增「PPT 续播」。
-    public const string ShellVersion = "1.2.0-insider1.4";
+    // 2026-11-01：**1.2.0-insider1.4 → 1.2.0-insider1.5**。移植上游 dv1.8（OOBE 初次配置向导等），
+    // 并把「云母」在 Win10 上的请求接到系统亚克力（以前 Win10 选云母会直接落纯色）。
+    public const string ShellVersion = "1.2.0-insider1.5";
 
     /// <summary>当前是不是预览（内测）构建 —— 版本号里带 <c>insider</c> 即为真。</summary>
     public static bool IsInsider =>
