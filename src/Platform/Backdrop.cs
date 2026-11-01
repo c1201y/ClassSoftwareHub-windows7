@@ -16,7 +16,8 @@ namespace ClassSoftwareHub.Desktop.Platform;
 ///   Win11 22000+          → Mica          （DwmSetWindowAttribute / DWMSBT_MAINWINDOW）
 ///   Win10 1803+           → Acrylic       （SetWindowCompositionAttribute / ACCENT_ENABLE_ACRYLICBLURBEHIND）
 ///   Win8 / 8.1            → Aero 毛玻璃    （DwmEnableBlurBehindWindow + DwmExtendFrameIntoClientArea）
-///   以上都不可用 / Win7 / Aero关闭 → 纯色底 （深浅色各一，与原版同样的色值）
+///   Win7 主窗口           → 静态磨砂       （渐变底 + 标题栏/导航栏半透明罩，见 <see cref="Win7Frost"/>）
+///   以上都不可用 / Win7 工具窗 / Aero关闭 → 纯色底 （深浅色各一，与原版同样的色值）
 ///
 /// ⚠️ **Win7 不参与「Aero 毛玻璃」这一级**（2026-10-15 收窄，原先含 Win7）。
 ///    根因：Avalonia 11.2.8 在 Win7 上**没有透明窗口能力** —— <c>WindowImpl</c> 既没有
@@ -32,6 +33,10 @@ namespace ClassSoftwareHub.Desktop.Platform;
 ///    「Win7 开 Aero 时圆角有白边/白角」；关掉 Aero 会落到下面的纯色分支，反而一切正常。
 ///    详细判定见 <see cref="Apply"/> 里 Aero 分支前的注释。
 ///
+/// ⚠️ 2026-10-31：Win7 **主窗口**不再落纯色底，改走 <see cref="Win7Frost"/> 的静态磨砂
+///    （窗口渐变 + 标题栏/导航栏半透明罩，让"只有导航栏/标题栏是玻璃"的分层成立）。
+///    它不依赖透明窗口，所以上面那些限制依旧成立、也依旧不抓屏；没有壳层的工具窗/浮窗仍走纯色。
+///
 /// ⚠️ 与原版一致的两条纪律：
 ///   ① 上了材质就把根元素背景置空，让材质透上来；
 ///   ② 完全不支持时**必须退纯色**，绝不能留透明根（否则露出来的是黑底）。
@@ -44,7 +49,7 @@ public static class Backdrop
     private static SetWindowCompositionAttributeDelegate? _setComposition;
     private static bool _compositionProbed;
 
-    /// <summary>已经记过「Win7 退纯色底」那条日志了（材质会随主题/设置多次重算，只记第一条）。</summary>
+    /// <summary>已经记过「Win7 非主窗口退纯色底」那条日志了（材质会随主题/设置多次重算，只记第一条）。</summary>
     private static bool _loggedWin7Route;
 
     /// <summary>
@@ -73,6 +78,15 @@ public static class Backdrop
                 return "solid";
             }
 
+            // ── Win7：静态磨砂（2026-10-31）────────────────────────────────
+            // 用户要求「像 Win10 一样，只有导航栏 / 标题栏是玻璃」，且不接受抓屏。
+            // Win7 既没有 DWM 材质、Avalonia 也拿不到逐像素透明（见类头说明），所以这里
+            // 用纯静态的「窗口渐变底 + 标题栏/导航栏半透明罩」把分层做出来：
+            // 零抓屏、零计时器、零逐帧成本。详细取舍见 <see cref="Win7Frost"/>。
+            // ⚠️ 只有主窗口壳层（找得到 TitleBarArea）才改；工具窗/浮窗继续走下面的纯色兜底。
+            if (OsInfo.IsWindows7 && Win7Frost.TryApply(win, root))
+                return "acrylic";
+
             // ── Win11：Mica ────────────────────────────────────────────────
             if (kind == "mica" && OsInfo.SupportsMica)
             {
@@ -93,6 +107,12 @@ public static class Backdrop
                 }
                 kind = "acrylic";                          // 云母失败 → 退亚克力
             }
+
+            // Win7/8/10 没有 Mica：云母请求按亚克力走，而不是直接落纯色。
+            // ⛔ 以前只在 kind=="acrylic" 时才进亚克力分支，于是 Win10 上「选云母 = 纯色」
+            //    （OOBE 默认就是云母，一进来主窗口就没有材质）。Win10 1803+ 的系统亚克力
+            //    （Avalonia 合成背板 / AccentPolicy）就在下面这条分支里，必须让它接得住。
+            if (kind == "mica") kind = "acrylic";
 
             // ── Acrylic ───────────────────────────────────────────────────
             if (kind == "acrylic" && OsInfo.SupportsAcrylicBlur)
@@ -154,11 +174,12 @@ public static class Backdrop
             //       区域裁剪正常生效 → 圆角干净。Win7 上毛玻璃本来也无收益（内容不透明，玻璃在底下看不见）。
             var aeroAllowed = OsInfo.IsWindows8;
 
-            // 真机排障凭证：Win7 上「开 Aero 才有白边」这个问题，看这一行就能确认代码走了纯色底。
+            // 真机排障凭证：主窗口的磨砂在 Win7Frost 里记「静态磨砂」；走到这一行的 Win7
+            // 都是没有壳层的工具窗/浮窗，看这一行就能确认它们仍走纯色底。
             if (OsInfo.IsWindows7 && !_loggedWin7Route)
             {
                 _loggedWin7Route = true;
-                PortLog.Step("材质: Win7 不走 Aero 毛玻璃（Avalonia 在 Win7 上无法透明，玻璃只会带来白边）→ 退纯色底");
+                PortLog.Step("材质: Win7 非主窗口不走磨砂（无法透明/无导航栏）→ 退纯色底");
             }
             if (aeroAllowed && OsInfo.IsDwmCompositionEnabled && TryApplyAeroBlur(hwnd))
             {
@@ -418,6 +439,10 @@ public static class Backdrop
     /// <summary>纯色兜底：与原版同一套色值（深 32,32,32 / 浅 243,243,243）。</summary>
     private static void Solid(Window win, Panel? root)
     {
+        // 从 Win7 静态磨砂切到「纯色」时，先把标题栏/导航栏上的玻璃罩摘掉，
+        // 否则纯色底之上还压着一层半透明白，标题栏会比底白一块。其他系统上是空操作。
+        Win7Frost.Reset(win);
+
         try
         {
             var dark = win.ActualThemeVariant == ThemeVariant.Dark;
