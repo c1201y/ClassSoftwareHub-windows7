@@ -1,0 +1,44 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="ClassSoftwareHub.Desktop.Views.WelcomeWindow"
+        Title="欢迎使用ClassSoftwareHub-Desktop"
+        Width="800" Height="600" CanResize="False"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource ApplicationPageBackgroundThemeBrush}">
+
+    <!--
+      初次配置（OOBE，自上游 dv1.2.0-insider1.8 移植）。
+
+      结构照 ClassIsland 的 WelcomeWindow：窗口只留一个装页面的宿主管 + 底部导航条，
+      每一步是一个独立 UserControl（见 Views/Oobe），步骤表与前进/后退在 OobeSession 里。
+
+      ⚠️ 移植：原版是自绘标题栏 + Frame；这里保留系统标题栏（Win7 上更稳，见
+         QqFeedbackGuideWindow 的同款取舍），窗口标题就是原版标题栏上那行字。
+         Frame 的 NavigationCacheMode 用 StepHost 里的页面缓存等价实现。
+      ⚠️ 主窗口在新装首启时**不显示**，这一屏是唯一窗口；关掉它主界面才出来（见 App）。
+    -->
+    <Grid x:Name="Root">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- 页面宿主：页面实例在这里缓存，往回翻时用户刚填的值还在 -->
+        <Grid x:Name="StepHost" Grid.Row="0" ClipToBounds="True" Background="Transparent" />
+
+        <!--
+          底部导航条：钉在窗口上、不跟页面内容走 —— 每一步的「上一步 / 下一步」都在同一个位置，
+          翻页时按钮不会跟着页面滑走。用的都是原生 Button（主按钮走 AccentButtonStyle）。
+
+          ⛔ 不做「跳过设置」（Nick 2026-10-31）：初次配置是必选的，跳过会把用户
+             刚才选的主题等设置整批丢掉，看起来就像"选了浅色、进主界面还是深色"。
+        -->
+        <StackPanel x:Name="NavHost" Grid.Row="1" Orientation="Horizontal" Spacing="8"
+                    HorizontalAlignment="Center" Margin="0,8">
+            <Button x:Name="BackNavButton" Content="上一步" Click="NavBack_Click"
+                    MinWidth="96" IsVisible="False" />
+            <Button x:Name="NextNavButton" Content="下一步" Click="NavNext_Click"
+                    Theme="{StaticResource AccentButtonStyle}" MinWidth="96" />
+        </StackPanel>
+    </Grid>
+</Window>

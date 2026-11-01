@@ -81,7 +81,7 @@ public sealed record LanPeer(string Name, string Label, string PairCode,
 ///
 /// <para>Win7 版平台差异：UI 调度用 Avalonia <see cref="Dispatcher"/>（上游为 WinRT DispatcherQueue）。</para>
 /// </summary>
-public static class AnnounceLanService
+public static partial class AnnounceLanService
 {
     public const string AppTag = "ClassSoftwareHub.Announce";
     public const int DiscoveryPort = 47820;   // UDP 发现 / 心跳
@@ -683,6 +683,15 @@ public static class AnnounceLanService
 
                 var method = parts[0];
                 var path = parts[1].Split('?')[0];
+
+                // GET / 或 GET /test：返回内置的局域网发送页（自上游 1.8）。
+                // 由收件端直接返回页面，手机访问时与 /announce 同源，fetch 不会因 file:// 不透明来源被拦。
+                if (method.Equals("GET", StringComparison.OrdinalIgnoreCase)
+                    && (path == "/" || path.Equals("/test", StringComparison.OrdinalIgnoreCase)))
+                {
+                    await WriteHtmlAsync(stream, TestPageHtml);
+                    return;
+                }
 
                 var isBind = path.Equals("/bind", StringComparison.OrdinalIgnoreCase);
                 var isUnbind = path.Equals("/unbind", StringComparison.OrdinalIgnoreCase);

@@ -1,0 +1,204 @@
+<platform:PageBase
+    x:Class="ClassSoftwareHub.Desktop.Pages.PageFilePage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:controls="using:ClassSoftwareHub.Desktop.Controls"
+    xmlns:views="using:ClassSoftwareHub.Desktop.Views"
+    xmlns:fa="using:FluentAvalonia.UI.Controls">
+
+    <!--
+      虚拟内存 / 分页文件（自上游 dv1.2.0-insider1.8 移植，需求清单第 19 条）。
+
+      搬的是系统「高级系统设置 → 性能选项 → 高级 → 虚拟内存」那个对话框，换成 Fluent 的排法：
+      先选驱动器，再给这一个驱动器三选一（自定义 / 系统管理 / 无），差值写进待应用队列。
+
+      版式照搬系统功能页：三列 Grid 把内容钉在中间 960 宽。
+      交互也一致：改动只进队列，底部提示条的主按钮**一次授权**写完。
+
+      ⚠️ 这一页的改动必须重启才生效（系统在启动阶段按配置创建或删除 pagefile.sys），
+         所以有一条常驻说明，应用成功后还会再讲一次。
+    -->
+    <Grid Background="Transparent">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <Grid Margin="24,36,24,44">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="24" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="24" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="1" MaxWidth="960" Spacing="4">
+
+                    <!-- ── 标题 ── -->
+                    <Grid Margin="0,0,0,14">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Spacing="4">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <TextBlock Text="虚拟内存" FontSize="28" FontWeight="Bold" />
+                            <Border CornerRadius="5" Padding="8,3" Margin="0,0,0,5" VerticalAlignment="Bottom"
+                                    BorderThickness="1"
+                                    BorderBrush="{DynamicResource SystemFillColorCautionBrush}">
+                                <StackPanel Orientation="Horizontal" Spacing="5">
+                                    <fa:FontIcon Glyph="&#xEA80;" FontSize="11"
+                                                 Foreground="{DynamicResource SystemFillColorCautionBrush}" />
+                                    <TextBlock Text="实验性功能" FontSize="12"
+                                               Foreground="{DynamicResource SystemFillColorCautionBrush}" />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                        <TextBlock FontSize="12.5" Opacity="0.65" TextWrapping="Wrap"
+                                   Text="逐个驱动器设置分页文件大小。改动先排队，应用时请求一次管理员授权，重启后才生效。" />
+                        </StackPanel>
+
+                        <Button x:Name="HubAiEntry" Grid.Column="1" Padding="12,6" Click="HubAiEntry_Click"
+                                VerticalAlignment="Center" ToolTip.Tip="打开 Hub AI 顾问">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <fa:FontIcon Glyph="&#xE8F2;" FontSize="13" />
+                                <TextBlock Text="AI" FontSize="12.5" />
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+
+                    <fa:InfoBar x:Name="NoticeBar" IsOpen="False" IsClosable="True" IsVisible="False"
+                                Severity="Informational" Message="" Margin="0,0,0,8" />
+
+                    <!-- 常驻：这件事改完不重启看不到效果，且重启是唯一生效方式 -->
+                    <fa:InfoBar IsOpen="True" IsClosable="False" Severity="Informational"
+                                Title="修改后需重启"
+                                Message="系统在启动时按这份配置创建或删除分页文件，进入系统后配置才生效。"
+                                Margin="0,0,0,8" />
+
+                    <views:SettingsCard x:Name="AutoCard" Header="自动管理所有驱动器的分页文件大小">
+                        <views:SettingsCard.Description>
+                            <TextBlock Text="由系统决定各盘分页文件的大小。" TextWrapping="Wrap" />
+                        </views:SettingsCard.Description>
+                        <views:SettingsCard.HeaderIcon>
+                            <fa:FontIcon Glyph="&#xEDA2;" />
+                        </views:SettingsCard.HeaderIcon>
+                        <ToggleSwitch x:Name="SwAutomatic" MinWidth="0"
+                                      OnContent="已开启" OffContent="已关闭"
+                                      IsCheckedChanged="Automatic_Toggled"
+                                      HorizontalAlignment="Right" />
+                    </views:SettingsCard>
+
+                    <!-- ═════════ 驱动器列表 ═════════ -->
+                    <TextBlock Text="每个驱动器的分页文件大小" FontSize="14" Margin="0,18,0,2" />
+
+                    <!--
+                      行内容在代码里构造（BuildDriveRows），不用 ItemTemplate：
+                      移植版所有动态列表都是这个做法，模板绑定在这套控件上问题更多。
+                    -->
+                    <ListBox x:Name="DriveList" MaxHeight="260" SelectionMode="Single"
+                             SelectionChanged="DriveList_SelectionChanged" Padding="0">
+                        <ListBox.Styles>
+                            <Style Selector="ListBoxItem">
+                                <Setter Property="Padding" Value="12,2" />
+                                <Setter Property="MinHeight" Value="0" />
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            </Style>
+                        </ListBox.Styles>
+                    </ListBox>
+
+                    <TextBlock x:Name="EmptyHint" IsVisible="False" FontSize="12.5" Opacity="0.65"
+                               TextWrapping="Wrap" Margin="0,4,0,0"
+                               Text="没有检测到可用的固定磁盘。" />
+
+                    <!-- ═════════ 所选驱动器的设置 ═════════ -->
+                    <Border Classes="cshCard" Margin="0,10,0,0">
+                        <StackPanel x:Name="EditPanel" Spacing="10">
+
+                            <StackPanel Spacing="2">
+                                <TextBlock x:Name="SelTitle" FontSize="14" Text="未选择驱动器" />
+                                <TextBlock x:Name="SelSub" FontSize="12" Opacity="0.65" TextWrapping="Wrap" />
+                            </StackPanel>
+
+                            <RadioButton x:Name="RbCustom" GroupName="PageFileMode" Content="自定义大小"
+                                         Checked="Mode_Checked" />
+                            <Grid ColumnDefinitions="*,*" Margin="28,0,0,0">
+                                <fa:NumberBox x:Name="NumMin" Header="初始大小（MB）" Minimum="16" Maximum="1048576"
+                                              SpinButtonPlacementMode="Compact" />
+                                <fa:NumberBox x:Name="NumMax" Grid.Column="1" Header="最大值（MB）" Minimum="16"
+                                              Maximum="1048576" SpinButtonPlacementMode="Compact"
+                                              Margin="12,0,0,0" />
+                            </Grid>
+
+                            <RadioButton x:Name="RbSystem" GroupName="PageFileMode" Content="系统管理的大小"
+                                         Checked="Mode_Checked" />
+                            <RadioButton x:Name="RbNone" GroupName="PageFileMode" Content="无分页文件"
+                                         Checked="Mode_Checked" />
+
+                            <TextBlock x:Name="ShapeHint" FontSize="12" Opacity="0.65" TextWrapping="Wrap"
+                                       IsVisible="False" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- ═════════ 汇总 ═════════ -->
+                    <Border Classes="cshCard" Margin="0,10,0,0">
+                        <StackPanel Spacing="6">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Text="允许的最小值" FontSize="12.5" Opacity="0.75" />
+                                <TextBlock x:Name="SumFloor" Grid.Column="1" FontSize="12.5" Margin="12,0,0,0" />
+                            </Grid>
+
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Text="当前已分配" FontSize="12.5" Opacity="0.75" />
+                                <TextBlock x:Name="SumAllocated" Grid.Column="1" FontSize="12.5" Margin="12,0,0,0" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 页脚：说明执行方式与限制 -->
+                    <Border Classes="cshCard" Margin="0,10,0,0">
+                        <StackPanel Spacing="7">
+                            <TextBlock Text="执行方式与限制" FontSize="12" FontWeight="Bold" Opacity="0.85" />
+                            <TextBlock FontSize="12" Opacity="0.65" TextWrapping="Wrap"
+                                       Text="· 「自定义大小」固定占用：初始值立即分配，最大值是上限。" />
+                            <TextBlock FontSize="12" Opacity="0.65" TextWrapping="Wrap"
+                                       Text="· 「系统管理的大小」由系统按需要伸缩；「无分页文件」表示这个盘不放分页文件。" />
+                            <TextBlock FontSize="12" Opacity="0.65" TextWrapping="Wrap"
+                                       Text="· 至少要保留一个驱动器的分页文件；大小不能超过该盘可用空间（含现有分页文件占用的部分）。" />
+                            <TextBlock FontSize="12" Opacity="0.65" TextWrapping="Wrap"
+                                       Text="· 点「应用更改」时请求一次管理员授权，写入后重读配置核对，重启后生效。" />
+                            <TextBlock FontSize="12" Opacity="0.65" TextWrapping="Wrap"
+                                       Text="· 界面上看不到、但注册表里配着的驱动器（比如盘符没分配）会原样保留，不会被这次写入删掉。" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Grid>
+        </ScrollViewer>
+
+        <!-- ── 待应用提示条：默认收起，有排队项时出现 ── -->
+        <Border Grid.Row="1" x:Name="PendingBar" IsVisible="False"
+                BorderThickness="0,1,0,0"
+                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                Background="{DynamicResource LayerFillColorDefaultBrush}">
+            <Grid Margin="24,10,24,10" ColumnDefinitions="*,Auto,Auto" VerticalAlignment="Center">
+                <StackPanel Spacing="4" VerticalAlignment="Center">
+                    <TextBlock x:Name="PendingTitle" Text="有 0 项待应用" FontSize="14" FontWeight="SemiBold" />
+                    <TextBlock x:Name="PendingSubtitle" Text="应用时会请求一次管理员授权，重启后生效。"
+                               FontSize="12" Opacity="0.65" TextWrapping="Wrap" />
+                    <ScrollViewer MaxHeight="132" VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel x:Name="PendingList" Spacing="2" Margin="0,4,0,0" />
+                    </ScrollViewer>
+                </StackPanel>
+
+                <Button x:Name="ApplyButton" Grid.Column="1" Content="应用更改" Margin="16,0,0,0"
+                        MinWidth="96" Click="ApplyPending_Click" />
+                <Button Grid.Column="2" Content="暂不应用" Margin="8,0,0,0"
+                        MinWidth="88" Click="DismissPending_Click" />
+            </Grid>
+        </Border>
+
+        <controls:HubAiFlyout x:Name="AiFlyout" />
+    </Grid>
+</platform:PageBase>

@@ -27,6 +27,20 @@ public sealed class ToolDef
     /// </summary>
     public string? WebToolId { get; init; }
 
+    /// <summary>
+    /// 这个工具已经**单独占了一个导航栏顶层项**（自上游 1.8）。
+    /// <para>
+    /// 置 true 之后，「课堂工具 / 系统工具」的导航子项和工具索引页的卡片都不再出现它 ——
+    /// 否则导航栏里会同时有顶层项和分组子项两个入口，看着像重复。
+    /// </para>
+    /// <para>
+    /// ⚠️ 但它**仍然留在 <see cref="ToolCatalog.All"/> 里**，这一点与「教室喊话」不同（那个是整条移出）。
+    /// 因为 <c>--tool=&lt;id&gt;</c>、学科工具窗、侧边栏模块、以及导航按 Id 反查页面类型，
+    /// 全都依赖这张表；移出去会把那几条路一起打断。
+    /// </para>
+    /// </summary>
+    public bool Standalone { get; init; }
+
     /// <summary>无障碍 / 调试用：列表项名字就是工具名。</summary>
     public override string ToString() => Name;
 }
@@ -184,10 +198,16 @@ public static class ToolCatalog
         new ToolDef
         {
             Id = "function-plot", Name = "函数图像",
-            Desc = "输入含 x 的表达式即可绘制函数曲线，可同时绘制多条以便比较；支持滚轮缩放与拖动查看。",
+            // ⚠️ 上游 1.8 把这段文案改成了网页版数学实验室（V1.26）的能力：几何作图、平行线 / 垂线 / 切线。
+            //    本地这一页是**原生实现**，只有函数曲线（多条对比、缩放拖动、闭式性质分析），
+            //    没有几何作图 —— 文案按本机实际能力写，别把网页版的能力也算进来。
+            Desc = "输入含 x 的表达式即可绘制函数曲线，可同时绘制多条以便比较；"
+                   + "支持滚轮缩放与拖动查看，命中已知原型时给出零点、单调性与渐近线等结论。",
             Glyph = "\uE9D2", Page = typeof(ClassSoftwareHub.Desktop.Pages.FunctionPlotPage),
             // 网页版工具包 id：有它且本机跑得起来就走 Web，否则静默走上面那个原生页。
-            WebToolId = "function-plot"
+            WebToolId = "function-plot",
+            // 自上游 1.8：提到导航栏单独成项，工具分组与索引页里不再重复出现（见 Standalone 的说明）。
+            Standalone = true
         },
         new ToolDef
         {
@@ -228,6 +248,31 @@ public static class ToolCatalog
             // E721 = 放大镜
             Glyph = "\uE721", Page = typeof(ClassSoftwareHub.Desktop.Pages.Tools.FileSearchPage),
             Group = ToolGroup.System
+        },
+        // 白板专杀 / AppData 管理 / 系统修复（自上游 1.8 从「实验性功能」转正进系统工具）：
+        // 导航子项与索引页卡片都由这张表驱动，NavigateTagCore 里原来的三个 case 已删（按 Id 反查即可）。
+        // ⚠️ Id 必须与原 tag 一字不差（easiguard / appdata / repair）：
+        //    page= 启动参数、首页快捷方式、搜索索引与崩溃日志里的 CurrentTag 全都按它认。
+        new ToolDef
+        {
+            Id = "easiguard", Name = "白板专杀",
+            Group = ToolGroup.System,
+            Desc = "到点结束希沃白板5 后台滞留的残留进程。只认白板家族（EasiNote*），不碰集控端与更新组件。",
+            Glyph = "\uEA99", Page = typeof(ClassSoftwareHub.Desktop.Pages.EasiNoteGuardPage)
+        },
+        new ToolDef
+        {
+            Id = "appdata", Name = "AppData 管理",
+            Group = ToolGroup.System,
+            Desc = "列出 AppData 下可安全清理的缓存目录，按占用排序，逐个确认后删除；禁碰区一律不列。",
+            Glyph = "\uE8B7", Page = typeof(ClassSoftwareHub.Desktop.Pages.AppDataPage)
+        },
+        new ToolDef
+        {
+            Id = "repair", Name = "系统修复",
+            Group = ToolGroup.System,
+            Desc = "系统文件、组件存储、网络栈、系统服务的修复命令，按预设卡片执行，执行前原样列出命令。",
+            Glyph = "\uE7EF", Page = typeof(ClassSoftwareHub.Desktop.Pages.SystemRepairPage)
         },
         // 「教室喊话」上游曾于 2026-10-25 上午作为工具加在这里，当天下午 Nick 要求「提出来单独做」——
         // 已改为导航栏一级功能项（ShellPage 的 Tag=announce），不要再往工具清单里加回来（否则导航里会出现两个入口）。

@@ -601,6 +601,7 @@ public sealed class TrayIcon : IDisposable
         new TrayMenuItem { Text = "常用工具", Command = "palette", Glyph = "\uE71D" },
         new TrayMenuItem { Separator = true },
         new TrayMenuItem { Text = "检查更新", Command = "update", Glyph = "\uE72C" },
+        new TrayMenuItem { Text = "重启应用", Command = "restart", Glyph = "\uE777" },
         new TrayMenuItem { Separator = true },
         new TrayMenuItem { Text = "退出", Command = "exit", Glyph = "\uE7E8" },
     };

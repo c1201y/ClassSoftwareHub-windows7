@@ -57,6 +57,13 @@ public sealed partial class MainWindow : Window
 
     private bool _themeFromWeb;
     private bool _firstActivated;
+
+    /// <summary>Shell 初始化被推迟到初次配置结束（见构造函数里的说明）。</summary>
+    private bool _shellPending;
+
+    /// <summary>可见性看门狗是不是已经装过（初次配置那条路会在向导结束后才装）。</summary>
+    private bool _visibleWatchdogStarted;
+
     private readonly bool _startMinimized;
     private readonly bool _startPalette;
 
@@ -148,8 +155,20 @@ public sealed partial class MainWindow : Window
         // 软件内容来自内容包（开发时读站点工程 dist/content，正式版走远端 manifest）
         App.Content.Load();
         Platform.PortLog.Step("MainWindow: 内容包已加载");
-        NativeShell.Init();
-        Platform.PortLog.Step("MainWindow: 原生外壳 ShellPage.Init 完成");
+
+        // ⛔ 初次配置期间不建 Shell 首页：主窗口这会儿是隐形的，首页那一帧照样要占掉
+        //    一整个渲染周期 —— 实测把刚弹出来的向导窗口压成 1 秒多的空白窗（2026-10-31）。
+        //    等向导收尾（App.EndOobeAndShowMainWindow）再补 StartShell()。
+        if (App.ShellDeferredForOobe)
+        {
+            _shellPending = true;
+            Platform.PortLog.Step("MainWindow: 初次配置未完成 → Shell 初始化推迟");
+        }
+        else
+        {
+            NativeShell.Init();
+            Platform.PortLog.Step("MainWindow: 原生外壳 ShellPage.Init 完成");
+        }
         NativeShell.SetIcon(LoadAppIconImage());
         Platform.PortLog.Step("MainWindow: 标题栏图标已设置");
 
@@ -173,6 +192,23 @@ public sealed partial class MainWindow : Window
         _ = BootAsync();
         Platform.PortLog.Step("MainWindow: 构造函数全部完成（窗口对象可用）");
     }
+
+    /// <summary>
+    /// 补做构造时被推迟的那一步 Shell 初始化（只有初次配置那条路会推迟）。
+    /// 由 <see cref="App.EndOobeAndShowMainWindow"/> 在 <c>Show()</c> 之前调 —— 窗口露脸时首页已经就位。
+    /// </summary>
+    public void StartShell()
+    {
+        if (!_shellPending) return;
+        _shellPending = false;
+        NativeShell.Init();
+    }
+
+    /// <summary>
+    /// 补装启动可见性看门狗 —— 等初次配置的那一轮在构造时**故意没装**（主窗口本就该没显示），
+    /// 向导收尾、主窗口露脸之后再把同一道兜底补上。
+    /// </summary>
+    public void ArmStartupVisibleWatchdog() => StartWindowVisibilityWatchdog();
 
     private void OnFirstActivated(object? sender, EventArgs args)
     {
@@ -215,6 +251,11 @@ public sealed partial class MainWindow : Window
 
         // 启动时查一次更新：**不强制**，有新版就问用户（主窗口没露脸时发系统通知）
         _ = CheckUpdateOnStartupAsync();
+
+        // 本次启动带着链接（csh://…，需求 1:18）：等到这里才处理 —— 首帧之前 Shell 的 Frame
+        // 还没就绪，跳转会落到首页。放在更新检查之后：更新提示是"顺带问一句"，跳转是用户刚点的。
+        var startupLink = App.TakeStartupLink();
+        if (startupLink is { Length: > 0 }) _ = HandleAppUriAsync(startupLink);
 
         // 启动自检：首帧之后先记一条，5 秒后再记一条（托盘/侧边栏是异步挂上的，第二条才准）
         WriteStartupTrace("首帧显示后");
@@ -387,7 +428,11 @@ public sealed partial class MainWindow : Window
 
         if (task.State == DownloadState.Completed)
         {
-            ShowBalloon("下载完成", $"{task.FileName}\n已保存到：{DownloadService.DefaultDir}",
+            // 落点以**实际写入的路径**为准：用户可能这一条点了「下载到其他文件夹…」，
+            // 也可能默认目录换了地方，写成固定值会报错地方（2026-11-01 自上游 insider1.8 移植）。
+            var folder = Path.GetDirectoryName(task.Path ?? "");
+            if (string.IsNullOrEmpty(folder)) folder = DownloadService.SaveDir;
+            ShowBalloon("下载完成", $"{task.FileName}\n已保存到：{folder}",
                 () => { ShowFromTray(); Shell.NavigateTo("downloads"); });
         }
         else if (task.State == DownloadState.Failed)
@@ -1388,7 +1433,7 @@ public sealed partial class MainWindow : Window
         //    开了「外部组件单独外观」后 Notify 会把外部组件的外观也算给主窗口 —— 浅色主界面上
         //    全是深色那套的白字，整个设置页白底白字看不清（用户截图实锤）。
         RequestedThemeVariant = ThemeCompat.Map(theme);
-        ThemeCompat.Apply(RootGrid, mainScope: true);   // 登记本窗口根（幂等），后续 Notify 才会把它算进去
+        ThemeCompat.Apply(RootGrid);   // 登记本窗口根（幂等），后续 Notify 才会把它算进去
         ThemeCompat.Notify();
 
         if (_settings.Current.Backdrop == "solid")
@@ -1592,6 +1637,7 @@ public sealed partial class MainWindow : Window
             _tray.MenuItems.Add(new TrayMenuItem { Text = "工具侧边栏", Command = "sidebar", Glyph = "\uE8A0" });
             _tray.MenuItems.Add(new TrayMenuItem { Separator = true });
             _tray.MenuItems.Add(new TrayMenuItem { Text = "检查更新", Command = "update", Glyph = "\uE72C" });
+            _tray.MenuItems.Add(new TrayMenuItem { Text = "重启应用", Command = "restart", Glyph = "\uE777" });
             _tray.MenuItems.Add(new TrayMenuItem { Separator = true });
             _tray.MenuItems.Add(new TrayMenuItem { Text = "退出", Command = "exit", Glyph = "\uE7E8" });
 
@@ -1611,7 +1657,10 @@ public sealed partial class MainWindow : Window
                 Debug.WriteLine("[tray] 第二个托盘图标没挂上");
 
             // 屏幕右边那条工具侧边栏（全屏放 PPT 时也够得着工具）
-            Views.ToolSidebarWindow.ApplySetting();
+            // ⛔ 初次配置期间先不摆：向导是那时唯一的窗口，侧边栏压上来会抢镜；
+            //    向导收尾时 WelcomeWindow.ApplySettings 会按用户刚选的值把它摆出来。
+            if (!App.ShellDeferredForOobe)
+                Views.ToolSidebarWindow.ApplySetting();
 
             // 记着"上一次在用的窗口"（点了侧边栏之后前台就变成我们自己了，"关前台应用"得知道原本是谁）
             Services.TeachingActions.StartFocusWatcher();
@@ -1659,6 +1708,9 @@ public sealed partial class MainWindow : Window
                 ShowFromTray();
                 _ = CheckUpdateManualAsync();
                 break;
+            case "restart":
+                RestartApp();
+                break;
             case "exit":
                 ExitApp();
                 break;
@@ -1697,7 +1749,11 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void StartWindowVisibilityWatchdog()
     {
+        if (_visibleWatchdogStarted) return;
         if (_startMinimized || _startPalette) return;   // 这两种模式一开始就是故意不收脸的
+        if (_shellPending) return;                       // 等向导那一轮：主窗口本就该没显示，装了会把它当场亮出来
+
+        _visibleWatchdogStarted = true;
 
         var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
         timer.Tick += (_, _) =>
@@ -2230,13 +2286,16 @@ public sealed partial class MainWindow : Window
     ///   · 想反悔就按「取消下载」，或者去左侧「任务进行」页取消；
     ///   · 下完/失败会弹系统通知，通知点开直接跳到「任务进行」。
     /// 弹窗还开着的时候跑完了，更省事：直接在这儿弹「下载完成」。
+    ///
+    /// <paramref name="directory"/> 只在「这一次换个地方存」时给（详情页的「下载到其他文件夹…」）；
+    /// 不给就按用户设的默认下载文件夹走（见 <see cref="DownloadService.SaveDir"/>）。
     /// </summary>
     public async void DownloadFile(string? url, string? suggestedName = null,
-        DownloadRoute route = DownloadRoute.Setting)
+        DownloadRoute route = DownloadRoute.Setting, string? directory = null)
     {
         if (string.IsNullOrWhiteSpace(url)) return;
 
-        var task = DownloadManager.Current.Start(url, suggestedName, suggestedName, route);
+        var task = DownloadManager.Current.Start(url, suggestedName, suggestedName, route, directory);
         _dialogDownloadTaskIds[task.Id] = 0;   // 这条由本方法负责收尾，别让系统通知重复报一次
 
         // 同一时刻只允许一个 ContentDialog：上一条下载的弹窗先收掉（它自己的下载转后台继续）
@@ -2250,7 +2309,7 @@ public sealed partial class MainWindow : Window
         var status = new TextBlock { Text = "正在连接", FontSize = 12, Opacity = 0.75, TextWrapping = TextWrapping.Wrap };
         var hint = new TextBlock
         {
-            Text = $"保存到：{DownloadService.DefaultDir}\n单击「后台继续」后，下载任务转入后台运行。",
+            Text = $"保存到：{directory ?? DownloadService.SaveDir}\n单击「后台继续」后，下载任务转入后台运行。",
             FontSize = 11.5,
             Opacity = 0.6,
             TextWrapping = TextWrapping.Wrap,
@@ -2386,6 +2445,142 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
+    /// 重启应用（自上游 1.8 移植）：安排一个延迟启动的新实例，再走正常退出流程。
+    /// <para>
+    /// ⚠️ **不能**先 <c>Process.Start</c> 再退出：本进程持有单实例互斥体，新进程一起来就发现
+    /// 「已经有一个实例在跑」，按 <c>App</c> 的启动逻辑去"敲门"叫醒旧实例、然后自己 <c>Exit(0)</c> ——
+    /// 结果就是旧的一退、新的也没了，用户看到的是"点了重启软件直接消失"。
+    /// 所以先安排一个**延迟 2 秒**的启动命令，让旧进程有时间退干净、把互斥体放开，再走正常退出流程。
+    /// </para>
+    /// <para>
+    /// 用 <c>ping -n</c> 而不是 <c>timeout</c> 做延时：timeout.exe 在没有交互式控制台时会直接报错
+    /// 「输入重定向不支持」，等于没延时。
+    /// </para>
+    /// </summary>
+    public void RestartApp()
+    {
+        var exe = Environment.ProcessPath;
+        if (string.IsNullOrWhiteSpace(exe))
+        {
+            Core.AppLog.Warn("exit", "重启应用失败：取不到自身可执行文件路径");
+            return;
+        }
+
+        try
+        {
+            // -n 4 = 约 3 秒。给足时间：ExitApp 里有 1.5 秒硬退兜底，余下 1.5 秒留给互斥体释放。
+            var psi = new System.Diagnostics.ProcessStartInfo("cmd.exe", $"/c ping 127.0.0.1 -n 4 >nul & start \"\" \"{exe}\"")
+            {
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden,
+            };
+
+            System.Diagnostics.Process.Start(psi);
+            Core.AppLog.Info("exit", "已安排重启：约 2 秒后拉起新实例");
+        }
+        catch (Exception ex)
+        {
+            // 安排不成就别退出 —— 否则用户既没重启成，手上的窗口也没了
+            Core.AppLog.Fail("exit", ex, "安排重启失败，本次不退出");
+            return;
+        }
+
+        ExitApp();
+    }
+
+    /// <summary>
+    /// 处理一条应用链接（<c>csh://…</c> 或 <c>ms-settings:…</c>），需求 1:18。
+    ///
+    /// <para>
+    /// 来源有三处：① 命令行（Windows 唤起协议时把链接当参数传进来）；② 第二个实例通过
+    /// <c>AppLinks</c> 的信箱递过来再敲叫醒事件；③ 将来文档库文章里的超链接。
+    /// 三处都汇到这里，避免"点文章里的链接"和"点浏览器里的链接"走两套逻辑。
+    /// </para>
+    ///
+    /// <para>
+    /// ⚠️ 先 <see cref="ShowFromTray"/>：链接要跳到某个页面，窗口隐在托盘里就等于"点了没反应"。
+    /// </para>
+    /// </summary>
+    public System.Threading.Tasks.Task HandleAppUriAsync(string uri)
+    {
+        try
+        {
+            var target = Core.AppUri.Parse(uri);
+            if (target is null)
+            {
+                // 本应用不认识的链接：交给系统（ms-settings: 这类），其余只留痕不弹窗 ——
+                // 一条坏链接不该打断用户手上的事。
+                if (uri.StartsWith(Core.AppUri.SystemSchemePrefix, StringComparison.OrdinalIgnoreCase))
+                {
+                    OpenSystemUri(uri);
+                }
+                else
+                {
+                    Core.AppLog.Warn("links", "无法识别的链接：" + uri);
+                }
+                return System.Threading.Tasks.Task.CompletedTask;
+            }
+
+            ShowFromTray();
+            Core.AppLog.Step("links", $"处理链接 {target.Kind}/{target.Target}");
+
+            switch (target.Kind)
+            {
+                case Core.AppUriKind.Settings:
+                    Shell?.NavigateToSettings(target.Target);
+                    break;
+
+                case Core.AppUriKind.Page:
+                case Core.AppUriKind.Tool:
+                    // 两者走同一条路：工具子项的 tag 就是 ToolCatalog 的 Id，NavigateTagCore
+                    // 会先按 Id 反查工具表（连带载体选择），认不出才当普通页面 tag 处理。
+                    Shell?.NavigateTo(target.Target);
+                    break;
+
+                case Core.AppUriKind.Article:
+                    // 文档库还没做（需求 1:15 在后续批次）。先如实记日志，别假装跳过去了。
+                    Core.AppLog.Info("links", $"文章链接暂未支持（文档库尚未实现）：{target.Target}");
+                    break;
+
+                case Core.AppUriKind.System:
+                    OpenSystemUri(target.Raw);
+                    break;
+            }
+
+            return System.Threading.Tasks.Task.CompletedTask;
+        }
+        catch (Exception ex)
+        {
+            Core.AppLog.Exception("links", ex, "处理应用链接");
+            return System.Threading.Tasks.Task.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// 把 <c>ms-settings:</c> 交给系统。
+    /// <para>
+    /// ⚠️ 不走 <see cref="OpenExternal"/>：那条路的协议白名单刻意只放行网页与商店；
+    ///    这里的前缀在上游已经校验过，只可能是 <c>ms-settings:</c>。
+    /// </para>
+    /// </summary>
+    private void OpenSystemUri(string url)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url)
+            {
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            // Win7 没有 ms-settings: 处理器 —— 打不开就只留痕，不打扰用户
+            Core.AppLog.Warn("links", "交给系统打开设置失败：" + ex.Message);
+        }
+    }
+
+    /// <summary>
     /// 真的要退出应用（不是"收进托盘"）。
     ///
     /// ⚠️ public（2026-10-04）：<c>Services/Updating/UpdateFlow.ExitAppNow()</c> 走静默安装**必须**从
@@ -2440,6 +2635,8 @@ public sealed partial class MainWindow : Window
         try { Views.SubjectToolsWindow.CloseForExit(); } catch { }   // 学科工具独立窗口（1.3） // 日志详细视图（独立窗口，开发者排障用）
         try { Views.FileSearchWindow.CloseForExit(); } catch { }     // 文件快搜浮窗（1.4）
         try { Views.PptResumeWindow.CloseForExit(); } catch { }      // PPT 续播浮窗（1.4）
+        try { Views.QuickLookupWindow.CloseForExit(); } catch { }    // 查阅单词浮窗（1.8）
+        try { Views.HashCheckWindow.CloseForExit(); } catch { }      // 哈希校验浮窗（1.8）
 
         // 兜底扫一遍：其它自建窗口（贴纸 / 音量 / 截图 / 虚拟键盘…）一并收掉，
         // 谁家窗口忘了自己关，这里统一兜住。App.IsExiting 已经置位，拦关闭的窗口会放行。

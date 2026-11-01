@@ -442,6 +442,56 @@ public sealed partial class DetailPage : PageBase
     }
 
     /// <summary>
+    /// 拆分按钮的**主键**（左半边「下载」，2026-11-01 自上游 insider1.8 移植）。
+    /// ⚠️ Avalonia 11.2.8 的 SplitButton.Click 是普通 RoutedEventArgs（WinUI 那边是 SplitButtonClickEventArgs）。
+    /// </summary>
+    private void DownloadSplit_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is SplitButton b && b.Tag is string url && url.Length > 0)
+            OpenDownload(url, b, Services.DownloadRoute.Official);
+    }
+
+    /// <summary>「下载到其他文件夹…」：这一次换地方存，不改默认位置。</summary>
+    private async void DownloadTo_Click(object? sender, RoutedEventArgs e)
+    {
+        var url = (sender as Control)?.Tag as string ?? "";
+        if (url.Length == 0) return;
+
+        var folder = await PickFolderAsync();
+        if (string.IsNullOrEmpty(folder)) return;
+
+        var item = _app?.Downloads.FirstOrDefault(d => string.Equals(d.Url, url, StringComparison.OrdinalIgnoreCase));
+        App.MainWindow?.DownloadFile(url, DownloadNameFor(item), Services.DownloadRoute.Official, folder);
+    }
+
+    private void OpenDownloadFolder_Click(object? sender, RoutedEventArgs e)
+        => Services.DownloadService.OpenDownloadsFolder();
+
+    /// <summary>选一个文件夹；用户点取消或对话框打不开都返回 null（打不开只记日志，不打扰用户）。</summary>
+    private async Task<string?> PickFolderAsync()
+    {
+        try
+        {
+            // ⚠️ Win7 走 FilePickerCompat 兜底（Avalonia 选择器在「库」里选位置会静默失败）。
+            var top = TopLevel.GetTopLevel(this);
+            if (top is null) return null;
+
+            var r = await FilePickerCompat.PickFolderAsync(top, "选择下载文件夹");
+            if (r.Error is not null)
+            {
+                AppLog.Warn("download", "选下载文件夹被拒：" + r.Error);
+                return null;
+            }
+            return r.Files.Count > 0 ? r.Files[0] : null;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("download", "选择下载文件夹失败：" + ex.Message);
+            return null;
+        }
+    }
+
+    /// <summary>
     /// 下载按钮分流（2026-10-18 对齐上游 1.2.0：判据统一到 <see cref="DownloadKind"/> 四分类，
     /// 不再保留「只看后缀」的第二套实现）：
     ///   · 微软商店本体 → 特例（商店没装的话商店链接是死的，得能把商店装回来）
@@ -449,7 +499,7 @@ public sealed partial class DetailPage : PageBase
     ///   · 文件直链 → 原生下载
     ///   · 网盘 / 官网页面 → 开在浮层里，让人自己点
     /// </summary>
-    private async void OpenDownload(string url, Button? source = null,
+    private async void OpenDownload(string url, Control? source = null,
         Services.DownloadRoute route = Services.DownloadRoute.Setting)
     {
         if (Services.StoreRepair.IsStoreItself(_app?.Id, url))
@@ -468,7 +518,7 @@ public sealed partial class DetailPage : PageBase
                 return;
 
             case DownloadKind.File:
-                App.MainWindow?.DownloadFile(url, source is null ? null : DownloadNameFor(source), route);
+                App.MainWindow?.DownloadFile(url, DownloadNameFor(item), route);
                 return;
 
             case DownloadKind.Netdisk:
@@ -542,11 +592,10 @@ public sealed partial class DetailPage : PageBase
     }
 
     /// <summary>下载文件名：优先「软件名 + 版本」，实在没有就让 DownloadService 从 URL 猜。</summary>
-    private string? DownloadNameFor(Button b)
+    private string? DownloadNameFor(DownloadItem? item)
     {
         if (_app is null) return null;
 
-        var item = b.DataContext as DownloadItem;
         var platform = item?.Platform ?? "";
 
         // 用软件名当文件名，扩展名从 URL 里取 —— 这样下载下来是「微信 4.0.exe」而不是一串 hash

@@ -113,8 +113,8 @@ public sealed partial class VolumeMixerWindow : Window
     {
         try
         {
-            // ⚠️ mainScope: false（2026-10-08 口径变更，与主音量浮窗同步）：
-            //    合成器浮窗改跟「外部组件」作用域 —— 分体开着跟外部外观，没开跟主界面。
+            // ⚠️ 2026-10-29（上游 1.8）：分体外观只管「常用工具」浮窗与侧边栏，
+            //    合成器浮窗改回**跟应用主题**（与主音量浮窗同一口径）。
             ThemeCompat.Apply(Root);
             VolumeFlyoutGroup.MixerHwnd = _chrome.Hwnd;
 

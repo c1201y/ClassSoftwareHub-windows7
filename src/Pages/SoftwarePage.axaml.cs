@@ -3,14 +3,12 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
-using Avalonia.Animation;
-using Avalonia.Animation.Easings;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
-using Avalonia.Media;
 using Avalonia.Styling;
 using Avalonia.VisualTree;
+using ClassSoftwareHub.Desktop.Core;
 using ClassSoftwareHub.Desktop.Data;
 using ClassSoftwareHub.Desktop.Platform;
 using FluentAvalonia.UI.Controls;
@@ -37,8 +35,11 @@ public sealed partial class SoftwarePage : PageBase
     private bool _loading;
     private readonly List<ToggleButton> _chips = new();
 
-    /// <summary>Hub AI 浮层的位移动画载体（Avalonia 里 TranslateTransform 不能 x:Name，代码里建）。</summary>
-    private TranslateTransform? _hubAiTransform;
+    /// <summary>
+    /// 当前筛选出来的软件清单。AI 浮层提问时现采成 JSON（见 <see cref="BuildAiContext"/>）：
+    /// 模型答"有没有 XX""哪个适合老电脑"必须先看见眼前这一页有什么。
+    /// </summary>
+    private List<SoftwareApp> _shown = new();
 
     /// <summary>
     /// 上一次真正重建列表时的「状态指纹」（分类|关键词|视图|内容包版本|内容来源）。
@@ -63,8 +64,8 @@ public sealed partial class SoftwarePage : PageBase
         CompactGrid.Loaded += (_, _) => FitCards();
         CompactGrid.SizeChanged += (_, _) => FitCards();
 
-        _hubAiTransform = new TranslateTransform();
-        HubAiPanel.RenderTransform = _hubAiTransform;
+        // 浮层每次提问都来取一份现场数据（见 BuildAiContext）
+        AiFlyout.ContextProvider = BuildAiContext;
     }
 
     public override void OnNavigatedTo(object? parameter)
@@ -272,6 +273,9 @@ public sealed partial class SoftwarePage : PageBase
         // 详情页不能"等页面画完再去取色"，否则会先显示一种颜色、过一会儿跳成另一种。
         WarmPalette(list);
 
+        // 这一页的 AI 就该知道页上有什么：清单存下来，提问时现采成 JSON（见 BuildAiContext）
+        _shown = list;
+
         var baseTitle = _category.Length == 0
             ? (_keyword.Length == 0 ? "软件下载" : $"搜索：{_keyword}")
             : App.Content.CategoryName(_category);
@@ -442,155 +446,84 @@ public sealed partial class SoftwarePage : PageBase
     // 卡片自己的悬停反馈由 XAML 里 Class="card" 的 :pointerover 样式给出（见页面顶部注释）。
 
     // ══════════════════════════════════════════════════════
-    //  Hub AI 入口与浮层（2026-10-18，1:1 对齐上游 1.3）
-    //  ⚠️ 浮层**不做对话**：它只是"提问入口"，发送后把问题交给 HubAiPage，浮层收起。
-    //     HubAiPage 历史、工具调用、推荐卡片与用量统计都在完整页里。
+    //  Hub AI 入口与浮层（上游 2026-10-30 抽成公共控件 Controls/HubAiFlyout）
     // ══════════════════════════════════════════════════════
 
-    private void HubAiEntry_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => ShowHubAiPanel(true);
-
-    private void HubAiClose_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => ShowHubAiPanel(false);
+    private void HubAiEntry_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => AiFlyout.Toggle();
 
     /// <summary>
-    /// 浮层升到完整页（2026-10-18）。走 <c>Shell.NavigateTo</c> 而不是 <c>Frame.Navigate</c> ——
-    /// 后者只会换掉内容区，导航栏的选中态还停在「软件下载」，看着像点错了。
-    /// ⚠️ 导航 tag <c>hubai</c> 的接线在 ShellPage（Lead 负责），这里只按 tag 走。
+    /// 「提交软件」入口（自上游 1.8 从导航栏挪来）。
+    /// 走 <c>Shell.NavigateTo</c> 让导航栏的选中态跟着走，别用 ContentFrame.Navigate。
     /// </summary>
-    private void HubAiExpand_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
-    {
-        ShowHubAiPanel(false);
-        App.MainWindow?.Shell.NavigateTo("hubai");
-    }
+    private void SubmitEntry_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+        => App.MainWindow?.Shell.NavigateTo("submit");
 
     /// <summary>
-    /// 浮窗显隐（2026-10-18 加动画）。
-    /// ⚠️ 原来是瞬间 IsVisible 切换，弹出来很生硬（Nick：「有点生硬，能不能滑入滑出」）。
-    /// 现在：展开 = 从下往上滑 24px + 淡入；收起 = 反向，动画结束后才真正隐藏
-    /// （过早设 IsVisible=false 会让动画直接消失）。
+    /// 给浮层准备这一页的现场数据（上游 2026-10-30 二版）。
+    /// <para>
+    /// 关键词：**用户眼前这一页有什么**。当前分类/平台/关键词筛出来的是哪些、各自多大、支持哪些系统，
+    /// 都是模型答"有没有 XX""哪个适合老电脑"必须看得见的东西 —— 让它去全盘搜反而更容易答错。
+    /// </para>
     /// </summary>
-    private void ShowHubAiPanel(bool show)
+    private PageContextDoc BuildAiContext()
     {
-        if (show)
+        var doc = new PageContextDoc(
+            "软件下载",
+            "这一页是站内软件库的下载墙，只能用库里有的软件回答推荐类问题。" +
+            "用户问「有没有 XX」「哪个能装 Win7」时，先看下面的清单与分类，库里没有就直说没有。");
+
+        var all = App.Content.Apps;
+
+        doc.Add("筛选状态", new
         {
-            HubAiPanel.IsVisible = true;
+            分类 = _category.Length == 0 ? "全部" : App.Content.CategoryName(_category),
+            分类key = _category,
+            平台 = _platform.Length == 0 ? "全部系统" : App.Content.PlatformName(_platform),
+            平台key = _platform,
+            关键词 = _keyword,
+            排序 = "按软件库原始顺序",
+            视图 = _view == "tile" ? "卡片" : "紧凑",
+            当前显示 = _shown.Count,
+            库内总数 = all.Count,
+        });
 
-            // ⚠️ 必须先摆到起点：动画只给 To 时会从**当前值**动画过去，
-            //    不设起点就是 0→0，只剩淡入、看不出滑动。
-            if (_hubAiTransform is not null) _hubAiTransform.Y = 24;
-            HubAiPanel.Opacity = 0;
-
-            AnimatePanel(fromY: 24, toY: 0, fromOpacity: 0, toOpacity: 1, durationMs: 240, onDone: null);
-            HubAiInput.Focus();
-            return;
-        }
-
-        if (!HubAiPanel.IsVisible) return;
-
-        AnimatePanel(fromY: 0, toY: 24, fromOpacity: HubAiPanel.Opacity, toOpacity: 0, durationMs: 170,
-            onDone: () => HubAiPanel.IsVisible = false);
-    }
-
-    /// <summary>
-    /// 滑入滑出。⚠️ WinUI 的 Storyboard + DoubleAnimation → Avalonia 的 Animation
-    /// （FillMode=Forward 让终值留住；位移与透明度两条同时跑，跑完再回调）。
-    /// </summary>
-    private async void AnimatePanel(double fromY, double toY, double fromOpacity, double toOpacity,
-                                    int durationMs, Action? onDone)
-    {
-        if (_hubAiTransform is null) return;
-
-        var easing = toOpacity > 0.5 ? (Easing)new CubicEaseOut() : new CubicEaseIn();
-
-        var slide = new Animation
+        doc.Add("分类与数量", App.Content.Categories.Select(c => new
         {
-            Duration = TimeSpan.FromMilliseconds(durationMs),
-            Easing = easing,
-            FillMode = FillMode.Forward,
-            Children =
+            key = c.Key,
+            名称 = c.Name,
+            数量 = all.Count(a => a.Category == c.Key),
+        }).ToList());
+
+        doc.Add("可筛选的平台", App.Content.Platforms.Select(p => new { key = p.Key, 名称 = p.Name }).ToList());
+
+        // 清单给 25 款：一页差不多就这么多，再多模型也读不动；总体数量上面已经给了
+        doc.Add("当前页上的软件（前 25 款）", _shown.Take(25).Select(a => new
+        {
+            a.Name,
+            分类 = a.CategoryDisplay.Length > 0 ? a.CategoryDisplay : App.Content.CategoryName(a.Category),
+            版本 = a.Version,
+            体积 = a.Size,
+            支持系统 = string.Join("/", a.Platforms),
+            系统要求 = a.System,
+            一句话 = a.Tagline,
+            下载方式 = string.Join("/", a.Downloads.Select(d => d.ActionText).Distinct()),
+        }).ToList());
+
+        if (_shown.Count > 25)
+            doc.Add("其余软件", new
             {
-                new KeyFrame { Cue = new Cue(0d), Setters = { new Setter(TranslateTransform.YProperty, fromY) } },
-                new KeyFrame { Cue = new Cue(1d), Setters = { new Setter(TranslateTransform.YProperty, toY) } },
-            },
-        };
+                条数 = _shown.Count - 25,
+                名称 = _shown.Skip(25).Select(a => a.Name).ToList(),
+            });
 
-        var fade = new Animation
-        {
-            Duration = TimeSpan.FromMilliseconds(durationMs),
-            Easing = easing,
-            FillMode = FillMode.Forward,
-            Children =
-            {
-                new KeyFrame { Cue = new Cue(0d), Setters = { new Setter(Visual.OpacityProperty, fromOpacity) } },
-                new KeyFrame { Cue = new Cue(1d), Setters = { new Setter(Visual.OpacityProperty, toOpacity) } },
-            },
-        };
+        doc.Action("按分类筛选", "点分类栏切换，AI 无法代点");
+        doc.Action("按系统筛选", "平台下拉框，可筛 Windows/macOS/Linux 等");
+        doc.Action("打开软件详情", "卡片点进去能看到下载条目、校验值与官网链接");
 
-        try
-        {
-            await Task.WhenAll(slide.RunAsync(_hubAiTransform), fade.RunAsync(HubAiPanel));
-        }
-        catch
-        {
-            // 动画起不来就直接落终值（与 MainWindow 的 WebSheet 动画同一套兜底）
-        }
+        if (_shown.Count == 0)
+            doc.Say("当前筛选下没有任何结果；用户若在找某款软件，可以建议他清掉筛选条件再看");
 
-        // 动画跑完会回到基准值 → 把基准值写成终值，避免收起时闪回
-        _hubAiTransform.Y = toY;
-        HubAiPanel.Opacity = toOpacity;
-        onDone?.Invoke();
+        return doc;
     }
 
-    private void HubAiSend_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => SendHubAiMessage();
-
-    private void HubAiInput_KeyDown(object? sender, KeyEventArgs e)
-    {
-        if (e.Key != Key.Enter) return;
-        e.Handled = true;
-        SendHubAiMessage();
-    }
-
-    /// <summary>
-    /// 浮层里发送 = 把问题交给完整页，不在浮层里做对话（2026-10-18）。
-    /// 完整页有历史、工具调用、推荐卡片与用量统计，这里再实现一套必然两边行为不一致。
-    /// </summary>
-    private void SendHubAiMessage()
-    {
-        var text = HubAiInput.Text?.Trim();
-        if (string.IsNullOrEmpty(text)) return;
-
-        HubAiInput.Text = string.Empty;
-        ShowHubAiPanel(false);
-
-        HubAiPage.PendingQuestion = text;
-        App.MainWindow?.Shell.NavigateTo("hubai");
-    }
-
-    /// <summary>
-    /// 造一条消息气泡。背景走系统的 <c>SubtleFillColorSecondaryBrush</c> 而不是 App.axaml 里那套
-    /// HubAi 资源 —— 代码里取主题字典的键很别扭（ThemeDictionaries 是延迟解析的），
-    /// 而这条气泡本来就该跟系统"次级填充"一致，不必另立品牌色。
-    /// </summary>
-    private static Border MakeBubble(string text, bool alignRight)
-    {
-        var bubble = new Border
-        {
-            CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(12, 9, 12, 9),
-            MaxWidth = alignRight ? 310 : 320,
-            HorizontalAlignment = alignRight ? Avalonia.Layout.HorizontalAlignment.Right
-                                             : Avalonia.Layout.HorizontalAlignment.Left,
-            Child = new TextBlock { Text = text, FontSize = 12.5, TextWrapping = TextWrapping.Wrap },
-        };
-
-        try
-        {
-            bubble.Background = Services.ThemeBrush.Get(bubble, "SubtleFillColorSecondaryBrush");
-        }
-        catch (Exception ex)
-        {
-            Core.AppLog.Exception("hubai", ex, "取气泡背景画刷");
-        }
-
-        return bubble;
-    }
 }

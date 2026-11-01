@@ -225,6 +225,12 @@ public partial class AppDataPage : Platform.PageBase
 
         // 离开页面就掐掉后台统计
         DetachedFromVisualTree += (_, _) => CancelScan();
+
+        // AI 入口跟着「设置 → 启用 Hub AI」总闸走（与「软件下载」页一致）
+        HubAiEntry.IsVisible = App.Settings.Current.HubAiEnabled;
+
+        // 浮层每次提问都来取一份现场数据（见 BuildAiContext）
+        AiFlyout.ContextProvider = BuildAiContext;
     }
 
     private void CancelScan()
@@ -852,10 +858,40 @@ public partial class AppDataPage : Platform.PageBase
         UpdateActionBar();                       // 让三颗按钮一起变灰
 
         var okCount = 0;
+        var partialCount = 0;   // 删掉了一部分、但有文件被占用跳过（2026-10-29 拆出来，见下面判定）
         var failCount = 0;
         var skipped = 0;
         var freed = 0L;
         var notes = new List<string>();
+        var partialNotes = new List<string>();   // 「清掉一部分」的目录名，单独一张单子（别混进失败清单）
+
+        // 登记一条清理任务，进度与结局都回报给「任务进行」（自上游 1.8）。
+        // 为什么：清一个几百 MB 的缓存目录要几十秒，用户一旦切走页面，这边就只剩一个空壳，
+        // 既看不到跑到哪、也不知道有没有完成。
+        var totalBytes = Math.Max(1, work.Sum(r => Math.Max(0, r.Bytes)));
+        var task = Services.DownloadManager.Current.TrackCleanup(
+            work.Count == 1 ? $"清理「{work[0].Name}」" : $"清理 {work.Count} 个缓存目录", totalBytes);
+
+        // 只有清理线程在写这两个量，所以不需要 Interlocked；节流到 120ms 一次，
+        // 否则一个几万文件的小目录会把绑定刷爆。
+        long deletedBytes = 0;
+        long lastReportTick = 0;
+
+        // ⚠️ 用全局 UI 调度器而不是页面自己的：清理跑起来之后用户很可能切去别的页面，
+        //    这一页一旦不在可视化树里，它自己的调度就不可靠了 —— 进度会停在半路，
+        //    而清理其实还在后台跑。Dispatcher.UIThread 在整个进程里都在。
+        void OnBytesDeleted(long n)
+        {
+            deletedBytes += n;
+
+            var tick = Environment.TickCount64;
+            if (tick - lastReportTick < 120) return;
+            lastReportTick = tick;
+
+            var snapshot = deletedBytes;
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                Services.DownloadManager.Current.ReportCleanupProgress(task, snapshot, totalBytes));
+        }
 
         foreach (var row in work)
         {
@@ -866,7 +902,7 @@ public partial class AppDataPage : Platform.PageBase
             {
                 // ⚠️ **串行**跑：这是秒级动作，几条并行没有意义。
                 var entry = row.Entry!;
-                var outcome = await Task.Run(() => AppDataScan.Clean(entry, CancellationToken.None));
+                var outcome = await Task.Run(() => AppDataScan.Clean(entry, CancellationToken.None, OnBytesDeleted));
 
                 // 清完重新量一次，把新体积如实显示出来
                 var (bytes, files) = await Task.Run(() => AppDataScan.Measure(row.MeasuredPath, CancellationToken.None));
@@ -879,6 +915,16 @@ public partial class AppDataPage : Platform.PageBase
                     skipped += outcome.Skipped;
                     freed += before - bytes;
                     row.Status = outcome.Skipped > 0 ? $"已清空（跳过 {outcome.Skipped} 项）" : "已清空";
+                }
+                else if (outcome.Cleaned > 0)
+                {
+                    // 「删掉了一部分，剩下几个正被占用」——这不是失败（2026-10-29 上游 1.8 修）。
+                    // ⚠️ 以前一律算 failCount，于是一个清掉了 99% 的目录会把整条任务标成「未完成」。
+                    partialCount++;
+                    skipped += outcome.Skipped;
+                    freed += before - bytes;
+                    row.Status = $"部分清理（跳过 {outcome.Skipped} 项）";
+                    partialNotes.Add($"「{row.Name}」：{outcome.Message}");
                 }
                 else
                 {
@@ -904,13 +950,21 @@ public partial class AppDataPage : Platform.PageBase
         RescanButton.IsEnabled = true;
         CategoryBox.IsEnabled = true;
 
+        // 任务收尾：清干净或「部分清掉」都算完成（剩下那几个被占用的文件，页面结果框里会说清），
+        // 只有整个目录一个文件都没删掉才算未完成。
+        if (failCount == 0 && (okCount > 0 || partialCount > 0))
+            Services.DownloadManager.Current.CompleteCleanup(task, freed);
+        else
+            Services.DownloadManager.Current.FailExternal(task,
+                failCount > 0 ? $"{failCount} 个目录未能完成" : "没有可清理的内容");
+
         // ⛔ 走 ShowCategory 而不是就地改：清完体积变小，计数行、下拉里的数字、动作条都要跟着重算。
         ClearAllChecks();
         ShowCategory();
         RefreshCounts();
 
-        await InfoAsync(failCount == 0 ? "清理完成" : "部分完成",
-            BuildResultBody(okCount, failCount, freed, skipped, notes));
+        await InfoAsync(failCount == 0 && partialCount == 0 ? "清理完成" : "部分完成",
+            BuildResultBody(okCount, partialCount, failCount, freed, skipped, notes, partialNotes));
     }
 
     private static Control BuildConfirmBody(
@@ -981,15 +1035,28 @@ public partial class AppDataPage : Platform.PageBase
     /// ⚠️ 讲的必须是**实际结果**，不是"我们打算做的事"。
     /// </summary>
     private static string BuildResultBody(
-        int okCount, int failCount, long freed, int skipped, IReadOnlyList<string> notes)
+        int okCount, int partialCount, int failCount, long freed, int skipped,
+        IReadOnlyList<string> notes, IReadOnlyList<string> partialNotes)
     {
         var sb = new StringBuilder();
 
-        sb.Append(okCount == 1
-            ? $"已清理 1 个目录，释放约 {AppLog.Size(freed)}。"
-            : $"已清理 {okCount} 个目录，合计释放约 {AppLog.Size(freed)}。");
+        var cleared = okCount + partialCount;
+        if (cleared == 0)
+            sb.Append("没有目录被清空。");
+        else
+            sb.Append(cleared == 1
+                ? $"已清理 1 个目录，释放约 {AppLog.Size(freed)}。"
+                : $"已清理 {cleared} 个目录，合计释放约 {AppLog.Size(freed)}。");
 
-        if (skipped > 0)
+        // 被占用的文件单独说：这不是出错，是程序正在用它们，关掉之后还能再清一次。
+        if (partialCount > 0)
+        {
+            sb.Append($"\n其中 {partialCount} 个目录有文件正被程序占用，只清掉了能删的部分"
+                      + $"（共跳过 {skipped} 项）—— 关掉相关程序后可以再清一次：");
+            foreach (var note in partialNotes.Take(5)) sb.Append("\n· " + note);
+            if (partialNotes.Count > 5) sb.Append($"\n· …… 还有 {partialNotes.Count - 5} 条");
+        }
+        else if (skipped > 0)
             sb.Append($"\n有 {skipped} 项正被程序占用，已跳过 —— 关掉相关程序后可以再清一次。");
 
         if (failCount > 0)
@@ -1081,5 +1148,99 @@ public partial class AppDataPage : Platform.PageBase
              + "正被独占的文件统计不到，属于正常现象。");
 
         return panel;
+    }
+
+    // ── Hub AI ───────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Hub AI 入口（上游 2026-10-30）：弹出提问浮层。
+    /// 浮层是公共控件（Controls/HubAiFlyout），与「软件下载」页同一份 —— 别在页面里再写一套。
+    /// </summary>
+    private void HubAiEntry_Click(object? sender, RoutedEventArgs e) => AiFlyout.Toggle();
+
+    /// <summary>
+    /// 给浮层准备这一页的现场数据（上游 2026-10-30 二版）。
+    /// <para>
+    /// 每次发消息时现采：清单里的体积是后台一个个填进来的、勾选会变、分类会切，
+    /// 提前算好存着的必然是旧数。这里只做内存里的投影，不碰磁盘，开销可以忽略。
+    /// </para>
+    /// </summary>
+    private PageContextDoc BuildAiContext()
+    {
+        var doc = new PageContextDoc(
+            "AppData 管理",
+            "这一页统计 AppData 下各项的体积，并允许清理命中白名单的缓存目录。" +
+            "用户问「哪个占地方」「这个能不能删」「删了有什么影响」时，直接引用下面清单里的数字与说明回答；" +
+            "界面上的体积单位是程序算好的，不要自己换算。");
+
+        var cleanBytes = _clean.Sum(r => Math.Max(r.Bytes, 0));
+        var localBytes = _foldersLocal.Sum(r => Math.Max(r.Bytes, 0));
+        var roamingBytes = _foldersRoaming.Sum(r => Math.Max(r.Bytes, 0));
+
+        doc.Add("状态", new
+        {
+            目录结构已读取 = _ready,
+            体积统计中 = _measuring,
+            正在清理 = _busy,
+            当前分类 = _category?.Label ?? "",
+        });
+
+        doc.Add("统计", new
+        {
+            本地一级目录数 = _foldersLocal.Count,
+            本地一级目录合计 = new { bytes = localBytes, text = AppLog.Size(localBytes) },
+            漫游一级目录数 = _foldersRoaming.Count,
+            漫游一级目录合计 = new { bytes = roamingBytes, text = AppLog.Size(roamingBytes) },
+            可清理项数 = _clean.Count,
+            可清理合计 = new { bytes = cleanBytes, text = AppLog.Size(cleanBytes) },
+            已勾选可清理项 = _clean.Count(r => r.IsChecked && r.CanClean),
+            已勾选合计 = new
+            {
+                bytes = _clean.Where(r => r.IsChecked && r.CanClean).Sum(r => Math.Max(r.Bytes, 0)),
+                text = AppLog.Size(_clean.Where(r => r.IsChecked && r.CanClean).Sum(r => Math.Max(r.Bytes, 0))),
+            },
+        });
+
+        // 清单给 40 条：本机实测可清理 245 项，全塞把上下文顶爆；40 条已覆盖九成体积
+        const int take = 40;
+        doc.Add("可清理项（按体积降序）", _clean.Take(take).Select(r => new
+        {
+            名称 = r.Name,
+            卷 = r.Entry is null ? "" : (r.Entry.Zone == AppDataZone.Local ? "本地" : "漫游"),
+            类别 = AppDataLook.LabelOf(r.Kind),
+            bytes = Math.Max(r.Bytes, 0),
+            大小 = r.SizeText,
+            文件数 = r.Files,
+            路径 = r.Entry?.FullPath ?? "",
+            说明 = r.Sub,
+            已勾选 = r.IsChecked,
+        }).ToList());
+
+        if (_clean.Count > take)
+        {
+            var rest = _clean.Skip(take).ToList();
+            doc.Add("未尽的可清理项", new
+            {
+                条数 = rest.Count,
+                合计 = new { bytes = rest.Sum(r => Math.Max(r.Bytes, 0)), text = AppLog.Size(rest.Sum(r => Math.Max(r.Bytes, 0))) },
+                说明 = "下面这些没有逐条列出；用户问到具体某一项时，可以让他先在界面上按名称找一下",
+                名称 = rest.Take(30).Select(r => r.Name).ToList(),
+            });
+        }
+
+        doc.Add("本地一级目录（体积前 12，只读体检项，不提供清理）",
+            _foldersLocal.Take(12).Select(r => new { 名称 = r.Name, 大小 = r.SizeText, 文件数 = r.Files }).ToList());
+
+        doc.Add("漫游一级目录（体积前 12，只读体检项，不提供清理）",
+            _foldersRoaming.Take(12).Select(r => new { 名称 = r.Name, 大小 = r.SizeText, 文件数 = r.Files }).ToList());
+
+        doc.Action("清理勾选的项", "只清理命中白名单的缓存目录，逐项报告成功/跳过");
+        doc.Action("全选", "把当前分类下可清理的项全部勾上");
+        doc.Action("重新扫描", "重读目录结构并重新统计体积");
+
+        if (_measuring)
+            doc.Say("体积还在后台逐个统计，界面上有「统计中…」的行就是还没算完的，这些项的数字不可引用");
+
+        return doc;
     }
 }

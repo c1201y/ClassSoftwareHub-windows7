@@ -66,7 +66,7 @@ public sealed partial class TrayMenuWindow : Window
         InitializeComponent();
 
         Title = "托盘菜单";
-        ThemeCompat.Apply(Root, mainScope: true);       // 跟主界面「颜色模式」走，不是跟外部组件
+        ThemeCompat.Apply(Root);       // 跟主界面「颜色模式」走，不是跟外部组件
         Root.ActualThemeVariantChanged += (_, _) => ApplyChrome();
 
         _foregroundWatch = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };

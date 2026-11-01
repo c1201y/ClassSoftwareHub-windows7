@@ -1,0 +1,57 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:fa="using:FluentAvalonia.UI.Controls"
+             xmlns:views="using:ClassSoftwareHub.Desktop.Views"
+             x:Class="ClassSoftwareHub.Desktop.Views.Oobe.OobeSidebarPage">
+
+    <!--
+      第 5 步：侧边工具栏（开关类，自上游 dv1.2.0-insider1.8 移植）。
+      侧边栏和主界面是分开的两块，配置项也多（边、模式、模块、密度……），
+      这里只放"要不要显示 / 按钮怎么写"这几项；位置与尺寸各拆一页，细项仍在「侧边布局」页。
+    -->
+    <Grid>
+        <StackPanel x:Name="ContentRoot" Width="600"
+                    HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="4">
+
+            <StackPanel Spacing="6" Margin="0,0,0,12">
+                <TextBlock Text="侧边工具栏" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center" />
+            </StackPanel>
+
+            <views:SettingsCard Header="屏幕边缘侧边栏"
+                                Description="屏幕边缘的常驻工具栏。">
+                <views:SettingsCard.HeaderIcon>
+                    <fa:FontIcon Glyph="&#xE8A0;" />
+                </views:SettingsCard.HeaderIcon>
+                <ToggleSwitch x:Name="SidebarSwitch" OnContent="开" OffContent="关" MinWidth="0"
+                              IsCheckedChanged="Sidebar_Toggled" />
+            </views:SettingsCard>
+
+            <views:SettingsCard Header="常用工具窗口始终置顶"
+                                Description="常用工具浮窗不会被其他窗口遮挡。">
+                <views:SettingsCard.HeaderIcon>
+                    <fa:FontIcon Glyph="&#xE718;" />
+                </views:SettingsCard.HeaderIcon>
+                <ToggleSwitch x:Name="PaletteTopSwitch" OnContent="开" OffContent="关" MinWidth="0"
+                              IsCheckedChanged="PaletteTop_Toggled" />
+            </views:SettingsCard>
+
+            <views:SettingsCard x:Name="LongLabelCard" Header="按钮使用长名"
+                                Description="最多四个字，便于辨认。">
+                <views:SettingsCard.HeaderIcon>
+                    <fa:FontIcon Glyph="&#xE8D2;" />
+                </views:SettingsCard.HeaderIcon>
+                <ToggleSwitch x:Name="LongLabelSwitch" OnContent="开" OffContent="关" MinWidth="0"
+                              IsCheckedChanged="LongLabel_Toggled" />
+            </views:SettingsCard>
+
+            <views:SettingsCard x:Name="PinnedCard" Header="常驻"
+                                Description="侧边栏展开后保持展开，不自动收起。">
+                <views:SettingsCard.HeaderIcon>
+                    <fa:FontIcon Glyph="&#xE840;" />
+                </views:SettingsCard.HeaderIcon>
+                <ToggleSwitch x:Name="PinnedSwitch" OnContent="开" OffContent="关" MinWidth="0"
+                              IsCheckedChanged="Pinned_Toggled" />
+            </views:SettingsCard>
+        </StackPanel>
+    </Grid>
+</UserControl>

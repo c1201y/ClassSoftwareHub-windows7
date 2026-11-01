@@ -1,0 +1,120 @@
+<platform:PageBase
+    x:Class="ClassSoftwareHub.Desktop.Pages.SystemTweaksPage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:controls="using:ClassSoftwareHub.Desktop.Controls"
+    xmlns:fa="using:FluentAvalonia.UI.Controls">
+
+    <!--
+      系统优化（自上游 dv1.2.0-insider1.8 移植，需求清单第 20 条）。对齐 Dism++「系统优化」里能安全落地的部分。
+
+      版式与「系统功能」页一致：三列 Grid 把内容钉在中间 960 宽，底部一条待应用提示条。
+
+      ⚠️ 这些项都在当前用户（HKCU），改完即时生效，**不弹 UAC**：
+         切换只排队，点「应用更改」时统一写入；需要外壳重读的项由 TweakRefresh 标注，
+         写完后统一发一条通知（不再默认杀 explorer）。
+         （机器级项在「系统功能」页，那里才提权。）
+
+      ⚠️ 卡片不手写，由 code-behind 按 TweakCatalog 生成 —— 清单只有一份。
+         上游是 XAML 手写 39 张卡 + FindName 反查，移植时改成了生成（避免两处维护）。
+    -->
+    <Grid Background="Transparent">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <Grid Margin="24,36,24,44">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="24" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="24" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="1" MaxWidth="960" Spacing="4">
+
+                    <!-- ── 标题 ── -->
+                    <Grid Margin="0,0,0,14">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Spacing="4">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <TextBlock Text="系统优化" FontSize="28" FontWeight="Bold" />
+                            <Border CornerRadius="5" Padding="8,3" Margin="0,0,0,5" VerticalAlignment="Bottom"
+                                    BorderThickness="1"
+                                    BorderBrush="{DynamicResource SystemFillColorCautionBrush}">
+                                <StackPanel Orientation="Horizontal" Spacing="5">
+                                    <fa:FontIcon Glyph="&#xEA80;" FontSize="11"
+                                                 Foreground="{DynamicResource SystemFillColorCautionBrush}" />
+                                    <TextBlock Text="实验性功能" FontSize="12"
+                                               Foreground="{DynamicResource SystemFillColorCautionBrush}" />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                        <TextBlock FontSize="12.5" Opacity="0.65" TextWrapping="Wrap"
+                                   Text="任务栏、资源管理器与输入法等当前用户设置。拨动开关只会排队，点底部「应用更改」才写入；不需要管理员权限。" />
+                        </StackPanel>
+
+                        <Button x:Name="HubAiEntry" Grid.Column="1" Padding="12,6" Click="HubAiEntry_Click"
+                                VerticalAlignment="Center" ToolTip.Tip="打开 Hub AI 顾问">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <fa:FontIcon Glyph="&#xE8F2;" FontSize="13" />
+                                <TextBlock Text="AI" FontSize="12.5" />
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+
+                    <fa:InfoBar x:Name="NoticeBar" IsOpen="False" IsClosable="True" IsVisible="False"
+                                Severity="Informational" Message="" Margin="0,0,0,8" />
+
+                    <!-- 分组卡片由 code-behind 生成 -->
+                    <StackPanel x:Name="RowsPanel" Spacing="4" />
+
+                    <!-- 页脚：说明执行依据与限制 -->
+                    <Border Classes="cshCard" Margin="0,4,0,0">
+                        <StackPanel Spacing="7">
+                            <TextBlock Text="执行依据与限制" FontSize="12" FontWeight="Bold" Opacity="0.85" />
+                            <TextBlock FontSize="12" Opacity="0.65" TextWrapping="Wrap"
+                                       Text="· 写入的是当前用户（HKCU）设置，不需要管理员权限，也不会弹授权框。" />
+                            <TextBlock FontSize="12" Opacity="0.65" TextWrapping="Wrap"
+                                       Text="· 任务栏、桌面相关的改动在写入后会通知系统刷新；若没有变化，可在提示条上重启资源管理器。" />
+                            <TextBlock FontSize="12" Opacity="0.65" TextWrapping="Wrap"
+                                       Text="· 写入后会重新读取实际值核对：没生效的项会留在队列里，可重试或取消。" />
+                            <TextBlock FontSize="12" Opacity="0.65" TextWrapping="Wrap"
+                                       Text="· 与当前系统版本不符的项会整卡停用（例如 Windows 10 上的任务栏对齐）。" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Grid>
+        </ScrollViewer>
+
+        <!-- ── 待应用提示条：默认收起，有排队项时出现 ── -->
+        <Border Grid.Row="1" x:Name="PendingBar" IsVisible="False"
+                BorderThickness="0,1,0,0"
+                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                Background="{DynamicResource LayerFillColorDefaultBrush}">
+            <Grid Margin="24,10,24,10" ColumnDefinitions="*,Auto,Auto" VerticalAlignment="Center">
+                <StackPanel Spacing="4" VerticalAlignment="Center">
+                    <TextBlock x:Name="PendingTitle" Text="有 0 项待应用" FontSize="14" FontWeight="SemiBold" />
+                    <TextBlock x:Name="PendingSubtitle" Text="只写当前用户设置，无需管理员权限。"
+                               FontSize="12" Opacity="0.65" TextWrapping="Wrap" />
+                    <ScrollViewer MaxHeight="132" VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel x:Name="PendingList" Spacing="2" Margin="0,4,0,0" />
+                    </ScrollViewer>
+                </StackPanel>
+
+                <Button x:Name="ApplyButton" Grid.Column="1" Content="应用更改" Margin="16,0,0,0"
+                        MinWidth="96" Click="ApplyPending_Click" />
+                <Button Grid.Column="2" Content="暂不应用" Margin="8,0,0,0"
+                        MinWidth="88" Click="DismissPending_Click" />
+            </Grid>
+        </Border>
+
+        <controls:HubAiFlyout x:Name="AiFlyout" />
+    </Grid>
+</platform:PageBase>

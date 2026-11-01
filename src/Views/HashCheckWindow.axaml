@@ -1,0 +1,122 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:fa="using:FluentAvalonia.UI.Controls"
+        x:Class="ClassSoftwareHub.Desktop.Views.HashCheckWindow">
+
+    <!--
+      哈希校验悬浮窗（自上游 dv1.2.0-insider1.8 移植）。
+
+      来由：核对安装包时最常做的事是「官网给了个 SHA-256，我算一遍看对不对」。
+      原来只能先进主界面 → 系统工具 → 编码·哈希工具，为了核对一个文件把整个应用拉出来太重。
+      这扇窗单开、可一直摆在旁边，拖进去就出结果。
+
+      · 拖放区沿用编码页那条扁平横条（ControlFillColorDefaultBrush + 圆角 4、不描边），
+        不另画卡片 —— 同一件事在应用里应该长得一样。
+      · 校验值输入框和四种哈希放在同一块，粘贴后立刻显示比对结果（不用再点「比对」）。
+      · 窗口边框与「文件快搜」浮窗同一套：<see cref="SelfDrawnFrame"/> 接管非客户区，
+        拖动 / 贴边 / 边缘缩放仍由系统执行，关闭键自己画。
+    -->
+    <Grid x:Name="Root" Background="{DynamicResource ApplicationPageBackgroundThemeBrush}">
+        <Grid.RowDefinitions>
+            <!-- 自绘标题栏 -->
+            <RowDefinition Height="32" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Grid x:Name="TitleBarHost" Grid.Row="0" Height="32">
+            <TextBlock Text="编码 / 哈希校验" FontSize="12" Opacity="0.7"
+                       VerticalAlignment="Center" Margin="16,0,140,0" />
+
+            <Button x:Name="CaptionCloseButton" Classes="caption close"
+                    HorizontalAlignment="Right" VerticalAlignment="Top"
+                    Margin="0,0,4,0" Click="CaptionClose_Click">
+                <Path Data="M0.5,0.5 L9.5,9.5 M9.5,0.5 L0.5,9.5" />
+            </Button>
+        </Grid>
+
+        <ScrollViewer x:Name="ContentScroll" Grid.Row="1" Padding="20,4,20,20"
+                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <!--
+              ⚠️ VerticalAlignment="Top" 是给窗口定高用的：不写的话 ScrollViewer 会把内容
+                 纵向拉伸到视口高度，量出来的高度是"视口高"而不是"内容高"，
+                 窗口就永远缩不下去。
+            -->
+            <StackPanel x:Name="ContentPanel" Spacing="12" VerticalAlignment="Top">
+
+                <!-- ① 拖放区：整条都能拖、能点 -->
+                <Border x:Name="DropZone" Padding="16" CornerRadius="4" BorderThickness="0"
+                        Background="{DynamicResource ControlFillColorDefaultBrush}"
+                        DragDrop.AllowDrop="True" Tapped="DropZone_Tapped"
+                        DragDrop.DragOver="DropZone_DragOver"
+                        DragDrop.DragLeave="DropZone_DragLeave"
+                        DragDrop.Drop="DropZone_Drop">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <fa:FontIcon Glyph="&#xE8E5;" FontSize="24" Opacity="0.65" VerticalAlignment="Center" />
+
+                        <!-- 原版 ColumnSpacing=12 → 第 2 列加 12 左 Margin -->
+                        <StackPanel Grid.Column="1" Margin="12,0,0,0" Spacing="2" VerticalAlignment="Center">
+                            <TextBlock x:Name="DropTitle" Text="把文件拖到这里，或单击选择"
+                                       FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap" />
+                            <TextBlock x:Name="DropSub" FontSize="12" Opacity="0.6" TextWrapping="Wrap"
+                                       Text="任意文件类型，大文件不占内存" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <ProgressBar x:Name="HashProgress" IsIndeterminate="True" IsVisible="False" />
+
+                <!-- 文件信息（名称 · 大小 · 完整路径），没选文件时不占版面 -->
+                <SelectableTextBlock x:Name="FileInfo" IsVisible="False" FontSize="12" Opacity="0.65"
+                                     TextWrapping="Wrap" />
+
+                <!-- ② 校验值：粘贴后自动比对，不需要再点按钮。
+                     ⚠️ Avalonia 的 TextBox 没有 Header → 标题另起一行。 -->
+                <StackPanel Spacing="4">
+                    <TextBlock Text="校验值" FontSize="12" FontWeight="SemiBold" />
+                    <TextBox x:Name="ExpectedBox"
+                             Watermark="粘贴官方提供的校验值，粘贴后自动比对"
+                             FontFamily="Consolas" FontSize="12"
+                             TextChanged="Expected_TextChanged" />
+                </StackPanel>
+
+                <TextBlock x:Name="MatchText" FontSize="12" TextWrapping="Wrap" IsVisible="False" />
+
+                <!-- ③ 四种哈希：算法名定宽 + 值（可选中）+ 复制 -->
+                <ItemsControl x:Name="HashList">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="0,6">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="58" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+
+                                <TextBlock Text="{Binding Name}" FontSize="12" Opacity="0.65"
+                                           VerticalAlignment="Center" />
+
+                                <SelectableTextBlock Grid.Column="1" Margin="8,0,0,0"
+                                                     Text="{Binding Value}"
+                                                     FontFamily="Consolas" FontSize="12" TextWrapping="Wrap"
+                                                     VerticalAlignment="Center" />
+
+                                <!-- 原版 ColumnSpacing=8 → 第 2、3 列加 8 左 Margin -->
+                                <Button Grid.Column="2" Margin="8,0,0,0" Content="复制" Tag="{Binding}"
+                                        Padding="10,4" FontSize="12" VerticalAlignment="Center"
+                                        Click="CopyLine_Click" />
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <TextBlock FontSize="12" Opacity="0.55" TextWrapping="Wrap"
+                           Text="只在本机比对，不上传。一致即与发布方相同。" />
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Window>

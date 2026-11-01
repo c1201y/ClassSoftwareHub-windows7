@@ -17,13 +17,14 @@ namespace ClassSoftwareHub.Desktop.Platform;
 /// </summary>
 public static class ThemeCompat
 {
-    // ⚠️ 每个登记的根都要带**作用域**（2026-10-03 修，用户反馈「开启外部组件单独设置颜色」后
-    //    主界面文字全变白看不清）：以前所有根共用一个 CurrentSetting() —— 开了分体后
-    //    Notify() 会把**外部组件**的外观算给**所有**登记过的根，连主窗口的 RootGrid 也一起被
-    //    染成深色（背景还是浅色的玻璃 → 白底白字）。现在主窗口登记为 main 作用域，
-    //    永远跟「颜色模式」走；侧边栏 / 工具面板 / 截图窗 / 音量·亮度·合成器浮窗登记为
-    //    external，跟分体设置走（音量等浮窗 2026-10-08 从 main 改归 external，Nick 定的口径）。
-    private static readonly List<(WeakReference<StyledElement> Ref, bool Main)> Roots = new();
+    // ⛔⛔ 两套主题，别搞混（2026-10-29 上游 1.8 定稿的口径）：
+    //   · 应用主题（设置里的「颜色模式」）：**其余所有窗口都跟这个** —— 主界面、学科工具窗、
+    //     音量 / 亮度浮窗、截图窗、条款与声明、日志详细视图、反馈引导窗……
+    //   · 外部组件主题（「桌面悬浮窗单独设置外观」+「外部组件外观」）：**只作用于桌面悬浮件** ——
+    //     ① 「常用工具」浮窗（随机抽号 / 课堂计时 / 秒表计时 / 全屏时钟）；② 屏幕边缘的工具侧边栏。
+    //   以前侧边栏 / 音量浮窗 / 截图窗等全登记成 external，分体一开连文档窗都跟着变深，
+    //   主界面浅色时整片发黑。现在只有 ToolPaletteWindow 与 ToolSidebarWindow 传 external: true。
+    private static readonly List<(WeakReference<StyledElement> Ref, bool External)> Roots = new();
 
     /// <summary>设置里的主题（system | light | dark）映射成 Avalonia 的 ThemeVariant。</summary>
     public static ThemeVariant Map(string? theme) => (theme ?? "").Trim().ToLowerInvariant() switch
@@ -33,13 +34,13 @@ public static class ThemeCompat
         _ => ThemeVariant.Default
     };
 
-    /// <summary>这一类根该用哪个外观：main = 主界面「颜色模式」；external = 分体开着跟「外部组件外观」，没开跟主界面。</summary>
-    private static ThemeVariant VariantFor(bool mainScope)
+    /// <summary>这一类根该用哪个外观：external = 桌面悬浮件（分体开着跟「外部组件外观」，没开跟主界面）；否则跟主界面。</summary>
+    private static ThemeVariant VariantFor(bool external)
     {
         try
         {
             var s = App.Settings.Current;
-            if (mainScope) return Map(s.Theme);
+            if (!external) return Map(s.Theme);
 
             var ext = s.SplitTheme ? s.ExternalTheme : s.Theme;
             return Map(string.IsNullOrWhiteSpace(ext) ? "system" : ext);
@@ -49,19 +50,18 @@ public static class ThemeCompat
 
     /// <summary>
     /// 把当前设置的主题应用到某个窗口/控件，并登记（之后改设置会一起变）。
-    /// 对应原版 <c>ThemeHost.Apply(FrameworkElement root)</c>。
-    /// ⚠️ <paramref name="mainScope"/>：只有**主窗口**传 true（永远跟主界面的颜色模式走）。
-    ///    音量 / 亮度 / 合成器这些小浮窗 2026-10-08 起也归**外部组件**作用域（Nick：分体深色下
-    ///    它们得跟着变深）；侧边栏 / 常用工具面板 / 截图窗一直就是外部作用域。
+    /// 对应原版 <c>ThemeHost.Apply(FrameworkElement root, bool external)</c>。
+    /// ⚠️ <paramref name="external"/> **只对桌面悬浮件传 true**（常用工具浮窗 / 侧边栏），
+    ///    其余窗口一律用默认值 —— 让它们跟应用主题走。
     /// </summary>
-    public static void Apply(StyledElement root, bool mainScope = false)
+    public static void Apply(StyledElement root, bool external = false)
     {
         try
         {
-            ApplyTheme(root, VariantFor(mainScope));
+            ApplyTheme(root, VariantFor(external));
 
             Roots.RemoveAll(r => !r.Ref.TryGetTarget(out var t) || t is null);
-            Roots.Add((new WeakReference<StyledElement>(root), mainScope));
+            Roots.Add((new WeakReference<StyledElement>(root), external));
         }
         catch (Exception ex)
         {
@@ -70,12 +70,12 @@ public static class ThemeCompat
     }
 
     /// <summary>
-    /// 设置变了：所有登记过的根一起换 —— **各回各的作用域**（main 跟主界面、external 跟分体设置）。
+    /// 设置变了：所有登记过的根一起换 —— **各回各的作用域**（悬浮件跟分体设置、其余跟主界面）。
     /// 对应原版 <c>ThemeHost.Notify()</c>。
     /// </summary>
     public static void Notify()
     {
-        var alive = new List<(WeakReference<StyledElement> Ref, bool Main)>();
+        var alive = new List<(WeakReference<StyledElement> Ref, bool External)>();
 
         foreach (var r in Roots)
         {
@@ -83,7 +83,7 @@ public static class ThemeCompat
             {
                 if (r.Ref.TryGetTarget(out var root) && root is not null)
                 {
-                    ApplyTheme(root, VariantFor(r.Main));
+                    ApplyTheme(root, VariantFor(r.External));
                     alive.Add(r);
                 }
             }

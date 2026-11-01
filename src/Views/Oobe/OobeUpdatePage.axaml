@@ -1,0 +1,58 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:fa="using:FluentAvalonia.UI.Controls"
+             x:Class="ClassSoftwareHub.Desktop.Views.Oobe.OobeUpdatePage">
+
+    <!--
+      第 3 步：检查更新（自上游 dv1.2.0-insider1.8 移植）。
+      进页面自动查一次（用的就是「设置 → 关于」那套 UpdateService）；查完把结果摆出来，
+      用户可以「立即更新」，也可以什么都不动直接点底部「下一步」—— 更新全程自愿。
+      ⚠️ 移植：ProgressRing 用 FluentAvalonia 的 fa:ProgressRing（IsActive）；WinUI 的重排过渡没有对应物，删掉。
+    -->
+    <Grid>
+        <StackPanel x:Name="ContentRoot" Width="600"
+                    HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="4">
+
+            <StackPanel Spacing="6" Margin="0,0,0,12">
+                <TextBlock Text="检查更新" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center" />
+            </StackPanel>
+
+            <Border CornerRadius="8" BorderThickness="1" Padding="22,20"
+                    Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
+                <StackPanel Spacing="14">
+
+                    <StackPanel x:Name="CheckingPanel" Orientation="Horizontal" Spacing="12">
+                        <fa:ProgressRing IsActive="True" Width="20" Height="20" />
+                        <TextBlock Text="正在检查更新…" VerticalAlignment="Center" />
+                    </StackPanel>
+
+                    <StackPanel x:Name="ResultPanel" Spacing="12" IsVisible="False">
+                        <StackPanel Orientation="Horizontal" Spacing="12">
+                            <fa:FontIcon x:Name="ResultIcon" Glyph="&#xE73E;" FontSize="22" VerticalAlignment="Top" />
+                            <StackPanel Spacing="3">
+                                <TextBlock x:Name="ResultTitle" FontSize="16" FontWeight="SemiBold"
+                                           TextWrapping="Wrap" />
+                                <TextBlock x:Name="ResultDetail" FontSize="12.5" Opacity="0.7"
+                                           TextWrapping="Wrap" />
+                            </StackPanel>
+                        </StackPanel>
+
+                        <StackPanel x:Name="ActionRow" Orientation="Horizontal" Spacing="8"
+                                    IsVisible="False">
+                            <Button x:Name="UpdateNowButton" Content="立即更新"
+                                    Theme="{StaticResource AccentButtonStyle}" Click="UpdateNow_Click" />
+                            <Button Content="稍后" Click="Skip_Click" />
+                        </StackPanel>
+
+                        <TextBlock x:Name="StatusText" FontSize="12" Opacity="0.7"
+                                   TextWrapping="Wrap" IsVisible="False" />
+                    </StackPanel>
+
+                    <Button x:Name="RetryButton" Content="重新检查" Click="Retry_Click"
+                            IsVisible="False" HorizontalAlignment="Left" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </Grid>
+</UserControl>

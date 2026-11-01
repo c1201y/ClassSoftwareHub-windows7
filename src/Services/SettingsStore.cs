@@ -50,6 +50,17 @@ public sealed class AppSettings
     /// </summary>
     public bool TrayHideHintShown { get; set; }
 
+    // ── 初次配置（OOBE，自上游 dv1.2.0-insider1.8 移植）──────────────
+
+    /// <summary>
+    /// 初次配置向导走到哪了，见 <see cref="OobeStates"/>。
+    /// <para>
+    /// ⚠️ 升级上来的老存档里没有这个字段 → 读出来是 <see cref="OobeStates.Unknown"/> → 不弹向导。
+    ///    别改成"为假就弹"，那会把所有老用户都拽进一遍初次配置。
+    /// </para>
+    /// </summary>
+    public int OobeState { get; set; }
+
     // ── 文件快搜（2026-10-29 insider1.4）──────────────────────────────
 
     /// <summary>
@@ -131,6 +142,12 @@ public sealed class AppSettings
     /// 手动点「收起」照样能收。
     /// </summary>
     public bool SidebarPinned { get; set; }
+
+    /// <summary>
+    /// 侧边栏按钮上写**长名**（最多四个字，便于辨认）而不是两三个字的短名。
+    /// 由「初次配置 → 侧边工具栏」与「侧边布局」页共用，文案见 <c>SidebarModule.LongName</c>。
+    /// </summary>
+    public bool SidebarLongLabels { get; set; }
 
     /// <summary>
     /// 侧边栏里显示哪些模块（顺序 = 显示顺序），见 Data/SidebarModules.All —— 在「侧边布局」页里勾选/排序。
@@ -355,6 +372,20 @@ public sealed class AppSettings
     /// 默认 auto，与上游设置页「GitHub 应用更新加速源」一致。由设置页选择；
     /// <see cref="Services.GithubRoute"/> 据此把软件下载链接翻译成实际要抓的链接。</summary>
     public string GithubDownloadRoute { get; set; } = "auto";
+
+    /// <summary>
+    /// 下载**存到哪个文件夹**（2026-11-01 自上游 insider1.8 移植）。
+    ///
+    /// <para>
+    /// 空串 = 跟着系统「下载」文件夹走（<see cref="Services.DownloadService.DefaultDir"/>，用户改过系统
+    /// 下载位置也照样生效）。填了就用这个目录。
+    /// </para>
+    /// <para>
+    /// ⚠️ 与上面 <see cref="GithubDownloadRoute"/> 是两回事：那条决定「从哪儿取」，这条决定「放哪儿」。
+    /// 也不影响应用自身的更新包 —— 更新包必须留在已知位置，装完才好收拾。
+    /// </para>
+    /// </summary>
+    public string DownloadFolder { get; set; } = "";
 
     /// <summary>
     /// 「安装或解压完成后自动删除安装包或压缩包」（2026-10-18 自上游 1.2.0 移植，默认关）。
@@ -605,6 +636,17 @@ public sealed class AppSettings
     /// </para>
     /// </summary>
     public bool HubAiToolsEnabled { get; set; }
+
+    // ── 查阅单词（2026-11-01 自上游 dv1.2.0-insider1.8 移植）────────────
+
+    /// <summary>
+    /// 词源优先级：<c>offline-first</c>（默认）/ <c>online-first</c> / <c>offline-only</c> / <c>online-only</c>。
+    /// 见 <c>Core.Dictionary.DictSourceModes</c>；老存档或手改坏的值由它归一。
+    /// </summary>
+    public string DictionarySource { get; set; } = Core.Dictionary.DictSourceModes.OfflineFirst;
+
+    /// <summary>查词历史（最近在前，最多十条）。由查阅页自己裁剪，存档里不夹长度。</summary>
+    public System.Collections.Generic.List<string> DictionaryHistory { get; set; } = new();
 }
 
 /// <summary>教室喊话发送端的已配对设备（一台电脑一个码）。</summary>

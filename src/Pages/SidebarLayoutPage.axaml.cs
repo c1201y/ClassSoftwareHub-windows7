@@ -289,6 +289,7 @@ public sealed partial class SidebarLayoutPage : PageBase
         {
             if (PaletteTopSwitch is not null) PaletteTopSwitch.IsChecked = s.PaletteOnTop;
             if (SidebarSwitch is not null) SidebarSwitch.IsChecked = s.SidebarEnabled;
+            if (LongLabelSwitch is not null) LongLabelSwitch.IsChecked = s.SidebarLongLabels;
             if (SidebarModeCombo is not null)
             {
                 var index = s.SidebarMode == "free" ? 1 : 0;
@@ -1747,6 +1748,17 @@ public sealed partial class SidebarLayoutPage : PageBase
         // 右下角那颗按钮跟这个开关说的是同一件事（都看 SidebarEnabled），跟着换字
         if (SidebarButton is not null)
             SidebarButton.Content = ToolSidebarWindow.IsSidebarVisible ? "隐藏侧边栏" : "显示侧边栏";
+    }
+
+    /// <summary>
+    /// 按钮文案在**建按钮时**就写进去了，所以这里只能重建侧边栏（ApplySetting）让新文案生效。
+    /// </summary>
+    private void LongLabelSwitch_Toggled(object? sender, RoutedEventArgs e)
+    {
+        if (_toolSync) return;
+        App.Settings.Current.SidebarLongLabels = LongLabelSwitch.IsChecked == true;
+        App.Settings.Save();
+        ToolSidebarWindow.ApplySetting();
     }
 
     // ── 侧边栏放置模式 / 贴在哪条边 ───────────────────────────────────────

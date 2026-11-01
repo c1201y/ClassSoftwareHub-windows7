@@ -57,7 +57,7 @@
         <StackPanel Spacing="2">
             <TextBlock Text="编码 / 哈希工具" FontSize="28" FontWeight="Bold" />
             <TextBlock FontSize="12" Opacity="0.6" TextWrapping="Wrap"
-                       Text="校验文件：拖入文件即得四种哈希值，粘贴官方提供的哈希值会立即给出核对结论。也可对文本做 Base64 / URL 编解码。全部在本机完成。" />
+                       Text="校验文件哈希，也可对文本做 Base64 / URL 编解码。" />
         </StackPanel>
 
         <!-- ═══ 2026-10-02：两个用途从「两张卡片」降级为**一行原生单选** ═══
@@ -135,7 +135,7 @@
                                        VerticalAlignment="Center" />
                             <!-- PlaceholderText → Avalonia TextBox 用 Watermark（语义相同） -->
                             <TextBox x:Name="ExpectedBox" Grid.Column="1" Margin="12,0,0,0"
-                                     Watermark="在此粘贴官网给出的 MD5 / SHA-1 / SHA-256 / SHA-512 值（空格、大小写、冒号均可忽略）"
+                                     Watermark="粘贴 MD5 / SHA-1 / SHA-256 / SHA-512 值，忽略空格与大小写"
                                      FontFamily="Consolas" FontSize="12.5" TextChanged="Expected_TextChanged" />
                             <TextBlock x:Name="MatchText" Grid.Column="2" Margin="12,0,0,0" FontSize="15" FontWeight="Bold"
                                        VerticalAlignment="Center" MaxWidth="300" TextWrapping="Wrap" />

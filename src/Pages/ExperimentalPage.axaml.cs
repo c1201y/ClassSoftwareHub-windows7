@@ -31,12 +31,6 @@ public sealed partial class ExperimentalPage : PageBase
         },
         new ExperimentalFeature
         {
-            Id = "easiguard", Name = "白板专杀",
-            Desc = "到达设定时间点后，结束希沃白板5 后台滞留的残留进程",
-            Glyph = "\uEA99", Tag = "easiguard"
-        },
-        new ExperimentalFeature
-        {
             Id = "procguard", Name = "程序专杀",
             Desc = "为指定程序单独设定结束时间点，到点结束其后驻留进程",
             Glyph = "\uE7E8", Tag = "procguard"
@@ -60,7 +54,7 @@ public sealed partial class ExperimentalPage : PageBase
         // 日志查看已不算实验功能（Nick 2026-10-02）：入口挪到 设置 → 诊断。
 
         // ── 上游 1.1.3-insider1.3 ~ 1.2.0-insider1.1 新增（2026-10-18 移植） ──
-        // 这四个都是"会动本机状态"的实用功能，上游放在实验性功能分组下，本移植版照齐。
+        // 上游 1.8 起 AppData 管理 / 系统修复 已转正进系统工具，这里只剩应用卸载 / 开机启动项。
         new ExperimentalFeature
         {
             Id = "uninstall", Name = "应用卸载",
@@ -69,21 +63,28 @@ public sealed partial class ExperimentalPage : PageBase
         },
         new ExperimentalFeature
         {
-            Id = "appdata", Name = "AppData 管理",
-            Desc = "体检 Local / Roaming 下的一级目录体积排行；只对白名单里的缓存目录提供清理（永久删除）",
-            Glyph = "\uE8B7", Tag = "appdata"
-        },
-        new ExperimentalFeature
-        {
             Id = "startup", Name = "开机启动项",
             Desc = "列出开机自启项（注册表 Run + 启动文件夹），逐个启用 / 禁用；启用状态与任务管理器同源",
             Glyph = "\uE945", Tag = "startup"
         },
+        // ── 上游 dv1.2.0-insider1.8 新增（2026-11-01 移植） ──
         new ExperimentalFeature
         {
-            Id = "systemrepair", Name = "系统修复",
-            Desc = "sfc / DISM / chkdsk / netsh 等预设修复任务，执行前二次确认并原样列出命令，运行中可中止",
-            Glyph = "\uE9F3", Tag = "systemrepair"
+            Id = "sysfeatures", Name = "系统功能",
+            Desc = "休眠、快速启动、电源计划等系统开关，排队后一次授权写入",
+            Glyph = "\uE7E8", Tag = "sysfeatures"
+        },
+        new ExperimentalFeature
+        {
+            Id = "systemtweaks", Name = "系统优化",
+            Desc = "任务栏、资源管理器这些整机设置，选中后一次授权统一应用",
+            Glyph = "\uE713", Tag = "systemtweaks"
+        },
+        new ExperimentalFeature
+        {
+            Id = "pagefile", Name = "虚拟内存",
+            Desc = "逐个驱动器设置分页文件大小，重启后生效",
+            Glyph = "\uEDA2", Tag = "pagefile"
         },
     };
 

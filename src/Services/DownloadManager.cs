@@ -46,6 +46,19 @@ public enum DownloadTaskKind
     /// </list>
     /// </summary>
     Update,
+
+    /// <summary>
+    /// 本地清理任务（自上游 1.8，AppData 管理在用）。
+    /// <para>
+    /// 没有链接、没有落盘文件，只有一个"删了多少 / 总共多少"的进度 —— 借这张表进「任务进行」页，
+    /// 让用户切走页面之后还能看到清理跑没跑完（Nick：「不然的话就孤零零的在那里」）。
+    /// </para>
+    /// <para>
+    /// ⚠️ 完成态的 Path 为空，所以「打开 / 打开文件夹 / 安装」三颗按钮全都不会出现
+    /// （它们都要求 <see cref="DownloadTask.CanOpen"/>，而那要求文件真的存在）。
+    /// </para>
+    /// </summary>
+    Cleanup,
 }
 
 /// <summary>
@@ -60,13 +73,14 @@ public sealed class DownloadTask : INotifyPropertyChanged
 {
     public DownloadTask(string url, string? suggestedName, string? title,
         DownloadRoute route = DownloadRoute.Setting,
-        DownloadTaskKind kind = DownloadTaskKind.File, string note = "")
+        DownloadTaskKind kind = DownloadTaskKind.File, string note = "", string? directory = null)
     {
         Url = url;
         SuggestedName = suggestedName;
         Route = route;
         Kind = kind;
         Note = note;
+        Dir = directory;              // 空 = 走 DownloadService.SaveDir（用户设的默认目录 / 系统下载）
         Title = string.IsNullOrWhiteSpace(title)
             ? DownloadService.ResolveFileName(url, suggestedName)
             : title!.Trim();
@@ -91,6 +105,13 @@ public sealed class DownloadTask : INotifyPropertyChanged
 
     /// <summary>普通文件 / 更新包（见 <see cref="DownloadTaskKind"/>）。</summary>
     public DownloadTaskKind Kind { get; }
+
+    /// <summary>
+    /// 这一条任务存到哪个文件夹（<c>null</c> = 按默认：用户设的下载文件夹，没设就是系统「下载」）。
+    /// 详情页「下载到其他文件夹…」会显式给一个 —— 那是一次性的选择，不改默认。
+    /// 重试要沿用同一个目录，否则用户会以为「重试跑丢了之前选的路径」。
+    /// </summary>
+    public string? Dir { get; }
 
     /// <summary>卡片标题下面那行固定说明（更新包用；普通下载为空则整行不占位）。</summary>
     public string Note { get; }
@@ -280,12 +301,20 @@ public sealed class DownloadTask : INotifyPropertyChanged
     /// <summary>是不是应用自身的更新包（卡片上摆「安装」而不是「打开」）。</summary>
     public bool IsUpdate => Kind == DownloadTaskKind.Update;
 
+    /// <summary>是不是本地清理任务（AppData 缓存）。</summary>
+    public bool IsCleanup => Kind == DownloadTaskKind.Cleanup;
+
     /// <summary>文件还在不在（用户可能已经把它挪走了，别让「打开」点了报错）。</summary>
     public bool CanOpen =>
         State == DownloadState.Completed && !string.IsNullOrEmpty(Path) && File.Exists(Path);
 
-    /// <summary>卡片的图标：普通下载＝下载箭头；更新包＝同步箭头，一眼分得开。</summary>
-    public string HeaderGlyph => IsUpdate ? "\uE895" : "\uE896";
+    /// <summary>卡片的图标：普通下载＝下载箭头；更新包＝同步箭头；清理＝垃圾桶。一眼分得开。</summary>
+    public string HeaderGlyph => Kind switch
+    {
+        DownloadTaskKind.Update => "\uE895",
+        DownloadTaskKind.Cleanup => "\uE74D",
+        _ => "\uE896",
+    };
 
     public double Percent => Progress?.Percent ?? 0;
 
@@ -301,21 +330,29 @@ public sealed class DownloadTask : INotifyPropertyChanged
 
     public string StatusText => State switch
     {
-        DownloadState.Running => Progress is { Indeterminate: false, Received: > 0 } p
-            ? $"{p.Percent:0}%   {p.SizeText}" + (p.SpeedText.Length > 0 ? "  ·  " + p.SpeedText : "")
-            : Progress is { Received: > 0 } u
-                ? "已接收 " + u.SizeText + (u.SpeedText.Length > 0 ? "  ·  " + u.SpeedText : "")
-                : "正在连接",
+        DownloadState.Running => IsCleanup
+            ? Progress is { Indeterminate: false, Received: > 0 } c
+                ? $"清理中  {c.Percent:0}%   {c.SizeText}"
+                : "正在清理"
+            : Progress is { Indeterminate: false, Received: > 0 } p
+                ? $"{p.Percent:0}%   {p.SizeText}" + (p.SpeedText.Length > 0 ? "  ·  " + p.SpeedText : "")
+                : Progress is { Received: > 0 } u
+                    ? "已接收 " + u.SizeText + (u.SpeedText.Length > 0 ? "  ·  " + u.SpeedText : "")
+                    : "正在连接",
 
         // 更新包的完成态要说清「下一步干什么」，否则用户看到「已完成」还是会去找安装包在哪
-        DownloadState.Completed => IsUpdate
-            ? $"下载完成并已通过校验  ·  {DownloadProgress.Size(Bytes)}  ·  可立即安装"
-            : "已完成  ·  " + DownloadProgress.Size(Bytes),
+        DownloadState.Completed => IsCleanup
+            ? "已清理  ·  释放 " + DownloadProgress.Size(Bytes)
+            : IsUpdate
+                ? $"下载完成并已通过校验  ·  {DownloadProgress.Size(Bytes)}  ·  可立即安装"
+                : "已完成  ·  " + DownloadProgress.Size(Bytes),
 
-        DownloadState.Failed => (IsUpdate ? "更新包下载失败" : "下载失败")
-            + (string.IsNullOrWhiteSpace(Error) ? "" : "  ·  " + Error),
+        DownloadState.Failed => IsCleanup
+            ? "清理未完成" + (string.IsNullOrWhiteSpace(Error) ? "" : "  ·  " + Error)
+            : (IsUpdate ? "更新包下载失败" : "下载失败")
+              + (string.IsNullOrWhiteSpace(Error) ? "" : "  ·  " + Error),
 
-        _ => IsUpdate ? "已取消更新下载" : "已取消",
+        _ => IsCleanup ? "已取消清理" : IsUpdate ? "已取消更新下载" : "已取消",
     };
 
     // 卡片上的按钮/进度条按状态显隐。
@@ -325,7 +362,12 @@ public sealed class DownloadTask : INotifyPropertyChanged
     public bool BarVisibility =>
         State is DownloadState.Running or DownloadState.Completed && !_working;
 
-    public bool RunningVisibility => IsRunning;
+    /// <summary>
+    /// 「取消」按钮：正在跑才给。
+    /// ⚠️ 清理任务**不给**（自上游 1.8）：它的删除动作走的是 <c>CancellationToken.None</c>，
+    ///    取消了也不会真的停下来 —— 与其留一颗点了没反应的按钮，不如先收起来。
+    /// </summary>
+    public bool RunningVisibility => IsRunning && !IsCleanup;
 
     /// <summary>说明行（只有更新包有，普通下载不占位）。</summary>
     public bool NoteVisibility => Note.Length > 0;
@@ -371,8 +413,9 @@ public sealed class DownloadTask : INotifyPropertyChanged
     /// <summary>
     /// 「重试」只给普通下载。更新包的重来是「多候选线路 + 校验 + 待装标记」那整套，
     /// 拿一条链接再下一遍没有意义 —— 那种情况请回设置页重新检查更新。
+    /// 清理任务同理（Url 是空串）：重来请回 AppData 管理页重新勾选。
     /// </summary>
-    public bool RetryVisibility => IsFinished && !IsUpdate;
+    public bool RetryVisibility => IsFinished && !IsUpdate && !IsCleanup;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -442,9 +485,9 @@ public sealed class DownloadManager
     /// 好在 UI 线程上更新 <see cref="Tasks"/>（ObservableCollection 不能跨线程改）。
     /// </summary>
     public DownloadTask Start(string url, string? suggestedName = null, string? title = null,
-        DownloadRoute route = DownloadRoute.Setting)
+        DownloadRoute route = DownloadRoute.Setting, string? directory = null)
     {
-        var task = new DownloadTask(url, suggestedName, title, route);
+        var task = new DownloadTask(url, suggestedName, title, route, directory: directory);
         Tasks.Insert(0, task);        // 新任务排最前，用户一眼看到刚点的那个
         Changed?.Invoke();
         _ = RunAsync(task);
@@ -468,8 +511,11 @@ public sealed class DownloadManager
         // 更新包没有「重试」这一说（按钮也不给）：它的重来要带多候选线路与校验，
         // 拿一条链接再下一遍纯属白费 —— 要重来请回设置页重新检查更新。
         if (task.IsUpdate) return;
+        // 清理任务同理（按钮也不给，这里是第二道闸）：Url 是空串，硬走 Start 会抛
+        // 「Parameter 'url'」并把失败文案覆盖成「下载失败」。重来请回 AppData 管理页重新勾选。
+        if (task.IsCleanup) return;
         Remove(id);
-        Start(task.Url, task.SuggestedName, task.Title, task.Route);
+        Start(task.Url, task.SuggestedName, task.Title, task.Route, task.Dir);
     }
 
     // ── 外部托管任务（更新包，2026-10-18 自上游 1.2.0 移植）────────────────
@@ -496,6 +542,43 @@ public sealed class DownloadManager
 
     /// <summary>回报进度（外部托管任务专用）。</summary>
     public void ReportProgress(DownloadTask task, DownloadProgress progress) => task.Progress = progress;
+
+    // ── 本地清理任务（AppData 缓存，自上游 1.8）──────────────────────
+    //
+    // 和更新包一样是"外部托管"：删除动作跑在 AppDataPage 里，这里只负责台账。
+    // 为什么要走这张表而不是各自在页面里画一条进度条：清理一个几百 MB 的缓存目录可能要几十秒，
+    // 用户切到别的页面就再也看不到它跑到哪了 —— Nick 原话「孤零零的在那里，不知道有没有完成」。
+
+    /// <summary>
+    /// 登记一条清理任务并显示到「任务进行」页。⚠️ 必须在 UI 线程调用。
+    /// <paramref name="totalBytes"/> 是预计要删的总量（界面早就量过了，直接拿来当分母）。
+    /// </summary>
+    public DownloadTask TrackCleanup(string title, long totalBytes)
+    {
+        var task = new DownloadTask("", null, title, DownloadRoute.Setting, DownloadTaskKind.Cleanup)
+        {
+            // 先把总量摆上：进度条一出现就有百分比，不会先闪一段不确定动画
+            Progress = new DownloadProgress(0, Math.Max(1, totalBytes), 0),
+        };
+
+        Tasks.Insert(0, task);
+        Changed?.Invoke();
+        return task;
+    }
+
+    /// <summary>回报清理进度（UI 线程调用；由调用方自己节流，别每删一个文件就来一次）。</summary>
+    public void ReportCleanupProgress(DownloadTask task, long deletedBytes, long totalBytes) =>
+        task.Progress = new DownloadProgress(Math.Max(0, deletedBytes), Math.Max(1, totalBytes), 0);
+
+    /// <summary>清理收尾。<paramref name="freedBytes"/> 是实际释放的量（可能小于预计值，比如有文件被占用跳过）。</summary>
+    public void CompleteCleanup(DownloadTask task, long freedBytes)
+    {
+        task.Bytes = Math.Max(0, freedBytes);
+        task.Progress = new DownloadProgress(task.Bytes, Math.Max(1, task.Bytes), 0);
+        task.State = DownloadState.Completed;   // 状态放最后：界面看到"完成"时数据已经齐了
+        Finished?.Invoke(task);
+        Changed?.Invoke();
+    }
 
     /// <summary>回报成功收尾：文件已落盘且校验通过。</summary>
     public void CompleteExternal(DownloadTask task, string path, long bytes)
@@ -551,7 +634,7 @@ public sealed class DownloadManager
         try
         {
             var file = await DownloadService.DownloadAsync(
-                task.Url, task.SuggestedName, null, progress, task.Cancellation.Token, task.Route);
+                task.Url, task.SuggestedName, task.Dir, progress, task.Cancellation.Token, task.Route);
 
             task.FileName = file.FileName;
             task.Path = file.Path;

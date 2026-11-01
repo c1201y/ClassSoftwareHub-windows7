@@ -126,12 +126,21 @@ public partial class UninstallPage : Platform.PageBase
     /// <summary>残留状态：这次卸的是哪个软件（清理记录里要写）。</summary>
     private string _leftoverAppName = "";
 
+    /// <summary>当前筛出来、真正摆在页上的那些行（给 Hub AI 当现场数据）。</summary>
+    private List<UninstallRow> _shown = new();
+
     public UninstallPage()
     {
         InitializeComponent();
 
         // 两侧留白 / 标题行上的滚轮也转给列表（见 Core/WheelRelay.cs），在挂树后接线。
         AttachedToVisualTree += (_, _) => _ = LoadAsync();
+
+        // AI 入口跟着「设置 → 启用 Hub AI」总闸走（与「软件下载」「AppData 管理」一致）。
+        HubAiEntry.IsVisible = App.Settings.Current.HubAiEnabled;
+
+        // 浮层每次提问都来取一份现场数据（见 BuildAiContext）
+        AiFlyout.ContextProvider = BuildAiContext;
     }
 
     // ══════════════════════════════════════════════════════
@@ -247,6 +256,9 @@ public partial class UninstallPage : Platform.PageBase
         AppListPanel.Children.Clear();
         foreach (var row in shown)
             AppListPanel.Children.Add(BuildAppRow(row));
+
+        // 这一页的 AI 知道装了什么：清单存下来，提问时现采成 JSON（见 BuildAiContext）
+        _shown = shown;
 
         if (_all.Count == 0)
         {
@@ -1174,5 +1186,80 @@ public partial class UninstallPage : Platform.PageBase
         Line("卸载不可撤销，请先退出该软件并保存正在编辑的内容。", 0.75);
 
         return panel;
+    }
+
+    // ── Hub AI ───────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Hub AI 入口：弹出提问浮层。
+    /// 浮层是公共控件（Controls/HubAiFlyout），别在这一页再写一套动画与发送逻辑。
+    /// </summary>
+    private void HubAiEntry_Click(object? sender, RoutedEventArgs e) => AiFlyout.Toggle();
+
+    /// <summary>
+    /// 给浮层准备这一页的现场数据。
+    /// <para>
+    /// 这一页要知道的是"本机到底装了什么、哪些能卸" —— 注册表扫描很贵，模型自己调工具查
+    /// 既慢又容易只查一半，现成清单直接给它最省事。
+    /// </para>
+    /// </summary>
+    private PageContextDoc BuildAiContext()
+    {
+        var doc = new PageContextDoc(
+            "应用卸载",
+            "这一页列出本机已安装的软件，并提供卸载与残留清理。" +
+            "「我装了什么」「这个能不能卸」「系统组件为什么没有卸载键」这类问题，直接按下表回答。");
+
+        doc.Add("状态", new
+        {
+            正在扫描 = _loading,
+            正在执行卸载或清理 = _busy,
+            已安装总数 = _all.Count,
+            当前分类 = AppCategoryLook.LabelOf(_category),
+            当前分类key = _category.ToString(),
+            当前显示 = _shown.Count,
+            分类分布 = _all.GroupBy(r => r.App.Category)
+                           .ToDictionary(g => AppCategoryLook.LabelOf(g.Key), g => g.Count()),
+        });
+
+        // 清单给 30 条：本机装了上百款，全塞读不动，30 条够模型说清"装了什么"
+        doc.Add("当前分类下的软件（前 30 个）", _shown.Take(30).Select(r => new
+        {
+            r.Name,
+            版本 = r.App.Version,
+            发布者 = r.App.Publisher,
+            类别 = r.CategoryText,
+            可卸载 = r.CanUninstall,
+            商店应用 = r.App.IsStore,
+            卸载方式 = r.App.IsStore ? "按包名走 PackageManager" :
+                       r.App.QuietUninstallString.Length > 0 ? "静默卸载命令" :
+                       r.App.UninstallString.Length > 0 ? "注册表卸载命令" : "无（需手动处理）",
+        }).ToList());
+
+        if (_shown.Count > 30)
+            doc.Add("其余软件", new
+            {
+                条数 = _shown.Count - 30,
+                名称 = _shown.Skip(30).Select(r => r.Name).ToList(),
+            });
+
+        doc.Action("卸载", "逐条确认后执行对应的卸载命令");
+        doc.Action("清理残留", "卸载后扫一遍残留目录与注册表项，可勾选删除");
+        doc.Action("重新扫描", "重读注册表与商店包，刷新清单");
+
+        if (_leftoverRows.Count > 0)
+        {
+            doc.Add("残留清理中的软件", new
+            {
+                软件 = _leftoverAppName,
+                残留条目数 = _leftoverRows.Count,
+                条目 = _leftoverRows.Take(20).Select(r => new { 名称 = r.Item.Name, 路径 = r.Item.DisplayPath }).ToList(),
+            });
+        }
+
+        if (_all.Count == 0)
+            doc.Say("还没扫描到已安装的软件（可能还在扫描，或读取注册表被安全软件拦了）");
+
+        return doc;
     }
 }

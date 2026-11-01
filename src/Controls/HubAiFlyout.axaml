@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="ClassSoftwareHub.Desktop.Controls.HubAiFlyout"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:fa="using:FluentAvalonia.UI.Controls"
+    HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,20,20">
+
+    <!--
+      Hub AI 提问浮层（2026-10-30 上游从 Pages/SoftwarePage 抽出来变成公共控件；2026-11-01 移植）。
+
+      与上游的分工一致：浮层跑真正的 HubAiRuntime，回答直接出在这里；
+      「在页面中打开」升到完整页，思考过程与工具轨迹都在那边。
+      ⚠️ 尺寸固定 380×420（2026-10-18 Nick：矮了「不那么让人注意到」）。
+
+      ⚠️ 移植说明（WinUI → Avalonia）：
+        · ThemeResource → DynamicResource；PlaceholderText → Watermark；ToolTipService.ToolTip → ToolTip.Tip；
+          Visibility → IsVisible；ProgressRing / FontIcon → fa: 前缀。
+        · 原版 CompositeTransform → 代码里建的 TransformGroup（ScaleTransform + TranslateTransform），
+          动画用手写插值（Animation.RunAsync 直接驱动变换对象在本项目有坑，见 OobeMotion）。
+        · Grid 没有 Padding / ColumnSpacing → Margin 顶替。
+    -->
+
+    <Border x:Name="Card" Width="380" Height="420" IsVisible="False"
+            CornerRadius="14" BorderThickness="1"
+            RenderTransformOrigin="0.5,1"
+            Background="{DynamicResource HubAiPanelBackground}"
+            BorderBrush="{DynamicResource HubAiPanelBorder}">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- 原版 Grid Padding="16,12,8,10" ColumnSpacing="10" → Margin + 第二列左移 -->
+            <Grid Margin="16,12,8,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <Border Width="28" Height="28" CornerRadius="7"
+                        Background="{DynamicResource HubAiIconBackground}">
+                    <fa:FontIcon Glyph="&#xE8F2;" FontSize="13"
+                                 Foreground="{DynamicResource HubAiIconForeground}" />
+                </Border>
+
+                <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center" Spacing="0">
+                    <TextBlock Text="Hub AI" FontSize="13" FontWeight="SemiBold"
+                               Foreground="{DynamicResource HubAiTitleForeground}" />
+                    <TextBlock Text="电脑顾问" FontSize="11"
+                               Foreground="{DynamicResource HubAiSubForeground}" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2">
+                    <Button Padding="7" Background="Transparent" BorderThickness="0"
+                            Click="Expand_Click" ToolTip.Tip="在页面中打开">
+                        <fa:FontIcon Glyph="&#xE8A7;" FontSize="12" />
+                    </Button>
+                    <Button Padding="7" Background="Transparent" BorderThickness="0"
+                            Click="Close_Click" ToolTip.Tip="收起">
+                        <fa:FontIcon Glyph="&#xE711;" FontSize="12" />
+                    </Button>
+                </StackPanel>
+            </Grid>
+
+            <ScrollViewer x:Name="MessagesScroll" Grid.Row="1" Padding="16,0,16,6"
+                          VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel x:Name="Messages" Spacing="10">
+                    <!-- 开场提示：第一次提问之后就撤掉，别一直占着本来就窄的地方 -->
+                    <Border x:Name="Intro" Background="{DynamicResource HubAiBubbleBackground}"
+                            CornerRadius="10" Padding="14,11">
+                        <StackPanel Spacing="6">
+                            <TextBlock FontSize="12.5" TextWrapping="Wrap" LineHeight="20"
+                                       Text="直接把问题写在这里，回答也在这里出。" />
+                            <TextBlock FontSize="11" Opacity="0.55" TextWrapping="Wrap"
+                                       Text="会读取本机硬件与存储概况再回答，全程只读。" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- 生成过程中的状态（"正在读取本机情况""正在检索工具"）—— 没有它用户不知道是不是卡住了 -->
+            <TextBlock x:Name="StatusLine" Grid.Row="2" Margin="16,0,16,6" FontSize="11.5"
+                       Opacity="0.6" TextTrimming="CharacterEllipsis" IsVisible="False" />
+
+            <!-- 原版 Grid Padding="12,6,12,12" ColumnSpacing="8" → Margin -->
+            <Grid Grid.Row="3" Margin="12,6,12,12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <TextBox x:Name="Input" Watermark="描述你的需求" KeyDown="Input_KeyDown" />
+
+                <!-- 一颗按钮两种用途：空闲时发消息，生成中变成「停止」 -->
+                <Button x:Name="SendButton" Grid.Column="1" Margin="8,0,0,0" Padding="11,6"
+                        Classes="accent" Click="Send_Click" ToolTip.Tip="发送">
+                    <fa:FontIcon x:Name="SendGlyph" Glyph="&#xE724;" FontSize="13" />
+                </Button>
+            </Grid>
+        </Grid>
+    </Border>
+</UserControl>

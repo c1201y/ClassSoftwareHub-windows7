@@ -1,0 +1,86 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:fa="using:FluentAvalonia.UI.Controls"
+             xmlns:views="using:ClassSoftwareHub.Desktop.Views"
+             x:Class="ClassSoftwareHub.Desktop.Views.Oobe.OobeSidebarSizePage">
+
+    <!--
+      第 7 步：侧边栏大小（自上游 dv1.2.0-insider1.8 移植）。
+      收起条与展开面板可以分别选标准 / 紧凑；「展开面板高度 / 自适应高度」只在每行一个时有效
+      （每行三个时行数天然少，不受高度上限约束），切到舒展模式会把这两项置灰。
+    -->
+    <Grid>
+        <StackPanel x:Name="ContentRoot" Width="600"
+                    HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="4">
+
+            <StackPanel Spacing="6" Margin="0,0,0,12">
+                <TextBlock Text="侧边栏大小" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center" />
+            </StackPanel>
+
+            <views:SettingsCard x:Name="DensityCard" Header="侧边栏大小样式"
+                                Description="收起成抓手时的粗细。">
+                <views:SettingsCard.HeaderIcon>
+                    <fa:FontIcon Glyph="&#xE747;" />
+                </views:SettingsCard.HeaderIcon>
+                <ComboBox x:Name="DensityCombo" MinWidth="170" SelectionChanged="Density_SelectionChanged">
+                    <ComboBoxItem Content="标准" Tag="standard" />
+                    <ComboBoxItem Content="紧凑" Tag="compact" />
+                </ComboBox>
+            </views:SettingsCard>
+
+            <views:SettingsCard x:Name="ExpandedDensityCard" Header="展开后的大小样式"
+                                Description="默认与收起时一致。">
+                <views:SettingsCard.HeaderIcon>
+                    <fa:FontIcon Glyph="&#xE70E;" />
+                </views:SettingsCard.HeaderIcon>
+                <ComboBox x:Name="ExpandedDensityCombo" MinWidth="170"
+                          SelectionChanged="ExpandedDensity_SelectionChanged">
+                    <ComboBoxItem Content="跟随收起时的样式" Tag="same" />
+                    <ComboBoxItem Content="标准" Tag="standard" />
+                    <ComboBoxItem Content="紧凑" Tag="compact" />
+                </ComboBox>
+            </views:SettingsCard>
+
+            <views:SettingsCard x:Name="ColumnsCard" Header="工具排列模式"
+                                Description="仅贴靠屏幕左右两边时生效。">
+                <views:SettingsCard.HeaderIcon>
+                    <fa:FontIcon Glyph="&#xE8FD;" />
+                </views:SettingsCard.HeaderIcon>
+                <ComboBox x:Name="ColumnsCombo" MinWidth="170" SelectionChanged="Columns_SelectionChanged">
+                    <ComboBoxItem Content="舒展模式" Tag="3" />
+                    <ComboBoxItem Content="紧凑模式" Tag="1" />
+                </ComboBox>
+            </views:SettingsCard>
+
+            <views:SettingsCard x:Name="HeightCard" Header="展开面板高度"
+                                Description="面板高度上限，仅对「紧凑模式」有效。">
+                <views:SettingsCard.HeaderIcon>
+                    <fa:FontIcon Glyph="&#xE740;" />
+                </views:SettingsCard.HeaderIcon>
+                <!-- StepFrequency → IsSnapToTickEnabled + TickFrequency；Avalonia 没有 IsThumbToolTipEnabled -->
+                <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                    <Slider x:Name="HeightRatioSlider" Width="190"
+                            Minimum="45" Maximum="95" Value="75"
+                            IsSnapToTickEnabled="True" TickFrequency="5"
+                            ValueChanged="HeightRatio_ValueChanged" />
+                    <TextBlock x:Name="HeightRatioText" MinWidth="40" VerticalAlignment="Center"
+                               FontSize="12"
+                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                </StackPanel>
+            </views:SettingsCard>
+
+            <views:SettingsCard x:Name="HeightAutoCard" Header="自适应高度"
+                                Description="模块少时面板随之收短。">
+                <views:SettingsCard.HeaderIcon>
+                    <fa:FontIcon Glyph="&#xE9A6;" />
+                </views:SettingsCard.HeaderIcon>
+                <ToggleSwitch x:Name="HeightAutoSwitch" OnContent="开" OffContent="关" MinWidth="0"
+                              IsCheckedChanged="HeightAuto_Toggled" />
+            </views:SettingsCard>
+
+            <TextBlock x:Name="OffHint" Text="侧边栏当前处于关闭状态，此处选项暂不生效。"
+                       FontSize="12" Opacity="0.6" Margin="0,12,0,0" IsVisible="False"
+                       HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" />
+        </StackPanel>
+    </Grid>
+</UserControl>

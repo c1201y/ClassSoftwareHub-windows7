@@ -159,11 +159,8 @@ public sealed partial class VolumeWindow : Window
     {
         try
         {
-            // ⚠️ mainScope: false（2026-10-08，Nick 截图反馈：分体深色下音量/亮度浮窗还是白的）：
-            //    口径变更 —— 音量/亮度小浮窗改跟「外部组件」的作用域走：
-            //      · 「外部组件单独设置外观」开着 → 跟外部组件外观（深色就是深色浮窗）；
-            //      · 没开 → 跟主界面的颜色模式（与原行为一致）。
-            //    旧的"永远跟主界面"（mainScope: true，2026-10-03）就此废弃；合成器浮窗同一口径。
+            // ⚠️ 2026-10-29（上游 1.8）再改口径：分体外观收窄到只作用「常用工具」浮窗与侧边栏，
+            //    音量 / 亮度浮窗改回**跟应用主题**——否则主界面浅色 + 分体深色时这里会整片发黑。
             ThemeCompat.Apply(Root);
             VolumeFlyoutGroup.MainHwnd = _chrome.Hwnd;
 

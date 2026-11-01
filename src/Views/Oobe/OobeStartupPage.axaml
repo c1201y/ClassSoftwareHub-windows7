@@ -1,0 +1,47 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:fa="using:FluentAvalonia.UI.Controls"
+             xmlns:views="using:ClassSoftwareHub.Desktop.Views"
+             x:Class="ClassSoftwareHub.Desktop.Views.Oobe.OobeStartupPage">
+
+    <!-- 第 9 步：启动方式（自上游 dv1.2.0-insider1.8 移植）。 -->
+    <Grid>
+        <StackPanel x:Name="ContentRoot" Width="600"
+                    HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="4">
+
+            <StackPanel Spacing="6" Margin="0,0,0,12">
+                <TextBlock Text="启动方式" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center" />
+            </StackPanel>
+
+            <views:SettingsCard Header="开机自动启动"
+                                Description="登录 Windows 后自动运行本程序。">
+                <views:SettingsCard.HeaderIcon>
+                    <fa:FontIcon Glyph="&#xE7E8;" />
+                </views:SettingsCard.HeaderIcon>
+                <ToggleSwitch x:Name="AutoStartSwitch" OnContent="开" OffContent="关" MinWidth="0"
+                              IsCheckedChanged="AutoStart_Toggled" />
+            </views:SettingsCard>
+
+            <views:SettingsCard x:Name="MinimizeCard" Header="开机时最小化启动">
+                <views:SettingsCard.HeaderIcon>
+                    <fa:FontIcon Glyph="&#xE921;" />
+                </views:SettingsCard.HeaderIcon>
+                <views:SettingsCard.Description>
+                    <TextBlock x:Name="MinimizeHint" TextWrapping="Wrap" FontSize="12"
+                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                </views:SettingsCard.Description>
+                <ToggleSwitch x:Name="MinimizeSwitch" OnContent="开" OffContent="关" MinWidth="0"
+                              IsCheckedChanged="Minimize_Toggled" />
+            </views:SettingsCard>
+
+            <views:SettingsCard Header="点关闭时收进托盘"
+                                Description="关闭主窗口时程序继续在后台运行，从托盘图标可重新打开。">
+                <views:SettingsCard.HeaderIcon>
+                    <fa:FontIcon Glyph="&#xE7E7;" />
+                </views:SettingsCard.HeaderIcon>
+                <ToggleSwitch x:Name="TraySwitch" OnContent="开" OffContent="关" MinWidth="0"
+                              IsCheckedChanged="Tray_Toggled" />
+            </views:SettingsCard>
+        </StackPanel>
+    </Grid>
+</UserControl>

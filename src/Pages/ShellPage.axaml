@@ -203,6 +203,26 @@
                      启动时会校验两边是否一一对应，对不上会在 port.log 里留一条 Warn（见 ShellPage 构造）。
                 -->
                 <!--
+                  函数图像（自上游 1.8：从「课堂工具」里提出来，单独成一个功能项）。
+                  位置：紧贴「课堂工具」之上 —— 它本来就属于课堂工具，提出去之后放在组的最前面，
+                       读起来就是「常用的那几个 + 剩下的都在下面」。
+
+                  ⚠️ 与「教室喊话」的处理方式**不同**，别照抄那一条：
+                     喊话是从 ToolCatalog 里整条删掉的，因为它不是"可替换的网页小工具"；
+                     函数图像有 WebToolId（网页版载体），而且命令行直达（tool=function-plot）、学科工具窗、
+                     侧边栏模块、导航按 Id 反查页面类型，全都依赖 ToolCatalog 这张表。
+                     所以它在表里保留，只标 Standalone：工具分组子项与索引页卡片跳过它，其余照旧。
+
+                  ⚠️ 因此 NavigateTagCore **不需要**给它写 case：按 Id 反查 ToolCatalog 那一支就会命中，
+                     并且自动走 ToolCarrier 的载体选择（有 Web 版且本机跑得起来 → 宿主页，否则原生页）。
+                     给它单写 case 反而会绕过载体选择。
+                -->
+                <fa:NavigationViewItem Content="函数图像" Tag="function-plot">
+                    <fa:NavigationViewItem.IconSource>
+                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xE9D2;" />
+                    </fa:NavigationViewItem.IconSource>
+                </fa:NavigationViewItem>
+                <!--
                   课堂工具（2026-10-22 自上游移植）：原「内置工具」按 ToolDef.Group 拆成两项的**课堂**那一半。
                   ⛔ Tag 必须与 Data/ToolDef.cs 的 ToolCatalog.Id 完全一致（ShellPage 构造时会校验）。
                   ⛔ 子项必须 XAML 声明（FA 2.4.1 的选中竖线只认 XAML 子项）。
@@ -230,11 +250,6 @@
                         <fa:NavigationViewItem Content="桌面留言" Tag="message">
                             <fa:NavigationViewItem.IconSource>
                                 <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xE8BD;" />
-                            </fa:NavigationViewItem.IconSource>
-                        </fa:NavigationViewItem>
-                        <fa:NavigationViewItem Content="函数图像" Tag="function-plot">
-                            <fa:NavigationViewItem.IconSource>
-                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xE9D2;" />
                             </fa:NavigationViewItem.IconSource>
                         </fa:NavigationViewItem>
                         <fa:NavigationViewItem Content="方程求解" Tag="equation">
@@ -290,7 +305,32 @@
                                 <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xE721;" />
                             </fa:NavigationViewItem.IconSource>
                         </fa:NavigationViewItem>
+                        <!--
+                          以下三项自上游 1.8 从「实验性功能」转正进系统工具（白板专杀 / AppData 管理 / 系统修复）。
+                          ⚠️ Tag 与 ToolCatalog 的 Id 一字不差；「系统修复」的 Id 是 repair（不是 systemrepair）——
+                             page= 直达、搜索索引与首页快捷方式全都按它认。
+                        -->
+                        <fa:NavigationViewItem Content="白板专杀" Tag="easiguard">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xEA99;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
+                        <fa:NavigationViewItem Content="AppData 管理" Tag="appdata">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xE8B7;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
+                        <fa:NavigationViewItem Content="系统修复" Tag="repair">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xE7EF;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
                     </fa:NavigationViewItem.MenuItems>
+                </fa:NavigationViewItem>
+                <fa:NavigationViewItem Content="查阅单词" Tag="dictionary">
+                    <fa:NavigationViewItem.IconSource>
+                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xE8F1;" />
+                    </fa:NavigationViewItem.IconSource>
                 </fa:NavigationViewItem>
                 <fa:NavigationViewItem Content="侧边布局" Tag="sidebar">
                     <fa:NavigationViewItem.IconSource>
@@ -338,18 +378,6 @@
                             </fa:NavigationViewItem.IconSource>
                         </fa:NavigationViewItem>
                         <!--
-                          白板专杀：到点结束希沃白板5 后台滞留的残留进程。
-                          ⚠️ 与「程序专杀」是**两个独立功能**，Nick 2026-09-28 明确要求不合并 ——
-                             本项写死只认白板5 家族（EasiNote*），不碰集控端与更新组件，所以不能拿通用专杀替代。
-                          ⚠️ 为啥塞进实验性：要真机上装了白板5 才能验，而且"有窗口就不动"这套判定
-                             在真实课堂里的误判率还没底（比如白板5 挂了个不可见的辅助窗口）。
-                        -->
-                        <fa:NavigationViewItem Content="白板专杀" Tag="easiguard">
-                            <fa:NavigationViewItem.IconSource>
-                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xEA99;" />
-                            </fa:NavigationViewItem.IconSource>
-                        </fa:NavigationViewItem>
-                        <!--
                           程序专杀：用户自己指定进程名，每个程序单独配结束时间点。
                           ⚠️ 与白板专杀各存各的配置、各跑各的定时器（Nick 明确要求白板独立出来）。
                         -->
@@ -388,21 +416,16 @@
                         -->
 
                         <!--
-                          以下四项为上游 dv1.1.3-insider1.3 ~ dv1.2.0-insider1.1 新增（2026-10-18 移植）：
-                          应用卸载 / AppData 管理 / 开机启动项 / 系统修复。都归在「实验性功能」下。
+                          以下两项为上游 dv1.1.3-insider1.3 ~ dv1.2.0-insider1.1 新增（2026-10-18 移植）：
+                          应用卸载 / 开机启动项。仍归在「实验性功能」下。
                           ⛔ 与 ExperimentalPage 的卡片、ToolCatalog 无关（它们不是内置工具），
                              Tag 必须在 NavigateTagCore 里有对应 case。
-                          ⚠️ 图标：E74D（垃圾桶）＝卸载，E8B7（文件夹）＝AppData，E945（电源）＝启动项，
-                             E9F3（扳手）＝系统修复。全部 E7/E8/E9 段老码位。
+                          ⚠️ 图标：E74D（垃圾桶）＝卸载，E945（电源）＝启动项。全部 E7/E8/E9 段老码位。
+                          ⚠️ 自上游 1.8：AppData 管理 / 系统修复 已转正进系统工具（见上方 SystemToolsNav）。
                         -->
                         <fa:NavigationViewItem Content="应用卸载" Tag="uninstall">
                             <fa:NavigationViewItem.IconSource>
                                 <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xE74D;" />
-                            </fa:NavigationViewItem.IconSource>
-                        </fa:NavigationViewItem>
-                        <fa:NavigationViewItem Content="AppData 管理" Tag="appdata">
-                            <fa:NavigationViewItem.IconSource>
-                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xE8B7;" />
                             </fa:NavigationViewItem.IconSource>
                         </fa:NavigationViewItem>
                         <fa:NavigationViewItem Content="开机启动项" Tag="startup">
@@ -410,16 +433,34 @@
                                 <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xE945;" />
                             </fa:NavigationViewItem.IconSource>
                         </fa:NavigationViewItem>
-                        <fa:NavigationViewItem Content="系统修复" Tag="systemrepair">
+                        <!--
+                          系统功能（自上游 dv1.2.0-insider1.8 移植，2026-11-01）。
+                          ⚠️ 上游按 ExperimentalFeatureCatalog 动态生成子项；本移植版受 FA 2.4.1
+                             选中竖线限制必须 XAML 声明（见上方「内置工具」长注释），所以这里是手写的第二份 ——
+                             加实验性功能时两处一起改（ShellPage.axaml + ExperimentalPage.All）。
+                        -->
+                        <fa:NavigationViewItem Content="系统功能" Tag="sysfeatures">
                             <fa:NavigationViewItem.IconSource>
-                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xE9F3;" />
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xE7E8;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
+                        <!-- 系统优化（自上游 dv1.2.0-insider1.8 移植）：HKCU 直写 + 一次提权处理整机组策略键 -->
+                        <fa:NavigationViewItem Content="系统优化" Tag="systemtweaks">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xE713;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
+                        <!-- 虚拟内存（自上游 dv1.2.0-insider1.8 移植）：PagingFiles 写 HKLM，重启后生效 -->
+                        <fa:NavigationViewItem Content="虚拟内存" Tag="pagefile">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xEDA2;" />
                             </fa:NavigationViewItem.IconSource>
                         </fa:NavigationViewItem>
                     </fa:NavigationViewItem.MenuItems>
                 </fa:NavigationViewItem>
             </fa:NavigationView.MenuItems>
 
-            <!-- 下半区：任务进行 / 提交软件 / 反馈中心 / 更新日志 / 设置 -->
+            <!-- 下半区：任务进行 / 反馈中心 / 更新日志 / 设置 -->
             <fa:NavigationView.FooterMenuItems>
                 <!-- 下载不再占着界面：进度在这里看得到；徽标上是「正在下载几个」（0 个就把徽标摘掉） -->
                 <fa:NavigationViewItem x:Name="DownloadsNav" Content="任务进行" Tag="downloads">
@@ -427,14 +468,14 @@
                         <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xE896;" />
                     </fa:NavigationViewItem.IconSource>
                 </fa:NavigationViewItem>
-                <fa:NavigationViewItem Content="提交软件" Tag="submit">
-                    <fa:NavigationViewItem.IconSource>
-                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xE898;" />
-                    </fa:NavigationViewItem.IconSource>
-                </fa:NavigationViewItem>
                 <!--
-                  反馈中心：和「提交软件」是一对（都是"往维护者那边送东西"），所以紧挨着放。
-                  E939 是「人 + 对话泡」，微软反馈中心用的就是这个字形（已用字形渲染法确认存在）。
+                  「提交软件」自上游 1.8 从导航栏移除（Nick：软件生态已足够丰富，不必再挤占导航）。
+                  入口改到「软件下载」页顶部工具条的提交按钮，首页那张卡片保留为第二入口。
+                  ⚠️ NavigateTagCore 里的 case "submit" **保留** —— 那是路由，不是导航项；
+                     删了首页卡片和命令行的 page=submit 参数都会掉进 default 直接回首页。
+                -->
+                <!--
+                  反馈中心：E939 是「人 + 对话泡」，微软反馈中心用的就是这个字形（已用字形渲染法确认存在）。
                 -->
                 <fa:NavigationViewItem Content="反馈中心" Tag="feedback">
                     <fa:NavigationViewItem.IconSource>

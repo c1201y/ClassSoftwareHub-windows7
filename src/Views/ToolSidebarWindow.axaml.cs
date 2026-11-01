@@ -845,7 +845,7 @@ public sealed partial class ToolSidebarWindow : Window
             // ⚠️ 2026-10-06（用户「首次启动侧边栏白底白字」）：Apply 必须排在 ApplyPanelBrush
             //    **前面** —— 面板底色是按 ActualThemeVariant 取的，先取色后设主题的话，
             //    取到的是还没传播的默认浅色（白面板），而文字/图标资源却按深色渲染 → 白底白字。
-            ThemeCompat.Apply(Root);                        // 跟「设置」里的深浅色走（不只是跟系统走）
+            ThemeCompat.Apply(Root, external: true);                        // 桌面悬浮件：跟「外部组件外观」（分体关着时跟主界面）
             ApplyPanelBrush();
             BuildToolButtons();                             // 按「侧边布局」的模块清单生成工具按钮
             BuildGridButtons();                             // 同一份清单，给「展开样式 = 图标网格」那套用
@@ -931,11 +931,11 @@ public sealed partial class ToolSidebarWindow : Window
                 //    却按深色渲染（白底白字）。现在窗口已进视觉树，重设主题会真正触发
                 //    ActualThemeVariantChanged → 整套配色（面板、钉住图标、窗口边）跟着重刷；
                 //    再 Dispatcher 补一拍，兜住"变体传播要等一轮布局"的情况。
-                ThemeCompat.Apply(Root);
+                ThemeCompat.Apply(Root, external: true);
                 ApplyPanelBrush();
                 Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                 {
-                    ThemeCompat.Apply(Root);
+                    ThemeCompat.Apply(Root, external: true);
                     ApplyPanelBrush();
                     PrimeOpaqueBackdrop();
                 }, Avalonia.Threading.DispatcherPriority.Loaded);
@@ -1911,7 +1911,7 @@ public sealed partial class ToolSidebarWindow : Window
             });
             content.Children.Add(new TextBlock
             {
-                Text = m.ShortName,
+                Text = SidebarModule.LabelOf(m),
                 FontSize = CompactBody ? 11 * CompactScale : 11,
                 HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center
             });
@@ -2002,7 +2002,7 @@ public sealed partial class ToolSidebarWindow : Window
         {
             var m = SidebarModules.Find(id);
             if (m is null) continue;                       // 老设置里留下的已删模块：跳过，不崩
-            _gridCells.Add(CreateGridCell(m.Id, m.Glyph, m.ShortName, m.Note ?? m.Name, m));
+            _gridCells.Add(CreateGridCell(m.Id, m.Glyph, SidebarModule.LabelOf(m), m.Note ?? m.Name, m));
         }
 
         // 固定补两颗（放最后 —— 翻到最后一页总能找到）
@@ -2483,8 +2483,12 @@ public sealed partial class ToolSidebarWindow : Window
                 // 独立窗口：文件快搜自己一扇浮窗（2026-10-29），其余三件学科工具共用学科工具窗
                 if (string.Equals(m.WindowTool, "file-search", StringComparison.Ordinal))
                     FileSearchWindow.ShowWindow();
+                else if (string.Equals(m.WindowTool, "quick-lookup", StringComparison.Ordinal))
+                    QuickLookupWindow.ShowWindow();               // 查阅单词小浮窗（1.8）
                 else if (string.Equals(m.WindowTool, "ppt-resume", StringComparison.Ordinal))
                     PptResumeWindow.ShowWindow();
+                else if (string.Equals(m.WindowTool, "hash-check", StringComparison.Ordinal))
+                    HashCheckWindow.Show();                       // 哈希校验小浮窗（1.8）
                 else
                     SubjectToolsWindow.ShowTool(m.WindowTool);   // 单开一扇轻量窗，不碰主界面
             }

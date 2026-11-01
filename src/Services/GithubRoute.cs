@@ -222,6 +222,13 @@ public static class GithubRoute
         var items = new List<Item>();
         foreach (var channel in Core.GithubMirror.Channels)
             items.Add(new Item(channel.Id, DownloadCandidate.Direct(Core.GithubMirror.MirrorUrl(url, channel))));
+
+        // IP 直连反代（自上游 1.6）：公益镜像全是域名，域名被按 SNI 拦掉时整批失效；
+        // 这条走 IP + 非标准端口，是那种线路上唯一可能通的候选。拼法与上面不同，见 GithubIpRelay。
+        if (Core.GithubIpRelay.CanRelay(url))
+            items.Add(new Item(Core.GithubIpRelay.Id,
+                DownloadCandidate.Direct(Core.GithubIpRelay.Relay(url))));
+
         // 自建模式下不让 GitHub 源参与竞争（否则用户开着加速器时它会抢到第一）
         if (includeOfficial) items.Add(new Item(OfficialId, official));
 
@@ -272,6 +279,7 @@ public static class GithubRoute
         foreach (var id in order) Add(id);
         Add(OfficialId);                                     // 补齐缓存里没有的（比如清单新增了通道）
         foreach (var channel in Core.GithubMirror.Channels) Add(channel.Id);
+        Add(Core.GithubIpRelay.Id);                          // 同上：老缓存里没有这条，补齐
 
         return list;
     }
@@ -284,6 +292,11 @@ public static class GithubRoute
         if (id == OfficialId)
             return official;
 
+        if (id == Core.GithubIpRelay.Id)
+            return Core.GithubIpRelay.CanRelay(url)
+                ? DownloadCandidate.Direct(Core.GithubIpRelay.Relay(url))
+                : null;
+
         var channel = Core.GithubMirror.Channels.FirstOrDefault(item => item.Id == id);
         return channel is null ? null : DownloadCandidate.Direct(Core.GithubMirror.MirrorUrl(url, channel));
     }
@@ -294,6 +307,7 @@ public static class GithubRoute
     {
         AcceleratorId => "自建加速",
         OfficialId => "GitHub 源",
+        Core.GithubIpRelay.Id => Core.GithubIpRelay.Name,
         _ => Core.GithubMirror.Channels.FirstOrDefault(item => item.Id == id)?.Name ?? id,
     };
 

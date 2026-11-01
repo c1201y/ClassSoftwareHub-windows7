@@ -116,6 +116,7 @@ public sealed partial class ShellPage : PageBase
             // 分组之后两组的声明顺序与 ToolCatalog 的混合顺序本来就不一致，按 SequenceEqual
             // 每次启动都会误报一条不一致；真正要防的是"少一项 / 多一项"。
             // 「教室喊话」在 ToolCatalog 里但走导航一级项（见 ToolCatalog 末尾注释），不参与分组校验。
+            // 自上游 1.8：「函数图像」同样走导航一级项，靠 ToolDef.Standalone 标记跳过分组校验。
             // 「实验性功能」组混装两类：ToolCatalog 里的工具（如自动关机，Group=System 却按风险放实验性），
             // 以及不进 ToolCatalog 的实验功能（程序专杀 / 虚拟键盘）—— 所以这一组只要求"能覆盖 catalog"，
             // 不要求反过来一一对应。
@@ -127,7 +128,7 @@ public sealed partial class ShellPage : PageBase
                 .Select(i => i.Tag as string ?? "").Where(id => id.Length > 0)
                 .ToHashSet(StringComparer.Ordinal);
             var cat = Data.ToolCatalog.All
-                .Where(t => !string.Equals(t.Id, "announce", StringComparison.Ordinal))
+                .Where(t => !string.Equals(t.Id, "announce", StringComparison.Ordinal) && !t.Standalone)
                 .Select(t => t.Id)
                 .ToHashSet(StringComparer.Ordinal);
 
@@ -678,6 +679,16 @@ public sealed partial class ShellPage : PageBase
     }
 
     /// <summary>
+    /// 外部链接（csh://settings/…）进设置页的某个分组：切到设置页，再滚到那一块。
+    /// 分组名认不出就停在页面顶部（<see cref="SettingsPage.ActivateSection"/> 自己兜底）。
+    /// </summary>
+    public void NavigateToSettings(string? section)
+    {
+        NavigateTo("settings");
+        if (ContentFrame.Content is SettingsPage page) page.ActivateSection(section);
+    }
+
+    /// <summary>
     /// 从外部（首页卡片等）进「实验性功能」：切到总览页，并把分组展开。
     /// 展开这一步是给"从外面跳进来"补的 —— 不然看不出这一组里还有子项。
     /// ⚠️ 在导航栏里点父项那条路**不走它**：那种情况 NavigationView 自己会 toggle 展开/收起。
@@ -802,6 +813,9 @@ public sealed partial class ShellPage : PageBase
                 ContentFrame.Navigate(typeof(Pages.Tools.AnnouncePage));
                 return;
             case "submit":
+                // 自上游 1.8：导航项已移除，但这个 case 必须留着 —— 入口还有三处：
+                // 软件下载页顶部按钮、首页「提交软件」卡片、命令行 --page=submit。
+                // 删了它们会一起掉进 default 直接回首页，而且不报错。
                 ContentFrame.Navigate(typeof(SubmitPage));
                 return;
             case "feedback":
@@ -819,9 +833,6 @@ public sealed partial class ShellPage : PageBase
             case "machinecheck":
                 ContentFrame.Navigate(typeof(MachineCheckPage));
                 return;
-            case "easiguard":
-                ContentFrame.Navigate(typeof(EasiNoteGuardPage));
-                return;
             case "procguard":
                 ContentFrame.Navigate(typeof(ProcessGuardPage));
                 return;
@@ -831,18 +842,29 @@ public sealed partial class ShellPage : PageBase
             case "autoshutdown":
                 ContentFrame.Navigate(typeof(AutoShutdownPage));
                 return;
-            // ── 上游 dv1.1.3-insider1.3 ~ dv1.2.0-insider1.1 新增的四项（2026-10-18 移植） ──
+            // ── 上游 dv1.1.3-insider1.3 ~ dv1.2.0-insider1.1 新增的两项（2026-10-18 移植） ──
             case "uninstall":
                 ContentFrame.Navigate(typeof(UninstallPage));
-                return;
-            case "appdata":
-                ContentFrame.Navigate(typeof(AppDataPage));
                 return;
             case "startup":
                 ContentFrame.Navigate(typeof(StartupPage));
                 return;
-            case "systemrepair":
-                ContentFrame.Navigate(typeof(SystemRepairPage));
+            case "sysfeatures":
+                // 系统功能（自上游 dv1.2.0-insider1.8 移植）：HKLM / powercfg 设置，排队后一次提权写入。
+                ContentFrame.Navigate(typeof(SystemFeaturesPage));
+                return;
+            case "systemtweaks":
+                // 系统优化（自上游 dv1.2.0-insider1.8 移植）：HKCU 直写，整机组策略键走一次 reg import 提权。
+                ContentFrame.Navigate(typeof(SystemTweaksPage));
+                return;
+            case "pagefile":
+                // 虚拟内存（自上游 dv1.2.0-insider1.8 移植）：PagingFiles 在 HKLM，提权助手写 MULTI_SZ，重启后生效。
+                ContentFrame.Navigate(typeof(PageFilePage));
+                return;
+            case "dictionary":
+                // 查阅单词（自上游 dv1.2.0-insider1.8 移植，需求清单第 17 条）：纯原生页，
+                // 词源调度在 Services/Dictionary 里，不经 ToolCarrier —— 它不是可替换的网页小工具。
+                ContentFrame.Navigate(typeof(DictionaryPage));
                 return;
             case "experimental":
                 // 「实验性功能」分组的父项**自己就是总览入口**：点它 = 展开/收起分组 + 进这一页。

@@ -54,6 +54,7 @@ public static class ThemeBrush
         ["SystemFillColorCaution"] = (0xFF9D5D00, 0xFFFCE100),
         ["SystemFillColorCritical"] = (0xFFC42B1C, 0xFFFF99A4),
         ["SystemFillColorAttention"] = (0xFF005FB8, 0xFF60CDFF),
+        ["SolidBackgroundFillColorBase"] = (0xFFF3F3F3, 0xFF202020),
     };
 
     /// <summary>元素所在那棵树是深色吗。</summary>

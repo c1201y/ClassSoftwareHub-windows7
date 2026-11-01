@@ -1,0 +1,43 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:fa="using:FluentAvalonia.UI.Controls"
+             xmlns:views="using:ClassSoftwareHub.Desktop.Views"
+             x:Class="ClassSoftwareHub.Desktop.Views.Oobe.OobeScreenshotPage">
+
+    <!-- 第 8 步：截图（自上游 dv1.2.0-insider1.8 移植）。与「侧边布局 → 截图」同源，只是初次上手先把最常用的两项问一遍。 -->
+    <Grid>
+        <StackPanel x:Name="ContentRoot" Width="600"
+                    HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="4">
+
+            <StackPanel Spacing="6" Margin="0,0,0,12">
+                <TextBlock Text="截图" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center" />
+            </StackPanel>
+
+            <views:SettingsCard Header="截图后自动保存一份原图"
+                                Description="文件名格式：截图_年月日_时分秒.png">
+                <views:SettingsCard.HeaderIcon>
+                    <fa:FontIcon Glyph="&#xE722;" />
+                </views:SettingsCard.HeaderIcon>
+                <ToggleSwitch x:Name="ShotAutoSaveSwitch" OnContent="开" OffContent="关" MinWidth="0"
+                              IsCheckedChanged="ShotAutoSave_Toggled" />
+            </views:SettingsCard>
+
+            <views:SettingsCard x:Name="DirCard" Header="截图保存位置">
+                <views:SettingsCard.HeaderIcon>
+                    <fa:FontIcon Glyph="&#xE8F4;" />
+                </views:SettingsCard.HeaderIcon>
+                <views:SettingsCard.Description>
+                    <StackPanel Spacing="8" Margin="0,4,0,0">
+                        <TextBlock x:Name="ShotDirText" TextWrapping="Wrap" FontSize="12"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Content="更改目录…" Click="ShotDir_Change_Click" />
+                            <Button Content="打开目录" Click="ShotDir_Open_Click" />
+                            <Button Content="恢复默认（桌面）" Click="ShotDir_Reset_Click" />
+                        </StackPanel>
+                    </StackPanel>
+                </views:SettingsCard.Description>
+            </views:SettingsCard>
+        </StackPanel>
+    </Grid>
+</UserControl>

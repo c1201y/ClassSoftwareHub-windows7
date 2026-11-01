@@ -267,7 +267,62 @@
                 </Border>
             </Grid>
 
-            <!-- 第二行快速入口：侧边布局 / 实验性功能（跟上面一排同样的两张等大卡片、同样的图标口径） -->
+            <!--
+              教室喊话 / 函数图像（自上游 1.8 补）：
+              这两项在导航栏里是**一级功能项**（喊话是从工具里提出来的，函数图像是 Standalone），
+              首页一直没给卡片，用户从首页根本看不到它们。放在第二排 —— 只排在「下载首页」之后，
+              其余卡片依次下移。
+              ⚠️ 标签就是导航用的那个 tag（announce / function-plot），别另起名字：
+                 function-plot 交给 NavigateTagCore 按 Id 反查工具表，才能走载体选择（Web 优先、原生兜底）。
+            -->
+            <Grid Margin="0,8,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Border Grid.Column="0" Classes="card" Tag="announce" CornerRadius="8" Padding="14,18"
+                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                        Tapped="Card_Tapped">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <fa:FontIcon Glyph="&#xE720;" FontSize="20" VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="1" Margin="16,0,0,0" VerticalAlignment="Center" Spacing="1">
+                            <TextBlock Text="教室喊话" FontSize="14" FontWeight="SemiBold" />
+                            <TextBlock Text="全屏提醒，同网段与远程都能收到" FontSize="12" Opacity="0.65" />
+                        </StackPanel>
+                        <fa:FontIcon Grid.Column="2" Margin="16,0,0,0" Glyph="&#xE8A7;" FontSize="12" VerticalAlignment="Center" Opacity="0.7" />
+                    </Grid>
+                </Border>
+
+                <Border Grid.Column="1" Margin="8,0,0,0" Classes="card" Tag="function-plot" CornerRadius="8" Padding="14,18"
+                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                        Tapped="Card_Tapped">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <fa:FontIcon Glyph="&#xE9D2;" FontSize="20" VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="1" Margin="16,0,0,0" VerticalAlignment="Center" Spacing="1">
+                            <TextBlock Text="函数图像" FontSize="14" FontWeight="SemiBold" />
+                            <!-- ⚠️ 上游写的是「函数曲线、圆锥曲线与几何作图」（网页版能力）；本地这一页是原生
+                                 函数曲线 + 闭式性质分析，没有几何作图，副标题按本机实际能力写。 -->
+                            <TextBlock Text="函数曲线绘制与性质分析" FontSize="12" Opacity="0.65" />
+                        </StackPanel>
+                        <fa:FontIcon Grid.Column="2" Margin="16,0,0,0" Glyph="&#xE8A7;" FontSize="12" VerticalAlignment="Center" Opacity="0.7" />
+                    </Grid>
+                </Border>
+            </Grid>
+
+            <!-- 第三行快速入口：侧边布局 / 实验性功能（跟上面一排同样的两张等大卡片、同样的图标口径） -->
             <Grid Margin="0,8,0,0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />

@@ -6,13 +6,14 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using ClassSoftwareHub.Desktop.Core;
+using Microsoft.Win32;
 
 namespace ClassSoftwareHub.Desktop.Services;
 
 /// <summary>局域网通道的防火墙状态。</summary>
 public enum FirewallState
 {
-    /// <summary>还没查过（页面刚打开、后台查询未回）。</summary>
+    /// <summary>还没查过。调用方按「未知」处理：不显示卡片、不提示。</summary>
     Unknown,
 
     /// <summary>两条入站规则都在、已启用、覆盖公用网络，且本程序没有入站拦截规则。</summary>
@@ -26,30 +27,23 @@ public enum FirewallState
 }
 
 /// <summary>
-/// Windows 防火墙的查询与修复（对齐上游 2026-10-27 重写，Win7 版双引擎适配）。
+/// Windows 防火墙的查询与修复（对齐上游 2026-10-27 第二次重写 / 10-28 修正）。
 ///
 /// <para>
-/// 为什么单独成文件：旧实现（<c>AnnounceLanService.FirewallRulesPresent</c>）只查
-/// 「名字叫这个的规则存在 + 输出里像是有『已启用/公用』」，判据太窄 —— 规则只覆盖
-/// 域/专用时，校园网/机房网（通常被判成「公用」）下等于没加，页面就会一直提示要放行。
+/// **查询只读注册表，不起任何子进程**。上一版用 <c>Get-NetFirewallRule</c> 查询，
+/// 每次启动都会拉起 <c>powershell.exe</c>，安全软件按启发式规则直接拦截弹窗。
+/// 规则本来就躺在
+/// <c>HKLM\SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRules</c>，
+/// 该键对 <c>BUILTIN\Users</c> 授予了 <c>ReadKey</c>，普通权限即可读取；一次枚举微秒级。
 /// </para>
 ///
 /// <para>
-/// 查询引擎按系统能力选：
-/// <list type="number">
-///   <item><b>PowerShell NetSecurity 模块</b>（Win8+ / PS3+）：脚本经 <c>-EncodedCommand</c>
-///     以 UTF-16 传递、输出强制 UTF-8，与系统代码页完全无关；判据是三个必要条件：
-///     规则存在 + 已启用 + <c>Profile</c> 位掩码含 <c>Public</c>，并额外检查本程序有没有
-///     入站 Block 规则（Block 永远优先于 Allow）。</item>
-///   <item><b>netsh 兜底</b>（Win7 默认只有 PS 2.0，没有 NetSecurity 模块）：
-///     沿用已验证的输出启发式（已启用 + 覆盖公用）；这一路查不出 Block 规则，
-///     只区分 Ok / PortRulesMissing。</item>
-/// </list>
+/// 修复动作仍需要提权，但改成「提权跑 netsh」而不是 PowerShell 脚本：规则名全 ASCII，
+/// 不涉及编码转换，安全软件告警等级更低；而且只在用户主动点「修复」时发生。
 /// </para>
 ///
 /// <para>
-/// ⛔ 规则名一律用 ASCII（netsh / PowerShell 任何一层编码没对齐，中文名就会变成
-/// 「查不到、也删不掉」）。旧版本的中文名规则会在修复时一并删掉，并重建覆盖「任何网络」的规则。
+/// ⛔ 规则名一律用 ASCII。旧版本的中文名规则在修复时一并删掉，并重建覆盖「任何网络」的规则。
 /// </para>
 /// </summary>
 public static class FirewallGateway
@@ -70,12 +64,19 @@ public static class FirewallGateway
     /// <summary>Windows 自动为程序生成的规则，DisplayName 就是程序文件名。</summary>
     private const string ProgramRuleName = "classsoftwarehub.exe";
 
+    /// <summary>防火墙本地规则库。和「高级安全」界面里看到的同一份数据。</summary>
+    private const string RulesKeyPath =
+        @"SYSTEM\CurrentControlSet\Services\SharedAccess\Parameters\FirewallPolicy\FirewallRules";
+
     private static readonly object Gate = new();
     private static FirewallState _cached = FirewallState.Unknown;
     private static DateTime _cachedAt = DateTime.MinValue;
 
-    /// <summary>缓存时长：查询要起一个子进程（约 0.5~2 秒），不能每次刷界面都跑一遍。</summary>
-    private static readonly TimeSpan CacheTtl = TimeSpan.FromSeconds(60);
+    /// <summary>
+    /// 缓存时长。读注册表是微秒级，这层只为「一次页面刷新里连调多次」去重。
+    /// ⛔ 刻意**不做磁盘缓存**：读一次比读一个文件还快。
+    /// </summary>
+    private static readonly TimeSpan CacheTtl = TimeSpan.FromSeconds(30);
 
     /// <summary>上一次查到的状态（可能来自缓存）。</summary>
     public static FirewallState LastKnown
@@ -83,7 +84,7 @@ public static class FirewallGateway
         get { lock (Gate) return _cached; }
     }
 
-    /// <summary>清掉缓存，下一次查询一定重新跑。</summary>
+    /// <summary>清掉缓存，下一次查询一定重新读。</summary>
     public static void Invalidate()
     {
         lock (Gate)
@@ -94,10 +95,10 @@ public static class FirewallGateway
     }
 
     /// <summary>
-    /// 查询当前状态（带缓存）。永远不抛异常：查不出来就返回 <see cref="FirewallState.Unknown"/>，
-    /// 调用方按「未知」处理，不提示、不打扰。
+    /// 查当前状态（带 30 秒缓存）。**同步、进程内、永不抛异常**：
+    /// 读不到或格式不认识就返回 <see cref="FirewallState.Unknown"/>，调用方按「未知」处理。
     /// </summary>
-    public static async Task<FirewallState> CheckAsync(bool force = false)
+    public static FirewallState Check(bool force = false)
     {
         lock (Gate)
         {
@@ -105,7 +106,7 @@ public static class FirewallGateway
                 return _cached;
         }
 
-        var state = await Task.Run(QueryCore);
+        var state = QueryCore();
 
         lock (Gate)
         {
@@ -116,143 +117,19 @@ public static class FirewallGateway
         return state;
     }
 
-    private static FirewallState QueryCore()
-    {
-        // 先走 PowerShell（代码页无关、判据完整）；引擎不可用（Win7 PS 2.0）时回落 netsh。
-        var output = RunPowerShell(QueryScript(), elevate: false);
-        var parsed = ParseQueryOutput(output);
-        if (parsed.HasValue) return parsed.Value;
+    /// <summary>异步包装：读注册表本来就是微秒级，这里只为不阻塞界面调用点。</summary>
+    public static Task<FirewallState> CheckAsync(bool force = false) => Task.FromResult(Check(force));
 
-        return QueryViaNetsh();
-    }
-
-    /// <summary>解析查询脚本的输出（形如 <c>tcp=1;udp=1;block=0</c>）。解析不出返回 null。</summary>
-    private static FirewallState? ParseQueryOutput(string? output)
-    {
-        if (string.IsNullOrWhiteSpace(output)) return null;
-        if (output.Contains("unsupported", StringComparison.Ordinal)) return null;
-
-        var tcp = false;
-        var udp = false;
-        var block = false;
-        var sawAny = false;
-
-        foreach (var part in output.Trim().Split(';', StringSplitOptions.RemoveEmptyEntries))
-        {
-            var idx = part.IndexOf('=');
-            if (idx <= 0) continue;
-
-            var key = part[..idx].Trim();
-            var value = part[(idx + 1)..].Trim() == "1";
-            sawAny = true;
-
-            switch (key)
-            {
-                case "tcp": tcp = value; break;
-                case "udp": udp = value; break;
-                case "block": block = value; break;
-            }
-        }
-
-        if (!sawAny) return null;   // 脚本没跑起来 / 被策略拦了 / 引擎不支持
-
-        // Block 优先报：它比端口规则更致命，提示语也不一样
-        if (block) return FirewallState.ProgramBlocked;
-        if (!tcp || !udp) return FirewallState.PortRulesMissing;
-        return FirewallState.Ok;
-    }
-
-    /// <summary>
-    /// netsh 兜底查询（Win7 / 无 NetSecurity 模块时）。
-    /// <para>
-    /// 沿用已验证的启发式：规则存在 + 输出含「已启用/Enabled」+ 覆盖「任何/公用/Any/Public」。
-    /// 只查两条 ASCII 端口规则；这一路分辨不出 Block 规则，查不出就按端口规则下结论。
-    /// </para>
-    /// </summary>
-    private static FirewallState QueryViaNetsh()
-    {
-        foreach (var name in new[] { RuleTcpName, RuleUdpName })
-        {
-            var output = RunNetsh($"advfirewall firewall show rule name=\"{name}\"");
-            if (string.IsNullOrEmpty(output)) return FirewallState.Unknown;
-
-            // ⛔ 按「值」判断，不能只看标签在不在（2026-10-28）：
-            //    netsh 的输出恒含「已启用:」和「本地 IP: 任何」两行标签，
-            //    所以旧写法 Contains("已启用") / Contains("任何") 对任何存在的规则都成立 ——
-            //    规则被停用、或只覆盖域/专用时照样判 Ok，页面不再提示，局域网静默不通。
-            var enabled = ReadFlagField(output, "已启用", "Enabled");
-            var coversPublic = ReadPublicField(output, "配置文件", "Profiles");
-
-            if (enabled is null || coversPublic is null)
-            {
-                // 输出格式不认识（语言或系统版本差异）：退回旧启发式，保住「能查出来」
-                enabled ??= output.Contains("已启用", StringComparison.Ordinal)
-                            || output.Contains("Enabled", StringComparison.Ordinal);
-                coversPublic ??= output.Contains("任何", StringComparison.Ordinal)
-                                 || output.Contains("Any", StringComparison.Ordinal);
-            }
-
-            if (enabled != true || coversPublic != true) return FirewallState.PortRulesMissing;
-        }
-
-        return FirewallState.Ok;
-    }
-
-    /// <summary>取「已启用」这一行的布尔值；标签不存在返回 null（交给调用方兜底）。</summary>
-    private static bool? ReadFlagField(string output, params string[] labels)
-    {
-        var value = ReadField(output, labels);
-        if (value is null) return null;
-
-        return value.StartsWith("是", StringComparison.Ordinal)
-               || value.StartsWith("启用", StringComparison.Ordinal)
-               || value.StartsWith("Yes", StringComparison.OrdinalIgnoreCase)
-               || value.StartsWith("Enable", StringComparison.OrdinalIgnoreCase)
-               || value == "True";
-    }
-
-    /// <summary>取「配置文件」这一行是否含公用网络；标签不存在返回 null。</summary>
-    private static bool? ReadPublicField(string output, params string[] labels)
-    {
-        var value = ReadField(output, labels);
-        if (value is null) return null;
-
-        return value.Contains("公用", StringComparison.Ordinal)
-               || value.Contains("任何", StringComparison.Ordinal)
-               || value.Contains("全部", StringComparison.Ordinal)
-               || value.Contains("Public", StringComparison.OrdinalIgnoreCase)
-               || value.Contains("Any", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static string? ReadField(string output, string[] labels)
-    {
-        foreach (var raw in output.Split('\n'))
-        {
-            var line = raw.Trim();
-            var idx = line.IndexOfAny(new[] { ':', '：' });
-            if (idx <= 0) continue;
-
-            var key = line[..idx].Trim();
-            if (!labels.Any(l => key.Equals(l, StringComparison.OrdinalIgnoreCase))) continue;
-
-            return line[(idx + 1)..].Trim();
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// 补规则 / 删拦截规则（一次 UAC）。返回修复后的实际状态：只有 <see cref="FirewallState.Ok"/> 才算成功。
-    /// <para>
-    /// 修复动作走 netsh（Win7 上也能用，中文规则名经 CreateProcessW 传递不受控制台代码页影响）；
-    /// 修完用当前引擎重新查一遍 —— PowerShell 可用时连 Block 规则的清除结果也能验证。
-    /// </para>
-    /// </summary>
+    /// <summary>补规则 / 删拦截规则（一次 UAC）。返回修复后的实际状态：只有 <see cref="FirewallState.Ok"/> 才算成功。</summary>
     public static FirewallState Repair()
     {
         try
         {
-            RunElevatedBatch(RepairCommands());
+            // 只有真的被程序级规则拦着才去删 —— 那条命令按名字删「所有同名入站规则」，
+            // 会把 Windows 自动生成的 Allow 条目一并带走。没被拦就不必付这个代价。
+            var needsUnblock = Check(force: true) == FirewallState.ProgramBlocked;
+
+            RunElevatedBatch(RepairCommands(needsUnblock));
         }
         catch (Exception ex)
         {
@@ -261,84 +138,133 @@ public static class FirewallGateway
         }
 
         Invalidate();
-        return QueryCore();
+        var state = QueryCore();
+
+        // 记录**实际结果**而不是「命令跑过了」：否则规则没建/建了但判不出来时，日志毫无线索。
+        AppLog.Info("announce-lan", state == FirewallState.Ok
+            ? "防火墙入站规则已就绪（覆盖任何网络，无程序级拦截）"
+            : "防火墙修复后仍未达标：" + Describe(state));
+
+        return state;
     }
 
-    // ════════════════════════ 脚本与进程 ════════════════════════
+    // ════════════════════════ 注册表查询 ════════════════════════
 
     /// <summary>
-    /// 起一个 PowerShell 执行脚本。
-    /// <para>
-    /// ⚠️ 脚本一律走 <c>-EncodedCommand</c>（Base64 的 UTF-16LE）：直接塞进命令行会被系统代码页
-    /// 重新解释一次，中文用户名路径都会变形。
-    /// </para>
+    /// 读一遍规则库，判断三件事：TCP 规则在不在、UDP 规则在不在、本程序有没有被入站拦截。
+    /// 任何读不到 / 格式不对的情况都返回 <see cref="FirewallState.Unknown"/>。
     /// </summary>
-    private static string? RunPowerShell(string script, bool elevate)
-    {
-        var encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
-
-        var psi = new ProcessStartInfo("powershell.exe",
-            "-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand " + encoded)
-        {
-            CreateNoWindow = true,
-            UseShellExecute = elevate,        // runas 必须走 shell
-            RedirectStandardOutput = !elevate,
-            RedirectStandardError = !elevate,
-            StandardOutputEncoding = elevate ? null : Encoding.UTF8,
-            StandardErrorEncoding = elevate ? null : Encoding.UTF8,
-        };
-
-        if (elevate) psi.Verb = "runas";
-
-        using var proc = Process.Start(psi);
-        if (proc is null) return null;
-
-        if (elevate)
-        {
-            proc.WaitForExit(45_000);   // 用户在 UAC 框上犹豫是常态，别太急
-            return null;
-        }
-
-        var output = proc.StandardOutput.ReadToEnd();
-        proc.WaitForExit(15_000);
-        return output;
-    }
-
-    /// <summary>同步跑一次 netsh 并取输出（查询用；不做任何写操作）。</summary>
-    private static string? RunNetsh(string arguments)
+    private static FirewallState QueryCore()
     {
         try
         {
-            var psi = new ProcessStartInfo("netsh", arguments)
+            using var key = Registry.LocalMachine.OpenSubKey(RulesKeyPath, writable: false);
+            if (key is null) return FirewallState.Unknown;
+
+            var names = key.GetValueNames();
+            if (names.Length == 0) return FirewallState.Unknown;
+
+            var exe = NormalizePath(Environment.ProcessPath);
+
+            var tcpOk = false;
+            var udpOk = false;
+            var blocked = false;
+            var sawV2 = false;
+
+            foreach (var valueName in names)
             {
-                CreateNoWindow = true,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                // netsh 按控制台 OEM 代码页输出；.NET Core 默认 UTF-8 解出来是乱码，
-                // 中文标签（「已启用」「配置文件」）就一个也匹配不上。
-                StandardOutputEncoding = OemEncoding(),
-            };
+                if (key.GetValue(valueName) is not string raw) continue;
 
-            using var proc = Process.Start(psi);
-            if (proc is null) return null;
+                var rule = Core.FirewallRule.Parse(raw);   // 非 v2 值（PolicyVersion 等）在这里被挡掉
+                if (rule is null) continue;
 
-            var output = proc.StandardOutput.ReadToEnd();
-            proc.WaitForExit(4000);
-            return output;
+                sawV2 = true;
+                if (!rule.ActiveInbound) continue;
+
+                if (string.Equals(rule.Action, "Allow", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (string.Equals(rule.Name, RuleTcpName, StringComparison.OrdinalIgnoreCase) && rule.CoversPublic)
+                        tcpOk = true;
+                    else if (string.Equals(rule.Name, RuleUdpName, StringComparison.OrdinalIgnoreCase) && rule.CoversPublic)
+                        udpOk = true;
+                }
+                else if (string.Equals(rule.Action, "Block", StringComparison.OrdinalIgnoreCase))
+                {
+                    var app = NormalizePath(rule.App);
+                    if (app is not null && exe is not null && app.Equals(exe, StringComparison.OrdinalIgnoreCase))
+                        blocked = true;
+                }
+            }
+
+            // 一条 v2 规则都没解析出来 = 格式变了或环境特殊，别硬给结论
+            if (!sawV2) return FirewallState.Unknown;
+
+            if (blocked) return FirewallState.ProgramBlocked;
+            if (!tcpOk || !udpOk) return FirewallState.PortRulesMissing;
+            return FirewallState.Ok;
         }
-        catch
+        catch (Exception ex)
         {
-            return null;
+            AppLog.Warn("announce-lan", "读取防火墙规则失败：" + ex.Message);
+            return FirewallState.Unknown;
         }
     }
 
+    /// <summary>路径规范化后再比。注册表里的路径可能大小写不一、也可能带尾部反斜杠。</summary>
+    private static string? NormalizePath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return null;
+
+        try
+        {
+            return Path.GetFullPath(path.Trim().TrimEnd('\\', '/'));
+        }
+        catch
+        {
+            return path.Trim();
+        }
+    }
+
+    // ════════════════════════ 修复 ════════════════════════
+
     /// <summary>
-    /// 以管理员身份执行一组 netsh 命令（修复用；只弹一次 UAC）。
+    /// 修复用的 netsh 命令（整段交给提权进程执行）：
+    /// 删掉新旧端口规则 → 重建两条覆盖「任何网络」的入站规则；
+    /// 只有确实被程序级规则拦截时才额外删掉同名入站规则。
+    /// ⚠️ 只动名字是本程序的那几条，不碰任何其它规则。
+    /// </summary>
+    private static IReadOnlyList<string> RepairCommands(bool needsUnblock)
+    {
+        var cmds = new List<string>();
+
+        // 1) 清掉同名的旧端口规则（早期版本建的可能只覆盖域/专用，叠加会留下一条无效规则）
+        foreach (var name in new[] { RuleTcpName, RuleUdpName }.Concat(LegacyRuleNames))
+            cmds.Add($"netsh advfirewall firewall delete rule name=\"{name}\" >nul 2>&1");
+
+        // 2) 重建：profile=any 才是「任何网络」—— 校园网、机房网判为「公用」时才放行
+        cmds.Add($"netsh advfirewall firewall add rule name=\"{RuleTcpName}\" group=\"{RuleGroup}\" "
+                 + $"dir=in action=allow protocol=TCP localport={AnnounceLanService.ReceivePort} profile=any");
+        cmds.Add($"netsh advfirewall firewall add rule name=\"{RuleUdpName}\" group=\"{RuleGroup}\" "
+                 + $"dir=in action=allow protocol=UDP localport={AnnounceLanService.DiscoveryPort} profile=any");
+
+        if (needsUnblock)
+        {
+            // 3) 删掉本程序的入站拦截规则（Windows 第一次弹「允许访问」时点取消留下的）。
+            //    ⚠️ netsh 的 delete **没有 action= 参数**，只能按「名字 + 方向」删，
+            //       会连带删掉同名的 Allow 规则 —— 无害：端口规则已覆盖 47820/47821。
+            //    ⚠️ 不带 program=：路径可能含中文用户名，命令行编码会出问题。
+            cmds.Add($"netsh advfirewall firewall delete rule name=\"{ProgramRuleName}\" dir=in >nul 2>&1");
+        }
+
+        return cmds;
+    }
+
+    /// <summary>
+    /// 以管理员身份执行一组 netsh 命令（只弹一次 UAC）。
     /// <para>
     /// ⛔ 不能把多条命令用 <c>&amp;</c> 拼成一个字符串交给 netsh：那一路是 CreateProcess，
-    ///    没有 shell 去解释 <c>&amp;</c>，netsh 会把它当成参数的一部分，一条规则也加不上
-    ///    （用户看到的是 UAC 确认了、页面仍说没放行）。要串联必须交给 cmd.exe。
+    ///    没有 shell 去解释 <c>&amp;</c>，netsh 会把它当成参数的一部分，一条规则也加不上。
+    ///    要串联必须交给 cmd.exe。
     /// </para>
     /// <para>
     /// 用临时 .cmd 而不是 <c>cmd /c "…&amp; …"</c>：脚本里带引号的规则名和可能含中文的程序路径，
@@ -383,86 +309,6 @@ public static class FirewallGateway
         {
             return Encoding.UTF8;
         }
-    }
-
-    /// <summary>
-    /// 查询脚本。判据写死在脚本里，返回三态：tcp / udp / block。
-    /// <para>
-    /// ⚠️ <c>-PolicyStore ActiveStore</c>：只看当前**生效**的规则集，本机策略与组策略合并后的结果。
-    /// 默认的 PersistentStore 在域控下发的规则上看不到，会误判成「没有规则」。
-    /// </para>
-    /// <para>
-    /// ⚠️ 开头先探测 <c>Get-NetFirewallRule</c> 是否存在：Win7 默认只有 PS 2.0、没有 NetSecurity
-    /// 模块，直接跑会把「查不到规则」误报成「规则缺失」—— 那种情况输出 <c>unsupported</c>，
-    /// 调用方回落 netsh。
-    /// </para>
-    /// </summary>
-    private static string QueryScript()
-    {
-        var exe = (Environment.ProcessPath ?? "").Replace("'", "''");
-
-        return $@"
-$ErrorActionPreference = 'SilentlyContinue'
-[Console]::OutputEncoding = [Text.Encoding]::UTF8
-
-if (-not (Get-Command Get-NetFirewallRule -ErrorAction SilentlyContinue)) {{
-  Write-Output 'unsupported'
-  exit
-}}
-
-function Test-PortRule([string]$name) {{
-  $rules = @(Get-NetFirewallRule -DisplayName $name -PolicyStore ActiveStore)
-  foreach ($r in $rules) {{
-    if ($r.Direction -ne 'Inbound') {{ continue }}
-    if ($r.Action -ne 'Allow') {{ continue }}
-    if ($r.Enabled -ne 'True') {{ continue }}
-    # Profile 是位掩码：Domain=1, Private=2, Public=4
-    if (($r.Profile -band 4) -ne 0) {{ return 1 }}
-  }}
-  return 0
-}}
-
-$tcp = Test-PortRule '{RuleTcpName}'
-$udp = Test-PortRule '{RuleUdpName}'
-
-# 程序级拦截：Block 规则永远优先于 Allow，端口规则再对也收不到包
-$block = 0
-$exe = '{exe}'
-foreach ($r in @(Get-NetFirewallRule -DisplayName '{ProgramRuleName}' -PolicyStore ActiveStore)) {{
-  if ($r.Direction -ne 'Inbound') {{ continue }}
-  if ($r.Action -ne 'Block') {{ continue }}
-  if ($r.Enabled -ne 'True') {{ continue }}
-  $app = $r | Get-NetFirewallApplicationFilter
-  if ($app -and $app.Program -ieq $exe) {{ $block = 1; break }}
-}}
-
-Write-Output ('tcp=' + $tcp + ';udp=' + $udp + ';block=' + $block)
-";
-    }
-
-    /// <summary>
-    /// 修复用的 netsh 命令（整段交给提权进程执行）：
-    /// 删掉新旧端口规则 → 重建两条覆盖「任何网络」的入站规则 → 删掉本程序作用域的全部入站规则
-    /// （含 Windows 首次弹「允许访问」时点了取消留下的 Block 规则）。
-    /// ⚠️ 只动名字 / 程序路径是本程序的那几条，不碰任何其它规则。
-    /// </summary>
-    private static IReadOnlyList<string> RepairCommands()
-    {
-        var exe = Environment.ProcessPath ?? "";
-        var cmds = new List<string>();
-
-        foreach (var name in new[] { RuleTcpName, RuleUdpName }.Concat(LegacyRuleNames))
-            cmds.Add($"netsh advfirewall firewall delete rule name=\"{name}\"");
-
-        // program= 过滤只删「以本程序为作用域」的规则（自动放行 / Block），端口规则不受影响
-        cmds.Add($"netsh advfirewall firewall delete rule name=all dir=in program=\"{exe}\"");
-
-        cmds.Add($"netsh advfirewall firewall add rule name=\"{RuleTcpName}\" group=\"{RuleGroup}\" "
-                 + $"dir=in action=allow protocol=TCP localport={AnnounceLanService.ReceivePort} profile=any");
-        cmds.Add($"netsh advfirewall firewall add rule name=\"{RuleUdpName}\" group=\"{RuleGroup}\" "
-                 + $"dir=in action=allow protocol=UDP localport={AnnounceLanService.DiscoveryPort} profile=any");
-
-        return cmds;
     }
 
     /// <summary>给人看的说明（页面用）。</summary>

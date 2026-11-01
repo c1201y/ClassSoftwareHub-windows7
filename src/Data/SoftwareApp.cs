@@ -95,6 +95,15 @@ public sealed class DownloadItem
 
     /// <summary>GitHub 链接才给「加速下载」入口。</summary>
     public bool MirrorVisibility => Core.GithubMirror.IsMirrorableUrl(Url);
+
+    /// <summary>
+    /// 能直链下载的用可拆分的按钮（右边那半是「下载到其他文件夹…」）；网盘 / 官网只能跳转，
+    /// 给一颗普通按钮 —— 跳转项底下挂一个"存到哪儿"的菜单是没有意义的（2026-11-01 自上游 insider1.8 移植）。
+    /// </summary>
+    public bool FileActionVisibility => Kind == DownloadKind.File;
+
+    /// <summary>上一条的反面：跳转类走这颗普通按钮。</summary>
+    public bool JumpActionVisibility => Kind != DownloadKind.File;
 }
 
 /// <summary>一个软件（字段与站点 data/index.ts 的 PICK 白名单一致）。</summary>

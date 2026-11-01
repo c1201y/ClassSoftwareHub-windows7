@@ -119,6 +119,18 @@ public partial class App : Application
             return;
         }
 
+        // ── 虚拟内存（分页文件）的提权助手（自上游 dv1.2.0-insider1.8 移植） ──
+        //  PagingFiles 在 HKLM 下，普通权限写不动；助手按清单写 REG_MULTI_SZ、重读校验、写回结果。
+        for (var i = 0; i < argv.Length - 1; i++)
+        {
+            if (!argv[i].Equals(Services.PageFileService.AdminSwitch, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            Services.PageFileService.ApplyElevated(argv[i + 1]);
+            Environment.Exit(0);
+            return;
+        }
+
         // ── 残留清理链路的无人值守体检（诊断用） ──
         // 见 Services/LeftoverDoctor.cs 顶部的说明。⛔ 同样必须在最前面接管：
         // 它要跑完就退出，不建窗口、不碰互斥体。
@@ -187,6 +199,21 @@ public partial class App : Application
         // ═══════════════════════════════════════════════════════════════════════
         mutex.Dispose();
 
+        // 这次启动如果是**被链接唤起的**（浏览器 / 文档里点了 csh://…，需求 1:18），
+        // 先把链接留给正在跑的那个实例 —— ⚠️ 必须在敲事件**之前**写，否则对方醒来时信箱还是空的。
+        try
+        {
+            if (Services.AppLinks.ExtractFromCommandLine() is { Length: > 0 } incoming)
+            {
+                Services.AppLinks.Queue(incoming);
+                Core.AppLog.Info("links", "已把链接转交给正在运行的实例：" + incoming);
+            }
+        }
+        catch (Exception ex)
+        {
+            Core.AppLog.Info("links", "转交链接失败: " + ex.Message);
+        }
+
         if (ResolveSingleInstanceConflict())
         {
 #if CSH_CONSOLE
@@ -236,6 +263,43 @@ public partial class App : Application
 
     /// <summary>第一个实例监听用的"叫醒"事件。</summary>
     private static EventWaitHandle? _activateSignal;
+
+    /// <summary>
+    /// 本次启动带进来的应用链接（<c>csh://…</c>，需求 1:18）。
+    /// <para>
+    /// 由 <see cref="Services.AppLinks.ExtractFromCommandLine"/> 在启动时填好，
+    /// 等主窗口画出第一帧（<c>MainWindow.OnFirstActivated</c>）才取走执行 ——
+    /// 早了 Shell 里的 Frame 还没就绪，<c>NavigateTo</c> 会落到首页。
+    /// </para>
+    /// </summary>
+    private static string? _startupLink;
+
+    /// <summary>取走本次启动带的链接（取一次即清空，免得重启窗口时重复跳转）。</summary>
+    public static string? TakeStartupLink()
+    {
+        var link = _startupLink;
+        _startupLink = null;
+        return link;
+    }
+
+    /// <summary>
+    /// 本次启动要不要走初次配置（OOBE，自上游 dv1.2.0-insider1.8 移植）。
+    /// 由 <see cref="OnFrameworkInitializationCompleted"/> 在读出存档后置位，
+    /// 之后一直有效到 <see cref="EndOobeAndShowMainWindow"/>。
+    /// <para>
+    /// ⚠️ 隐藏式启动（<c>--minimized</c> / <c>--palette</c>）不会置位：那两种启动本来就是
+    /// "主窗口别露脸"，压一扇欢迎窗上去等于把用户从托盘里拽出来。此时**不动** OobeState，
+    /// 还是 Pending，下次正常启动接着问。
+    /// </para>
+    /// </summary>
+    private static bool _oobePending;
+
+    /// <summary>
+    /// 主窗口要不要把 Shell 初始化推迟到初次配置结束。
+    /// ⚠️ 只有"这次真的会弹向导"才为真 —— 新装带 <c>--minimized</c> / <c>--palette</c> 时
+    /// <see cref="_oobePending"/> 仍是 true 但向导不弹，那种情况不能推迟，否则 Shell 永远是空的。
+    /// </summary>
+    internal static bool ShellDeferredForOobe { get; private set; }
 
     /// <summary>建"叫醒"事件。建不出来（极罕见）只是丢掉这条兜底路径，不影响启动。</summary>
     private static void TryCreateActivateSignal()
@@ -452,8 +516,31 @@ public partial class App : Application
     {
         Core.AppLog.BootDiag(); // 旁路诊断（临时）：排「零日志」用的启动写入探针，排障完移除。
 
+        // 初次配置（OOBE）到底该不该弹，**必须在 Load 之前**取这个事实。
+        // ⛔ 别改成 Load 之后再 File.Exists：Load 里的数据整备（新用户补侧边栏模块等）会 Save，
+        //    一 Save 文件就存在了，"这是新装"这个事实当场丢失，OOBE 永远弹不出来（2026-10-31）。
+        var hadSettingsFile = System.IO.File.Exists(Settings.FilePath);
+
         // 对应原版 OnLaunched：先读设置，再建主窗口。
         Settings.Load();
+
+        // 调试预览：--oobe-preview 强制预览一次向导，不写 OobeState、不应用设置。
+        // ⚠️ 原版只在 DEBUG 构建里有；移植版 Release 也留着（不写任何设置，跑完即退）。
+        var previewOobe = Environment.GetCommandLineArgs().Any(a =>
+            a.Equals("--oobe-preview", StringComparison.OrdinalIgnoreCase));
+
+        // 两种要弹：① 新装（存档本来就不存在）；② 上次配到一半没走完（Pending）。
+        // 升级上来的老用户存档在、但这个字段是 Unknown → 不弹，也不写盘（免得白改一次用户文件）。
+        if (previewOobe)
+        {
+            _oobePending = true;
+        }
+        else if (!hadSettingsFile || Settings.Current.OobeState == Services.OobeStates.Pending)
+        {
+            Settings.Current.OobeState = Services.OobeStates.Pending;
+            Settings.Save();                 // 立刻落盘：之后就算被强杀，下次仍认得出"没走完"
+            _oobePending = true;
+        }
 
         // 数据目录分区（自上游 dv1.1.3 会话化体系）：
         //   ① LegacyCleanup 收掉旧结构遗留在根上的死文件（旧素材副本 / 旧日志 / 调试 dump）；
@@ -501,6 +588,9 @@ public partial class App : Application
         Platform.PopupSurfaceFix.Install();
         Platform.PopupSurfaceFix.LogDecision();
 
+        // 本次启动是否要把主窗口的显示/外壳初始化推迟到初次配置结束（下面桌面生命周期里定）。
+        var deferForOobe = false;
+
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             // ⚠️ 软件 gamma 调光是**系统级**状态（改的是显卡输出查找表，不属于本进程）——
@@ -523,11 +613,27 @@ public partial class App : Application
                 Core.AppLog.Debug("ui", "[sidebar] 注册窗口按下钩子失败: " + ex.Message);
             }
 
+            // 本次启动是不是"故意不露脸"（开机最小化 / 只开工具浮窗）。放这么前是因为它同时决定
+            // 初次配置要不要弹、主窗口要不要立刻显示。
+            var startupHidesWindow = Environment.GetCommandLineArgs().Any(a =>
+                a.Equals("--minimized", StringComparison.OrdinalIgnoreCase) ||
+                a.Equals("--palette", StringComparison.OrdinalIgnoreCase));
+
+            // ⛔ 初次配置（自上游 dv1.2.0-insider1.8 移植）：主窗口**只建不显示**，等 OOBE 走完再亮出来。
+            //    顺序是「先配置、再出主界面」，不是以前那样两扇窗同时出现。
+            //    ⚠️ 建窗不能省：托盘、csh:// 协议注册、右键钩子、后台巡检全挂在 MainWindow 身上。
+            deferForOobe = _oobePending && !startupHidesWindow;
+            ShellDeferredForOobe = deferForOobe;
             Platform.PortLog.Step("App: 开始构造主窗口");
             try
             {
                 MainWindow = new MainWindow();
-                desktop.MainWindow = MainWindow;
+
+                // ⚠️ 等向导的那一轮**先别交给 Avalonia**：框架在 OnFrameworkInitializationCompleted
+                //    返回后会把这个窗口直接 Show 出来，向导就被压在主界面底下了。
+                //    向导收尾时（EndOobeAndShowMainWindow）再交给框架并 Show。
+                if (!deferForOobe) desktop.MainWindow = MainWindow;
+
                 Platform.PortLog.Step("App: 主窗口对象构造完成（接下来交给 Avalonia 显示）");
             }
             catch (Exception ex)
@@ -550,7 +656,27 @@ public partial class App : Application
 
                 MainWindow = null;
                 desktop.MainWindow = BuildStartupFailureWindow(ex);
+
+                // 主窗口都没建出来，就别再压一扇向导上去了 —— 用户需要看到的是失败原因。
+                deferForOobe = false;
+                ShellDeferredForOobe = false;
+                _oobePending = false;
             }
+        }
+
+        // 应用链接（csh://，需求 1:18）：
+        //  ① 把协议指向当前 exe（已指对就只读一下，不写注册表）；
+        //  ② 记住本次启动带的链接，等首帧之后由 MainWindow 执行。
+        // ⚠️ 放在主窗口之后：注册要取 exe 路径，很快，但不该占首帧的时间。
+        try
+        {
+            Services.AppLinks.RegisterProtocol();
+            _startupLink = Services.AppLinks.ExtractFromCommandLine();
+            if (_startupLink is { Length: > 0 }) Core.AppLog.Info("links", "启动参数里带着链接：" + _startupLink);
+        }
+        catch (Exception ex)
+        {
+            Core.AppLog.Info("links", "启动时准备应用链接失败: " + ex.Message);
         }
 
         // 起一条后台线程守"叫醒"事件：用户又点了一次桌面图标 → 第二个实例 Set 这个事件 →
@@ -561,22 +687,27 @@ public partial class App : Application
         // （用户看到的就是「进程活着、侧边栏有、主界面不出来」），这里兜一次，保证界面能出现。
         // 只对「从未显示过」的窗口动手 —— 所以 --minimized / --palette 那种故意收起来的场景
         // 不会被误拉出来（那两种情况在首次 Activated 里就置位过了）。
-        DispatcherTimer.RunOnce(() =>
+        // ⚠️ 等初次配置的那一轮不装：主窗口本就该没显示，装了会把它当场亮出来、压住向导
+        //    （自上游 dv1.2.0-insider1.8）。
+        if (!deferForOobe)
         {
-            try
+            DispatcherTimer.RunOnce(() =>
             {
-                if (MainShownOnce) return;
-                if (MainWindow is not { } win) return;
+                try
+                {
+                    if (MainShownOnce) return;
+                    if (MainWindow is not { } win) return;
 
-                Platform.PortLog.Step("看门狗: 启动 6 秒后主窗口仍未显示过 → 强制 Show() 兜底");
-                win.Show();
-                win.Activate();
-            }
-            catch (Exception ex)
-            {
-                Platform.PortLog.Fail("看门狗强制显示主窗口失败", ex);
-            }
-        }, TimeSpan.FromSeconds(6));
+                    Platform.PortLog.Step("看门狗: 启动 6 秒后主窗口仍未显示过 → 强制 Show() 兜底");
+                    win.Show();
+                    win.Activate();
+                }
+                catch (Exception ex)
+                {
+                    Platform.PortLog.Fail("看门狗强制显示主窗口失败", ex);
+                }
+            }, TimeSpan.FromSeconds(6));
+        }
 
         // 两个实验性功能的到点巡检。⚠️ 都靠本进程内的定时器 —— 本程序没在跑就不会查杀
         //    （2026-09-28 Nick 确认按这个来，不往系统里装计划任务）。
@@ -643,7 +774,64 @@ public partial class App : Application
             Core.AppLog.Exception("announce-lan", ex, "启动局域网通道");
         }
 
+        // 初次配置放最后弹：前面这些起完，用户关掉 OOBE 时主界面是"随时可用"的状态，
+        // 不会出现"配置完了、主界面还在初始化"的空档（自上游 dv1.2.0-insider1.8）。
+        if (deferForOobe)
+        {
+            if (previewOobe) Views.WelcomeWindow.ShowPreview(EndOobeAndShowMainWindow);
+            else Views.WelcomeWindow.ShowForFirstRun(EndOobeAndShowMainWindow);
+        }
+
         base.OnFrameworkInitializationCompleted();
+    }
+
+    /// <summary>
+    /// 初次配置结束（完成 / 关窗）后亮主窗口 —— 这是新装首启时主窗口的**唯一**显示时机。
+    ///
+    /// <para>
+    /// ⚠️ 四件事缺一不可：把窗口交给桌面生命周期（等向导那一轮刻意没交）、
+    /// <see cref="MainWindow.StartShell"/> 补做被推迟的首页初始化、<c>Show/Activate</c> 让窗口出现、
+    /// <c>ArmStartupVisibleWatchdog</c> 补上启动时被跳过的那道兜底。
+    /// </para>
+    /// </summary>
+    private static void EndOobeAndShowMainWindow()
+    {
+        Core.AppLog.Info("oobe", "初次配置结束，显示主窗口");
+
+        var desktop = Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;
+
+        // 向导期间故意没建 Shell 首页（见 MainWindow 构造函数），露脸前先补上。
+        try
+        {
+            MainWindow?.StartShell();
+        }
+        catch (Exception ex)
+        {
+            Core.AppLog.Exception("oobe", ex, "向导结束后初始化 Shell 失败");
+        }
+
+        try
+        {
+            if (MainWindow is { } win)
+            {
+                if (desktop is not null) desktop.MainWindow = win;
+                win.Show();
+                win.Activate();
+            }
+        }
+        catch (Exception ex)
+        {
+            Core.AppLog.Warn("oobe", "初次配置结束后激活主窗口失败：" + ex.Message);
+        }
+
+        try
+        {
+            MainWindow?.ArmStartupVisibleWatchdog();
+        }
+        catch (Exception ex)
+        {
+            Core.AppLog.Warn("oobe", "主窗口可见性兜底安装失败：" + ex.Message);
+        }
     }
 
     /// <summary>
@@ -708,12 +896,37 @@ public partial class App : Application
                 {
                     try
                     {
+                        // 初次配置还开着时，主窗口是**故意没显示**的 —— 叫醒它只会让主界面
+                        // 从向导底下冒出来；把向导提到前面才是用户想要的（再点一次桌面图标）。
+                        if (ShellDeferredForOobe)
+                        {
+                            Views.WelcomeWindow.BringToFront();
+                            return;
+                        }
+
                         if (MainWindow is null)
                         {
                             Core.AppLog.Info("single", "主窗口不存在，唤醒请求无人处理（见同日的 [startup] 记录）");
                             return;
                         }
                         MainWindow.ShowFromTray();
+
+                        // 这次唤醒可能**带着链接**：用户在浏览器 / 文档里点了 csh:// 链接，
+                        // 第二个进程把链接写进邮箱（Services/AppLinks）再敲这个事件（需求 1:18）。
+                        // 取到就执行；取不到说明只是一次普通的"再点一下图标"，上面的 ShowFromTray 已经够了。
+                        try
+                        {
+                            var link = Services.AppLinks.TryTakeQueued();
+                            if (link is { Length: > 0 })
+                            {
+                                Core.AppLog.Step("single", "唤醒请求带着链接：" + link);
+                                _ = MainWindow.HandleAppUriAsync(link);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Core.AppLog.Warn("links", "处理唤醒带来的链接失败：" + ex.Message);
+                        }
                     }
                     catch (Exception ex)
                     {

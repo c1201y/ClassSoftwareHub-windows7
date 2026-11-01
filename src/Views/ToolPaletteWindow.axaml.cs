@@ -192,7 +192,7 @@ public sealed partial class ToolPaletteWindow : Window
             try { _corners = RoundedCorners.Attach(this); } catch { }
 
             Root.ActualThemeVariantChanged += (_, _) => ApplySelection();   // 换主题时按钮配色跟着变
-            ThemeCompat.Apply(Root);                        // 跟「设置」里的深浅色走
+            ThemeCompat.Apply(Root, external: true);                        // 桌面悬浮件：跟「外部组件外观」（分体关着时跟主界面）
             ClientSize = new Size(PaletteWidthDip, PaletteHeightDip);
         }
         catch (Exception ex)
@@ -310,11 +310,11 @@ public sealed partial class ToolPaletteWindow : Window
                 // ⚠️ 2026-10-06（用户「首次启动悬浮窗白底白字」同因同修）：构造期那次
                 //    ThemeCompat.Apply 发生在窗口显示之前，主题变体未必传播到位；
                 //    显示后补一次主题 + 按钮配色，再 Dispatcher 补一拍兜底。
-                ThemeCompat.Apply(Root);
+                ThemeCompat.Apply(Root, external: true);
                 ApplySelection();
                 Avalonia.Threading.Dispatcher.UIThread.Post(() =>
                 {
-                    ThemeCompat.Apply(Root);
+                    ThemeCompat.Apply(Root, external: true);
                     ApplySelection();
                 }, Avalonia.Threading.DispatcherPriority.Loaded);
 

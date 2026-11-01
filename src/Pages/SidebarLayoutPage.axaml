@@ -128,6 +128,16 @@
                                           IsCheckedChanged="SidebarSwitch_Toggled" />
                         </views:SettingsCard>
 
+                        <!-- 按钮文案：短名（两三个字）还是长名（最多四个字，2026-10-30 Nick 要，自 1.8 移植）。
+                             侧边栏按钮上的字是建按钮时写进去的，改这项要重建侧边栏才看得到。 -->
+                        <views:SettingsCard Header="按钮使用长名" Description="最多四个字，便于辨认。">
+                            <views:SettingsCard.HeaderIcon>
+                                <fa:FontIcon Glyph="&#xE8D2;" />
+                            </views:SettingsCard.HeaderIcon>
+                            <ToggleSwitch x:Name="LongLabelSwitch" OnContent="开" OffContent="关" MinWidth="0"
+                                          IsCheckedChanged="LongLabelSwitch_Toggled" />
+                        </views:SettingsCard>
+
                         <!-- 两项都用 ComboBox：与「颜色模式」「窗口背景效果」同一套交互，不做成一排单选按钮 -->
                         <views:SettingsCard Header="侧边栏放置模式">
                             <views:SettingsCard.HeaderIcon>

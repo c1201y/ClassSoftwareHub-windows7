@@ -1,0 +1,36 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:fa="using:FluentAvalonia.UI.Controls"
+             xmlns:views="using:ClassSoftwareHub.Desktop.Views"
+             x:Class="ClassSoftwareHub.Desktop.Views.Oobe.OobeAiPage">
+
+    <!-- 第 11 步：Hub AI（自上游 dv1.2.0-insider1.8 移植）。 -->
+    <Grid>
+        <StackPanel x:Name="ContentRoot" Width="600"
+                    HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="4">
+
+            <StackPanel Spacing="6" Margin="0,0,0,12">
+                <TextBlock Text="Hub AI" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center" />
+            </StackPanel>
+
+            <views:SettingsCard Header="启用 Hub AI"
+                                Description="关闭后各页入口隐藏，配置保留。">
+                <views:SettingsCard.HeaderIcon>
+                    <fa:FontIcon Glyph="&#xE8F2;" />
+                </views:SettingsCard.HeaderIcon>
+                <ToggleSwitch x:Name="AiSwitch" OnContent="开" OffContent="关" MinWidth="0"
+                              IsCheckedChanged="Ai_Toggled" />
+            </views:SettingsCard>
+
+            <views:SettingsCard Header="称呼"
+                                Description="AI 在对话中如何称呼你。留空则直接使用「你」。">
+                <views:SettingsCard.HeaderIcon>
+                    <fa:FontIcon Glyph="&#xE77B;" />
+                </views:SettingsCard.HeaderIcon>
+                <!-- PlaceholderText → Watermark -->
+                <TextBox x:Name="NameBox" MinWidth="220" Watermark="例如：张老师" MaxLength="24"
+                         TextChanged="Name_Changed" />
+            </views:SettingsCard>
+        </StackPanel>
+    </Grid>
+</UserControl>

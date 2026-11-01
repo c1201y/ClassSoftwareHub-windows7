@@ -3,6 +3,7 @@
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:controls="using:ClassSoftwareHub.Desktop.Controls"
     xmlns:fa="using:FluentAvalonia.UI.Controls">
 
     <!--
@@ -38,21 +39,12 @@
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Spacing="4">
                     <StackPanel Orientation="Horizontal" Spacing="10">
                         <TextBlock Text="AppData 管理" FontSize="28" FontWeight="Bold" />
-                        <Border CornerRadius="5" Padding="8,3" Margin="0,0,0,6" VerticalAlignment="Bottom"
-                                BorderThickness="1"
-                                BorderBrush="{DynamicResource SystemFillColorCautionBrush}">
-                            <StackPanel Orientation="Horizontal" Spacing="5">
-                                <fa:FontIcon Glyph="&#xEA80;" FontSize="11"
-                                             Foreground="{DynamicResource SystemFillColorCautionBrush}" />
-                                <TextBlock Text="实验性功能" FontSize="12"
-                                           Foreground="{DynamicResource SystemFillColorCautionBrush}" />
-                            </StackPanel>
-                        </Border>
                     </StackPanel>
 
                     <!-- ⚠️ 名字必须叫 CountLine（「CountText」会撞行类型属性名，见上游注释） -->
@@ -72,6 +64,14 @@
                         VerticalAlignment="Top" Margin="8,4,0,0"
                         ToolTip.Tip="这三层是怎么分的">
                     <fa:FontIcon Glyph="&#xE946;" FontSize="15" />
+                </Button>
+
+                <Button x:Name="HubAiEntry" Grid.Column="4" Padding="12,6" Click="HubAiEntry_Click"
+                        VerticalAlignment="Top" Margin="8,4,0,0" ToolTip.Tip="打开 Hub AI 顾问">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <fa:FontIcon Glyph="&#xE8F2;" FontSize="13" />
+                        <TextBlock Text="AI" FontSize="12.5" />
+                    </StackPanel>
                 </Button>
             </Grid>
 
@@ -133,5 +133,6 @@
                 </Grid>
             </Grid>
         </Grid>
+        <controls:HubAiFlyout x:Name="AiFlyout" Grid.Column="1" />
     </Grid>
 </platform:PageBase>

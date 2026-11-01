@@ -1,0 +1,125 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:fa="using:FluentAvalonia.UI.Controls"
+        x:Class="ClassSoftwareHub.Desktop.Views.QuickLookupWindow">
+
+    <!--
+      查阅单词小浮窗（自上游 dv1.2.0-insider1.8 移植）。
+
+      来由：讲课时想把一个词甩到屏幕上，走主界面 → 查阅单词太重，还会把整扇主窗口拉出来盖住课件。
+      这扇窗单开、小、可一直摆在旁边，查完就关。
+
+      · 跟主页面一样**分成两块**：上面查单词、下面翻译句子，各用各的输入框（不共用一个框）。
+      · 窗口用自绘 32px 标题栏（与文件快搜 / 常用工具窗同一套：整条可拖、系统贴边/双击/边缘缩放），
+        × / Esc = 收起（不销毁，下次打开秒开）。
+      · 结果只在代码里构造，⛔ 不用 ItemTemplate + x:Bind。
+
+      ⚠️ 移植：AutoSuggestBox → TextBox + 内联 ListBox 候选；IsTextSelectionEnabled → SelectableTextBlock。
+    -->
+    <Grid x:Name="Root" Focusable="True" KeyDown="Root_KeyDown"
+          Background="{DynamicResource ApplicationPageBackgroundThemeBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="32" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Grid x:Name="AppTitleBar" Height="32">
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="12,0,0,0">
+                <fa:FontIcon Glyph="&#xE8F1;" FontSize="13" Opacity="0.85" />
+                <TextBlock Text="查阅单词" FontSize="12.5" VerticalAlignment="Center" />
+            </StackPanel>
+
+            <Button x:Name="CaptionCloseButton" Classes="caption close"
+                    HorizontalAlignment="Right" VerticalAlignment="Top"
+                    Margin="0,0,4,0" Click="CaptionClose_Click">
+                <Path Data="M0.5,0.5 L9.5,9.5 M9.5,0.5 L0.5,9.5" />
+            </Button>
+        </Grid>
+
+        <ScrollViewer Grid.Row="1" Padding="16,4,16,14" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel x:Name="ContentPanel" Spacing="10" VerticalAlignment="Top">
+
+                <!-- ═══ 查单词 ═══ -->
+                <TextBox x:Name="WordBox" FontSize="14"
+                         Watermark="输入英文单词"
+                         TextChanged="WordBox_TextChanged"
+                         KeyDown="WordBox_KeyDown" />
+
+                <ListBox x:Name="SuggestList" MaxHeight="132" IsVisible="False"
+                         SelectionMode="Single" Padding="0"
+                         SelectionChanged="SuggestList_SelectionChanged">
+                    <ListBox.Styles>
+                        <Style Selector="ListBoxItem">
+                            <Setter Property="Padding" Value="8,3" />
+                            <Setter Property="MinHeight" Value="0" />
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        </Style>
+                    </ListBox.Styles>
+                </ListBox>
+
+                <fa:InfoBar x:Name="WordNotice" IsOpen="False" IsVisible="False" IsClosable="False"
+                            Severity="Informational" Message="" />
+
+                <StackPanel x:Name="WordBlock" Spacing="8" IsVisible="False">
+                    <StackPanel Spacing="1">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock x:Name="WordText" FontSize="22" FontWeight="SemiBold" TextWrapping="Wrap" />
+                            <TextBlock x:Name="PhoneticText" FontSize="12.5" Opacity="0.6"
+                                       VerticalAlignment="Center" Margin="0,4,0,0" />
+                        </StackPanel>
+                        <TextBlock x:Name="WordSource" FontSize="11.5" Opacity="0.45" />
+                    </StackPanel>
+
+                    <StackPanel x:Name="SensePanel" Spacing="8" />
+                </StackPanel>
+
+                <!-- ═══ 翻译句子 ═══ -->
+                <Border Height="1" Margin="0,4"
+                        Background="{DynamicResource DividerStrokeColorDefaultBrush}" />
+
+                <TextBox x:Name="SentenceBox" AcceptsReturn="True" TextWrapping="Wrap" FontSize="13"
+                         MinHeight="62" MaxHeight="110" Padding="10,6"
+                         Watermark="粘贴一段话，中英都行" />
+
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock x:Name="DirectionHint" Text="自动识别方向" FontSize="11.5" Opacity="0.45"
+                               VerticalAlignment="Center" />
+
+                    <Button x:Name="TranslateButton" Grid.Column="1" Content="翻译" FontSize="12.5"
+                            Theme="{StaticResource AccentButtonStyle}" Padding="18,5"
+                            Click="Translate_Click" />
+                </Grid>
+
+                <fa:InfoBar x:Name="TransNotice" IsOpen="False" IsVisible="False" IsClosable="False"
+                            Severity="Informational" Message="" />
+
+                <StackPanel x:Name="TransBlock" Spacing="6" IsVisible="False">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock x:Name="TransDirection" FontSize="11.5" Opacity="0.55"
+                                   VerticalAlignment="Center" />
+                        <TextBlock x:Name="TransProvider" FontSize="11.5" Opacity="0.4"
+                                   VerticalAlignment="Center" />
+                    </StackPanel>
+
+                    <SelectableTextBlock x:Name="TransTarget" FontSize="16" TextWrapping="Wrap" />
+
+                    <TextBlock x:Name="TransSource" FontSize="11.5" Opacity="0.45" TextWrapping="Wrap"
+                               MaxLines="3" TextTrimming="CharacterEllipsis" />
+
+                    <Button Content="复制译文" FontSize="12" Padding="0,2,0,2"
+                            HorizontalAlignment="Left" HorizontalContentAlignment="Left"
+                            Background="Transparent" BorderThickness="0"
+                            Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}"
+                            Click="CopyTranslation_Click" />
+                </StackPanel>
+
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Window>

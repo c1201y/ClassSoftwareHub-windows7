@@ -1,0 +1,36 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="ClassSoftwareHub.Desktop.Views.Oobe.OobeAgreementPage">
+
+    <!--
+      第 2 步：用户协议（自上游 dv1.2.0-insider1.8 移植）。
+      正文来自 Data/LegalDocs（与站点《法律文本.ts》同步，别在这儿手抄条款）。
+      必须勾选「已阅读并同意」才能继续 —— 未勾选时底部「下一步」是禁用的（见 WelcomeWindow.UpdateNav）。
+    -->
+    <Grid>
+        <StackPanel x:Name="ContentRoot" Width="600"
+                    HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="4">
+
+            <StackPanel Spacing="6" Margin="0,0,0,12">
+                <TextBlock Text="用户协议" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                <TextBlock Text="开始使用前，请阅读并同意以下条款。" FontSize="13" Opacity="0.65"
+                           HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" />
+            </StackPanel>
+
+            <Border CornerRadius="8" BorderThickness="1" Padding="18,14"
+                    Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
+                <ScrollViewer Height="252" VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel x:Name="AgreementBody" Spacing="9" Margin="0,0,8,0" />
+                </ScrollViewer>
+            </Border>
+
+            <CheckBox x:Name="AgreeCheck" Content="我已阅读并同意《用户协议》" Margin="4,14,0,0"
+                      IsCheckedChanged="Agree_Changed" />
+
+            <TextBlock x:Name="AgreeHint" Text="勾选后才能继续。" FontSize="12" Opacity="0.6"
+                       Margin="32,2,0,0" TextWrapping="Wrap" />
+        </StackPanel>
+    </Grid>
+</UserControl>

@@ -58,6 +58,12 @@ public static class MirrorSign
     /// <summary>单次换签请求的超时。这是个几百字节的 JSON 接口，不该按文件的超时算。</summary>
     private const int RequestTimeoutMs = 8000;
 
+    /// <summary>
+    /// 单个代签入口的单次上限（自上游 1.6）。刻意比 <see cref="RequestTimeoutMs"/> 短：
+    /// sign.* 实测要 3.2 秒才回，给 5 秒余量；再久就是这条不通了，换下一条比干等划算。
+    /// </summary>
+    private const int SignEndpointTimeoutMs = 5000;
+
     /// <summary>整轮失败后多久内不再重试 —— 否则网络不通时每次下载都要白等 8 秒。</summary>
     private static readonly TimeSpan FailureCooldown = TimeSpan.FromMinutes(5);
 
@@ -293,20 +299,41 @@ public static class MirrorSign
 
         var endpoints = new[]
         {
-            // ⚠️ 2026-10-22：cshapi / submit 两个 132614.xyz 域名在部分家庭宽带下被 TLS(SNI) 级阻断，
-            //    现已整体迁移到新后端 csh-api（api.classsoftwarehub.cn），单入口即可用，放最前。
-            //    download.* 域名并不提供代签接口（返回 400），不再列入。
+            // ⛔⛔ 2026-10-25 实测（福建）：**只有这一条通** —— 3.2 秒返回可用签名，签出来的链接
+            //    真能下到文件（HTTP 206，头两字节 4D5A = MZ，1 MB 实测）。必须排第一。
+            //    （自上游 1.6 补；Win7 版早就有这条，移植版此前漏了。）
+            "https://sign.classsoftwarehub.us.ci/api/mirror-sign",
+
+            // 2026-10-22：新后端 csh-api，单入口即可用，保留在主入口之后。
             "https://api.classsoftwarehub.cn/api/mirror-sign",
+
+            // ⚠️ 实测（2026-10-21）：cshapi 这条是通的（HTTP 200，返回 /d?u=...&e=...&s=...），
+            //    download.* 域名并不提供代签接口（返回 400），放到后面免得白走一次。
+            // ⚠️ 2026-10-25 复测（福建）：这两条都是 TLS 重置，但属于**快速失败**（0.09s / 0.27s），
+            //    不拖时间，留着 —— 换网络/换地区它们才是主力。
+            "https://cshapi.132614.xyz/api/mirror-sign",
+            "https://submit.132614.xyz/api/mirror-sign",
+            NodeBaseUrl + "/api/mirror-sign",
         };
 
         foreach (var endpoint in endpoints)
         {
+            // 每个入口一条独立上限：sign.* 平时要 3.2 秒才回，某天要是不响应，
+            // 不能让整次下载挂在这里等（共享 Http 的 Timeout 是 Infinite，只有这里能兜住）。
+            using var perEndpoint = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            perEndpoint.CancelAfter(SignEndpointTimeoutMs);
+            var token = perEndpoint.Token;
+
             try
             {
-                using var response = await Http.GetAsync(endpoint + query, ct).ConfigureAwait(false);
-                if (!response.IsSuccessStatusCode) continue;
+                using var response = await Http.GetAsync(endpoint + query, token).ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode)
+                {
+                    Core.AppLog.Info(LogTag, $"代签 {endpoint} → HTTP {(int)response.StatusCode}，试下一条");
+                    continue;
+                }
 
-                var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                var body = await response.Content.ReadAsStringAsync(token).ConfigureAwait(false);
 
                 using var doc = System.Text.Json.JsonDocument.Parse(body);
                 var root = doc.RootElement;
@@ -324,7 +351,12 @@ public static class MirrorSign
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
-                throw;
+                throw;                                  // 用户取消，照实往上抛
+            }
+            catch (OperationCanceledException)
+            {
+                Core.AppLog.Info(LogTag,
+                    $"代签 {endpoint} 超过 {SignEndpointTimeoutMs / 1000} 秒未响应，试下一条");
             }
             catch (Exception ex)
             {

@@ -3,6 +3,7 @@
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:controls="using:ClassSoftwareHub.Desktop.Controls"
     xmlns:fa="using:FluentAvalonia.UI.Controls">
 
     <!--
@@ -38,6 +39,7 @@
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
@@ -91,6 +93,14 @@
                 <Button x:Name="BackButton" Grid.Column="6" Content="返回列表" Click="Back_Click"
                         IsVisible="False"
                         VerticalAlignment="Top" Margin="8,4,0,0" />
+
+                <Button x:Name="HubAiEntry" Grid.Column="7" Padding="12,6" Click="HubAiEntry_Click"
+                        VerticalAlignment="Top" Margin="8,4,0,0" ToolTip.Tip="打开 Hub AI 顾问">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <fa:FontIcon Glyph="&#xE8F2;" FontSize="13" />
+                        <TextBlock Text="AI" FontSize="12.5" />
+                    </StackPanel>
+                </Button>
             </Grid>
 
             <!-- ── 风险提示条：两态共用，只换文案 ── -->
@@ -170,5 +180,6 @@
                 </Grid>
             </Grid>
         </Grid>
+        <controls:HubAiFlyout x:Name="AiFlyout" Grid.Column="1" />
     </Grid>
 </platform:PageBase>

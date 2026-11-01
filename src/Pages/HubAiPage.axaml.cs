@@ -64,6 +64,15 @@ public sealed partial class HubAiPage : PageBase
     /// </summary>
     public static string? PendingQuestion;
 
+    /// <summary>
+    /// 浮层刚问完一轮时记下的会话 id。
+    /// <para>
+    /// 2026-10-30 上游加：浮层与页面共用同一个会话运行时，但本页只**首次**导航时初始化，
+    /// 切回来不会重载 —— 留个标记，进来时主动切到那条会话，思考过程与工具轨迹就都在了。
+    /// </para>
+    /// </summary>
+    public static string? PendingReloadId;
+
     public override void OnNavigatedTo(object? parameter)
     {
         base.OnNavigatedTo(parameter);
@@ -82,6 +91,15 @@ public sealed partial class HubAiPage : PageBase
             WebToggle.IsChecked = App.Settings.Current.HubAiWebEnabled;
 
             HistoryPanel.IsVisible = !App.Settings.Current.HubAiHistoryCollapsed;
+        }
+
+        // 浮层里刚问过：切到那条会话，让完整记录（含思考过程）能直接看到。
+        // ⚠️ 必须排到下一拍：第一次导航时 SessionList 的 ItemsSource 刚设好，
+        //    立刻设 SelectedItem 会被随后的布局重置掉。
+        if (PendingReloadId is { Length: > 0 } reloadId)
+        {
+            PendingReloadId = null;
+            Dispatcher.UIThread.Post(() => SelectSessionById(reloadId));
         }
 
         // 布局实测（排查"内容偏右"这类问题只能靠量，靠推断会翻车）
@@ -143,6 +161,15 @@ public sealed partial class HubAiPage : PageBase
     {
         _sessions = ChatSessionStore.LoadAll();
 
+        // ⛔ 页面被重建时 _currentSessionId 是空的 —— 从存档把「上次看的会话」捡回来，
+        //    否则列表里没有选中项，回来的是一张空白页。
+        if (string.IsNullOrEmpty(_currentSessionId))
+        {
+            var last = App.Settings.Current.HubAiLastSessionId;
+            if (!string.IsNullOrEmpty(last) && _sessions.Any(s => s.Id == last))
+                _currentSessionId = last;
+        }
+
         _switchingSession = true;
         try
         {
@@ -167,6 +194,33 @@ public sealed partial class HubAiPage : PageBase
         }
     }
 
+    /// <summary>
+    /// 按 id 切到某条会话（浮层问完之后跳回来用）。
+    /// ⚠️ 走 <c>SessionList.SelectedItem</c> 而不是自己 Restore + 重画：
+    /// 会话切换的全部善后（绑定运行时、编辑态复位、支线选择）都在 SelectionChanged 里。
+    /// </summary>
+    private void SelectSessionById(string id)
+    {
+        try
+        {
+            _sessions = ChatSessionStore.LoadAll();
+            SessionList.ItemsSource = _sessions;
+
+            var match = _sessions.FirstOrDefault(x => x.Id == id);
+            if (match is null)
+            {
+                AppLog.Info("hubai", $"要切换的会话 {id} 不在列表里（可能已被删除）");
+                return;
+            }
+
+            SessionList.SelectedItem = match;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("hubai", "切到指定会话失败：" + ex.Message);
+        }
+    }
+
     private void NewChat_Click(object? sender, RoutedEventArgs e)
     {
         BindRuntime(HubAiRuntime.For(null));   // 新对话 = 干净的 draft 运行时
@@ -176,7 +230,10 @@ public sealed partial class HubAiPage : PageBase
         // 否则用户拉回上一条后改主意点了"新对话"，下一条消息会去截断一个已经空了的会话。
         _editingFromHistory = false;
 
+        _runtime.Reset();
         _currentSessionId = null;
+        App.Settings.Current.HubAiLastSessionId = "";
+        App.Settings.Save();
 
         _switchingSession = true;
         try { SessionList.SelectedItem = null; }
@@ -552,6 +609,12 @@ public sealed partial class HubAiPage : PageBase
             HubAiRuntime.AdoptDraft(id);
             if (ReferenceEquals(_runtime, rt) && _currentSessionId is null)
                 _currentSessionId = id;
+        }
+
+        if (id is { Length: > 0 })
+        {
+            App.Settings.Current.HubAiLastSessionId = id;
+            App.Settings.Save();
         }
 
         LoadSessions();
@@ -1528,22 +1591,7 @@ public sealed partial class HubAiPage : PageBase
     }
 
     /// <summary>启用的工具。总闸关着、或工具包没装，都返回空 —— 模型于是只能看着体检单回答。</summary>
-    private static IReadOnlyList<ToolDefinition> LoadTools()
-    {
-        // 联网工具与「工具总闸」**互相独立**：
-        // 总闸关着只要用户把「联网」拨上就能用（Nick 要求跟「思考」一样就能开）。
-        var tools = new List<ToolDefinition>();
-
-        if (App.Settings.Current.HubAiToolsEnabled)
-        {
-            var pack = ToolPackStore.Load();
-            if (pack?.Tools is { Count: > 0 } packTools) tools.AddRange(packTools);
-        }
-
-        if (App.Settings.Current.HubAiWebEnabled) tools.AddRange(BuiltinTools.Web);
-
-        return tools;
-    }
+    private static IReadOnlyList<ToolDefinition> LoadTools() => ActiveTools.Load();
 
     /// <summary>一个 AI 气泡的三块内容：思考过程（可折叠）、正文、外框。</summary>
     /// <summary>

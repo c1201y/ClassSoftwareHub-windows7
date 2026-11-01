@@ -1,0 +1,159 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:fa="using:FluentAvalonia.UI.Controls"
+             xmlns:views="using:ClassSoftwareHub.Desktop.Views"
+             x:Class="ClassSoftwareHub.Desktop.Views.Oobe.OobeAppearancePage">
+
+    <!--
+      第 4 步：外观（自上游 dv1.2.0-insider1.8 移植）。
+
+      主题卡用三个 RadioButton 组成一组，把默认的圆点模板换成纯 ContentPresenter ——
+      选中态由外圈强调色描边表达，预览图不会被单选控件自己的底纹压脏。
+      ⚠️ 移植：模板里套一层 Border Background="Transparent" —— Avalonia 里 ContentPresenter
+         本身没有背景，不铺一层的话卡片空白处点不中（只有文字能点）。
+
+      预览图是上游给的三张图（跟随系统 / 浅色 / 深色），内嵌后由 EmbeddedAssets 释放到缓存再交给 Image。
+      ⚠️ 三张卡用等分列铺满 600，和下面的 SettingsCard 左右对齐（Avalonia 的 Grid 没有 ColumnSpacing，
+         用每格右边距凑 10px 间距）。
+    -->
+    <UserControl.Resources>
+        <!-- 去掉单选圆点：整张卡就是内容。选中态由外面那圈 Border 表达。 -->
+        <ControlTheme x:Key="OobeBareRadio" TargetType="RadioButton">
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="VerticalAlignment" Value="Stretch" />
+            <Setter Property="Template">
+                <ControlTemplate TargetType="RadioButton">
+                    <Border Background="Transparent">
+                        <ContentPresenter Content="{TemplateBinding Content}"
+                                          ContentTemplate="{TemplateBinding ContentTemplate}"
+                                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+                    </Border>
+                </ControlTemplate>
+            </Setter>
+        </ControlTheme>
+    </UserControl.Resources>
+
+    <Grid>
+        <StackPanel x:Name="ContentRoot" Width="600"
+                    HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="4">
+
+            <StackPanel Spacing="6" Margin="0,0,0,12">
+                <TextBlock Text="外观" FontSize="24" FontWeight="SemiBold" HorizontalAlignment="Center" />
+            </StackPanel>
+
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <RadioButton x:Name="ThemeSystem" Grid.Column="0" GroupName="OobeTheme" Tag="system"
+                             Theme="{StaticResource OobeBareRadio}"
+                             IsCheckedChanged="Theme_Checked"
+                             AutomationProperties.Name="跟随系统"
+                             HorizontalAlignment="Stretch" Margin="0,0,10,0">
+                    <Grid>
+                        <Border CornerRadius="8" BorderThickness="1"
+                                BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+                                Padding="6,8,6,6">
+                            <StackPanel Spacing="6">
+                                <Border Height="101" CornerRadius="6" ClipToBounds="True">
+                                    <Image x:Name="SystemPreview" Stretch="UniformToFill" />
+                                </Border>
+                                <TextBlock Text="跟随系统" FontSize="13" HorizontalAlignment="Center" />
+                            </StackPanel>
+                        </Border>
+                        <Border x:Name="RingSystem" CornerRadius="8" BorderThickness="2"
+                                BorderBrush="{DynamicResource AccentFillColorDefaultBrush}"
+                                Opacity="0" IsHitTestVisible="False" />
+                    </Grid>
+                </RadioButton>
+
+                <RadioButton x:Name="ThemeLight" Grid.Column="1" GroupName="OobeTheme" Tag="light"
+                             Theme="{StaticResource OobeBareRadio}"
+                             IsCheckedChanged="Theme_Checked"
+                             AutomationProperties.Name="浅色"
+                             HorizontalAlignment="Stretch" Margin="5,0,5,0">
+                    <Grid>
+                        <Border CornerRadius="8" BorderThickness="1"
+                                BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+                                Padding="6,8,6,6">
+                            <StackPanel Spacing="6">
+                                <Border Height="101" CornerRadius="6" ClipToBounds="True">
+                                    <Image x:Name="LightPreview" Stretch="UniformToFill" />
+                                </Border>
+                                <TextBlock Text="浅色" FontSize="13" HorizontalAlignment="Center" />
+                            </StackPanel>
+                        </Border>
+                        <Border x:Name="RingLight" CornerRadius="8" BorderThickness="2"
+                                BorderBrush="{DynamicResource AccentFillColorDefaultBrush}"
+                                Opacity="0" IsHitTestVisible="False" />
+                    </Grid>
+                </RadioButton>
+
+                <RadioButton x:Name="ThemeDark" Grid.Column="2" GroupName="OobeTheme" Tag="dark"
+                             Theme="{StaticResource OobeBareRadio}"
+                             IsCheckedChanged="Theme_Checked"
+                             AutomationProperties.Name="深色"
+                             HorizontalAlignment="Stretch" Margin="10,0,0,0">
+                    <Grid>
+                        <Border CornerRadius="8" BorderThickness="1"
+                                BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+                                Padding="6,8,6,6">
+                            <StackPanel Spacing="6">
+                                <Border Height="101" CornerRadius="6" ClipToBounds="True">
+                                    <Image x:Name="DarkPreview" Stretch="UniformToFill" />
+                                </Border>
+                                <TextBlock Text="深色" FontSize="13" HorizontalAlignment="Center" />
+                            </StackPanel>
+                        </Border>
+                        <Border x:Name="RingDark" CornerRadius="8" BorderThickness="2"
+                                BorderBrush="{DynamicResource AccentFillColorDefaultBrush}"
+                                Opacity="0" IsHitTestVisible="False" />
+                    </Grid>
+                </RadioButton>
+            </Grid>
+
+            <views:SettingsCard Header="桌面悬浮窗单独设置外观"
+                                Description="只影响侧边栏与常用工具浮窗。">
+                <views:SettingsCard.HeaderIcon>
+                    <fa:FontIcon Glyph="&#xE772;" />
+                </views:SettingsCard.HeaderIcon>
+                <ToggleSwitch x:Name="SplitThemeSwitch" OnContent="开" OffContent="关" MinWidth="0"
+                              IsCheckedChanged="SplitTheme_Toggled" />
+            </views:SettingsCard>
+
+            <views:SettingsCard x:Name="ExtThemeCard" Header="外部组件外观">
+                <views:SettingsCard.HeaderIcon>
+                    <fa:FontIcon Glyph="&#xE772;" />
+                </views:SettingsCard.HeaderIcon>
+                <views:SettingsCard.Description>
+                    <TextBlock x:Name="ExtThemeHint" TextWrapping="Wrap" FontSize="12"
+                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                </views:SettingsCard.Description>
+                <ComboBox x:Name="ExtThemeCombo" MinWidth="170" SelectionChanged="ExtTheme_SelectionChanged">
+                    <ComboBoxItem Content="跟随系统" Tag="system" />
+                    <ComboBoxItem Content="浅色" Tag="light" />
+                    <ComboBoxItem Content="深色" Tag="dark" />
+                </ComboBox>
+            </views:SettingsCard>
+
+            <views:SettingsCard Header="窗口背景效果"
+                                Description="截图框选层与钉图不参与。">
+                <views:SettingsCard.HeaderIcon>
+                    <fa:FontIcon Glyph="&#xE81E;" />
+                </views:SettingsCard.HeaderIcon>
+                <ComboBox x:Name="BackdropCombo" MinWidth="170" SelectionChanged="Backdrop_SelectionChanged">
+                    <ComboBoxItem Content="亚克力（半透明）" Tag="acrylic" />
+                    <ComboBoxItem Content="云母（更接近系统窗口）" Tag="mica" />
+                    <ComboBoxItem Content="纯色（最省性能）" Tag="solid" />
+                </ComboBox>
+            </views:SettingsCard>
+        </StackPanel>
+    </Grid>
+</UserControl>

@@ -142,6 +142,13 @@
          Embed 名单里却只有 timer-alarm.wav，于是教室喊话的默认提示音永远取不到（静默不响）。
          加资源时记得两边（文件 + 本清单）一起加。 -->
     <EmbeddedResource Include="..\Assets\Audio\announce-alert.wav" Link="Assets\Audio\announce-alert.wav" />
+    <!-- 内置词库（2026-11-01 自上游 dv1.2.0-insider1.8 移植）：首次查词时释放到 %LOCALAPPDATA%\ClassSoftwareHub\dict\。
+         ⚠️ Services/Dictionary/LocalLexicon 是按「资源名结尾匹配」找 dict-core.tsv 的，文件名别改。 -->
+    <EmbeddedResource Include="..\Assets\Dict\dict-core.tsv" Link="Assets\Dict\dict-core.tsv" />
+    <!-- 初次配置（自上游 dv1.2.0-insider1.8 移植）：外观预览三张 + 完成页配图。
+         EmbeddedAssets.ExtractToCache 按「资源名结尾匹配」找文件，文件名必须与
+         Views/Oobe/*.cs 里写的字面量一字不差。 -->
+    <EmbeddedResource Include="..\Assets\Oobe\*" Link="Assets\Oobe\%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

@@ -14,7 +14,11 @@ namespace ClassSoftwareHub.Desktop.Services.HubAi;
 ///
 /// <para>
 /// 循环就是「Agent」和「聊天」的全部差别：模型说要调工具 → 宿主执行 → 结果塞回 messages → 再问一次。
-/// 这里最多跑 <see cref="MaxRounds"/> 轮，防止模型陷入"一直调工具不回答"的死循环。
+/// </para>
+/// <para>
+/// ⛔ 2026-10-30 起**不再限制轮次**，改成限时长（<c>AnswerBudget</c>，8 分钟）。
+/// 原来的「最多 5 次工具往返」把正常的深链路截断了 —— Nick：「工具调用它经常被截断……
+/// 干脆取消这个限制，换成时长限制」。现在只要没到 8 分钟，模型想调几次就调几次。
 /// </para>
 /// <para>
 /// ⛔ 本类不碰任何 UI，也不碰网络细节。UI 只通过三个回调观察：增量文本、状态提示、换气泡。
@@ -22,8 +26,44 @@ namespace ClassSoftwareHub.Desktop.Services.HubAi;
 /// </summary>
 public sealed class AiChatService
 {
-    /// <summary>一轮提问里最多几次工具往返。5 次足够覆盖"先查概况 → 再查磁盘 → 再检索软件"这种链路。</summary>
-    private const int MaxRounds = 5;
+    /// <summary>
+    /// 一轮问答（含全部工具往返）的时长上限：8 分钟（Nick 2026-10-30 定「刚刚好这样」）。
+    ///
+    /// <para>
+    /// 为什么按时长而不按轮次：轮次和真实耗时不成比例 —— 查一遍 AppData 体积要几十秒，
+    /// 检索软件库只要几百毫秒，同样是"第 5 轮"，一个还在关键路径上、一个早该结束。
+    /// 用户能感知的是"等了多久"，所以就按这个卡。
+    /// </para>
+    /// <para>
+    /// ⚠️ 它有**两个作用**：① 每轮开始前检查，到点就带着已查到的部分收尾；
+    /// ② 挂在 <see cref="CancellationTokenSource"/> 上，单次请求卡死时也能掐掉 ——
+    /// 否则第一条流就能把界面上挂半小时，等不到下一轮检查。
+    /// </para>
+    /// <para>
+    /// 判定逻辑本身在 <see cref="AiTimeBudget"/>（纯函数）。
+    /// </para>
+    /// <para>
+    /// 🅳 调试用：设环境变量 <c>CSH_AI_BUDGET_SECONDS=25</c> 启动，就把预算临时改成 25 秒 ——
+    /// 否则"到点会怎样"只能真等 8 分钟才知道。只在 Debug 版生效，正式版恒为 8 分钟。
+    /// </para>
+    /// </summary>
+#if DEBUG
+    private static readonly TimeSpan AnswerBudget = ResolveBudget();
+
+    private static TimeSpan ResolveBudget()
+    {
+        var raw = Environment.GetEnvironmentVariable("CSH_AI_BUDGET_SECONDS");
+        if (int.TryParse(raw, out var seconds) && seconds > 0)
+        {
+            AppLog.Warn("hubai", $"调试覆盖：本轮预算改为 {seconds} 秒（来自 CSH_AI_BUDGET_SECONDS）");
+            return TimeSpan.FromSeconds(seconds);
+        }
+
+        return AiTimeBudget.Default;
+    }
+#else
+    private static readonly TimeSpan AnswerBudget = AiTimeBudget.Default;
+#endif
 
     /// <summary>历史消息上限（含 system）。超了就丢最早的对话，保住 system prompt。</summary>
     private const int MaxHistoryMessages = 20;
@@ -49,6 +89,19 @@ public sealed class AiChatService
     private const int SummarizeInputChars = 8000;
 
     private const string SummaryHeader = "【早前对话摘要】";
+
+    /// <summary>
+    /// 页面现场数据在 system 提示里的包裹标记（2026-10-30）。
+    /// <para>
+    /// 每轮都换一份新的，所以要靠标记把**上一轮那块**精确摘掉再贴新的 ——
+    /// 否则会一层层叠上去，几轮之后 system 里堆满过期的清单。
+    /// </para>
+    /// </summary>
+    private const string ContextOpen =
+        "\n\n===== 当前页面的现场数据（程序按界面现状生成，回答涉及这些数字与清单时以此为准；" +
+        "不要整段复述给用户，也不要再让用户自己去翻）=====\n";
+
+    private const string ContextClose = "\n===== 现场数据结束 =====";
 
     // 移植：上游用 C# 11 的原始字符串，net6 + LangVersion 10 不支持 ⇒ 改普通字符串拼接。
     private const string SummaryPrompt =
@@ -125,6 +178,14 @@ public sealed class AiChatService
     /// 需要人工确认的工具（会改动系统的那些）执行前的闸门：返回 false 表示用户拒绝。
     /// 当前工具全部只读，所以这个回调暂时不会被调用 —— 但通道留着，加写类工具时不用再改这里。
     /// </param>
+    /// <param name="pageContext">
+    /// 用户此刻所在页面的现场数据（JSON，见 <see cref="Core.PageContextDoc"/>）。2026-10-30 加。
+    /// <para>
+    /// ⚠️ 走 system 通道，**不进用户消息**：塞进 <paramref name="userText"/> 的话，
+    /// 用户气泡和历史列表里全是机器文本（Nick 截图里那条"（我现在在…）"就是这个）。
+    /// 传 null = 摘掉上一轮那块，别让旧页面的清单留在上下文里。
+    /// </para>
+    /// </param>
     public async Task<AiUsage> RunAsync(
         AiConfig cfg,
         MachineSnapshot snapshot,
@@ -137,7 +198,8 @@ public sealed class AiChatService
         Action<string>? onReasoning = null,
         Action<string>? onToolDone = null,
         bool appendUserMessage = true,
-        Func<string, string, Task<bool>>? approveTool = null)
+        Func<string, string, Task<bool>>? approveTool = null,
+        string? pageContext = null)
     {
         Session.Reset();
         // ⚠️ 必须把 tools 传下去：没有工具时提示词里**绝不能**提"可以调用工具" ——
@@ -148,68 +210,116 @@ public sealed class AiChatService
         TrimHistory(cfg.ContextLimit);
         await SummarizeIfNeededAsync(cfg, ct);
 
+        // ⚠️ 必须排在压缩之后：压缩会拿 `_baseSystemPrompt` 重拼整条 system，先贴的会被冲掉
+        ApplyPageContext(pageContext);
+
         var total = AiUsage.Empty;
 
-        for (var round = 0; round < MaxRounds; round++)
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var stopReason = AiStopReason.None;
+
+        // 预算到点要能掐断正在跑的那条流，所以挂一个带截止的令牌；
+        // 用户点「停止」走的是 ct，两者在这里合并 —— 下面的 catch 靠 ct 区分是谁按的停。
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(AnswerBudget);
+
+        try
         {
-            var turn = await AiClient.StreamTurnAsync(cfg, _messages, tools, onDelta, onReasoning, ct);
-            total = total.Plus(turn.Usage);
-
-            if (!turn.WantsTools)
+            for (var round = 0; ; round++)
             {
-                if (turn.Content.Length > 0)
+                stopReason = AiTimeBudget.CheckBeforeRound(watch.Elapsed, round, AnswerBudget, AiTimeBudget.RoundGuard);
+                if (stopReason != AiStopReason.None) break;
+
+                var turn = await AiClient.StreamTurnAsync(cfg, _messages, tools, onDelta, onReasoning, deadline.Token);
+                total = total.Plus(turn.Usage);
+
+                if (!turn.WantsTools)
                 {
-                    _messages.Add(new AiMessage("assistant", turn.Content) { Reasoning = turn.Reasoning });
-                }
-                return total;
-            }
-
-            // 把模型的"我要调工具"记进历史，否则下一轮的上下文对不上。
-            // ⚠️ Reasoning 必须一起带上：DeepSeek / Kimi / GLM 在带 tools 时会校验它。
-            _messages.Add(new AiMessage("assistant", turn.Content)
-            {
-                ToolCalls = turn.ToolCalls,
-                Reasoning = turn.Reasoning,
-            });
-
-            foreach (var call in turn.ToolCalls)
-            {
-                ct.ThrowIfCancellationRequested();
-
-                // ⛔ 会改动系统的工具必须先问人（2026-10-23 加）。当前全部只读，不会走到这儿。
-                if (ToolRunner.RequiresApproval(call.Name) && approveTool is not null)
-                {
-                    onStatus?.Invoke($"等待确认：{call.Name}");
-                    AppLog.Step("hubai", $"请求授权：{call.Name}");
-
-                    var approved = await approveTool(call.Name, call.Arguments);
-
-                    if (!approved)
+                    if (turn.Content.Length > 0)
                     {
-                        AppLog.Step("hubai", $"用户拒绝了 {call.Name}");
-                        _messages.Add(AiMessage.Tool(call.Id,
-                            "用户拒绝了这次操作。不要重试同一动作，如实说明，并给出不需要改动系统的替代方案。"));
-                        onToolDone?.Invoke("已拒绝这次操作");
-                        continue;
+                        _messages.Add(new AiMessage("assistant", turn.Content) { Reasoning = turn.Reasoning });
                     }
+                    return total;
                 }
 
-                onStatus?.Invoke(DescribeTool(call.Name));
-                AppLog.Step("hubai", $"工具调用：{call.Name}");
+                // 把模型的"我要调工具"记进历史，否则下一轮的上下文对不上。
+                // ⚠️ Reasoning 必须一起带上：DeepSeek / Kimi / GLM 在带 tools 时会校验它。
+                _messages.Add(new AiMessage("assistant", turn.Content)
+                {
+                    ToolCalls = turn.ToolCalls,
+                    Reasoning = turn.Reasoning,
+                });
 
-                var result = await ToolRunner.ExecuteAsync(call.Name, call.Arguments, Session, ct);
-                _messages.Add(AiMessage.Tool(call.Id, result));
+                foreach (var call in turn.ToolCalls)
+                {
+                    // 工具也吃预算的令牌：预算到点立刻收手，不要让一个 90 秒的工具再把时间拖出去
+                    deadline.Token.ThrowIfCancellationRequested();
 
-                // 界面上留一条"已读取 xxx"的痕迹 —— 否则工具调用前后两段回答之间完全是空的，
-                // 看起来像对话断掉了（Nick 2026-10-18 指出）。
-                onToolDone?.Invoke(DescribeToolDone(call.Name));
+                    // ⛔ 会改动系统的工具必须先问人（2026-10-23 加）。当前全部只读，不会走到这儿。
+                    if (ToolRunner.RequiresApproval(call.Name) && approveTool is not null)
+                    {
+                        onStatus?.Invoke($"等待确认：{call.Name}");
+                        AppLog.Step("hubai", $"请求授权：{call.Name}");
+
+                        var approved = await approveTool(call.Name, call.Arguments);
+
+                        if (!approved)
+                        {
+                            AppLog.Step("hubai", $"用户拒绝了 {call.Name}");
+                            _messages.Add(AiMessage.Tool(call.Id,
+                                "用户拒绝了这次操作。不要重试同一动作，如实说明，并给出不需要改动系统的替代方案。"));
+                            onToolDone?.Invoke("已拒绝这次操作");
+                            continue;
+                        }
+                    }
+
+                    onStatus?.Invoke(DescribeTool(call.Name));
+                    AppLog.Step("hubai", $"工具调用：{call.Name}（第 {round + 1} 轮，已用 {watch.Elapsed.TotalSeconds:0} 秒）");
+
+                    // ⚠️ 传的是 deadline.Token，不是 ct：预算到点时 ToolRunner 会原样往外抛
+                    //    （它只把"自己的 90 秒超时"翻成结果字符串），正好落到下面的 catch 里
+                    var result = await ToolRunner.ExecuteAsync(call.Name, call.Arguments, Session, deadline.Token);
+                    _messages.Add(AiMessage.Tool(call.Id, result));
+
+                    // 界面上留一条"已读取 xxx"的痕迹 —— 否则工具调用前后两段回答之间完全是空的，
+                    // 看起来像对话断掉了（Nick 2026-10-18 指出）。
+                    onToolDone?.Invoke(DescribeToolDone(call.Name));
+                }
+
+                onNewBubble?.Invoke();
             }
+        }
+        catch (OperationCanceledException)
+        {
+            // ⚠️ 这里**不能**只写 "catch when (!ct.IsCancellationRequested)"：
+            //    单次请求的 HTTP 超时（120 秒）抛的是 TaskCanceledException，用户令牌并没有被取消，
+            //    那样会把它当成"8 分钟预算用尽"—— 明明只跑了 2 分钟，却告诉用户跑到上限（第一次就这么写错了）。
+            //    所以一律接住，再靠 AiTimeBudget 按"用户有没有按停止 + 已耗时"分类。
+            stopReason = AiTimeBudget.ClassifyCancel(ct.IsCancellationRequested, watch.Elapsed, AnswerBudget, AiTimeBudget.Slack);
 
-            onNewBubble?.Invoke();
+            // ⛔ 无论谁按的停，都要收拾**半截的工具配对**：模型这一轮可能一次点了两个工具，
+            //    第一个跑完、第二个没跑就中断了 —— 少一条 tool 应答，下一次请求会被服务端 400 打回
+            //    （这个坑本来就有，用户点停止后再提问就撞，只是以前没人把它和"停止"联系起来）。
+            var repaired = HistoryRepair.Close(_messages);
+            if (repaired > 0)
+                AppLog.Warn("hubai", $"中止后补齐 {repaired} 条未回应的工具结果（否则下次请求会被服务端拒绝）");
+
+            // 用户自己按的停止：保持原样往上抛，让上层静默保留已生成的部分（既有行为，别改）
+            if (stopReason == AiStopReason.None) throw;
         }
 
-        // 跑满上限还没给答案：如实说明，别假装成功
-        onDelta?.Invoke("（本轮工具调用次数已达上限，如果还有未完成的部分，请再追问一次。）");
+        if (stopReason == AiStopReason.None) return total;
+
+        var used = watch.Elapsed;
+        AppLog.Warn("hubai",
+            $"本轮问答中止（{stopReason}）：已用 {used.TotalSeconds:0} 秒 / 预算 {AnswerBudget.TotalSeconds:0} 秒，" +
+            $"上下文 {_messages.Count} 条，累计 {total.TotalTokens} token");
+
+        // 说明也要进上下文：不然用户追问"刚才怎么停了"时，模型不知道自己被打断过，会把已经做过的事重做一遍
+        var notice = AiTimeBudget.Describe(stopReason, AnswerBudget).TrimStart('\r', '\n');
+        onDelta?.Invoke(AiTimeBudget.Describe(stopReason, AnswerBudget));
+        _messages.Add(new AiMessage("assistant", notice));
+
         return total;
     }
 
@@ -304,6 +414,41 @@ public sealed class AiChatService
 
         var basePrompt = _baseSystemPrompt ?? _messages[0].Content;
         _messages[0] = new AiMessage("system", $"{basePrompt}\n\n{SummaryHeader}\n{summary}");
+    }
+
+    // ══════════════════════════════════════════════════════
+    //  页面现场数据（2026-10-30）
+    // ══════════════════════════════════════════════════════
+
+    /// <summary>
+    /// 把这一页的现场数据贴到 system 提示末尾（旧的那块先摘掉）。
+    /// <para>
+    /// 语义：模型回答"哪个目录占地方""装了哪些软件"这类问题时，直接引用这里的数字，
+    /// 不必再让用户自己去看界面，也不必再调工具扫一遍。
+    /// </para>
+    /// </summary>
+    private void ApplyPageContext(string? json)
+    {
+        if (_messages.Count == 0 || _messages[0].Role != "system") return;
+
+        var content = StripPageContext(_messages[0].Content);
+        if (!string.IsNullOrWhiteSpace(json))
+            content = content + ContextOpen + json + ContextClose;
+
+        if (!string.Equals(content, _messages[0].Content, StringComparison.Ordinal))
+            _messages[0] = new AiMessage("system", content);
+    }
+
+    /// <summary>摘掉上一次贴进去的现场数据（没有就原样返回）。</summary>
+    private static string StripPageContext(string content)
+    {
+        var start = content.IndexOf(ContextOpen, StringComparison.Ordinal);
+        if (start < 0) return content;
+
+        var close = content.IndexOf(ContextClose, StringComparison.Ordinal);
+        return close < 0
+            ? content[..start]
+            : content[..start] + content[(close + ContextClose.Length)..];
     }
 
     // ══════════════════════════════════════════════════════

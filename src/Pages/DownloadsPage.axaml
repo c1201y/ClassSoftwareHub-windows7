@@ -36,12 +36,14 @@
             <ItemsControl x:Name="TaskList" Grid.Row="1" Margin="0,14,0,2">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Border CornerRadius="4" Padding="20,16" Margin="0,0,0,12"
+                            <!-- 2026-10-30（上游 1.8）重排：圆角、图标落位、间距三处对齐到其他页面。
+                                 ⚠️ 间距只留两档：卡片内 8（行与行）、8（卡片之间）。 -->
+                            <Border CornerRadius="8" Padding="16,14" Margin="0,0,0,8"
                                     Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
                                     BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
                                     BorderThickness="1">
                                 <Grid>
-                                    <!-- 原版 ColumnSpacing=16 / RowSpacing=10 → 用 Margin 模拟 -->
+                                    <!-- 原版 ColumnSpacing=14 / RowSpacing=8 → 用 Margin 模拟 -->
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="*" />
@@ -52,10 +54,13 @@
                                         <RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
 
-                                    <fa:FontIcon Grid.Row="0" Grid.Column="0" Glyph="{Binding HeaderGlyph}" FontSize="20"
-                                                 VerticalAlignment="Center" />
+                                    <!-- 图标与标题第一行对齐（Top + 2px 视觉修正）；24 宽固定，换字形也不左右跳 -->
+                                    <fa:FontIcon Grid.Row="0" Grid.Column="0" Glyph="{Binding HeaderGlyph}" FontSize="18"
+                                                 Width="24" HorizontalAlignment="Center"
+                                                 VerticalAlignment="Top" Margin="0,2,0,0" />
 
-                                    <StackPanel Grid.Row="0" Grid.Column="1" Margin="16,0,0,0" VerticalAlignment="Center">
+                                    <StackPanel Grid.Row="0" Grid.Column="1" Margin="14,0,0,0" Spacing="2"
+                                                VerticalAlignment="Center">
                                         <TextBlock Text="{Binding Title}"
                                                    FontSize="15" FontWeight="Bold"
                                                    TextTrimming="CharacterEllipsis" />
@@ -64,42 +69,42 @@
                                                    TextWrapping="Wrap" IsVisible="{Binding NoteVisibility}" />
                                     </StackPanel>
 
-                                    <StackPanel Grid.Row="0" Grid.Column="2" Margin="16,0,0,0" Orientation="Horizontal" Spacing="8"
+                                    <StackPanel Grid.Row="0" Grid.Column="2" Margin="14,0,0,0" Orientation="Horizontal" Spacing="8"
                                                 VerticalAlignment="Center">
-                                        <Button Content="取消" Tag="{Binding}" Click="Cancel_Click"
+                                        <Button Content="取消" Padding="12,5" Tag="{Binding}" Click="Cancel_Click"
                                                 IsVisible="{Binding RunningVisibility}" />
                                         <!-- 更新包：下完并校验通过 → 直接安装（先退应用、后起安装程序） -->
-                                        <Button Content="安装" Tag="{Binding}" Click="Install_Click"
+                                        <Button Content="安装" Padding="12,5" Tag="{Binding}" Click="Install_Click"
                                                 IsVisible="{Binding InstallVisibility}" />
                                         <!-- 普通下载：安装包写「安装」、压缩包写「解压」 -->
-                                        <Button Content="{Binding ActionText}" Tag="{Binding}" Click="PackageAction_Click"
+                                        <Button Content="{Binding ActionText}" Padding="12,5" Tag="{Binding}" Click="PackageAction_Click"
                                                 IsVisible="{Binding ActionVisibility}" />
-                                        <Button Content="打开" Tag="{Binding}" Click="Open_Click"
+                                        <Button Content="打开" Padding="12,5" Tag="{Binding}" Click="Open_Click"
                                                 IsVisible="{Binding OpenVisibility}" />
-                                        <Button Content="打开文件夹" Tag="{Binding}" Click="Reveal_Click"
+                                        <Button Content="打开文件夹" Padding="12,5" Tag="{Binding}" Click="Reveal_Click"
                                                 IsVisible="{Binding RevealVisibility}" />
-                                        <Button Content="打开解压目录" Tag="{Binding}" Click="ExtractFolder_Click"
+                                        <Button Content="打开解压目录" Padding="12,5" Tag="{Binding}" Click="ExtractFolder_Click"
                                                 IsVisible="{Binding ExtractFolderVisibility}" />
-                                        <Button Content="重试" Tag="{Binding}" Click="Retry_Click"
+                                        <Button Content="重试" Padding="12,5" Tag="{Binding}" Click="Retry_Click"
                                                 IsVisible="{Binding RetryVisibility}" />
-                                        <Button Tag="{Binding}" Click="Remove_Click" Padding="9,5"
+                                        <Button Tag="{Binding}" Click="Remove_Click" Padding="8,4"
                                                 ToolTip.Tip="从列表移除（不删除已下载的文件）"
                                                 IsVisible="{Binding RemoveVisibility}">
                                             <fa:FontIcon Glyph="&#xE74D;" FontSize="12" />
                                         </Button>
                                     </StackPanel>
 
-                                    <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,10,0,0" Spacing="6">
+                                    <StackPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,8,0,0" Spacing="6">
                                         <ProgressBar Minimum="0" Maximum="100"
                                                      Value="{Binding BarValue}"
                                                      IsIndeterminate="{Binding BarIndeterminate}"
                                                      IsVisible="{Binding BarVisibility}" />
                                         <!-- 解压中的不确定进度条（下载条会同时让位） -->
                                         <ProgressBar IsIndeterminate="True" IsVisible="{Binding WorkingVisibility}" />
-                                        <TextBlock Text="{Binding StatusText}" FontSize="12" Opacity="0.7"
+                                        <TextBlock Text="{Binding StatusText}" FontSize="12" Opacity="0.65"
                                                    TextWrapping="Wrap" />
                                         <!-- 解压 / 安装的过程说明与结果 -->
-                                        <TextBlock Text="{Binding WorkText}" FontSize="12" Opacity="0.6"
+                                        <TextBlock Text="{Binding WorkText}" FontSize="12" Opacity="0.65"
                                                    TextWrapping="Wrap" IsVisible="{Binding WorkTextVisibility}" />
                                     </StackPanel>
                                 </Grid>
@@ -115,7 +120,7 @@
                 <TextBlock Text="当前无下载任务" FontSize="15" FontWeight="SemiBold" Opacity="0.75"
                            HorizontalAlignment="Center" />
                 <TextBlock MaxWidth="420" TextAlignment="Center" TextWrapping="Wrap" FontSize="12.5" Opacity="0.6"
-                           Text="在「软件下载」中打开任意软件并单击「下载」，任务将显示在此处。下载期间可继续使用其他功能，左侧入口显示进行中的任务数。" />
+                           Text="在软件下载页开始下载后，任务会显示在这里。" />
             </StackPanel>
 
             <StackPanel Grid.Row="2" Margin="0,14,0,0" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Left">

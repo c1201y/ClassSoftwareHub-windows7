@@ -128,7 +128,7 @@
                 <TextBlock Text="外观" FontSize="14" FontWeight="SemiBold" Margin="0,24,0,8" />
                 <StackPanel Spacing="4">
 
-                    <views:SettingsCard Header="颜色模式" Description="跟随系统时，随 Windows 的深浅色设置自动切换。">
+                    <views:SettingsCard x:Name="ThemeCard" Header="颜色模式" Description="跟随系统时，随 Windows 的深浅色设置自动切换。">
                         <views:SettingsCard.HeaderIcon>
                             <fa:FontIcon Glyph="&#xE790;" />
                         </views:SettingsCard.HeaderIcon>
@@ -139,8 +139,8 @@
                         </ComboBox>
                     </views:SettingsCard>
 
-                    <views:SettingsCard Header="外部组件单独设置外观"
-                                           Description="外部组件指屏幕侧边栏、常用工具浮窗与截图编辑窗；主界面不受影响。">
+                    <views:SettingsCard Header="桌面悬浮窗单独设置外观"
+                                           Description="只影响侧边栏与常用工具浮窗。">
                         <views:SettingsCard.HeaderIcon>
                             <fa:FontIcon Glyph="&#xE772;" />
                         </views:SettingsCard.HeaderIcon>
@@ -191,7 +191,7 @@
                                       IsCheckedChanged="TopMostSwitch_Toggled" />
                     </views:SettingsCard>
 
-                    <views:SettingsCard Header="开机自动启动"
+                    <views:SettingsCard x:Name="StartupCard" Header="开机自动启动"
                                            Description="登录 Windows 后自动运行本程序。">
                         <views:SettingsCard.HeaderIcon>
                             <fa:FontIcon Glyph="&#xE7E8;" />
@@ -236,12 +236,35 @@
                 <TextBlock Text="Hub AI" FontSize="14" FontWeight="SemiBold" Margin="0,24,0,8" />
                 <StackPanel Spacing="4">
 
-                    <views:SettingsCard Header="Hub AI"
+                    <views:SettingsCard x:Name="HubAiCard" Header="Hub AI"
                                         Description="电脑顾问的总开关与模型配置。模型服务由你自己提供，本软件不代收费用、不托管密钥。"
                                         IsClickEnabled="True" Click="OpenHubAiSettings_Click">
                         <views:SettingsCard.HeaderIcon>
                             <fa:FontIcon Glyph="&#xE8F2;" />
                         </views:SettingsCard.HeaderIcon>
+                    </views:SettingsCard>
+
+                </StackPanel>
+
+                <!-- ================= 查阅单词 ================= -->
+                <!-- 2026-11-01 自上游 dv1.2.0-insider1.8 移植（需求第 17 条）：两个词源都做，优先级交给用户选。
+                     默认「离线优先」——查词是高频短动作，先问本地能立刻出结果，教室里网络时好时坏。 -->
+                <TextBlock Text="查阅单词" FontSize="14" FontWeight="SemiBold" Margin="0,24,0,8" />
+                <StackPanel Spacing="4">
+
+                    <views:SettingsCard Header="词典源优先级" Description="先查本地，未收录再联网。">
+                        <views:SettingsCard.HeaderIcon>
+                            <fa:FontIcon Glyph="&#xE8F1;" />
+                        </views:SettingsCard.HeaderIcon>
+
+                        <!-- 四项都是纯文本，直接写 ComboBoxItem 就够 -->
+                        <ComboBox x:Name="DictSourceCombo" MinWidth="128"
+                                  SelectionChanged="DictSource_SelectionChanged">
+                            <ComboBoxItem Content="离线优先" Tag="offline-first" />
+                            <ComboBoxItem Content="在线优先" Tag="online-first" />
+                            <ComboBoxItem Content="仅离线" Tag="offline-only" />
+                            <ComboBoxItem Content="仅在线" Tag="online-only" />
+                        </ComboBox>
                     </views:SettingsCard>
 
                 </StackPanel>
@@ -387,7 +410,7 @@
                 <TextBlock Text="软件内容" FontSize="14" FontWeight="SemiBold" Margin="0,24,0,8" />
                 <StackPanel Spacing="4">
 
-                    <views:SettingsCard Header="本地内容包">
+                    <views:SettingsCard x:Name="ContentCard" Header="本地内容包">
                         <views:SettingsCard.HeaderIcon>
                             <fa:FontIcon Glyph="&#xE8B7;" />
                         </views:SettingsCard.HeaderIcon>
@@ -437,6 +460,28 @@
                     <fa:InfoBar x:Name="GithubRouteWarning" Severity="Informational" IsClosable="False" IsOpen="False"
                                 Title="自建加速已启用" Message="更新包等自动下载优先走社区自建节点（本站 Worker 代签、限时直链）；节点不可用时自动测速挑选最快的公益镜像，仍不可用再回 GitHub 源。"
                                 Margin="0,8,0,0" />
+
+                    <!-- 下载文件夹（2026-11-01 自上游 insider1.8 移植，GitHub Issue #322）：
+                         管的是下载**存到哪儿**，与上面那条「从哪儿取」分工明确、别合并。
+                         细节放这儿而不是每次下载都问：定一次就够；临时换地方走详情页
+                         下载按钮右半边的「下载到其他文件夹…」。 -->
+                    <views:SettingsCard Header="下载文件夹">
+                        <views:SettingsCard.HeaderIcon>
+                            <fa:FontIcon Glyph="&#xE8B7;" />
+                        </views:SettingsCard.HeaderIcon>
+                        <views:SettingsCard.Description>
+                            <StackPanel Spacing="8" Margin="0,4,0,0">
+                                <TextBlock x:Name="DownloadDirText" TextWrapping="Wrap" FontSize="12"
+                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button Content="更改文件夹…" Click="DownloadDir_Change_Click" />
+                                    <Button Content="打开文件夹" Click="DownloadDir_Open_Click" />
+                                    <Button x:Name="DownloadDirResetBtn" Content="恢复默认"
+                                            Click="DownloadDir_Reset_Click" />
+                                </StackPanel>
+                            </StackPanel>
+                        </views:SettingsCard.Description>
+                    </views:SettingsCard>
 
                 </StackPanel>
 
@@ -507,7 +552,7 @@
                 </StackPanel>
 
                 <!-- ================= 更新 ================= -->
-                <TextBlock Text="更新" FontSize="14" FontWeight="SemiBold" Margin="0,24,0,8" />
+                <TextBlock x:Name="UpdateSectionHeader" Text="更新" FontSize="14" FontWeight="SemiBold" Margin="0,24,0,8" />
                 <StackPanel Spacing="4">
 
                     <views:SettingsCard Header="当前版本">

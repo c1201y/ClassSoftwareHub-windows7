@@ -157,6 +157,14 @@ public sealed partial class SettingsPage : PageBase
         CacheKeepCombo.SelectedIndex = Math.Clamp(s.CacheKeepCount, 1, 10) - 1;
         // 日志保留天数：3/7/15/30/永不（Tag 存天数，0 = 永不删除）；存档里出现别的值一律落回「7 天」
         LogKeepCombo.SelectedIndex = LogKeepIndex(s.LogKeepDays);
+        // 查阅单词：词典源优先级（1.8）。老存档、手改坏的值一律归到「离线优先」
+        DictSourceCombo.SelectedIndex = Core.Dictionary.DictSourceModes.Normalize(s.DictionarySource) switch
+        {
+            Core.Dictionary.DictSourceModes.OnlineFirst => 1,
+            Core.Dictionary.DictSourceModes.OfflineOnly => 2,
+            Core.Dictionary.DictSourceModes.OnlineOnly => 3,
+            _ => 0
+        };
         UpdateCurrent.Text = $"当前版本：{ShellConfig.VersionPrefix}{ShellConfig.ShellVersion}· 更新源：{UpdateService.CreateDefault().Source.DisplayName}";
 
         // 教室喊话已独立成页（内置工具 → 教室喊话），设置页只剩跳转按钮（AnnouncePageJump_Click）。
@@ -174,6 +182,7 @@ public sealed partial class SettingsPage : PageBase
             _ => 0
         };
         UpdateGithubRouteHint();
+        RefreshDownloadFolder();
 
         // 「版本记录」固定折叠：里面是十几条运行记录，摊开会把设置页拉得极长。
         // ⚠️ 只在 XAML 里写 IsExpanded="False" 不够 —— 实测加载过程中仍会被撑开，这里再压一次。
@@ -327,6 +336,49 @@ public sealed partial class SettingsPage : PageBase
         base.OnNavigatedFrom();
     }
 
+    /// <summary>
+    /// 应用链接（<c>csh://settings/update</c> 这类，需求 1:18）落地：滚到对应分组。
+    ///
+    /// <para>
+    /// ⚠️ 认不出的分组就停在页面顶部 —— 链接里写的分组可能来自更新的版本，
+    ///    为此报错不值得；记一条日志便于对账。
+    /// </para>
+    /// </summary>
+    public void ActivateSection(string? section)
+    {
+        var key = (section ?? "").Trim().ToLowerInvariant();
+
+        Control? target = key switch
+        {
+            "appearance" or "theme" => ThemeCard,
+            "startup" => StartupCard,
+            "hubai" or "ai" => HubAiCard,
+            "cache" => CacheExpander,
+            "logs" or "log" => LogExpander,
+            "content" => ContentCard,
+            "update" or "updates" or "version" => UpdateSectionHeader,
+            "about" => AboutVersion,
+            _ => null,
+        };
+
+        if (target is null)
+        {
+            try { RootScroll.Offset = new Vector(0, 0); } catch { }
+            AppLog.Info("settings", $"链接指向的分组认不出「{section}」，已停在页面顶部");
+            return;
+        }
+
+        // ⚠️ 刚 Navigate 过来时目标可能还没布局完，此时 BringIntoView 会**静默无效**。
+        //    排到 Background 优先级（布局之后）再滚，并隔一拍补一次，避开"第一次没量到"。
+        void ScrollNow()
+        {
+            try { target.BringIntoView(); } catch { }
+        }
+
+        Dispatcher.UIThread.Post(ScrollNow, DispatcherPriority.Background);
+        DispatcherTimer.RunOnce(ScrollNow, TimeSpan.FromMilliseconds(150));
+    }
+
     /// <summary>内容变了 → 刷新这一组摘要（手动同步进行中就别抢它刚写上的状态行）。</summary>
     private void OnContentChanged()
     {
@@ -374,6 +426,18 @@ public sealed partial class SettingsPage : PageBase
             : "只有打开「开机自动启动」时，这个选项才有用。";
     }
 
+    // ── 查阅单词（2026-11-01 自上游 dv1.2.0-insider1.8 移植）──────
+
+    /// <summary>词典源优先级。页面只存值；真正按它调度的是 <c>DictionaryService</c>。</summary>
+    private void DictSource_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_loading) return;
+        if (DictSourceCombo.SelectedItem is not ComboBoxItem item || item.Tag is not string tag) return;
+
+        App.Settings.Current.DictionarySource = Core.Dictionary.DictSourceModes.Normalize(tag);
+        App.Settings.Save();
+    }
+
     private void ThemeChoice_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (_loading) return;
@@ -405,11 +469,11 @@ public sealed partial class SettingsPage : PageBase
     private void UpdateExtThemeAvailability()
     {
         ExtThemeCombo.IsEnabled = SplitThemeSwitch.IsChecked == true;
-        // ⚠️ 2026-10-08 起音量/亮度/合成器小浮窗改跟**外部组件**外观走（Nick：分体深色下浮窗也得变深），
-        //    提示文案同步更新，别再让用户以为这个开关管不到它们。
+        // ⚠️ 文案要与 ThemeCompat 里的分类一致（2026-10-29，上游 1.8）：只有侧边栏与
+        //    「常用工具」浮窗吃这一套，文档窗口等其余窗口永远跟应用主题。
         ExtThemeHint.Text = SplitThemeSwitch.IsChecked == true
-            ? "侧边栏 / 常用工具浮窗 / 截图编辑窗 / 音量亮度浮窗都跟着这个走"
-            : "现在是关的：外部组件跟主界面的颜色模式保持一致";
+            ? "只有侧边栏与「常用工具」浮窗跟着这个走；主界面与其它窗口仍跟「颜色模式」"
+            : "现在是关的：常用工具浮窗跟主界面的颜色模式保持一致";
     }
 
     private void BackdropChoice_SelectionChanged(object? sender, SelectionChangedEventArgs e)
@@ -1399,6 +1463,73 @@ public sealed partial class SettingsPage : PageBase
         // 只要不是「GitHub 源」就给一条说明：自建节点已就绪（Worker 代签、限时直链），
         // 不可用时自动按测速挑最快公益镜像，全不可用再回 GitHub 官方直链。
         GithubRouteWarning.IsOpen = current != Services.GithubRoutes.Official;
+    }
+
+    // ══════════ 下载文件夹（2026-11-01 自上游 insider1.8 移植，GitHub Issue #322）══════════
+
+    /// <summary>
+    /// 把落点写清楚：改过的照实写路径；没改过的写明「系统下载文件夹」并给出实际路径 ——
+    /// 光写"默认"等于没说，用户看不出东西最后躺在哪儿。
+    /// </summary>
+    private void RefreshDownloadFolder()
+    {
+        var custom = App.Settings.Current.DownloadFolder;
+        var resolved = Services.DownloadService.SaveDir;
+
+        if (string.IsNullOrWhiteSpace(custom))
+            DownloadDirText.Text = "系统下载文件夹：" + resolved;
+        else if (string.Equals(custom, resolved, StringComparison.OrdinalIgnoreCase))
+            DownloadDirText.Text = resolved;
+        else
+            // 自定义目录读不到（U 盘拔了、网络盘掉线）时 DownloadService 已经退回系统下载，
+            // 这里必须跟着说，否则卡片上写着 D:\下载、东西其实在 C:\Users\…\Downloads。
+            DownloadDirText.Text = "原设定的文件夹当前不可用，已改用：" + resolved;
+
+        DownloadDirResetBtn.IsEnabled = !string.IsNullOrWhiteSpace(custom);
+    }
+
+    private async void DownloadDir_Change_Click(object? sender, RoutedEventArgs e)
+    {
+        var picked = await PickFolderAsync(this);
+        if (string.IsNullOrEmpty(picked)) return;
+
+        App.Settings.Current.DownloadFolder = picked;
+        App.Settings.Save();
+        RefreshDownloadFolder();
+    }
+
+    private void DownloadDir_Open_Click(object? sender, RoutedEventArgs e)
+        => Services.DownloadService.OpenDownloadsFolder();
+
+    private void DownloadDir_Reset_Click(object? sender, RoutedEventArgs e)
+    {
+        App.Settings.Current.DownloadFolder = "";
+        App.Settings.Save();
+        RefreshDownloadFolder();
+    }
+
+    /// <summary>选文件夹；取消或对话框打不开都返回 null。</summary>
+    private static async Task<string?> PickFolderAsync(Control owner)
+    {
+        try
+        {
+            // ⚠️ Win7 走 FilePickerCompat 兜底（Avalonia 选择器在「库」里选位置会静默失败）。
+            var top = TopLevel.GetTopLevel(owner);
+            if (top is null) return null;
+
+            var r = await FilePickerCompat.PickFolderAsync(top, "选择下载文件夹");
+            if (r.Error is not null)
+            {
+                Core.AppLog.Warn("download", "选下载文件夹被拒：" + r.Error);
+                return null;
+            }
+            return r.Files.Count > 0 ? r.Files[0] : null;
+        }
+        catch (Exception ex)
+        {
+            Core.AppLog.Warn("download", "选择下载文件夹失败：" + ex.Message);
+            return null;
+        }
     }
 
     // ── 教室喊话（2026-10-13 已独立成「内置工具 → 教室喊话」页，这里只留跳转）──────

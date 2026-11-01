@@ -1,0 +1,134 @@
+<platform:PageBase
+    x:Class="ClassSoftwareHub.Desktop.Pages.SystemFeaturesPage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:controls="using:ClassSoftwareHub.Desktop.Controls"
+    xmlns:fa="using:FluentAvalonia.UI.Controls">
+
+    <!--
+      系统功能（自上游 dv1.2.0-insider1.8 移植，需求清单第 20 条）。
+
+      版式照搬本仓库其它实验性页面：三列 Grid 把内容钉在中间 960 宽。
+      ⚠️ 别用 Stretch + MaxWidth —— 一旦触发上限会把整列右甩（上游同款教训）。
+
+      交互（上游 2026-10-31 定案「排队 + 一次弹 UAC」）：
+      拨开关只进队列，底部提示条的主按钮把全部改动拼成一个脚本、弹一次授权。
+      ⛔ 状态只从服务层读，页面不缓存：这些值用户可能在系统设置或组策略里改过。
+
+      ⚠️ 卡片不在 XAML 里手写，由 code-behind 按 SystemFeatureCatalog 生成 ——
+         清单只有一份，手写会变成两处维护（上游是 XAML 手写 + FindName 拼接，移植时改成了生成）。
+    -->
+    <Grid Background="Transparent">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <Grid Margin="24,36,24,44">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="24" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="24" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="1" MaxWidth="960" Spacing="4">
+
+                    <!-- ── 标题 ── -->
+                    <Grid Margin="0,0,0,14">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Spacing="4">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <TextBlock Text="系统功能" FontSize="28" FontWeight="Bold" />
+                            <Border CornerRadius="5" Padding="8,3" Margin="0,0,0,5" VerticalAlignment="Bottom"
+                                    BorderThickness="1"
+                                    BorderBrush="{DynamicResource SystemFillColorCautionBrush}">
+                                <StackPanel Orientation="Horizontal" Spacing="5">
+                                    <fa:FontIcon Glyph="&#xEA80;" FontSize="11"
+                                                 Foreground="{DynamicResource SystemFillColorCautionBrush}" />
+                                    <TextBlock Text="实验性功能" FontSize="12"
+                                               Foreground="{DynamicResource SystemFillColorCautionBrush}" />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                        <TextBlock FontSize="12.5" Opacity="0.65" TextWrapping="Wrap"
+                                   Text="修改整台电脑的系统设置（注册表与电源方案），应用时会请求一次管理员授权，部分项要重启才生效。拨动开关只会排队，点底部「应用更改」才会写入。" />
+                        </StackPanel>
+
+                        <Button x:Name="HubAiEntry" Grid.Column="1" Padding="12,6" Click="HubAiEntry_Click"
+                                VerticalAlignment="Center" ToolTip.Tip="打开 Hub AI 顾问">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <fa:FontIcon Glyph="&#xE8F2;" FontSize="13" />
+                                <TextBlock Text="AI" FontSize="12.5" />
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+
+                    <fa:InfoBar x:Name="NoticeBar" IsOpen="False" IsClosable="True" IsVisible="False"
+                                Severity="Informational" Message="" Margin="0,0,0,8" />
+
+                    <!-- 分组卡片由 code-behind 生成 -->
+                    <StackPanel x:Name="RowsPanel" Spacing="4" />
+
+                    <!-- 休眠文件（只读信息，随「休眠」项一起看） -->
+                    <Border Classes="cshCard" Margin="0,4,0,0">
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="休眠文件" FontSize="14" />
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <TextBlock Text="当前大小" FontSize="12" Opacity="0.65" VerticalAlignment="Center" />
+                                <TextBlock x:Name="HibernateFileText" Text="—" FontSize="12.5"
+                                           VerticalAlignment="Center" />
+                            </StackPanel>
+                            <TextBlock FontSize="12" Opacity="0.6" TextWrapping="Wrap"
+                                       Text="休眠开启时，系统盘上的 hiberfil.sys 约与内存等大；关闭休眠会删除它。" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- 页脚：说明执行方式与限制 -->
+                    <Border Classes="cshCard" Margin="0,4,0,0">
+                        <StackPanel Spacing="7">
+                            <TextBlock Text="执行方式与限制" FontSize="12" FontWeight="Bold" Opacity="0.85" />
+                            <TextBlock FontSize="12" Opacity="0.65" TextWrapping="Wrap"
+                                       Text="· 拨动开关、选择档位都只是排队，不会立刻修改系统。" />
+                            <TextBlock FontSize="12" Opacity="0.65" TextWrapping="Wrap"
+                                       Text="· 点「应用更改」后会把待应用项拼成一个脚本，请求一次管理员授权并写入。" />
+                            <TextBlock FontSize="12" Opacity="0.65" TextWrapping="Wrap"
+                                       Text="· 写入后会重新读取实际值核对：没生效的项会留在队列里，可重试或取消。" />
+                            <TextBlock FontSize="12" Opacity="0.65" TextWrapping="Wrap"
+                                       Text="· 显示为「—」的项表示读取不到（权限不足、键不存在或系统不支持），此时该项不可操作。" />
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Grid>
+        </ScrollViewer>
+
+        <!-- ── 待应用提示条：默认收起，有排队项时出现 ── -->
+        <Border Grid.Row="1" x:Name="PendingBar" IsVisible="False"
+                BorderThickness="0,1,0,0"
+                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                Background="{DynamicResource LayerFillColorDefaultBrush}">
+            <Grid Margin="24,10,24,10" ColumnDefinitions="*,Auto,Auto" VerticalAlignment="Center">
+                <StackPanel Spacing="4" VerticalAlignment="Center">
+                    <TextBlock x:Name="PendingTitle" Text="有 0 项待应用" FontSize="14" FontWeight="SemiBold" />
+                    <TextBlock x:Name="PendingSubtitle" Text="应用时会请求一次管理员授权。"
+                               FontSize="12" Opacity="0.65" TextWrapping="Wrap" />
+                    <ScrollViewer MaxHeight="132" VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel x:Name="PendingList" Spacing="2" Margin="0,4,0,0" />
+                    </ScrollViewer>
+                </StackPanel>
+
+                <Button x:Name="ApplyButton" Grid.Column="1" Content="应用更改" Margin="16,0,0,0"
+                        MinWidth="96" Click="ApplyPending_Click" />
+                <Button Grid.Column="2" Content="暂不应用" Margin="8,0,0,0"
+                        MinWidth="88" Click="DismissPending_Click" />
+            </Grid>
+        </Border>
+
+        <controls:HubAiFlyout x:Name="AiFlyout" />
+    </Grid>
+</platform:PageBase>
