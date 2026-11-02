@@ -55,7 +55,7 @@ public static class DictSourceModes
 /// 拆成字段后界面可以逐条排版（词性一个标签、正文一段），不用在显示时再去猜哪里该断开。
 /// </para>
 /// <para>
-/// ⚠️ 纯函数、不碰文件也不碰 WinUI —— 测试工程直接链接这个文件（见 <c>E:\Classsoftwarehub测试</c>）。
+/// 纯函数、不碰文件也不碰 UI —— 测试工程直接链接这个文件（见 <c>E:\Classsoftwarehub测试</c>）。
 /// </para>
 /// </summary>
 public static class LexiconFormat

@@ -39,7 +39,7 @@ public sealed class SearchHit
 
     /// <summary>
     /// 右侧那行类型小字。
-    /// ⚠️ 与站点的取舍不同：站点是按组显示（组标题写着"软件/内置工具/页面"），
+    /// 与站点的取舍不同：站点是按组显示（组标题写着"软件/内置工具/页面"），
     ///    桌面端走系统原生下拉，是个扁平列表、没有组标题，所以改由每行的这个小字交代类型。
     /// </summary>
     public string Badge => Kind switch
@@ -56,7 +56,7 @@ public sealed class SearchHit
     public string IconLetter => Kind == SearchHitKind.App ? FirstLetter(Title) : "";
 
     /// <summary>
-    /// ⚠️ WinUI → Avalonia（2026-10-18 自上游 1.2.0 移植）：WinUI 的 <c>Visibility</c> 枚举
+    /// WinUI → Avalonia（自上游 1.2.0 移植）：WinUI 的 <c>Visibility</c> 枚举
     /// 在 Avalonia 里对应布尔 <c>IsVisible</c>（模板里绑 <c>IsVisible</c>），属性名照搬语义改写。
     /// </summary>
     public bool GlyphVisible => Kind != SearchHitKind.App;
@@ -66,7 +66,7 @@ public sealed class SearchHit
     public bool SubtitleVisible => Subtitle.Length > 0;
 
     /// <summary>
-    /// ⛔ 别删：AutoSuggestBox 选中一项之后会把它 `ToString()` 的结果回填进输入框，
+    /// 别删：AutoSuggestBox 选中一项之后会把它 `ToString()` 的结果回填进输入框，
     /// 没有这个重写，框里就会变成类型名。
     /// </summary>
     public override string ToString() => Title;
@@ -100,7 +100,7 @@ public sealed class SearchGroup
 /// <item>页面 —— 导航栏的各个页面（见下面的页面注册表）</item>
 /// </list>
 /// <para>
-/// ⛔ 站点还有第 4 类「AI 导航」（站外站点）—— 桌面端没有这个页面，所以这里也没有，不是漏了。
+/// 站点还有第 4 类「AI 导航」（站外站点）—— 桌面端没有这个页面，所以这里也没有，不是漏了。
 /// </para>
 ///
 /// <para>
@@ -316,7 +316,7 @@ public static class SearchIndex
     /// 单字段是否命中。两级判定：
     /// ① 整串包含 —— 「7 zip」归一成「7zip」，命中「7-Zip」归一成的「7zip」；
     /// ② 每个词都出现即可，**顺序无关** —— 「zip 7」也命中「7-Zip」。
-    /// ⚠️ ② 只在输入多于一个词时启用；单字输入走 ① 就够，否则「a」这种会把整张表都捞出来。
+    /// ② 只在输入多于一个词时启用；单字输入走 ① 就够，否则「a」这种会把整张表都捞出来。
     /// </summary>
     private static bool Hit(string? text, string q, string[] parts)
     {
@@ -334,7 +334,7 @@ public static class SearchIndex
 
     /// <summary>
     /// 搜索用的归一化：转小写，**并去掉分隔符**。
-    /// ⚠️ 去分隔符这一步是 2026-10-24 加的（Nick：搜「7 zip」找不到 7-Zip，加个横杠才搜到）。
+    /// 去分隔符这一步的动机：搜「7 zip」要能命中「7-Zip」。
     ///    清单里带横杠/空格/点的名字很常见（7-Zip、Class Widgets 2、VLC media player），
     ///    不去掉的话查询与目标永远差一个字符。中文名基本不涉及这些符号，不受影响。
     /// </summary>

@@ -11,16 +11,16 @@
       「在 Q 群中反馈」第二步的图文流程窗：提醒浮窗里点完「复制」就摊开这一扇。
 
       五步 = 加入群聊 → 打开群相册面板 → 新建相册并填入相关信息 → 进入相册点上传 → 选照片/视频并上传，
-      后四步各配一张 QQ 里实拍的操作截图（Assets\feedback\qq-step-*.png，2026-09-30 Nick 提供）。
+      后四步各配一张 QQ 里实拍的操作截图（Assets\feedback\qq-step-*.png）。
 
       = **标准窗口**（拖动/阴影/圆角交给 Windows）。
-      ⚠️ 这扇窗**故意留在任务栏和 Alt+Tab 里**（不像其它辅助窗）—— 用户要一边看它一边切到 QQ 操作，
+      这扇窗**故意留在任务栏和 Alt+Tab 里**（不像其它辅助窗）—— 用户要一边看它一边切到 QQ 操作，
          切走了还能 Alt+Tab 摸回来。
       ⚠️ 移植说明：原版是「标准窗口 + 自绘标题栏」（ExtendsContentIntoTitleBar + SetTitleBar）；
          按移植契约「Win7 上更稳的做法是保留系统边框」，这里保留系统标题栏，
          原 AppTitleBar 那一行保留成内容顶部的标识条（图标 + 「在 Q 群中反馈」），不再承担拖动职责。
       ⚠️ 面板里的横向排列一律用 Grid，不用横向 StackPanel（横向 StackPanel 拿无限宽度量孩子，
-         里面的 TextWrapping 会失效、文字被裁 —— 反馈页那三张流程卡就是这么断的，2026-09-30 修）。
+         里面的 TextWrapping 会失效、文字被裁）。
       ⚠️ 移植说明：原版 Grid 的 ColumnSpacing 改成第 2 列 Margin，间距值不变。
     -->
     <Grid x:Name="Root" IsTabStop="True">

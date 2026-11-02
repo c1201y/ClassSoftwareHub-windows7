@@ -13,7 +13,7 @@ namespace ClassSoftwareHub.Desktop.Core;
 /// 首页「硬件信息 / 系统信息」用：抓一份**本机**快照。
 /// 全是本机只读查询（注册表 + SMBIOS + Win32），不联网、不落盘、不轮询。
 ///
-/// ⚠️ Win7 移植说明：原版散在本文件里的 P/Invoke 已按契约收进 <c>Platform.NativeMethods</c> /
+/// Win7 移植说明：原版散在本文件里的 P/Invoke 已按契约收进 <c>Platform.NativeMethods</c> /
 ///    <c>Platform.NativeMethodsEx</c>；每个 API 的最低可用系统都标在 Platform 那边。
 ///    这里用到的全部是 Win7 就有的老 API（GetLogicalProcessorInformation / GetSystemFirmwareTable /
 ///    GlobalMemoryStatusEx / EnumDisplayDevices / GetPerformanceInfo / IsProcessorFeaturePresent），
@@ -543,7 +543,7 @@ public static class SystemInfo
 
     // ══════════════════════════ 系统信息 ══════════════════════════
 
-    // ── 反馈中心「本机信息」要的三样（2026-09-30 Nick 指定）：型号 / 版本名 / 具体内部版本号 ──
+    // ── 反馈中心「本机信息」要的三样：型号 / 版本名 / 具体内部版本号 ──
 
     /// <summary>
     /// 处理器**型号**：只要型号串，不带核数、不带频率（如「13th Gen Intel(R) Core(TM) i7-13700H」）。
@@ -558,7 +558,7 @@ public static class SystemInfo
             // 型号串常自带 "@ 2.60GHz"，删掉 —— 那是当前频率，跟型号无关
             name = System.Text.RegularExpressions.Regex.Replace(name, @"\s*@\s*[\d.]+\s*GHz", "").Trim();
             // Intel 的串尾巴上多半还挂一个 " CPU"（"…i7-9750H CPU"）—— 反馈正文里是噪声，去掉。
-            // ⚠️ 只删**结尾**那个，别全局替换：Xeon 的正式型号是 "Xeon(R) CPU E5-2670 v2"，
+            // 只删**结尾**那个，别全局替换：Xeon 的正式型号是 "Xeon(R) CPU E5-2670 v2"，
             //    全局替换会把型号本身改掉。
             name = System.Text.RegularExpressions.Regex.Replace(name, @"\s+CPU$", "",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
@@ -571,9 +571,9 @@ public static class SystemInfo
     public static string OsDisplay() => OsNameText();
 
     /// <summary>
-    /// 一行「显示器 / DPI」摘要（2026-10-11 加，日志横幅用；自上游 dv1.1.3 移植）。
+    /// 一行「显示器 / DPI」摘要（日志横幅用；自上游 dv1.1.3 移植）。
     ///
-    /// ⚠️ 为什么要它：界面"错位 / 被截断 / 缩放发虚"这类问题**十有八九跟 DPI 和显示器数有关**，
+    /// 为什么要它：界面"错位 / 被截断 / 缩放发虚"这类问题**十有八九跟 DPI 和显示器数有关**，
     ///    而这两个数用户从来不主动说 —— 每次启动自己记一行，出问题时就不用再问一遍。
     /// </summary>
     public static string DisplaySummary()
@@ -594,7 +594,7 @@ public static class SystemInfo
 
     /// <summary>
     /// **具体**的内部版本号：<c>CurrentBuildNumber</c> + <c>UBR</c>（如 <c>26220.1234</c>）。
-    /// ⚠️ 只给 <c>CurrentBuildNumber</c>（26220）是不够的 —— 同一个 build 上装没装某个累积更新
+    /// 只给 <c>CurrentBuildNumber</c>（26220）是不够的 —— 同一个 build 上装没装某个累积更新
     ///    就靠 UBR 区分，排查"打了某补丁之后才出问题"时缺了它根本对不上。
     /// </summary>
     public static string OsBuildEx()
@@ -616,9 +616,9 @@ public static class SystemInfo
 
     /// <summary>
     /// 系统 build 号（22000 是 Win11 的门槛）。读不到就给 0（= 当 Win10 处理）。
-    /// （2026-10-18 自上游 1.2.0 移植 —— Win11 浮窗圆角判定用，见 WindowChrome。）
+    /// （自上游 1.2.0 移植 —— Win11 浮窗圆角判定用，见 WindowChrome。）
     ///
-    /// ⛔⛔ 别用 <c>Environment.OSVersion.Version.Build</c> 判 Win11：.NET 5+ 上它返回的是
+    /// 别用 <c>Environment.OSVersion.Version.Build</c> 判 Win11：.NET 5+ 上它返回的是
     ///    **按应用清单声明支持的那个最高版本** —— 清单里没写 Win10/Win11 的 supportedOS，
     ///    它就一直报 6.2（build 9200），判 Win11 会**恒为 false**，而且在本机根本试不出来
     ///    （Win11 上跑也是 9200，看着"没启用"还以为是别的问题）。
@@ -655,11 +655,9 @@ public static class SystemInfo
                           ?? (k?.GetValue("ReleaseId") as string)?.Trim() ?? "";
             var editionId = (k?.GetValue("EditionID") as string)?.Trim() ?? "";
 
-            // ⚠️ 2026-10-02 实机反馈（Win7 机器上显示「Windows 10 Windows 7 Ultimate」）：
-            //    以前只认 Win10/11 —— build < 22000 一律叫 "Windows 10"，认不出的 EditionID
-            //    又直接把 ProductName（Win7 上是英文 "Windows 7 Ultimate"）整段拼上去。
-            //    现在按**真实内核版本**（OsInfo.Raw 走 RtlGetVersion，与 OsInfo 同一数据源，
-            //    不受 manifest 兼容垫片影响）判全家桶：7 / 8 / 8.1 / 10 / 11。
+            // 按**真实内核版本**（OsInfo.Raw 走 RtlGetVersion，与 OsInfo 同一数据源，
+            //    不受 manifest 兼容垫片影响）判全家桶：7 / 8 / 8.1 / 10 / 11；
+            //    不能只认 Win10/11，否则 Win7 上 ProductName 是英文、拼出来名字错误。
             var win = FamilyName();
 
             var edition = EditionZh(editionId);
@@ -729,10 +727,9 @@ public static class SystemInfo
     {
         try
         {
-            // ⚠️ 2026-10-02 实机反馈（Win7 上显示 10.0.7601.28117）：
-            //    CurrentMajorVersionNumber / CurrentMinorVersionNumber 是 **Win10 才有的注册表键**，
-            //    Win7 上读不到，原来回退硬编码 "10.0" —— 版本号直接错了。
-            //    主/次版本改用 OsInfo.Raw（RtlGetVersion，真实内核 6.1.7601），build/UBR 仍走注册表。
+            // CurrentMajorVersionNumber / CurrentMinorVersionNumber 是 **Win10 才有的注册表键**，
+            //    Win7 上读不到；主/次版本改用 OsInfo.Raw（RtlGetVersion，真实内核 6.1.7601），
+            //    build/UBR 仍走注册表。
             using var k = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion");
             var raw = OsInfo.SimulateWin7 ? new Version(6, 1, 7601) : OsInfo.Version;
             var build = k?.GetValue("CurrentBuildNumber") as string ?? "";

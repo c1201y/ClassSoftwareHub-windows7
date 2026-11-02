@@ -10,15 +10,14 @@ using ClassSoftwareHub.Desktop.Services.Diagnostics;
 namespace ClassSoftwareHub.Desktop.Services.HubAi;
 
 /// <summary>
-/// 一轮对话的编排（2026-10-18）：组装 system prompt、跑 Agent 循环、把工具结果回灌。
+/// 一轮对话的编排：组装 system prompt、跑 Agent 循环、把工具结果回灌。
 ///
 /// <para>
 /// 循环就是「Agent」和「聊天」的全部差别：模型说要调工具 → 宿主执行 → 结果塞回 messages → 再问一次。
 /// </para>
 /// <para>
-/// ⛔ 2026-10-30 起**不再限制轮次**，改成限时长（<c>AnswerBudget</c>，8 分钟）。
-/// 原来的「最多 5 次工具往返」把正常的深链路截断了 —— Nick：「工具调用它经常被截断……
-/// 干脆取消这个限制，换成时长限制」。现在只要没到 8 分钟，模型想调几次就调几次。
+/// ⛔ **不限制轮次**，改为限时长（<c>AnswerBudget</c>，8 分钟）。
+/// 按「最多 5 次工具往返」限轮次会把正常的深链路截断。
 /// </para>
 /// <para>
 /// ⛔ 本类不碰任何 UI，也不碰网络细节。UI 只通过三个回调观察：增量文本、状态提示、换气泡。
@@ -27,7 +26,7 @@ namespace ClassSoftwareHub.Desktop.Services.HubAi;
 public sealed class AiChatService
 {
     /// <summary>
-    /// 一轮问答（含全部工具往返）的时长上限：8 分钟（Nick 2026-10-30 定「刚刚好这样」）。
+    /// 一轮问答（含全部工具往返）的时长上限：8 分钟。
     ///
     /// <para>
     /// 为什么按时长而不按轮次：轮次和真实耗时不成比例 —— 查一遍 AppData 体积要几十秒，
@@ -71,7 +70,7 @@ public sealed class AiChatService
     private readonly List<AiMessage> _messages = new();
 
     /// <summary>
-    /// 被裁掉、但**还没压成摘要**的那些轮次（2026-10-23 加）。
+    /// 被裁掉、但**还没压成摘要**的那些轮次。
     /// 攒够一定量才真正调模型压缩 —— 每轮都压一次不划算，而摘要本身也要花钱。
     /// </summary>
     private readonly List<AiMessage> _pendingDrop = new();
@@ -91,7 +90,7 @@ public sealed class AiChatService
     private const string SummaryHeader = "【早前对话摘要】";
 
     /// <summary>
-    /// 页面现场数据在 system 提示里的包裹标记（2026-10-30）。
+    /// 页面现场数据在 system 提示里的包裹标记。
     /// <para>
     /// 每轮都换一份新的，所以要靠标记把**上一轮那块**精确摘掉再贴新的 ——
     /// 否则会一层层叠上去，几轮之后 system 里堆满过期的清单。
@@ -145,16 +144,15 @@ public sealed class AiChatService
 
             // ⛔⛔ assistant 的 content 不能为空。存档里允许存「只有思考、没有正文」的那一轮（工具调用中间态），
             //    但把它原样塞回上下文，下一轮请求会被服务端判成 400：
-            //    `Invalid assistant message: content or tool_calls must be set`（2026-10-21 实测）。
+            //    `Invalid assistant message: content or tool_calls must be set`。
             //    这种消息对后续对话也没有价值，直接丢掉。
             if (message.Role == "assistant" && string.IsNullOrWhiteSpace(message.Content)) continue;
 
-            // ⛔⛔ 2026-10-23：**`tool` 角色的消息必须在恢复时丢掉**。
+            // ⛔⛔ **`tool` 角色的消息必须在恢复时丢掉**。
             //    协议要求：`role=tool` 只能作为「上一条 assistant 的 tool_calls」的应答出现。
             //    而上面那行恰好把「带 tool_calls、但正文为空」的那一轮 assistant 丢了 ——
             //    它后面的 tool 消息就失去了配对，服务端直接 400：
-            //    `Messages with role 'tool' must be a response to a preceding message with 'tool_calls'`
-            //    （Nick 截图里那条报错就是这个）。
+            //    `Messages with role 'tool' must be a response to a preceding message with 'tool_calls'`。
             //    tool 结果只是中间态，对后续对话没有价值，一并丢掉最稳妥。
             if (message.Role == "tool") continue;
 
@@ -170,7 +168,7 @@ public sealed class AiChatService
     /// <param name="appendUserMessage">
     /// 是否把 <paramref name="userText"/> 作为一条新的 user 消息追加进上下文。
     /// <para>
-    /// ⚠️ 2026-10-23 加：「重新生成」时提问已经在上下文里了，只需要模型再答一次 ——
+    /// ⚠️ 「重新生成」时提问已经在上下文里了，只需要模型再答一次 ——
     /// 这时传 false，否则同一句话会在上下文里出现两遍（模型会以为自己被追问）。
     /// </para>
     /// </param>
@@ -179,10 +177,10 @@ public sealed class AiChatService
     /// 当前工具全部只读，所以这个回调暂时不会被调用 —— 但通道留着，加写类工具时不用再改这里。
     /// </param>
     /// <param name="pageContext">
-    /// 用户此刻所在页面的现场数据（JSON，见 <see cref="Core.PageContextDoc"/>）。2026-10-30 加。
+    /// 用户此刻所在页面的现场数据（JSON，见 <see cref="Core.PageContextDoc"/>）。
     /// <para>
     /// ⚠️ 走 system 通道，**不进用户消息**：塞进 <paramref name="userText"/> 的话，
-    /// 用户气泡和历史列表里全是机器文本（Nick 截图里那条"（我现在在…）"就是这个）。
+    /// 用户气泡和历史列表里会混入机器文本。
     /// 传 null = 摘掉上一轮那块，别让旧页面的清单留在上下文里。
     /// </para>
     /// </param>
@@ -203,7 +201,7 @@ public sealed class AiChatService
     {
         Session.Reset();
         // ⚠️ 必须把 tools 传下去：没有工具时提示词里**绝不能**提"可以调用工具" ——
-        //    否则模型会自己编 `<tool_call>{...}</tool_call>` 的文本吐给用户（2026-10-19 实测截图）。
+        //    否则模型会自己编 `<tool_call>{...}</tool_call>` 的文本吐给用户。
         EnsureSystemPrompt(snapshot, tools);
 
         if (appendUserMessage) _messages.Add(AiMessage.User(userText));
@@ -255,7 +253,7 @@ public sealed class AiChatService
                     // 工具也吃预算的令牌：预算到点立刻收手，不要让一个 90 秒的工具再把时间拖出去
                     deadline.Token.ThrowIfCancellationRequested();
 
-                    // ⛔ 会改动系统的工具必须先问人（2026-10-23 加）。当前全部只读，不会走到这儿。
+                    // ⛔ 会改动系统的工具必须先问人。当前全部只读，不会走到这儿。
                     if (ToolRunner.RequiresApproval(call.Name) && approveTool is not null)
                     {
                         onStatus?.Invoke($"等待确认：{call.Name}");
@@ -282,7 +280,7 @@ public sealed class AiChatService
                     _messages.Add(AiMessage.Tool(call.Id, result));
 
                     // 界面上留一条"已读取 xxx"的痕迹 —— 否则工具调用前后两段回答之间完全是空的，
-                    // 看起来像对话断掉了（Nick 2026-10-18 指出）。
+                    // 看起来像对话断掉了。
                     onToolDone?.Invoke(DescribeToolDone(call.Name));
                 }
 
@@ -324,7 +322,7 @@ public sealed class AiChatService
     }
 
     // ══════════════════════════════════════════════════════
-    //  上下文压缩（2026-10-23）
+    //  上下文压缩
     // ══════════════════════════════════════════════════════
 
     /// <summary>
@@ -417,7 +415,7 @@ public sealed class AiChatService
     }
 
     // ══════════════════════════════════════════════════════
-    //  页面现场数据（2026-10-30）
+    //  页面现场数据
     // ══════════════════════════════════════════════════════
 
     /// <summary>
@@ -472,9 +470,9 @@ public sealed class AiChatService
     /// 系统提示。
     ///
     /// <para>
-    /// ⛔⛔ 改之前先看这段历史（2026-10-18）：最初这版把模型写死成"电脑顾问"——
-    /// 只依据本机数据、只谈瓶颈、300 字以内、结论先行。结果是用户问"什么是猴子"直接被拒，
-    /// 回答也变得干瘪、不敢展开（Nick：「一点都不细节，不像 DeepSeek 回答的」）。
+    /// ⛔⛔ 历史教训：最初这版把模型写死成"电脑顾问"——
+    /// 只依据本机数据、只谈瓶颈、300 字以内、结论先行。结果用户问"什么是猴子"直接被拒，
+    /// 回答也变得干瘪、不敢展开。
     /// <b>API 是用户自己付钱，宿主没有任何理由限制它能聊什么。</b>
     /// </para>
     /// <para>
@@ -528,7 +526,7 @@ public sealed class AiChatService
     /// <summary>
     /// 裁剪历史。
     /// <para>
-    /// ⛔⛔ 2026-10-23 改成**按回合裁剪**。原来是从前面**逐条** <c>RemoveAt</c>，落点可以正好切在
+    /// ⛔⛔ 必须**按回合裁剪**。逐条 <c>RemoveAt</c> 的落点可以正好切在
     /// 「assistant(tool_calls) → tool(result)」这一组中间：assistant 被删掉、tool 留下，
     /// 下一次请求服务端直接 400 ——`Messages with role 'tool' must be a response to a preceding
     /// message with 'tool_calls'`。这类错误只在"攒够消息 + 恰好调过工具"时才复现，

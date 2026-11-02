@@ -12,7 +12,7 @@ using ComTypes = System.Runtime.InteropServices.ComTypes;
 namespace ClassSoftwareHub.Desktop.Services.Diagnostics;
 
 /// <summary>
-/// 本机快照采集（2026-10-18）。**全程只读**：只读注册表、只读系统计数器、不写盘、不联网。
+/// 本机快照采集。**全程只读**：只读注册表、只读系统计数器、不写盘、不联网。
 ///
 /// <para>
 /// 设计约束，改之前先看：
@@ -277,7 +277,7 @@ public static class MachineProbe
         if (warnings.Count > 0)
             AppLog.Warn("hubai", $"快照有 {warnings.Count} 项没取到：{string.Join("、", warnings)}");
 
-        // 摘要进日志：用户报「读出来的数不对」时，这是唯一能离线复核的东西。
+        // 摘要进日志：数值有争议时这是唯一能离线复核的东西。
         // ⚠️ 只记硬件与数量，**不记已装软件名**（那是用户隐私）。
         AppLog.Info("hubai",
             $"快照摘要：CPU={cpuName} 线程={cpuThreads} 负载={cpuLoad:0.#}% " +

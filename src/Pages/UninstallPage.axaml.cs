@@ -104,7 +104,7 @@ public sealed class UninstallRow
 }
 
 /// <summary>
-/// 应用卸载页（2026-10-12 加，挂在「实验性功能」下；2026-10-18 自上游 1.2.0 移植到 Avalonia）。
+/// 应用卸载页（挂在「实验性功能」下）。
 ///
 /// 主题是「以软件下载起步的程序，也管卸载」—— 把本机装了什么列出来，能直接卸。
 /// 扫描走 <see cref="InstalledApps"/>，卸载走 <see cref="AppUninstaller"/>。

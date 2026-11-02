@@ -6,7 +6,7 @@ namespace ClassSoftwareHub.Desktop.Platform;
 /// <summary>
 /// 显卡能力的直接探测 —— 用来决定 Avalonia 该从哪条渲染后端开始试。
 ///
-/// 背景（实机日志 2026-10-01 目标 Win7 机器）：
+/// 背景（目标 Win7 机器实测）：
 ///   ANGLE 后端是**架在 D3D11 上**的。这台机器没有 D3D11 适配器
 ///   （D3D11CreateDevice 返回 0x887A0004 = DXGI_ERROR_UNSUPPORTED），
 ///   WGL(OpenGL) 也起不来（只有微软的 GDI 通用 opengl32，OpenGL 1.1，缺入口点）。

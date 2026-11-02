@@ -16,7 +16,7 @@ namespace ClassSoftwareHub.Desktop.Views.Palette;
 /// 状态只在内存里（和「内置工具 → 课堂计时器」页一样，两边各自独立）。
 ///
 /// ⚠️ 移植说明：原版在本文件里内联了 kernel32 的 Beep DllImport；按移植契约「所有 P/Invoke
-/// 集中在 Platform」的规矩，挪到了 <see cref="NativeMethodsUtil.Beep"/>，调用处语义不变。
+/// 集中在 Platform」，挪到了 <see cref="NativeMethodsUtil.Beep"/>，调用处语义不变。
 /// </summary>
 public sealed partial class MiniTimer : UserControl
 {
@@ -200,8 +200,8 @@ public sealed partial class MiniTimer : UserControl
         UpdateDisplay();
         SyncInputs();
         _blink.Start();
-        // 铃声与「内置工具 → 课堂计时器」共用同一个来源（默认内嵌那段，也能自定义），
-        // 别再各响各的 —— 见 Services/TimerAlarm.cs（2026-10-04 原版起）。
+        // 铃声与「内置工具 → 课堂计时器」共用同一个来源（默认内嵌那段，也可自定义），
+        // 见 Services/TimerAlarm.cs。
         Services.TimerAlarm.Play();
     }
 

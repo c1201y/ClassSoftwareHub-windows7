@@ -11,13 +11,13 @@ namespace ClassSoftwareHub.Desktop.Services;
 /// 把**表达式树**排成数学排版（分数上下堆叠、真上标、根号上划线、变量斜体、π 与 e 用字母）。
 ///
 /// <para>
-/// Nick 要的观感参照 GeoGebra：<c>x^(1/2)</c> 应当显示成 x 的 <b>½</b>（分数上标），
+/// 排版观感参照 GeoGebra：<c>x^(1/2)</c> 应当显示成 x 的 <b>½</b>（分数上标），
 /// 而不是一行线性文本。<para/>
 /// ⛔⛔ 路线选择：**从表达式树渲染**，不是从文本正则替换。树里"除"就是除、"幂"就是幂，
 /// 排版边界天然清楚；从文本猜括号配对、猜谁套谁，遇到 <c>(a+b)/(c-d)</c> 这种必错。
 /// </para>
 /// <para>
-/// ⛔⛔ **必须按优先级补括号**（这里踩过）：<c>2*(sin(x)+1)</c> 的树是
+/// ⛔⛔ **必须按优先级补括号**（已验证的约束）：<c>2*(sin(x)+1)</c> 的树是
 /// <c>Multiply(2, Add(sin x, 1))</c>，若照着树平铺就排成 <c>2 · sin(x) + 1</c> ——
 /// 那是错的式子，会被当成真实表达式读。所以子节点按 <see cref="Prec"/> 判定是否包括号。
 /// </para>
@@ -285,7 +285,7 @@ public static class MathTypesetter
         baseEl.VerticalAlignment = VerticalAlignment.Center;
         panel.Children.Add(baseEl);
 
-        // 上标往上抬一点；分式上标自带高度，别再额外抬
+        // 上标往上抬一点；分式上标自带高度，无需额外抬高
         exponent.VerticalAlignment = VerticalAlignment.Top;
         exponent.Margin = new Thickness(1, exponent is Grid ? 0 : -ctx.Size * 0.10, 0, 0);
         panel.Children.Add(exponent);

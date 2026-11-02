@@ -14,7 +14,7 @@ using System.Threading.Tasks;
 namespace ClassSoftwareHub.Desktop.Services.HubAi;
 
 /// <summary>
-/// 联网工具（2026-10-21）。
+/// 联网工具。
 ///
 /// <para>
 /// 为什么自己写而不是接 Tavily：**不需要用户注册、不产生费用、也不存在 key 泄露**。

@@ -28,6 +28,8 @@ namespace ClassSoftwareHub.Desktop.Views;
 /// 所以显示之后**必须**按运行时拿到的 <see cref="TopLevel.ActualTransparencyLevel"/> 复核一次：
 /// 拿到 <see cref="WindowTransparencyLevel.None"/> 就老老实实退回用户设的底色 ——
 /// 否则在教室机（常关 Aero）上会得到一整块黑底，比不透明还难看。
+/// 在那之后还有一层兜底（2026-11-01）：Win7 上逐像素透明永远不可用，但可以走分层窗口的
+/// 整窗 alpha 做出真正的"透出来"效果，见 <see cref="ApplyLegacyTranslucency"/>。
 /// </para>
 /// </summary>
 public sealed partial class MessageWindow : Window
@@ -51,6 +53,15 @@ public sealed partial class MessageWindow : Window
 
     /// <summary>运行时的真实透明结果（拿不到就 false → 用底色）。</summary>
     private bool _realTransparent;
+
+    /// <summary>
+    /// Win7 兜底半透明的整窗 alpha（0–255）。取 200（≈78%）：
+    /// 再低文字就开始发灰、教室后几排看不清，再高又和"不透明"没区别。
+    /// </summary>
+    private const byte LegacyAlpha = 200;
+
+    /// <summary>上次应用的分层半透明状态（null=还没动过）——只用来避免反复写日志。</summary>
+    private bool? _legacyAlphaState;
 
     private MessageWindow()
     {
@@ -190,7 +201,8 @@ public sealed partial class MessageWindow : Window
         _corners?.Refresh();
 
         AppLog.Info("message",
-            $"悬浮窗已显示：{w}x{h}px @{pos.X},{pos.Y} 透明={_realTransparent}(等级 {ActualTransparencyLevel})");
+            $"悬浮窗已显示：{w}x{h}px @{pos.X},{pos.Y} 透明={_realTransparent}"
+            + $"（等级 {ActualTransparencyLevel}，整窗半透明={_legacyAlphaState == true}）");
     }
 
     /// <summary>把留言内容铺到 TextBlock 上。</summary>
@@ -266,6 +278,10 @@ public sealed partial class MessageWindow : Window
             // 关闭键的叉叉跟着文字色走（默认那支是深灰，压在深色底上看不见）
             CloseGlyph.Stroke = new SolidColorBrush(textColor, 0.55);
 
+            // Win7 等"平台不给逐像素透明"的系统：底色照旧铺不透明色，
+            // 再用分层窗口把整窗调成半透明（见 ApplyLegacyTranslucency）。
+            ApplyLegacyTranslucency();
+
             // ⚠️ 不透明才裁圆角：透明窗口裁掉四角会连"圆角之外本该透出桌面"的部分一起切掉
             if (_realTransparent) return;
             // Win8+ 且 DWM 合成时，圆角由面板 alpha 抠（见 Platform.BackdropTheme）；
@@ -276,6 +292,76 @@ public sealed partial class MessageWindow : Window
         catch (Exception ex)
         {
             AppLog.Warning("message", "悬浮窗外观应用失败: " + ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// 平台拿不到逐像素透明时的兜底：<c>WS_EX_LAYERED</c> + <c>SetLayeredWindowAttributes(LWA_ALPHA)</c>。
+    ///
+    /// <para>
+    /// ⚠️ 2026-11-01（真机反馈「有 Aero 的机器上桌面留言不透明」）：
+    /// Avalonia 11 在 Win7 上根本没有逐像素透明能力（窗口走重定向位图，
+    /// <see cref="TopLevel.ActualTransparencyLevel"/> 恒为 <c>None</c>），
+    /// 所以「无底色」这个选项在 Win7 上一直是空转 —— 窗口老老实实铺了底色。
+    /// 分层窗口的 <c>LWA_ALPHA</c> 是 Win2000 就有的能力，DWM 开不开都能用：
+    /// 整窗（含文字）按同一个 alpha 与桌面混合，视觉上就是「透出来了」。
+    /// </para>
+    ///
+    /// <para>
+    /// ⛔ 不用色键（LWA_COLORKEY）抠底色：文字抗锯齿的边缘会留一圈底色毛边。
+    /// ⛔ 不用 UpdateLayeredWindow 自己送位图：那要接管整条渲染链路，代价远大于收益。
+    /// 代价说明：alpha 是整窗统一的，文字也会跟着变淡 —— 所以取 <see cref="LegacyAlpha"/>
+    /// 这档（≈78%）保证仍然看得清。
+    /// </para>
+    /// </summary>
+    private void ApplyLegacyTranslucency()
+    {
+        var hwnd = Backdrop.TryGetHwnd(this);
+        if (hwnd == IntPtr.Zero) return;
+
+        var want = _cfg.Transparent && !_realTransparent;
+
+        try
+        {
+            var ex = NativeMethods.GetWindowLongPtr(hwnd, NativeMethods.GWL_EXSTYLE).ToInt64();
+            var layered = (ex & NativeMethods.WS_EX_LAYERED) != 0;
+
+            if (want)
+            {
+                if (!layered)
+                {
+                    NativeMethods.SetWindowLongPtr(hwnd, NativeMethods.GWL_EXSTYLE,
+                        new IntPtr(ex | NativeMethods.WS_EX_LAYERED));
+                }
+
+                var ok = NativeMethods.SetLayeredWindowAttributes(
+                    hwnd, 0, LegacyAlpha, NativeMethods.LWA_ALPHA);
+
+                if (_legacyAlphaState != true)
+                {
+                    _legacyAlphaState = true;
+                    AppLog.Info("message", ok
+                        ? $"逐像素透明不可用（{ActualTransparencyLevel}）→ 改用整窗半透明，alpha {LegacyAlpha}/255"
+                        : "整窗半透明也不可用 → 维持不透明底色");
+                }
+            }
+            else if (layered)
+            {
+                // 用户关掉「透明」后必须真的恢复不透明：清掉 alpha 再摘掉分层窗口样式。
+                NativeMethods.SetLayeredWindowAttributes(hwnd, 0, 255, NativeMethods.LWA_ALPHA);
+                NativeMethods.SetWindowLongPtr(hwnd, NativeMethods.GWL_EXSTYLE,
+                    new IntPtr(ex & ~(long)NativeMethods.WS_EX_LAYERED));
+
+                if (_legacyAlphaState != false)
+                {
+                    _legacyAlphaState = false;
+                    AppLog.Info("message", "整窗半透明已关闭，恢复不透明底色");
+                }
+            }
+        }
+        catch (Exception ex2)
+        {
+            AppLog.Warning("message", "整窗半透明应用失败: " + ex2.Message);
         }
     }
 

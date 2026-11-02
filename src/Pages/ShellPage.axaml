@@ -34,12 +34,12 @@
             <StackPanel x:Name="TitleLeading" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center" Margin="8,0,0,0">
                 <!--
                   返回：挪进标题栏最左（Win11 设置那种），替代 FA 导航面板里自带的那个。
-                  ⛔ 2026-10-02 真机截图核实：FA 自带返回按钮的图标（E72B）不在内嵌 CshSymbols.ttf 里，
-                     渲染成「图片损坏」占位符；而且它孤悬在面板顶部、和汉堡键竖着堆叠，位置也不对。
-                     所以 IsBackButtonVisible 关掉，这里自己画 —— 图标照三大金刚的规矩用**矢量 Path**
-                     （别用 fa:FontIcon，见下面三大金刚的注释）。
-                  ⚠️ 2026-10-03（用户：「返回按钮感觉好短」）：比金刚加宽加高（48×36 vs 46×32），
-                     箭头也从 10 提到 12 —— 标题栏左上角没有别的挤占，可以给足。
+                  FA 自带返回按钮的图标（E72B）不在内嵌 CshSymbols.ttf 里，渲染成「图片损坏」占位符；
+                  而且它孤悬在面板顶部、和汉堡键竖着堆叠，位置不对。
+                  所以 IsBackButtonVisible 关掉，这里自己画 —— 图标照三大金刚的规矩用矢量 Path
+                  （别用 fa:FontIcon，见下面三大金刚的注释）。
+                  尺寸比金刚加宽加高（48×36 vs 46×32），箭头 10 提到 12 ——
+                  标题栏左上角没有别的挤占，可以给足。
                 -->
                 <Button x:Name="BackButton" Classes="caption" Click="BackButton_Click"
                         IsVisible="False" ToolTip.Tip="返回" Width="48" Height="36">
@@ -105,10 +105,9 @@
             </StackPanel>
         </Grid>
 
-        <!-- ⛔ 返回按钮已挪进标题栏（见上方 TitleBarArea）——这里必须关掉，
+        <!-- 返回按钮已挪进标题栏（见上方 TitleBarArea）——这里必须关掉，
              否则面板顶部还留着那个图标画错的 FA 返回按钮。 -->
-        <!-- 2026-10-01 Nick 反馈「页面还够宽导航栏就自动收进去了，阈值太大」：
-             CompactModeThresholdWidth 820→700、ExpandedModeThresholdWidth 1180→1008
+        <!-- 阈值取 CompactModeThresholdWidth 700、ExpandedModeThresholdWidth 1008
              （1008 = WinUI 系统默认，与 Gallery 同款）：≥1008 展开、700~1008 图标条、<700 全隐 -->
         <fa:NavigationView x:Name="Nav" Grid.Row="1" Background="{x:Null}"
                            IsBackButtonVisible="False" IsSettingsVisible="False"
@@ -126,7 +125,7 @@
               ⚠️ 必须写成同 key 的 SolidColorBrush 定义：模板用的是 {ThemeResource} 查表，
                  换成 StaticResource 重指向同一 key 是无效的（会自引用）。
 
-              ⛔⛔ 其余键**一律不要覆盖** —— 2026-09-29 Nick 连着报的两个 bug 全出在这里：
+              其余键一律不要覆盖，否则会出两类问题：
 
               ① 面板背景（`NavigationViewExpandedPaneBackground` /
                  `NavigationViewDefaultPaneBackground`）刷成透明会连出两个毛病：
@@ -138,17 +137,14 @@
                    Top                        → NavigationViewTopPaneBackground
                  系统给它们的是**亚克力**（Expanded 是 background acrylic、跟着窗口材质；
                  Compact/Minimal 是 in-app acrylic，专为"浮在内容之上"设计）——
-                 本身就是半透明的，不会把材质盖住，⛔ 别再改回 Transparent。
+                 本身就是半透明的，不会把材质盖住，不要改回 Transparent。
 
               ② `NavigationViewPaneBorderBrush` / `NavigationViewPaneBorderThickness`
-                 —— 这就是**导航面板与内容区之间那条分隔线**。
-                 2026-09-28 顺手刷成透明 + 粗细 0，线就没了。Nick 原话：
-                 「原先导航栏还有标题栏，他们俩的是连接在一起的，并且与右边的内容区域是有分隔开的，
-                   有一条线的，现在却是没有的」。
+                 —— 这就是**导航面板与内容区之间那条分隔线**，刷成透明 + 粗细 0 分隔线就没了。
                  同类的还有 `NavigationViewContentGridBorderBrush` / `...GridBorderThickness`
                  （内容区那一圈边框），一并交回系统。
 
-              → 结论（2026-10-01 修订，上游对标 WinUI Gallery）：
+              → 结论（对标 WinUI Gallery）：
                  **一个键都不刷，NavigationView.Resources 整段删掉**。
                  Gallery 的分层 = 系统默认模板：内容区默认取 LayerFillColorDefaultBrush（设计规范
                  「内容层色」，"Used on background colors of any material to create layering"）+
@@ -191,12 +187,10 @@
                   子项（图片取色 / 随机抽号 / 课堂计时器 / 全屏时钟 / 桌面留言 / 编码哈希 / 系统镜像）
                   直达各自页面。父项自己也是入口（进 ToolsPage）。
 
-                  ⚠️ 2026-10-07（Nick 反复反馈「导航栏左边跟随页面切换的那根带颜色的竖线哪去了，
-                     二级菜单里尤其明显」）：**子项必须在 XAML 里声明**，不能改成"代码往 MenuItems 里 Add"。
-                     FluentAvalonia 2.4.1 的导航选中模型只认 XAML 里一次声明的子项 ——
-                     代码后加的子项它能渲染出来，但选中时认不到：SelectedItem 落到子项上会**退回父项**，
-                     竖线就压在「内置工具」上（实测；「实验性功能」的 XAML 子项则完全正常）。
-                     整组建、重挂父项等做法都试过，无效，只有 XAML 声明管用。
+                  子项必须在 XAML 里声明，不能改成"代码往 MenuItems 里 Add"：
+                  FluentAvalonia 2.4.1 的导航选中模型只认 XAML 里一次声明的子项 ——
+                  代码后加的子项它能渲染出来，但选中时认不到：SelectedItem 落到子项上会退回父项，
+                  竖线就压在「内置工具」上。整组建、重挂父项等做法都无效，只有 XAML 声明管用。
 
                   ⛔ 改工具清单时**两处一起改**（Tag 必须与 ToolCatalog 的 Id 完全一致）：
                      ① 这里（导航子项）  ② Data/ToolDef.cs 的 ToolCatalog.All（工具索引页卡片 + 页面映射）。
@@ -379,7 +373,7 @@
                         </fa:NavigationViewItem>
                         <!--
                           程序专杀：用户自己指定进程名，每个程序单独配结束时间点。
-                          ⚠️ 与白板专杀各存各的配置、各跑各的定时器（Nick 明确要求白板独立出来）。
+                          与白板专杀各存各的配置、各跑各的定时器（两个功能独立）。
                         -->
                         <fa:NavigationViewItem Content="程序专杀" Tag="procguard">
                             <fa:NavigationViewItem.IconSource>
@@ -410,7 +404,7 @@
                             </fa:NavigationViewItem.IconSource>
                         </fa:NavigationViewItem>
                         <!--
-                          日志查看：Nick 2026-10-02 拍板「不要实验性」，入口挪到 设置 → 诊断
+                          日志查看入口在 设置 → 诊断（Pages/SettingsPage.axaml）。
                           （Pages/SettingsPage.axaml）。NavigateTagCore 的 "log-viewer" case 保留，
                           供设置页跳转（含 page=log-viewer 启动参数）用。
                         -->
@@ -469,7 +463,7 @@
                     </fa:NavigationViewItem.IconSource>
                 </fa:NavigationViewItem>
                 <!--
-                  「提交软件」自上游 1.8 从导航栏移除（Nick：软件生态已足够丰富，不必再挤占导航）。
+                  「提交软件」自上游 1.8 从导航栏移除（软件生态已足够丰富，不再挤占导航）。
                   入口改到「软件下载」页顶部工具条的提交按钮，首页那张卡片保留为第二入口。
                   ⚠️ NavigateTagCore 里的 case "submit" **保留** —— 那是路由，不是导航项；
                      删了首页卡片和命令行的 page=submit 参数都会掉进 default 直接回首页。
@@ -496,13 +490,9 @@
             </fa:NavigationView.FooterMenuItems>
 
             <!--
-                CacheSize（2026-10-04 由 12 收紧到 2）：
-                原本是 0（页面一切走就丢，每次回来都要重新解析 XAML + 重建整棵树，切页能明显顿一下）；
-                10-01 为了消掉那个顿，一口气放到 12。Nick 现在要"回到最开始那种激进省内存的思路"，
-                所以**不再攒一堆页面** —— 只留最近 2 页（够"来回切"不重解析，又不会把十来个页面的
-                可视化树长期钉在内存里）。
-                ⛔ 没取 0：那正是 10-01 实测"切页明显顿一下"的配置，代价已经被否过一次。
-                ⛔ 没取 12：Nick 明确说"缓存各种页面…还是不够好"。
+                CacheSize = 2：只留最近 2 页。
+                0 会让切页每次重新解析 XAML + 重建整棵树，明显顿一下；
+                12 又会把十来个页面的可视化树长期钉在内存里。
                 页面用 NavigationCacheMode="Enabled" 的才真进缓存，其余仍旧走完就丢；
                 "内存立刻降下来"主要还是靠 MemoryTrimmer 的回收时机。
 

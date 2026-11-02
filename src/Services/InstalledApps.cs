@@ -9,11 +9,10 @@ using Microsoft.Win32;
 namespace ClassSoftwareHub.Desktop.Services;
 
 /// <summary>
-/// 「应用卸载」页上的分类（2026-10-13 加）。
+/// 「应用卸载」页上的分类。
 ///
 /// 为什么要分：这个列表一口气能出几百条，里面有商店应用、有 VC++ 运行库、
-/// 还有 Windows 自带的组件包，混在一起根本没法用。Nick 的原话是
-/// 「分类可以做好一下，运行库、桌面应用、还有 Microsoft Store」。
+/// 还有 Windows 自带的组件包，混在一起根本没法用。
 /// </summary>
 public enum AppCategory
 {
@@ -28,7 +27,7 @@ public enum AppCategory
 
     /// <summary>
     /// Windows 自带的系统组件包（商店仓储里 System 签名的）。
-    /// ⚠️ 界面上**默认不勾** —— 这些既卸不掉也不该卸，混进来只会淹掉真东西（Nick 2026-10-13 报的"无关的太多"）。
+    /// ⚠️ 界面上**默认不勾** —— 这些既卸不掉也不该卸，混进来只会淹掉真东西。
     /// </summary>
     System = 3,
 }
@@ -36,7 +35,7 @@ public enum AppCategory
 /// <summary>
 /// 本机装的一个软件（从注册表 Uninstall 键读出来的，或一个 Microsoft Store / MSIX 包）。
 ///
-/// ⚠️ 后四个字段是 2026-10-12 为「应用卸载」功能补的，都带默认值 ——
+/// ⚠️ 后四个字段是「应用卸载」功能补的，都带默认值 ——
 ///    「本机核实」只用前四个，老代码 <c>new InstalledApp(n, v, p, l)</c> 照样编译，不用改。
 ///    加在这里而不是另开一个类，是为了**不重复读一遍注册表**（那活儿在本机挺贵）。
 /// </summary>
@@ -44,9 +43,9 @@ public enum AppCategory
 /// <param name="QuietUninstallString">厂商额外给的静默卸载命令，有就优先用它（少一次交互）。</param>
 /// <param name="IsStore">true = Microsoft Store / MSIX 包 —— 它不写 Uninstall 键，卸载要走另一条路。</param>
 /// <param name="PackageFullName">MSIX 的包全名（<c>Name_Version_Arch__PublisherHash</c>），卸载时按它定位。</param>
-/// <param name="Category">界面上的分类（2026-10-13 加），决定它进哪颗筛选芯片。</param>
+/// <param name="Category">界面上的分类，决定它进哪颗筛选芯片。</param>
 /// <param name="IconPath">
-/// 取图标用的**文件路径**（2026-10-13 加）—— 桌面应用指向 exe/ico，商店应用指向包里的 logo png。
+/// 取图标用的**文件路径** —— 桌面应用指向 exe/ico，商店应用指向包里的 logo png。
 /// 空 = 拿不到图标，界面显示分类占位字形。⚠️ 只是个路径，真正的图标在界面线程上按需掏（见 AppIconService）。
 /// </param>
 public sealed record InstalledApp(
@@ -97,7 +96,7 @@ public static class InstalledApps
         }
 
         // 同一款软件可能在 64/32 两个视图里各出现一次（甚至多个版本并存）→ 按「名称+版本」去重。
-        // ⚠️ 去重时**优先留带卸载命令的那条**（2026-10-12 加）：两个视图里常常一只有 UninstallString、
+        // ⚠️ 去重时**优先留带卸载命令的那条**：两个视图里常常一只有 UninstallString、
         //    另一只没有（比如 32 位残留键），随便留一条会让「应用卸载」页上这颗按钮点了没反应。
         return found
             .GroupBy(a => (a.Name.ToLowerInvariant(), a.Version.ToLowerInvariant()))
@@ -109,17 +108,13 @@ public static class InstalledApps
     /// <summary>
     /// 抓一份**当前账户**注册的 Microsoft Store / MSIX 应用。
     ///
-    /// ⚠️ 2026-10-13 重写（Nick：「无关的太多了」的**主因**就在这儿）。
+    /// ⚠️ 必须只列**当前账户**的包。
     ///
-    /// 原来读的是注册表仓库键，而那个键是**机器级**的 ——
-    /// 本机实测：里面躺着 790 个包，只有 188 个属于当前账户。
-    /// 剩下 600 个是别的账户、以及 Windows 自己的组件包，它们的 DisplayName 又都是
-    /// 「@…normal_neutral_cw5n1h2txyewy/ms-resource://…」这种没展开的引用，
-    /// 于是整屏都是天书（Nick 截图里那一片）。
-    /// 而且注册表里**没有**任何值能区分"这个包属于谁" —— 当前账户的
-    /// <c>Microsoft.WindowsCalculator</c> 和别家的包，键结构一模一样。
+    /// 若读机器级的注册表仓库键，里面混着大量别的账户与 Windows 组件包，
+    /// 且 DisplayName 多为未展开的 ms-resource 引用，整屏都是天书；
+    /// 注册表里也**没有**任何值能区分"这个包属于谁"。
     ///
-    /// 所以改用 WinRT 的 <c>PackageManager</c>：系统「设置 → 应用」和
+    /// 改用 WinRT 的 <c>PackageManager</c>：系统「设置 → 应用」和
     /// <c>Get-AppxPackage</c> 用的就是它，拿到的天然只有**当前账户**的包。
     /// 顺带白拿三样东西：
     ///   · <c>DisplayName</c> 由系统解析资源引用 —— 不用我们自己拼 ms-resource；
@@ -144,7 +139,7 @@ public static class InstalledApps
 
     private static List<InstalledApp> EnumerateStoreFromPackageManager()
     {
-        // ⚠️ Win7 移植说明（2026-10-18）：WinRT 的 PackageManager 在 .NET 6 普通 C# 进程里
+        // ⚠️ Win7 移植说明：WinRT 的 PackageManager 在 .NET 6 普通 C# 进程里
         //    不可直接 new（要 WinRT 投影 + Windows 10 运行时，教室里的 Win7 机没有）。
         //    这里退回注册表路径，但公开签名与上游一致，页面代码不用感知差异。
         //    （上游用 PackageManager 的动机 —— "只列当前账户的包 / 解出 ms-resource /
@@ -165,10 +160,10 @@ public static class InstalledApps
     /// <summary>
     /// 去重用的键：比 <see cref="Normalize"/> **保守得多** —— 只裁空白、转小写。
     ///
-    /// ⚠️ 2026-10-13 单独分出来。别图省事拿 <see cref="Normalize"/> 当这个键：
+    /// ⚠️ 单独分出来。别图省事拿 <see cref="Normalize"/> 当这个键：
     ///    它会把括号里的内容**整段删掉**，于是
     ///    「Windows Package Manager Source (winget)」和「… (winget-font)」
-    ///    这两个不同的包会被合并成一条（实拍比对时发现）。
+    ///    这两个不同的包会被合并成一条。
     ///    去重真正要解决的只是「同一个应用按架构/语言拆成多个包」——
     ///    那种情况名字是**完全相同**的（如本机的「Windows 功能体验包」×9）。
     ///    Normalize 是给「和站点清单模糊比对」用的，那里才需要剥括号。
@@ -242,14 +237,14 @@ public static class InstalledApps
         if (k is null) return null;
 
         // Framework=1 = 运行时/框架包（VCLibs、WindowsAppRuntime…），不是用户装的"软件"
-        // ⚠️ 2026-10-13 保持过滤：它们在系统「设置 → 应用」里同样不显示，卸掉还会连累一串商店应用。
+        // ⚠️ 保持过滤：它们在系统「设置 → 应用」里同样不显示，卸掉还会连累一串商店应用。
         //    所以「运行库」分类里也不会出现它们 —— 那类东西的正确归属是桌面侧的 VC++ / .NET。
         if (k.GetValue("Framework") is int fw && fw == 1) return null;
         // 资源包 / 语言包同样不是"应用"
         if (k.GetValue("IsResourcePackage") is int rp && rp == 1) return null;
 
         // ⚠️ 注册表仓库键里**没有**能区分"商店应用 / Windows 自带组件"的值，也分不出"包属于哪个账户"
-        //    （2026-10-13 逐键查实）—— 这正是这条回落路噪声大的原因，所以它只兜底。
+        //    —— 这正是这条回落路噪声大的原因，所以它只兜底。
         //    正式那条走 PackageManager（见 EnumerateStoreFromPackageManager）。
         var name = ResolvePackageName(k, fullName);
         if (name.Length == 0) return null;
@@ -271,9 +266,8 @@ public static class InstalledApps
     /// 两种难缠的写法：
     ///   · <c>ms-resource:AppDisplayName</c> —— 老式资源引用，没有包上下文解不开；
     ///   · <c>@{PackageFullName?ms-resource://…}</c> / <c>@!w~{…}</c> —— 间接字符串，要交给系统解。
-    ///     ⚠️ 2026-10-13 补的：旧实现只认 <c>ms-resource:</c> 前缀，于是整屏都是
-    ///     「@!w~{6E5C2524a-…}_10.0.26100.2_normal_neutral_cw5n1h2txyewy/ms-resource://FileExplorer/Res…」
-    ///     这种鬼东西（Nick 截的那张图就是它）。现在交给 <see cref="IndirectString"/> 解。
+    ///     ⚠️ 间接字符串 <c>@{…}</c>/<c>@!w~{…}</c> 必须交给系统解：旧实现只认 <c>ms-resource:</c> 前缀，
+    ///     解不出来的整屏都是原始引用串。现在交给 <see cref="IndirectString"/> 解。
     /// 都解不出来才退化成「包名的最后一段」（28AE62C8.FurryXiyi.DismGUI → DismGUI）。
     /// </summary>
     private static string ResolvePackageName(RegistryKey k, string fullName)
@@ -383,9 +377,8 @@ public static class InstalledApps
 
         // ── 排除「不是软件」的条目 ──
         // SystemComponent=1：系统组件（驱动、补丁、**以及绝大多数运行库**）。
-        //   ⚠️ 2026-10-13 改：**运行库放行**，单独归到 <see cref="AppCategory.Runtime"/>。
-        //      Nick 要求分类里必须有「运行库」一项，而 VC++ Redist / .NET Runtime 恰恰全被这一条挡掉了
-        //      —— 严格按旧规则走，那个分类会是个空壳。
+        //   ⚠️ **运行库放行**，单独归到 <see cref="AppCategory.Runtime"/>；
+        //      否则 VC++ Redist / .NET Runtime 全被这一条挡掉，「运行库」分类会是个空壳。
         //   ⛔ 其余系统组件照旧跳过：它们不是"能卸的软件"，列出来只会淹掉真东西。
         if (k.GetValue("SystemComponent") is int sc && sc == 1 && !isRuntime) return null;
         // ParentKeyName：补丁/更新，挂在主程序下面
@@ -508,11 +501,11 @@ public static class InstalledApps
 
     /// <summary>
     /// 在安装目录里挑一个「像主程序」的 exe。⛔ 卸载器 / 安装器 / 更新器 / 助手都不是主程序 ——
-    /// 挑错了界面上就会出现"所有软件长得一样"的卸载器图标，比没图标还难看。
+    /// 挑错了界面上就会出现"所有软件长得一样"的卸载器图标，显示效果反而更差。
     ///
-    /// ⚠️ 2026-10-13 补了下探一层：相当多软件的主程序不在安装目录顶层，而在
-    ///    <c>bin\</c> / <c>app\</c> 这类子目录里（火绒就是 <c>…\Huorong\Sysdiag\bin\</c>）。
-    ///    只扫顶层的话，这些行全成了占位图标。⛔ 只下探**一层**，再深就该撞上运行库、插件目录了。
+    /// ⚠️ 主程序可能不在安装目录顶层，而在
+    ///    <c>bin\</c> / <c>app\</c> 这类子目录里 —— 只扫顶层的话，这些行全成了占位图标。
+    ///    ⛔ 只下探**一层**，再深就该撞上运行库、插件目录了。
     /// </summary>
     private static string FindMainExecutable(string location)
     {

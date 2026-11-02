@@ -14,7 +14,7 @@ using ClassSoftwareHub.Desktop.Services;
 namespace ClassSoftwareHub.Desktop.Views;
 
 /// <summary>
-/// PPT 续播浮窗（2026-10-31）。
+/// PPT 续播浮窗。
 ///
 /// <para>
 /// 窗口边框与「文件快搜」浮窗同一套：<see cref="SelfDrawnFrame"/> 接管非客户区，

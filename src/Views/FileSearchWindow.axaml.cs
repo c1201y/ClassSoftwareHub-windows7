@@ -11,7 +11,7 @@ using ClassSoftwareHub.Desktop.Services;
 namespace ClassSoftwareHub.Desktop.Views;
 
 /// <summary>
-/// 文件快搜浮窗（2026-10-29 insider1.4）。
+/// 文件快搜浮窗。
 ///
 /// <para>
 /// 窗口边框与「常用工具」浮窗完全同一套：所有系统都由 <see cref="SelfDrawnFrame"/>

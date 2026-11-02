@@ -3,7 +3,7 @@ using System.Collections.Generic;
 namespace ClassSoftwareHub.Desktop.Services.HubAi;
 
 /// <summary>
-/// 「这次对话能用哪些工具」的唯一判定处（2026-10-30 从 <c>HubAiPage.LoadTools</c> 抽出来）。
+/// 「这次对话能用哪些工具」的唯一判定处。
 ///
 /// <para>
 /// 来由：Hub AI 的入口从完整页扩展到了软件下载 / AppData / 卸载等页面的浮层。
@@ -13,7 +13,7 @@ namespace ClassSoftwareHub.Desktop.Services.HubAi;
 ///
 /// <para>
 /// 联网工具与「工具总闸」**互相独立**：总闸关着，只要用户把「联网」拨上就能用
-/// （Nick 要求跟「思考」一样，拨上即可用）。
+/// （与「思考」开关的行为一致）。
 /// </para>
 /// </summary>
 public static class ActiveTools

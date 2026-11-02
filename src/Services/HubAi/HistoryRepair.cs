@@ -5,7 +5,7 @@ using System.Linq;
 namespace ClassSoftwareHub.Desktop.Services.HubAi;
 
 /// <summary>
-/// 收拾被中途打断的历史（2026-10-30）。
+/// 收拾被中途打断的历史。
 ///
 /// <para>
 /// OpenAI 兼容协议有一条硬规矩：assistant 消息里的每个 <c>tool_calls[].id</c>，

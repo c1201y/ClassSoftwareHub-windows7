@@ -15,14 +15,12 @@ public sealed class QuickLink : INotifyPropertyChanged
 
     /// <summary>
     /// 点了在**应用内**跳转的导航 tag（如 <c>changelog</c>）。
-    /// ⚠️ 只要这个非空就走应用内导航，<see cref="Url"/> 会被忽略 —— 别再写成"顺手也留个网址"，
-    ///    那会让"更新日志"又跳回网站（Nick 2026-09-26 明确要求改成应用内）。
+    /// 只要这个非空就走应用内导航，<see cref="Url"/> 会被忽略 —— 不要再写成"顺手也留个网址"。
     /// </summary>
     public string Tag { get; set; } = "";
 
     /// <summary>
     /// SVG 图标资源文件名（如 <c>GITHUB.svg</c>）。非空时模板改用这张图、隐藏 FontIcon。
-    /// （2026-10-18 自上游 1.2.0 移植。）
     /// </summary>
     public string? IconSvg { get; set; }
 
@@ -69,8 +67,6 @@ public static class QuickLinks
                 Name = "作者主页", Glyph = "\uE77B", IconSvg = "主页.svg",
                 Url = ui.T("about.author-home-url", "https://space.bilibili.com/3546609547741581"),
             },
-            // ⚠️ 这颗原来带 Accent = true（走"主题色底 + 反白字"那套模板单独突出），
-            //    2026-10-12 Nick 嫌那个底色越看越丑 ⇒ 去掉（2026-10-18 对齐上游 1.2.0）。
             new()
             {
                 Name = "赞助作者", Glyph = "\uEB51",
@@ -81,8 +77,7 @@ public static class QuickLinks
                 Name = "加入Q群", Glyph = "\uE8BD", IconSvg = "QQ.svg",
                 Url = ui.T("about.qq-group-url", "https://qm.qq.com/q/wByO7XG8Wk"),
             },
-            // ⚠️ 更新日志走**应用内**页面（tag changelog），不是仓库的 releases 网页 ——
-            //    Nick 2026-09-26 明确要求"不在导航到网站"。所以这里只给 Tag、不给 Url。
+            // 更新日志走**应用内**页面（tag changelog），不是仓库的 releases 网页：只给 Tag、不给 Url。
             new() { Name = "更新日志", Glyph = "\uE72C", Tag = "changelog" },
         };
     }

@@ -4,7 +4,7 @@ using ClassSoftwareHub.Desktop.Core;
 namespace ClassSoftwareHub.Desktop.Data.Tweaks;
 
 /// <summary>
-/// 系统优化项清单（自上游 2026-10-31 移植，需求清单第 20 条，对齐 Dism++「系统优化」的能力）。
+/// 系统优化项清单（自上游移植，对齐 Dism++「系统优化」的能力）。
 ///
 /// <para>
 /// ⭐ 口径：这些项都是<b>当前用户的界面与使用习惯设置</b>，落在 <c>HKCU</c>、
@@ -12,11 +12,11 @@ namespace ClassSoftwareHub.Desktop.Data.Tweaks;
 /// （<c>HKLM</c>、要提权）。
 /// </para>
 /// <para>
-/// ⛔ 收录标准：<b>键路径能确认、且当前用户下真实生效</b>。落点拿不准的项宁可先不做 ——
+/// 收录标准：<b>键路径能确认、且当前用户下真实生效</b>。落点拿不准的项宁可先不做 ——
 /// 写错键等于给用户一个什么都不做的开关。
 /// </para>
 /// <para>
-/// ⛔ 明确不收的整类（以下说明只给开发者看）：安全相关（UAC / SmartScreen / Defender）、
+/// 明确不收的整类（以下说明只给开发者看）：安全相关（UAC / SmartScreen / Defender）、
 /// 服务优化（SysMain / 搜索索引）、Windows Update 策略、右键菜单禁用项、具体软件的设置。
 /// </para>
 /// </summary>
@@ -220,7 +220,7 @@ public static class TweakCatalog
             Id = "ime-no-cloud", Group = GroupInput,
             Header = "关闭拼音输入法的云候选",
             Description = "候选词只来自本地词库，不再向微软发送输入内容、也不再联网取候选词。",
-            // ⚠️ 落点与 Dism++（Data.xml「关闭微软拼音云计算」）一致：用户级 IME 设置里这一项。
+            // 落点与 Dism++（Data.xml「关闭微软拼音云计算」）一致：用户级 IME 设置里这一项。
             //    写成 Policies\Microsoft\InputPersonalization 在 HKCU 下不生效，等于死开关。
             KeyPath = ImeSettings,
             ValueName = "Enable Cloud Candidate",
@@ -351,7 +351,7 @@ public static class TweakCatalog
         },
 
         // ───────────── 桌面图标 ─────────────
-        // ⚠️ 这里是 0 = 显示、1 = 隐藏（与「关闭类」项相反，别按习惯写反）。
+        // 这里是 0 = 显示、1 = 隐藏（与「关闭类」项相反，别按习惯写反）。
         new TweakDef
         {
             Id = "desktop-show-thispc", Group = GroupDesktop,

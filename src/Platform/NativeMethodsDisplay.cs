@@ -6,10 +6,10 @@ namespace ClassSoftwareHub.Desktop.Platform;
 /// <summary>
 /// <see cref="NativeMethods"/> 的**第三批补充**：显示器亮度（外接显示器的 DDC/CI 路径）。
 ///
-/// ⚠️ 只服务于 <c>Services.BrightnessService</c> 的「外接显示器」兜底：
+/// 只服务于 <c>Services.BrightnessService</c> 的「外接显示器」兜底：
 ///    · <c>MonitorFromPoint</c> 走 user32，Win2000 起就有；
 ///    · <c>dxva2.dll</c> 的四个导出最低 WinVista，**Win7 完整可用**。
-/// ⛔ 内建显示屏**不支持 DDC/CI**（这条路去问内屏只会一路失败，错误码是 0xC02xxxxx 那类图形错误），
+/// 内建显示屏**不支持 DDC/CI**（这条路去问内屏只会一路失败，错误码是 0xC02xxxxx 那类图形错误），
 ///    内屏一律走 WMI，见 <c>BrightnessService</c> 的类注释。
 /// </summary>
 internal static class NativeMethodsDisplay
@@ -45,7 +45,7 @@ internal static class NativeMethodsDisplay
 
     /// <summary>
     /// 最低 WinVista。释放 <see cref="GetPhysicalMonitorsFromHMONITOR"/> 拿到的物理显示器句柄。
-    /// ⚠️ 每取一次都会加引用，不还回去的话反复读写亮度会把句柄耗尽。
+    /// 每取一次都会加引用，不还回去的话反复读写亮度会把句柄耗尽。
     /// </summary>
     [DllImport("dxva2.dll", SetLastError = true)]
     internal static extern bool DestroyPhysicalMonitor(IntPtr hMonitor);
@@ -61,7 +61,7 @@ internal static class NativeMethodsDisplay
     // ══════════════════════════════════════════════════════════════════
     //  gdi32 —— 软件亮度（gamma ramp）
     //
-    //  ⚠️ 第三条路，服务于「WMI 与 DDC/CI 都不通」的机器（外接屏不带 DDC/CI、
+    //  第三条路，服务于「WMI 与 DDC/CI 都不通」的机器（外接屏不带 DDC/CI、
     //     虚拟机 / 远程桌面的虚拟显示器）。原理：直接改显卡输出的 gamma 查找表，
     //     把 0..255 的每个输入值整体压小 —— 屏幕上就是变暗了。
     //     所有"护眼软件"的亮度调节都是这个做法。

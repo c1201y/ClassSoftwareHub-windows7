@@ -15,9 +15,8 @@ namespace ClassSoftwareHub.Desktop.Views;
 /// ⚠️ 它是**只读投影**：时间由 <see cref="Show"/> 传进来的取时函数提供，窗口自己不含任何计时状态。
 /// 好处是浮窗版秒表和应用端秒表能共用同一个窗口，不会出现"两个时间对不上"。
 ///
-/// ⚠️ **同一时刻只允许存在一个**（跟 <see cref="ClockFullscreenWindow"/> 同一条铁律）：
-/// 已经开着就只把它拉到前台，不叠新的 —— 触屏上连点几下就叠出十几个全屏窗口，
-/// 现场反馈原话就是「点了一下然后卡死了/关不掉」。
+/// ⚠️ <b>同一时刻只允许存在一个</b>（与 <see cref="ClockFullscreenWindow"/> 相同约束）：
+/// 已经开着就只把它拉到前台，不叠新的 —— 触屏连点会叠出多个全屏窗口导致无法关闭。
 ///
 /// ⚠️ 移植说明（WinUI → Avalonia）：
 ///   · 原版 <c>Microsoft.UI.Dispatching.DispatcherQueueTimer</c> + <c>IsRepeating=true</c>
@@ -174,7 +173,7 @@ public sealed partial class StopwatchFullscreenWindow : Window
     }
 
     // ⚠️ 忠实照搬原版：这两个方法在原版 Stopwatch 里就**没有**接到 XAML / 构造函数上
-    //    （对比 TimerFullscreenWindow 是在构造函数里显式挂的）。这里保留原状，不做"顺手修好"。
+    //    （对比 TimerFullscreenWindow 是在构造函数里显式挂的）。此处保留原状，不一并调整。
     private void Root_PointerMoved(object? sender, PointerEventArgs e)
     {
         if (_exitRemainMs < ExitHoldMs - 300 || ExitBar.Opacity <= 0) RevealExit();

@@ -123,6 +123,16 @@
                     </views:SettingsCard>
                 </StackPanel>
 
+                <!-- 授权：官方发布版直接显示已授权；自行编译版在这里输入激活码 -->
+                <TextBlock Text="授权" FontSize="14" FontWeight="SemiBold" Margin="0,20,0,8" />
+                <StackPanel Spacing="4">
+                    <views:SettingsCard x:Name="LicenseCard" Header="正版授权" IsClickEnabled="True" Click="License_Click">
+                        <views:SettingsCard.HeaderIcon>
+                            <fa:FontIcon Glyph="&#xE72E;" />
+                        </views:SettingsCard.HeaderIcon>
+                    </views:SettingsCard>
+                </StackPanel>
+
                 <!-- ================= 外观 ================= -->
                 <!-- 本文件原用 BodyStrongTextBlockStyle / CaptionTextBlockStyle（WinUI 样式键，FA 里没有）→ 已内联为 FontSize/FontWeight -->
                 <TextBlock Text="外观" FontSize="14" FontWeight="SemiBold" Margin="0,24,0,8" />
@@ -164,7 +174,7 @@
                         </ComboBox>
                     </views:SettingsCard>
 
-                    <views:SettingsCard Header="窗口背景效果"
+                    <views:SettingsCard x:Name="BackdropCard" Header="窗口背景效果"
                                            Description="主界面、常用工具浮窗与截图编辑窗都随此项；截图框选层与钉图不参与。">
                         <views:SettingsCard.HeaderIcon>
                             <fa:FontIcon Glyph="&#xE81E;" />
@@ -230,9 +240,8 @@
                      那页本就是侧边栏与常用工具的布置中心。这里整块删干净，别再往设置页加回来。 -->
 
                 <!-- ================= Hub AI ================= -->
-                <!-- 2026-10-18 上游新增（2026-10-22 移植）：Nick 要求放在「诊断」上方 ——
-                     它是诊断类功能里唯一需要配置的那个，单独成组而不是塞进诊断组。
-                     ⚠️ 右侧**不要**自己放箭头：IsClickEnabled=True 时卡片自带一颗 Chevron。 -->
+                <!-- 放在「诊断」上方单独成组：它是诊断类功能里唯一需要配置的那个。
+                     右侧不要自己放箭头：IsClickEnabled=True 时卡片自带一颗 Chevron。 -->
                 <TextBlock Text="Hub AI" FontSize="14" FontWeight="SemiBold" Margin="0,24,0,8" />
                 <StackPanel Spacing="4">
 
@@ -270,9 +279,9 @@
                 </StackPanel>
 
                 <!-- ================= 诊断 ================= -->
-                <!-- 2026-10-02（原版）：日志查看从实验性分组挪来这儿（Nick：不是实验功能，设置里给个正式入口）。
-                     位置他指定：窗口之后、软件内容之前。SettingsCard 整卡可点（IsClickEnabled）。
-                     ⚠️ 右侧**不要**自己放箭头：IsClickEnabled=True 时卡片自带一颗 Chevron（2026-10-02 截到过两颗）。 -->
+                <!-- 日志查看从实验性分组挪到诊断分组，给正式入口。位置：窗口之后、软件内容之前。
+                     SettingsCard 整卡可点（IsClickEnabled）；右侧不要自己放箭头：
+                     IsClickEnabled=True 时卡片自带一颗 Chevron。 -->
                 <TextBlock Text="诊断" FontSize="14" FontWeight="SemiBold" Margin="0,24,0,8" />
                 <StackPanel Spacing="4">
 
@@ -497,7 +506,7 @@
                 </StackPanel>
 
                 <!-- ================= 回声洞 ================= -->
-                <!-- 2026-10-03（原版）三次改版：**单独一块、单独一个「回声洞」标题**（不并进「软件内容」）；
+                <!-- 单独一块、单独一个「回声洞」标题（不并进「软件内容」）；
                      形态对齐 ClassIsland 的「关于 → 回声洞」：一个 SettingsExpander，
                      展开区里**只有一张卡片**，里面**只有字条本身**（Controls/EchoCaveCard，
                      标准正文字号、自己不带边框、不写任何状态文字）；
@@ -591,7 +600,7 @@
                         <views:SettingsCard.HeaderIcon>
                             <fa:FontIcon Glyph="&#xE896;" />
                         </views:SettingsCard.HeaderIcon>
-                        <!-- ⚠️ 2026-10-22 上游：内容区限宽，否则长内容把 Header 挤成竖排 -->
+                        <!-- 内容区限宽，否则长内容把 Header 挤成竖排 -->
                         <StackPanel Spacing="10" MaxWidth="420" HorizontalAlignment="Left">
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <!-- ⚠️ 移植说明：原版 Style="{ThemeResource AccentButtonStyle}" —— FA 的
@@ -603,10 +612,8 @@
                             <TextBlock x:Name="UpdateStatus" TextWrapping="Wrap"
                                        FontSize="12"
                                        Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
-                            <!-- ⛔ 上游 2026-10-26 删掉了内嵌的「更新说明」（原 UpdateNotes）：
-                                 它把发版正文整段渲染进设置卡，配图语法、大标题、下载提示全被当正文显示，
-                                 卡片被撑很高。正文改由更新对话框展示（只挑要点，已洗干净）。
-                                 ⛔ 别再把它加回来。这一格只留：按钮 + 进度条 + 一行状态。 -->
+                            <!-- 不放内嵌「更新说明」：把发版正文整段渲染进设置卡会被撑得很高，
+                                 正文改由更新对话框展示。这一格只留：按钮 + 进度条 + 一行状态。 -->
                         </StackPanel>
                     </views:SettingsCard>
 
@@ -733,7 +740,7 @@
                                         </StackPanel>
                                         <StackPanel x:Name="HistoryList" Spacing="6" />
                                         <!-- 「从仓库装回旧版本」列表：一次最多拉 20 条 ⇒ 分两页。
-                                             ⚠️ 翻页**不再打网络**，用的是一次加载缓存在 _historyReleases 里的那份。 -->
+                                             翻页不打网络，用的是一次加载缓存在 _historyReleases 里的那份。 -->
                                         <StackPanel x:Name="HistoryPager" Orientation="Horizontal" Spacing="8"
                                                     Margin="0,4,0,0" IsVisible="False">
                                             <Button x:Name="HistoryPrevButton" Content="上一页" Click="HistoryPrev_Click" />

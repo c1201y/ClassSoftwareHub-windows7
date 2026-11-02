@@ -8,10 +8,10 @@ using ClassSoftwareHub.Desktop.Platform;
 namespace ClassSoftwareHub.Desktop.Core;
 
 /// <summary>
-/// 全工程统一的 TLS 配置（2026-10-27）。
+/// 全工程统一的 TLS 配置。
 ///
 /// <para>
-/// ⛔ Win7 的 Schannel **默认不协商 TLS 1.2**（要装补丁 + 改注册表才默认开）。.NET 6 的
+/// Win7 的 Schannel **默认不协商 TLS 1.2**（要装补丁 + 改注册表才默认开）。.NET 6 的
 /// <c>HttpClient</c> 走系统默认协议，于是未打补丁的教室机上 GitHub / 自家接口全部握手失败，
 /// 表现就是「检查更新永远网络错误」「投稿永远失败」，而日志里只有一句 SSL 错误。
 /// </para>
@@ -19,7 +19,7 @@ namespace ClassSoftwareHub.Desktop.Core;
 /// <para>
 /// 显式指定 <see cref="SslProtocols.Tls12"/> 即可解决：系统支持 TLS 1.2 时一定用得上，
 /// 不支持时（极老的 XP 级系统，不在支持范围）会因为握手失败回到原来的错误，
-/// 不会比现在更差。⚠️ 不要用 <c>ServicePointManager.SecurityProtocol</c> ——
+/// 不会比现在更差。不要用 <c>ServicePointManager.SecurityProtocol</c> ——
 /// .NET Core 上该开关已废弃且不保证生效。
 /// </para>
 ///

@@ -32,14 +32,14 @@ public sealed record SysApplyResult(int Requested, IReadOnlyList<string> Failed,
 }
 
 /// <summary>
-/// 系统功能：HKLM 与 powercfg 的读取、批量写入（自上游 2026-10-31 移植，需求清单第 20 条）。
+/// 系统功能：HKLM 与 powercfg 的读取、批量写入（自上游移植）。
 ///
 /// <para>
 /// 四条边界：
 /// <list type="number">
 ///   <item><b>状态一律从注册表读</b>，不解析 <c>powercfg /a</c> 或 <c>/query</c> 的输出 ——
 ///         那份输出跟系统语言走，中文系统里全是"待机 (S3)"这类字样，按文字匹配必然出岔子
-///         （项目里踩过一次，见 <c>BrightnessService</c> 的注释）；</item>
+///         （项目中实际发生过一次，见 <c>BrightnessService</c> 的注释）；</item>
 ///   <item><b>写入后才算数</b>：命令返回 0 不等于生效，整批跑完重新读一遍注册表，
 ///         界面按实际状态显示（与 <c>FirewallGateway.Repair</c> 同一原则）；</item>
 ///   <item><b>整批一次 UAC</b>：所有改动拼成一个临时脚本，用 <c>Verb=runas</c> 跑一次。
@@ -101,7 +101,7 @@ public static class SystemFeatures
     /// 读当前电源方案里某一项设置的交流电取值（秒数 / 枚举值）。
     ///
     /// <para>
-    /// 三级回落（上游 2026-10-31 实测：本机"关闭硬盘""合盖"在活动方案下根本没有这个值）：
+    /// 三级回落（部分机器的"关闭硬盘""合盖"在活动方案下没有这个值）：
     /// <list type="number">
     ///   <item>活动方案 → 子组 → 设置 → <c>ACSettingIndex</c>；</item>
     ///   <item>同上但取 <c>DCSettingIndex</c>（台式机没有交流电差异时常见）；</item>

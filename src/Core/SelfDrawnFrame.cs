@@ -246,6 +246,50 @@ public sealed class SelfDrawnFrame
         try { Win32Properties.RemoveWndProcHookCallback(_window, _hook); } catch { }
     }
 
+    /// <summary>
+    /// 显示之后补一次「非客户区重算 + 整窗重画」。
+    ///
+    /// <para>
+    /// ⚠️ 2026-11-01（真机反馈「学科工具窗口有黑边，拖动一下才消失」）：
+    /// 窗口第一次 <c>Show()</c> 时，Avalonia 的渲染 surface 是按"还没被 WM_NCCALCSIZE 吃掉边框"
+    /// 的客户区尺寸分配的；等我们回 0 之后客户区变大了那一圈（原来给边框留的位置）没人画，
+    /// 在无 DWM 合成的 Win7 上就是一条黑边 —— 拖动窗口触发一次重排才补上。
+    /// 这里主动让系统重算一次非客户区（<c>SWP_FRAMECHANGED</c>）并标脏整个客户区，
+    /// 让 Avalonia 在正确尺寸上重画一帧。
+    /// </para>
+    ///
+    /// <para>在 <see cref="Window.Show()"/> / 切到该窗口之后调用一次即可；重复调用无副作用。</para>
+    /// </summary>
+    public void RefreshFrame(string why)
+    {
+        if (!_attached || Suspended) return;
+
+        try
+        {
+            var hwnd = Backdrop.TryGetHwnd(_window);
+            if (hwnd == IntPtr.Zero) return;
+
+            DisableDwmNonClientRendering(hwnd);
+
+            // SWP_FRAMECHANGED：告诉系统"框架变了，重新算一次非客户区"—— 会重新发 WM_NCCALCSIZE，
+            // 这正是把 Avalonia surface 尺寸纠正回来的那一下。
+            _ = NativeMethods.SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0,
+                NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE
+                | NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE
+                | NativeMethods.SWP_FRAMECHANGED);
+
+            _fullRepaintPending = true;
+            _lastFullRepaintMs = Environment.TickCount64;
+            _ = NativeMethodsEx.InvalidateRect(hwnd, IntPtr.Zero, false);
+
+            PortLog.Step($"窗口框架: 显示后重算非客户区并整窗补画（{why}）");
+        }
+        catch
+        {
+            // 补画失败最多维持"拖动一下才正常"，不影响功能
+        }
+    }
+
     // ============================================================
     // WndProc
     // ============================================================

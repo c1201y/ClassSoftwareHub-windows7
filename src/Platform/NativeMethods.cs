@@ -91,6 +91,9 @@ internal static class NativeMethods
     internal const uint SWP_NOACTIVATE = 0x0010;
     internal const uint SWP_NOZORDER = 0x0004;
 
+    /// <summary>让系统重算一次非客户区（配合 WM_NCCALCSIZE 在显示后补一次，见 SelfDrawnFrame.RefreshFrame）。</summary>
+    internal const uint SWP_FRAMECHANGED = 0x0020;
+
     [DllImport("user32.dll")]
     internal static extern bool IsZoomed(IntPtr hWnd);
 
@@ -158,6 +161,27 @@ internal static class NativeMethods
     internal const int SM_YVIRTUALSCREEN = 77;
     internal const int SM_CXVIRTUALSCREEN = 78;
     internal const int SM_CYVIRTUALSCREEN = 79;
+
+    /// <summary>最低 Win2000。非 0 = 当前是远程会话（RDP）。材质判定用。</summary>
+    internal const int SM_REMOTESESSION = 0x1000;
+
+    /// <summary>最低 Win2000。枚举显示适配器/显示器（材质能力判定用）。</summary>
+    [DllImport("user32.dll", EntryPoint = "EnumDisplayDevicesW", CharSet = CharSet.Unicode)]
+    internal static extern bool EnumDisplayDevices(string? lpDevice, uint iDevNum,
+        ref DISPLAY_DEVICE lpDisplayDevice, uint dwFlags);
+
+    internal const int DISPLAY_DEVICE_PRIMARY_DEVICE = 0x00000004;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    internal struct DISPLAY_DEVICE
+    {
+        public int cb;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string DeviceName;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceString;
+        public int StateFlags;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceID;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string DeviceKey;
+    }
 
     /// <summary>最低 Win2000。枚举顶层窗口 / 判断可见性（虚拟键盘与截屏用）。</summary>
     [DllImport("user32.dll")]

@@ -93,7 +93,7 @@ public sealed class GitHubReleaseSource : IUpdateSource
             if (channel == UpdateChannel.Stable && prerelease) continue;
 
             // ── tag 前缀过滤（当前未启用）────────────────────────────
-            // Win7 版 2026-10-04 起改用独立仓库，天然与 WinUI 版隔离，所以 UpdateTagPrefix 为空、
+            // Win7 版用独立仓库，天然与 WinUI 版隔离，所以 UpdateTagPrefix 为空、
             // 这一段不生效。留着它是给「万一又得合库」留个挂点：届时填上前缀，
             // 本版就只认带前缀的 Release，认下来把前缀剥掉，下游拿到的还是 dv1.0.0 形状。
             if (_tagPrefix.Length > 0)
@@ -129,13 +129,11 @@ public sealed class GitHubReleaseSource : IUpdateSource
     /// <summary>
     /// 安装包扩展名白名单。
     ///
-    /// ⚠️ 这里**原本还有 ".zip"**：README 说发布形态有两种（安装包 .exe / 便携包 .zip），
-    ///    而 <see cref="PickInstallers"/> 里的 <c>portable</c> 过滤只挡名字里带 "portable" 的 zip ——
-    ///    一个叫 <c>ClassSoftwareHub-Setup-dv1.1.0.zip</c> 的包会同时通过扩展名与 setup 两道过滤，
-    ///    被选成主安装包。可整个工程里**没有任何解压代码**，RunInstaller 只特判 .msi，
-    ///    其余全走 Inno 分支 → CreateProcess 返回 ERROR_BAD_EXE_FORMAT，
-    ///    而 Process.Start 本身是成功的、不抛异常 → 应用照常退出、什么都没装、毫无提示。
-    ///    代码没有"解压 → 执行"的能力，就别把它当安装包候选。
+    /// ⚠️ 白名单**不能加 ".zip"**：<see cref="PickInstallers"/> 里的 <c>portable</c> 过滤只挡名字里
+    ///    带 "portable" 的 zip，其余 zip 会同时通过扩展名与 setup 两道过滤被选成主安装包。
+    ///    而整个工程里**没有任何解压代码**，RunInstaller 只特判 .msi，其余全走 Inno 分支 →
+    ///    CreateProcess 返回 ERROR_BAD_EXE_FORMAT，而 Process.Start 本身是成功的、不抛异常 →
+    ///    应用照常退出、什么都没装、毫无提示。代码没有"解压 → 执行"的能力，就别把它当安装包候选。
     /// </summary>
     private static readonly string[] InstallerExts = { ".exe", ".msi" };
 
@@ -199,9 +197,8 @@ public sealed class GitHubReleaseSource : IUpdateSource
     private static string FindMd5(List<(string Name, Uri Url, long Size, string Sha256)> all, string installerName)
     {
         // 1) **同名 sidecar**（<安装包>.md5）：最精确，必须排在最前面。
-        //    ⚠️ 原来这条排在"通用校验文件"后面。发版脚本 publish-release-win7.mjs 会同时上传
-        //       安装包和便携包各自的 .md5，通用那条 FirstOrDefault 拿到的可能是**便携包**的哈希
-        //       → 校验永远 mismatch，而期望值每次都重新拉取 → 这次更新永远成功不了。
+        //    若排在"通用校验文件"后面，发版脚本同时上传安装包和便携包各自的 .md5 时，
+        //    FirstOrDefault 拿到的可能是**便携包**的哈希 → 校验永远 mismatch。
         var side = all.FirstOrDefault(a =>
             a.Name.Equals(installerName + ".md5", StringComparison.OrdinalIgnoreCase));
         if (side.Name is not null) return "asset:" + side.Url;
@@ -231,7 +228,7 @@ public sealed class GitHubReleaseSource : IUpdateSource
     /// 从 tag 读出"这是预发布"：<c>dv1.0.0-insider1.1</c> 这种。
     /// 与 GitHub 的 Pre-release 复选框**取或**，避免发版时忘了勾就把内部构建推给正式版用户。
     ///
-    /// ⚠️ 刻意**不用**"名字里有 <c>-</c> 就算预发布"：历史上存在 <c>win7-dv1.0.0</c> 这种
+    /// ⚠️ 刻意**不用**"名字里有 <c>-</c> 就算预发布"：存在 <c>win7-dv1.0.0</c> 这种
     ///    带前缀的 tag，那会让正式版被误判成预发布（前缀当前为空，但别把这条路堵死）。
     ///    所以只认明确的预发布记号。
     /// </summary>

@@ -8,14 +8,14 @@ namespace ClassSoftwareHub.Desktop.Services;
 
 /// <summary>
 /// 工具页按键的统一手感：按下去底色换成**主题色渐变**，不是系统默认那层灰。
-/// （2026-10-18 自上游 1.2.0 移植；WinUI → Avalonia。）
+/// （自上游 1.2.0 移植；WinUI → Avalonia。）
 ///
 /// <para>
 /// 上游是靠覆盖 <c>ButtonBackgroundPressed</c> 主题资源让模板自己取到渐变；
 /// FluentAvalonia 的 Button 模板没有那组键，所以这里改成**直接挂指针事件**：
 /// 按下时把 Background 换成渐变、松开/移出时还原。效果等价，且不依赖模板内部结构。
 /// </para>
-/// <para>化学式编辑器与方程编辑器共用这一套，手感不能一处一样一处不一样（Nick 2026-10-17）。</para>
+/// <para>化学式编辑器与方程编辑器共用这一套，手感必须一致。</para>
 /// </summary>
 internal static class ButtonFeel
 {

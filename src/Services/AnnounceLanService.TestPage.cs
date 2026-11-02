@@ -4,7 +4,7 @@ using System.Text;
 namespace ClassSoftwareHub.Desktop.Services;
 
 /// <summary>
-/// 教室喊话收件端的内置局域网发送页（自上游 1.8 移植，2026-10-28）。
+/// 教室喊话收件端的内置局域网发送页（自上游 1.8 移植）。
 /// <para>
 /// 手机浏览器直接访问 <c>http://本机IP:47821/</c> 就能投递一条喊话。由收件端直接返回页面，
 /// 页面与 <c>/announce</c> 同源，不受 file:// 不透明来源限制，能读到真实发送结果。

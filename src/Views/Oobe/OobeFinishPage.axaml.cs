@@ -44,7 +44,7 @@ public partial class OobeFinishPage : UserControl
     /// <summary>
     /// 内嵌资源释放到缓存目录后交给 Image —— 单文件发布也没有散落文件。
     /// ⚠️ 用 Image 而不是 Border.Background 的 ImageBrush：后两屏初始是折叠的，
-    ///    在折叠状态挂上的 ImageBrush 到显示时不会重新绘制（深色下实测整块空白），
+    ///    在折叠状态挂上的 ImageBrush 到显示时不会重新绘制（深色下图片区域整块空白），
     ///    Image 元素没有这个问题。
     /// </summary>
     private static void SetImage(Image target, string assetName)
@@ -112,8 +112,8 @@ public partial class OobeFinishPage : UserControl
         OobeSession.Current?.RefreshChrome();
     }
 
-    // ⚠️ 「软件下载」的导航 tag 是 apps，不是 downloads —— downloads 是下半区的「任务进行」
-    //    （DownloadsNav，Tag="downloads"）。写错会跳到任务页，而且不报错（2026-10-31 实拍发现）。
+    // 「软件下载」的导航 tag 是 apps 而非 downloads —— downloads 对应下半区的「任务进行」
+    //    （DownloadsNav，Tag="downloads"），写错会静默跳到任务页。
     private void GoDownloads_Click(object? sender, RoutedEventArgs e) => Go("apps");
 
     private void GoTweaks_Click(object? sender, RoutedEventArgs e) => Go("systemtweaks");

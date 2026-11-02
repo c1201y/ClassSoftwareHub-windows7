@@ -24,21 +24,21 @@ namespace ClassSoftwareHub.Desktop.Views;
 /// <summary>
 /// 屏幕边缘侧边栏：贴在屏幕的某一条边上（上下左右都能放）。
 /// 全屏放 PPT / 视频时够不到任务栏，从边上点一下就能用工具。
-///   · 收起 = **两套样式**（2026-10-11 加）：grip 圆角抓手（20×110，紧凑 12×72）｜ line 细竖线（窗口缩成 6×220 的圆角细线）。
+///   · 收起 = **两套样式**：grip 圆角抓手（20×110，紧凑 12×72）｜ line 细竖线（窗口缩成 6×220 的圆角细线）。
 ///     都是"点一下展开"，另外还能"朝屏幕外滑一下"展开（见 <see cref="Strip_PointerMoved"/>）。
-///     **拖拽换边已于 2026-10-04 整条撤除**（见字段区注释），要换边请到设置里选。
-///   · 展开 = **两套样式**（2026-10-11 加）：classic 工具竖排列表 + 底排五颗（原版）｜
+///     **拖拽换边已整条撤除**（见字段区注释），要换边请到设置里选。
+///   · 展开 = **两套样式**：classic 工具竖排列表 + 底排五颗（原版）｜
 ///     grid 图标网格（4 列一页 + 分页点）+ 快捷设置行。见 <see cref="SyncStyleViews"/>。
-/// 位置（贴哪条边）会记在设置里；沿边位置同样记忆（2026-10-24 上游恢复：松手落盘、启动恢复，见 <see cref="_liveRatio"/>）；
+/// 位置（贴哪条边）会记在设置里；沿边位置同样记忆（松手落盘、启动恢复，见 <see cref="_liveRatio"/>）；
 /// 「位置复原」= 回到右边的居中位置。
 /// 置顶、不进任务栏、无标题栏、不能缩放/最大化/最小化。
 ///
-/// ⚠️ 2026-09-27（Nick）：**左右两边可以同时显示**（设置里选「左右两边」= <c>SidebarEdge</c> 为 "both"）。
+/// **左右两边可以同时显示**（设置里选「左右两边」= <c>SidebarEdge</c> 为 "both"）。
 /// 所以它不再是个单例 —— 见 <see cref="_pool"/>：一条边一个实例，设置里的 "both" 会被拆成 left + right 两条。
 /// 两条在拖动过程中靠内存里的 <see cref="_liveRatio"/> 保持上下位置一致；拖任意一条时对面实时跟随（<see cref="FollowPartner"/>）。
-/// 上边 / 下边**只有单条**（Nick：横着放一条就够了）。
+/// 上边 / 下边**只有单条**。
 ///
-/// ⚠️ 2026-09-28（Nick）：再加**两种模式**（<c>SidebarMode</c>）——
+/// 两种模式（<c>SidebarMode</c>）——
 ///   · <c>dock</c> 贴靠模式：**只贴左右两条边**（可选「左右两边」同时显示两条），沿边位置拖动时内存联动
 ///     （<see cref="_liveRatio"/>）；上/下边**不归它管**。
 ///   · <c>free</c> 自由模式：**四条边都能吸**（左/右/上/下），贴哪条边存 <c>SidebarFreeEdge</c>，
@@ -63,14 +63,13 @@ namespace ClassSoftwareHub.Desktop.Views;
 public sealed partial class ToolSidebarWindow : Window
 {
     // 收起时那条的厚度（竖条=宽，横条=高）—— 圆角抓手（grip）样式。
-    // 2026-10-31 用户「你这圆形抓手和上游不一样啊」→ 回到上游原版的尺寸口径：
-    //   标准档 20×110、紧凑档 12×72，内芯 5×48 / 4×34（见 ApplyCollapsedGrip），
+    // 与上游原版一致的尺寸口径：标准档 20×110、紧凑档 12×72，内芯 5×48 / 4×34（见 ApplyCollapsedGrip），
     //   收起态**不画 1px 描边**（见 FinishCollapse / Expand，上游同款）。
-    //   之前那套 8dip 扁条是 2026-10-12 / 10-17「细一点的线」的落地 —— 那是**细竖线**样式，
-    //   ⛔ 细竖线有自己的 LineThicknessDip（6×220），两套别再混成一个值。
+    //   注意：8dip 扁条属于**细竖线**样式，
+    //   细竖线有自己的 LineThicknessDip（6×220），两套不要混用同一个值。
     private const int CollapsedThicknessDip = 20;
     private const int CollapsedCompactThicknessDip = 12;
-    /// <summary>圆角抓手（grip）样式收起时的长度（竖条=高）。⚠️ 用户可在「侧边布局 → 收起条长度」里改，见 <see cref="CollapsedLenDip"/>。</summary>
+    /// <summary>圆角抓手（grip）样式收起时的长度（竖条=高）。用户可在「侧边布局 → 收起条长度」里改，见 <see cref="CollapsedLenDip"/>。</summary>
     private const int CollapsedLengthDip = 110;
     private const int CollapsedCompactLengthDip = 72;
     // Win32 ShowWindow 的 nCmdShow 值（与 FlyoutChrome / ToolPaletteWindow 同一套私有常量；
@@ -79,8 +78,7 @@ public sealed partial class ToolSidebarWindow : Window
     private const int SW_HIDE = 0;
     private const int PanelThicknessDip = 92;       // 展开后的厚度（竖着放时=宽）
     /// <summary>
-    /// ⛔ <b>已不参与高度计算</b>（2026-10-11 上游起改成按内容实测，见 <c>ExpandedHeight</c>；
-    /// 2026-10-22 自上游 1.2.0-insider1.3 移植到本仓库）。
+    /// <b>已不参与高度计算</b>（上游已改为按内容实测，见 <c>ExpandedHeight</c>）。
     /// 留着只是因为下面那段说明还在解释老算法为什么"模块少还空一大块"。
     /// </summary>
     private const int PanelLengthDip = 450;         // 展开后的长度（竖着放时=高）—— 旧算法的下限
@@ -90,18 +88,17 @@ public sealed partial class ToolSidebarWindow : Window
     /// <summary>展开面板高度占比的允许区间（「侧边布局」页那根滑块的上下限）。</summary>
     public const double MinHeightRatio = 0.45;
     public const double MaxHeightRatio = 0.95;
-    /// <summary>没调过时的默认占比（2026-10-12 从 0.65 抬到 0.75 的那一档）。</summary>
+    /// <summary>没调过时的默认占比。</summary>
     public const double DefaultHeightRatio = 0.75;
 
     /// <summary>
     /// 单列（竖着一条）时，展开面板最多能占工作区高度的几成。
     ///
-    /// 来历：Nick 2026-10-11「一列下来的时候还是长长的一长条，太长了，要加个限高」→ 先写死 0.65，
-    /// 10-12 又说「有点太少，稍微再扩大一点」→ 0.75。**2026-10-18 Nick 定：别再替他调了，
-    /// 把这个通道开放给用户自己拖**（0.45～0.95，默认 0.75，见「侧边布局 → 展开面板高度」）。
-    /// 存档字段 <c>AppSettings.SidebarHeightRatio</c>；⛔ 别再把这里改回 const。
+    /// 该值是用户可调项（0.45～0.95，默认 0.75，见「侧边布局 → 展开面板高度」），
+    /// 不要改回 const。
+    /// 存档字段 <c>AppSettings.SidebarHeightRatio</c>。
     ///
-    /// ⚠️ 它**只是封顶，不是"给个固定高度"**：面板高度仍然由 <c>ExpandedHeight</c> 按内容 Measure 实测，
+    /// 它**只是封顶，不是"给个固定高度"**：面板高度仍由 <c>ExpandedHeight</c> 按内容 Measure 实测，
     ///    模块少的时候该多矮就多矮。超出的部分交给工具区滚动：
     ///    <c>ApplyScrollLimit</c> 里的 <c>ToolsScroll.MaxHeight</c> 就是拿这个上限算出来的。
     /// </summary>
@@ -124,10 +121,10 @@ public sealed partial class ToolSidebarWindow : Window
     }
 
     /// <summary>
-    /// 展开面板高度是否**跟随内容**（2026-10-18 Nick：要一个能自己缩的开关）。
+    /// 展开面板高度是否**跟随内容**（用户可调开关）。
     /// · true = 自适应：高度按里面模块实测，<see cref="SingleColumnMaxHeightRatio"/> 只当上限；
     /// · false = 锁定：高度就是「占比 × 工作区高度」，模块少时下面留白。
-    /// 存档字段 <c>AppSettings.SidebarHeightAuto</c>，默认 true（= 保持原来那套"按内容实测"的行为）。
+    /// 存档字段 <c>AppSettings.SidebarHeightAuto</c>，默认 true（= 保持"按内容实测"的行为）。
     /// </summary>
     private static bool HeightAuto
     {
@@ -140,9 +137,7 @@ public sealed partial class ToolSidebarWindow : Window
 
     /// <summary>
     /// 展开时面板的淡入时长（毫秒）—— 跟滑入同时进行，滑到一半内容已经全实。
-    ///
-    /// ⛔ 2026-10-29 第一版是"窗口一次落到展开尺寸 + 原地淡入"，用户看到的是**直接弹出来**
-    ///    （「现在是直接弹出来的，换成 向屏幕内滑动出现」）。现在改成整块面板从屏幕外滑进来，见 <see cref="ExpandInPlace"/>。
+    /// 面板从屏幕外滑入（见 <see cref="ExpandInPlace"/>），不做原地淡入。
     /// </summary>
     private const double ExpandFadeMs = 140;
 
@@ -158,11 +153,11 @@ public sealed partial class ToolSidebarWindow : Window
     private const double CollapseFadeMs = 110;
 
     /// <summary>
-    /// 底部按钮那一排在竖条里的高度增量 —— <b>五颗全显</b>时的经验值（2026-09-27 定的）。
+    /// 底部按钮那一排在竖条里的高度增量 —— <b>五颗全显</b>时的经验值。
     /// 注意它**不是**五颗的真实高度（那是 5×44 + 4×2 = 228）：面板高度基数
     /// <see cref="PanelLengthDip"/>（450）里本来就已经含了标题和一段留白，这 94 只是把五颗"补齐"。
-    /// ⚠️ 2026-09-29 底排改成**逐颗开关**后，这里必须按**可见颗数**摊算（见 <see cref="FooterDipFor"/>），
-    ///    别改写成 <c>n × 44</c> 这种"真实高度" —— 会跟 450 的基数重复计算，面板凭空长一截。
+    /// 底排为**逐颗开关**后，这里必须按**可见颗数**摊算（见 <see cref="FooterDipFor"/>），
+    ///    不能写成 <c>n × 44</c> 这种"真实高度" —— 会跟 450 的基数重复计算，面板凭空长一截。
     /// </summary>
     private const int FooterBaseDip = 94;
 
@@ -179,8 +174,7 @@ public sealed partial class ToolSidebarWindow : Window
     private const int PanelThicknessFlatBareDip = 72;
 
     // 上/下边（横条）时底排按钮的排版参数。
-    // ⚠️ 横条宽度必须容得下**底排这一整排**（见 PlannedSize），不然最后一颗会被面板裁掉 ——
-    //    2026-09-27 用户截图就是这个：「打开应用」只露出半个「打」字。
+    // 横条宽度必须容得下**底排这一整排**（见 PlannedSize），不然最后一颗会被面板裁掉。
     private const int FooterFlatButtonWidthDip = 104;   // 底排每个按钮的最小宽度
     private const int FooterFlatSpacingDip = 8;         // 底排按钮之间的间距
     private const int FlatRowPadDip = 24;               // 横条里每一行的左右内边距 + 余量
@@ -193,7 +187,7 @@ public sealed partial class ToolSidebarWindow : Window
     private const int GridPadDip = 8;                   // 面板四周内边距（= GridPanel 的 Margin）
     private const int GridHeaderDip = 26;               // 顶条（标题 + 四颗小图标键）的高度
     private const int GridSectionGapDip = 6;            // 顶条 / 网格 / 分页点 / 快捷设置行 之间的间距
-    private const int GridDotsDip = 28;                 // 分页行高度（◀ ● ● ● ▶ 一行；2026-10-30 从 20 抬到 28，给触摸靶留够）
+    private const int GridDotsDip = 28;                 // 分页行高度（◀ ● ● ● ▶ 一行；触摸靶需足够大）
     private const int GridQuickDip = 56;                // 快捷设置行的高度
     private const int GridColsSide = 4;                 // 贴左右边时一页几列
     private const int GridRowsSide = 2;                 // 贴左右边时一页几行
@@ -201,15 +195,14 @@ public sealed partial class ToolSidebarWindow : Window
     private const int GridRowsFlat = 1;                 // 贴上下边时一页几行
 
     // ── 收起样式的第二套：细竖线（line）─────────────────────────
-    // ⚠️ 窗口厚度不能给到太细：RoundedCorners 的圆角半径固定 8dip，
+    // 窗口厚度不能给到太细：RoundedCorners 的圆角半径固定 8dip，
     //    窗口比 16 还窄的话 GDI 区域裁剪会把两端裁成尖的（椭圆比矩形宽）。
-    //    现取 6dip（药丸形，看着就是"一条线"）。⚠️ 2026-10-12 用户要求更细：14 → 6，
-    //    同日再去掉内芯——窗口本身就是那条线，悬停反馈走 LineHover 整条亮。
+    //    现取 6dip（药丸形）。窗口本身就是那条线，悬停反馈走 LineHover 整条亮。
     private const int LineThicknessDip = 6;             // 竖线样式：窗口厚度（竖条=宽，横条=高）
     private const int LineLengthDip = 220;              // 竖线样式：窗口长度（竖条=高）的默认值（可被「收起条长度」覆盖）
 
     /// <summary>
-    /// 收起条长度（dip）—— 用户可调（「侧边布局 → 收起条长度」，2026-10-17 用户要求"再加个长短调整功能"）。
+    /// 收起条长度（dip）—— 用户可调（「侧边布局 → 收起条长度」）。
     /// 设置里 <c>SidebarCollapsedLength</c> ≤ 0 = 用样式自带默认（抓手 <see cref="CollapsedLengthDip"/> /
     /// 细竖线 <see cref="LineLengthDip"/>）；&gt; 0 = 用户钉死的值（两个样式共用，越界值在
     /// <see cref="MinCollapsedLengthDip"/>~<see cref="MaxCollapsedLengthDip"/> 之间夹住）。
@@ -225,11 +218,11 @@ public sealed partial class ToolSidebarWindow : Window
     public const int MinCollapsedLengthDip = 60;
     public const int MaxCollapsedLengthDip = 400;
 
-    // ── 大小样式（标准 / 紧凑；2026-10-18 自上游 1.2.0 移植）────────────
+    // ── 大小样式（标准 / 紧凑）────────────
     //
     // 上游有两档：
     //   · SidebarDensity（收起态）：standard = 现在这套；compact = 细条 + 小图标小字，
-    //     但**按钮点击区域不跟着缩到底**（细条上的键点不准，Nick 特意提的）。
+    //     但**按钮点击区域不跟着缩到底**（细条上的键必须点得中）。
     //   · SidebarExpandedDensity（展开态）：same（默认）= 跟随收起态；标准 / 紧凑 = 固定。
     // 本移植版的收起条尺寸已有自己的一套（8dip 粗条 / 6dip 细线 + 长度可调），
     // 所以"紧凑"落地为**图标与文字缩放 + 面板厚度收窄**，点按区域仍保留原尺寸。
@@ -255,7 +248,7 @@ public sealed partial class ToolSidebarWindow : Window
 
     /// <summary>
     /// 展开面板的厚度（dip）：标准 92，紧凑档再收 <see cref="CompactPanelShrinkDip"/>。
-    /// ⚠️ 只改**厚度**、不改长度与按钮最小高度 —— 收窄是为了少占地方，不是为了把键变小。
+    /// 只改**厚度**、不改长度与按钮最小高度 —— 收窄是为了少占地方，不是为了把键变小。
     /// </summary>
     private static int ExpandedThicknessDip =>
         Math.Max(60, PanelThicknessDip - (CompactBody ? CompactPanelShrinkDip : 0));
@@ -272,7 +265,7 @@ public sealed partial class ToolSidebarWindow : Window
     /// <summary>
     /// 按边缓存的窗口实例（键 = left | right | top | bottom）。
     ///
-    /// ⚠️ 2026-09-27（Nick 需求）：竖直状态要能**左右同时**有侧边栏，所以从"单例"改成了"一条边一个实例"。
+    /// 竖直状态要能**左右同时**显示侧边栏，所以从"单例"改成了"一条边一个实例"。
     /// 建过的实例留着复用 —— 切边只是显隐，不反复建窗。当前该显示哪几条见 <see cref="SyncInstances"/>。
     /// 设置里的 "both" 在这儿会被拆成 left + right 两个实例，每个实例的边存 <see cref="_edge"/>（不读设置）。
     /// 换边 / 换模式都只是改这个字典里"该显示哪几条" —— 同一条路（<see cref="SyncInstances"/>）。
@@ -286,9 +279,9 @@ public sealed partial class ToolSidebarWindow : Window
 
     /// <summary>
     /// 沿边位置比例（0~1，-1 = 居中）。
-    /// 内存里的实时值，拖动期间必须无条件更新（原先只有双边模式更新，单边永远居中）。
+    /// 内存里的实时值，拖动期间必须无条件更新（只更新双边模式会导致单边永远居中）。
     /// 存档那份在 <see cref="SettingsStore.SidebarPosRatio"/>：松手时写（<see cref="DockToNearestEdge"/>）、
-    /// 启动/重建时读（<see cref="SyncInstances"/>）。2026-10-24 上游按 Nick 要求恢复了位置记忆。
+    /// 启动/重建时读（<see cref="SyncInstances"/>）。
     /// </summary>
     private double _liveRatio = -1;
 
@@ -296,10 +289,10 @@ public sealed partial class ToolSidebarWindow : Window
 
     /// <summary>
     /// 正在走「面板淡出 → 变身竖线」这条路。
-    /// ⚠️ 2026-10-30（用户「有几次收起时的那一条还是乱飞」）：失焦（Deactivated）和进程内按下钩子
-    ///    常常接连触发两次 <see cref="Collapse"/>。以前第二次会落到「没展开 → 直接 FinishCollapse」
-    ///    那个分支，把 110ms 淡出整个跳掉 —— 面板"啪"一下缩成线，竖线又落在另一个位置，看着就是乱飞。
-    ///    现在淡出期间重复的收起请求一律忽略，交给在跑的那一次收尾。
+    /// 失焦（Deactivated）和进程内按下钩子常常接连触发两次 <see cref="Collapse"/>：
+    /// 第二次会落到「没展开 → 直接 FinishCollapse」分支，把 110ms 淡出整个跳掉 ——
+    /// 面板瞬间缩成线、竖线又落在另一个位置，表现为位置跳变。
+    /// 因此淡出期间重复的收起请求一律忽略，交给在跑的那一次收尾。
     /// </summary>
     private bool _collapsing;
 
@@ -312,14 +305,13 @@ public sealed partial class ToolSidebarWindow : Window
     private readonly DispatcherTimer _idle;
 
     /// <summary>
-    /// 「点别处就收起」的看守计时器（2026-10-18 加）。
+    /// 「点别处就收起」的看守计时器。
     ///
     /// 为什么不能只靠 <c>Deactivated</c>：侧边栏是 Topmost 工具窗口，点别处时常常收不到可靠的失焦通知
-    /// （或收到时 <see cref="SuppressAutoCollapse"/> 正立着），于是"没钉住"的展开面板会一直摊着 ——
-    /// 用户原话：「打开悬浮窗没钉住的情况下，点击非悬浮窗他不收缩」。
+    /// （或收到时 <see cref="SuppressAutoCollapse"/> 正立着），于是"没钉住"的展开面板会一直摊着。
     /// 这里每 150ms 看一眼前台窗口：只要不是自己、也不是自己的弹层（Flyout/Popup 都是
     /// 本进程里 owner 指向本窗口的子窗口）就收起。点主界面、点桌面、点别的程序都算"别处"。
-    /// ⛔ 钉住（常驻）/ 按住不放 / 有弹层挂着时一律不动，跟 <see cref="_idle"/> 的规矩一致。
+    /// 钉住（常驻）/ 按住不放 / 有弹层挂着时一律不动，跟 <see cref="_idle"/> 的规矩一致。
     /// </summary>
     private DispatcherTimer? _outsideWatch;
 
@@ -337,7 +329,7 @@ public sealed partial class ToolSidebarWindow : Window
 
     /// <summary>
     /// 「展开样式 = 图标网格」那一套的格子（模块 + 固定补的「主页 / 设置」两颗）。
-    /// ⚠️ 只建一次、之后靠 <see cref="RenderGridPage"/> 搬进搬出 <c>ToolGrid</c> 翻页 ——
+    /// 只建一次、之后靠 <see cref="RenderGridPage"/> 搬进搬出 <c>ToolGrid</c> 翻页 ——
     ///    重建 Button 会让悬停动画、按住型（放大镜）的手势捕获全部断掉。
     /// </summary>
     private readonly List<Control> _gridCells = new();
@@ -351,12 +343,12 @@ public sealed partial class ToolSidebarWindow : Window
     /// <summary>
     /// 悬停的**两个来源**：直接搭在竖线上（Avalonia 指针事件）｜ 搭在隐形热区上（原生窗口，见 <see cref="_hitPad"/>）。
     /// 取"或"再统一刷 —— 从热区挪到竖线上时两边会先后收到进入/离开，直接各写 <see cref="_hover"/>
-    /// 会让线闪一下（2026-10-17）。
+    /// 会让线闪一下。
     /// </summary>
     private bool _hoverStrip, _hoverPad;
 
     /// <summary>
-    /// 收起条的**隐形点击/滑动热区**（2026-10-17 加）。线太细（8dip）+ 离屏幕边还留 5dip，
+    /// 收起条的**隐形点击/滑动热区**。线太细（8dip）+ 离屏幕边还留 5dip，
     /// 鼠标/手指"差一点点"就点空。做法见 <see cref="SidebarHitPad"/>：一扇 alpha=1 的原生分层窗口，
     /// 盖住「竖线 + 到屏幕边的空隙 + 内侧一条带」—— 看不见，但能接住点击和滑动。
     /// </summary>
@@ -366,7 +358,7 @@ public sealed partial class ToolSidebarWindow : Window
     private Point _pressPos;
     private Point _lastPos;
 
-    /// <summary>这一轮按下已经靠"向外滑"展开过了（抬起 / 丢失捕获就别再展一次）。</summary>
+    /// <summary>这一轮按下已靠"向外滑"展开过（抬起 / 丢失捕获后不重复展开）。</summary>
     private bool _swipedOpen;
 
     /// <summary>当前那个"要先问一句"的原生 Flyout（一次只有一个）。</summary>
@@ -388,8 +380,8 @@ public sealed partial class ToolSidebarWindow : Window
     /// <summary>
     /// 暂时压住"自动收起"（按住型动作、以及"还有话要问用户"的确认面板期间）。
     ///
-    /// ⚠️ 这必须在**自己会过期**：早先写成普通 bool，一旦设了 true 而对面又没回来清（比如面板没弹出来、
-    /// 用户压根没理），侧边栏就**永远不再自动收起**了 —— 真出过这个 bug。
+    /// 该状态必须**自己会过期**：若为普通 bool，一旦设了 true 而对面又没回来清（比如面板没弹出来、
+    /// 用户没响应），侧边栏就**永远不再自动收起**。
     /// 现在本质是"压到某个时间点为止"，最长 `SuppressMaxSeconds`，到点自己恢复。
     /// </summary>
     public static bool SuppressAutoCollapse
@@ -406,8 +398,8 @@ public sealed partial class ToolSidebarWindow : Window
     /// <summary>
     /// 侧边栏当前在屏幕上的矩形（给"挨着它弹浮窗 / 弹提示"用）；还没建/拿不到就返回 null。
     ///
-    /// ⚠️ 2026-10-02 改：**优先"刚被点出浮窗的那一条"**（见 <see cref="AnchorInstance"/>），
-    ///    不再是"一律优先右边那条"。左右两边同时显示时要贴着被点的那条弹，否则浮窗会跑到对面去。
+    /// **优先"刚被点出浮窗的那一条"**（见 <see cref="AnchorInstance"/>），
+    ///    不是"一律优先右边那条"。左右两边同时显示时要贴着被点的那条弹，否则浮窗会跑到对面去。
     /// </summary>
     public static PixelRect? CurrentRect
     {
@@ -431,10 +423,8 @@ public sealed partial class ToolSidebarWindow : Window
     /// <summary>
     /// 挑一条"可见的"实例当锚点。
     ///
-    /// ⚠️ 2026-10-02 改：**优先"刚被点出浮窗的那一条"**。
-    ///    以前这里只认右边那条（因为音量浮窗的边被写死成 right），于是用户把侧边栏放到左边、
-    ///    或者选了「左右两边」去点左边那条的音量，浮窗会跑到屏幕右侧去 —— 就是他报的
-    ///    「在左侧打开音量调节会在右侧显示」。现在哪条被点就跟哪条，上下边（自由模式）也一起对上了。
+    /// **优先"刚被点出浮窗的那一条"**：只认右边那条时，侧边栏在左边（或「左右两边」时点左边）
+    ///    弹出的浮窗会跑到屏幕右侧。哪条被点就跟哪条，上下边（自由模式）同理。
     /// </summary>
     private static ToolSidebarWindow? AnchorInstance()
     {
@@ -459,11 +449,11 @@ public sealed partial class ToolSidebarWindow : Window
     /// <summary>
     /// 侧边栏**当前实际**贴的那条边（音量浮窗按它决定往哪边排）。
     ///
-    /// ⚠️ 绝不能用 <c>App.Settings.Current.SidebarEdge</c> 代替：那条是**停靠模式**的设置，
+    /// 绝不能用 <c>App.Settings.Current.SidebarEdge</c> 代替：那是**停靠模式**的设置，
     ///    **自由模式**下它可能还是老值（`SidebarFreeEdge` 才是真身），用户还能把边条拖到任意一边。
-    ///    读错方向的后果（2026-10-01 踩到）：浮窗被摆到边条的**另一侧**（等于屏幕外）→
-    ///    又被 ClampToWork 夹回屏幕边缘 → 正好压在边条（乃至合成器）身上，看着就是"三个窗叠一起"。
-    /// ⚠️ 移植说明：上游 2026-10-01 新增；逻辑照搬（本仓库自由模式的真身在 SidebarFreeEdge / 实例 _edge）。
+    ///    读错方向时浮窗会被摆到边条的**另一侧**（等于屏幕外），又被 ClampToWork 夹回屏幕边缘，
+    ///    正好压在边条（乃至合成器）身上，表现为"三个窗叠一起"。
+    /// 移植说明：逻辑照搬上游（本仓库自由模式的真身在 SidebarFreeEdge / 实例 _edge）。
     /// </summary>
     public static string CurrentEdge
     {
@@ -485,24 +475,16 @@ public sealed partial class ToolSidebarWindow : Window
         }
     }
 
-    // ⚠️⚠️ 2026-10-04（用户第 17 轮，第三次反馈同一条）：
-    //    收起条的**拖拽整条撤除** —— 用户原话「不要拖动了，点击就展开」。
-    //
-    //    为什么"拖拽"和"点击展开"天生冲突（这才是三次都没修好的真原因）：
-    //      区分"这是点击还是拖动"只能靠**位移阈值**（原来 8px）。触摸屏上手指按下必然带
-    //      几像素抖动，稍一动就超过阈值 → 判成拖动 → 松手走 DockToNearestEdge()（吸附/换边），
-    //      **永远走不到 Expand()**。用户看到的就是"点了没反应 / 展不开"；
-    //      鼠标场景则表现为"想点一下，偏偏被拖到别处、还换了边"。
-    //    ⚠️ 第 16 轮把这条误判成了**音量浮窗**的拖动（GripDragFrame，已删）——
-    //      用户说的"悬浮窗"其实是本类（侧边栏收起来那条 20dip 的细把手，看着就是个悬浮条），
-    //      所以那一轮改完用户还是说"没改啊"。
+    // 收起条的**拖拽已整条撤除**：拖拽与"点击展开"天生冲突 ——
+    //    区分"点击还是拖动"只能靠**位移阈值**。触摸屏上手指按下必然带几像素抖动，
+    //    稍一动就超过阈值 → 判成拖动 → 松手走 DockToNearestEdge()（吸附/换边），
+    //    **永远走不到 Expand()**，表现为"点了没反应 / 展不开"；
+    //    鼠标场景则表现为"想点一下，偏偏被拖到别处、还换了边"。
     //
     //    现在只剩：按下 → 抬起 = 展开。要换贴哪条边请到设置里选（侧边栏 → 贴边 / 自由模式）。
-    //    原先那一大堆拖动专用字段（_dragging / _dragOrigin / _useSnapToFinger / _winTargetX …）
-    //    随拖拽一起删掉了。
     //
-    //    ⚠️ 2026-10-11 加回**一样**东西：朝屏幕外"滑动展开"（贴左边向右滑、贴右边向左滑，上下边同理）。
-    //       它跟拖拽不是一回事，那条红线一点没松：
+    //    保留一样东西：朝屏幕外"滑动展开"（贴左边向右滑、贴右边向左滑，上下边同理）。
+    //       它跟拖拽不是一回事，红线不变：
     //         · 滑动只是**多开一条路**，抬手时位移不够阈值的**一律还按点击展开**；
     //         · 唯一被挡下的是"明确朝屏幕里滑够 20dip"——手指抖动到不了这个量级。
     //       判据全在 Strip_PointerReleased / Strip_PointerMoved 里，改动前先把这段读完。
@@ -530,7 +512,7 @@ public sealed partial class ToolSidebarWindow : Window
 
     // ── 对外入口 ─────────────────────────────────────────────
 
-    /// <summary>显示侧边栏（托盘菜单等入口调它；顺手把设置里的开关打开）。</summary>
+    /// <summary>显示侧边栏（托盘菜单等入口调用；并同步打开设置中的开关）。</summary>
     public static void ShowSidebar()
     {
         if (!App.Settings.Current.SidebarEnabled)
@@ -548,7 +530,7 @@ public sealed partial class ToolSidebarWindow : Window
 
     /// <summary>
     /// 退出应用时把实例池里的窗口**真正关掉**（平时只是显隐，从不销毁）。
-    /// ⛔ 为什么必须有：desktop.Shutdown() 会漏窗口 —— 2026-10-04 实测，
+    /// 为什么必须有：desktop.Shutdown() 会漏窗口 ——
     ///    托盘「退出」后侧边栏常常是唯一活下来的那个窗口，把消息循环撑住、进程退不掉。
     /// </summary>
     public static void CloseForExit()
@@ -567,8 +549,8 @@ public sealed partial class ToolSidebarWindow : Window
     /// </summary>
     /// <param name="ratioEdge">
     /// 需要在显示之前就把沿边比例准备好的那条边（换边时用）。
-    /// 2026-10-23 上游 Nick：「拖到左边再拖到右边上部，会先在右边下部出现再突变上去」——
-    /// 先按旧比例 Present 再挪走会露出中间态，所以要在实例"建出来 / 从池里取出来"的瞬间就写好吃到的比例。
+    /// 先按旧比例 Present 再挪走会露出中间态（出现位置突变），所以要在实例
+    /// "建出来 / 从池里取出来"的瞬间就写好吃到的比例。
     /// </param>
     /// <param name="ratio">与 <paramref name="ratioEdge"/> 配套的比例值。</param>
     private static List<ToolSidebarWindow> SyncInstances(string? ratioEdge = null, double ratio = -1)
@@ -595,7 +577,6 @@ public sealed partial class ToolSidebarWindow : Window
         }
 
         // 调用方没给比例（启动 / 重建 / 从侧边布局页回来）→ 用存档里那份。
-        // 2026-10-24 上游恢复位置记忆：拖到的位置重启后就该还在。
         // 双边模式下两边共用同一个比例（存档里只有一份，拖动时本来就靠 _liveRatio 互相同步）。
         if (ratioEdge is null && App.Settings.Current.SidebarPosRatio >= 0)
         {
@@ -619,8 +600,8 @@ public sealed partial class ToolSidebarWindow : Window
         {
             "left" => new List<string> { "left" },
             "both" => new List<string> { "left", "right" },
-            // ⚠️ 贴靠模式只认左右。老设置里如果留着 top/bottom（那时贴靠也能贴上下边），这里一律归到右边 ——
-            //    想贴上下边得切到自由模式（Nick 2026-09-28 定：贴靠 = 左右模式）。
+            // 贴靠模式只认左右。老设置里如果留着 top/bottom（那时贴靠也能贴上下边），这里一律归到右边 ——
+            //    想贴上下边得切到自由模式。
             _ => new List<string> { "right" },
         };
     }
@@ -702,10 +683,10 @@ public sealed partial class ToolSidebarWindow : Window
     }
 
     /// <summary>
-    /// 「收起时离屏幕边缘」改了（2026-10-11 上游；2026-10-22 移植）：只要**重新落位**，不用重建按钮 ——
+    /// 「收起时离屏幕边缘」改了：只要**重新落位**，不用重建按钮 ——
     /// 按钮的行列结构一点没变，走 <see cref="ApplySetting"/> 那条重建的路反而会把边条当前状态打断。
     ///
-    /// ⚠️ 展开态不吃这个值（展开面板跟屏幕边的间距固定是 <see cref="ExpandedGapDip"/>），
+    /// 展开态不吃这个值（展开面板跟屏幕边的间距固定是 <see cref="ExpandedGapDip"/>），
     ///    所以展开着的边条调完看不出变化，收起后才看得出来。
     /// </summary>
     public static void ApplyCollapsedGap()
@@ -718,12 +699,12 @@ public sealed partial class ToolSidebarWindow : Window
     }
 
     /// <summary>
-    /// 「展开面板高度」占比改了（2026-10-18 上游；2026-10-22 移植）：重新量一遍尺寸再贴边，**不重建按钮**。
+    /// 「展开面板高度」占比改了：重新量一遍尺寸再贴边，**不重建按钮**。
     ///
-    /// ⚠️ 走 <c>SnapToSetting</c> 那条轻路（= 算布局 + 改尺寸 + 重新贴边），⛔ 别用
+    /// 走 <c>SnapToSetting</c> 那条轻路（= 算布局 + 改尺寸 + 重新贴边），不要用
     ///    <c>ApplySetting</c> —— 那是整条重建（拆按钮、重排、重新显示），只为改个高度不值当，
     ///    而且滑块是**拖动时连续触发**的，重建会一路闪。
-    /// ⚠️ 只有展开着的实例才看得出变化；收起态的抓手尺寸与这个值无关。
+    /// 只有展开着的实例才看得出变化；收起态的抓手尺寸与这个值无关。
     /// </summary>
     public static void ApplyHeightRatio()
     {
@@ -740,18 +721,18 @@ public sealed partial class ToolSidebarWindow : Window
 
     // ── 窗口本身 ─────────────────────────────────────────────
 
-    /// <summary>这条实例贴的边：left | right | top | bottom。⚠️ 实例级 —— 别改回"读设置"，那样两条实例会贴到同一条边上去。</summary>
+    /// <summary>这条实例贴的边：left | right | top | bottom。实例级 —— 别改回"读设置"，那样两条实例会贴到同一条边上去。</summary>
     private string Edge => _edge;
 
     /// <summary>横条（贴上/下边）还是竖条（贴左/右边）。</summary>
     private bool IsFlat => _edge is "top" or "bottom";
 
     /// <summary>
-    /// 「展开样式」选的是图标网格（第二套）。⚠️ 认不出的值一律当 classic（老存档/手改坏的设置不许崩）。
+    /// 「展开样式」选的是图标网格（第二套）。认不出的值一律当 classic（老存档/手改坏的设置不许崩）。
     /// </summary>
     private static bool UseGridStyle => App.Settings.Current.SidebarPanelStyle == "grid";
 
-    /// <summary>「收起样式」选的是细竖线（第二套）。⚠️ 认不出的值一律当 grip。</summary>
+    /// <summary>「收起样式」选的是细竖线（第二套）。认不出的值一律当 grip。</summary>
     private static bool UseLineCollapsed => App.Settings.Current.SidebarCollapsedStyle == "line";
 
     // ── 网格面板的排版参数（都由上面那几个常量算出来）──────────
@@ -776,7 +757,7 @@ public sealed partial class ToolSidebarWindow : Window
 
     /// <summary>
     /// 网格面板该多大（dip）。
-    /// ⚠️ 宽度按"一页能铺开的列数"算死，**不随模块数变** —— 模块多了只加页，面板不会越撑越宽
+    /// 宽度按"一页能铺开的列数"算死，**不随模块数变** —— 模块多了只加页，面板不会越撑越宽
     ///    （参考图里那个面板也是固定宽度 + 分页点）。高度只在"放得下两页"时多 16 给分页点。
     /// </summary>
     private (double W, double H) GridPanelDip()
@@ -814,7 +795,7 @@ public sealed partial class ToolSidebarWindow : Window
         ? (UseLineCollapsed ? LineThicknessDip : GripThicknessDip)
         : (UseLineCollapsed ? CollapsedLenDip(LineLengthDip) : CollapsedLenDip(GripDefaultLengthDip));
 
-    /// <summary>设置里选的是自由模式（能吸四条边）。⚠️ 认不出的值一律当贴靠模式。</summary>
+    /// <summary>设置里选的是自由模式（能吸四条边）。认不出的值一律当贴靠模式。</summary>
     private static bool IsFreeMode => App.Settings.Current.SidebarMode == "free";
 
     /// <summary>左右两条同时显示（贴靠模式里选的 "both"）。拖动时靠它决定"锁竖直、不换边"以及要不要带对面一起动。</summary>
@@ -841,19 +822,19 @@ public sealed partial class ToolSidebarWindow : Window
             Closing += (_, _) => Core.AppLog.Info("exit", $"侧边栏 Closing edge={_edge}");
 
             // 亚克力底（模糊背后的画面）；机器不支持的话会自动退回纯色，不会崩。
-            // ⚠️ 材质要等窗口真显示出来再上（Present 里走 Backdrop.Apply），构造期拿不到 HWND。
-            // ⚠️ 2026-10-06（用户「首次启动侧边栏白底白字」）：Apply 必须排在 ApplyPanelBrush
-            //    **前面** —— 面板底色是按 ActualThemeVariant 取的，先取色后设主题的话，
-            //    取到的是还没传播的默认浅色（白面板），而文字/图标资源却按深色渲染 → 白底白字。
+            // 材质要等窗口真显示出来再上（Present 里走 Backdrop.Apply），构造期拿不到 HWND。
+            // Apply 必须排在 ApplyPanelBrush **前面**：面板底色是按 ActualThemeVariant 取的，
+            //    先取色后设主题的话，取到的是还没传播的默认浅色（白面板），而文字/图标资源
+            //    却按深色渲染 → 白底白字。
             ThemeCompat.Apply(Root, external: true);                        // 桌面悬浮件：跟「外部组件外观」（分体关着时跟主界面）
             ApplyPanelBrush();
             BuildToolButtons();                             // 按「侧边布局」的模块清单生成工具按钮
             BuildGridButtons();                             // 同一份清单，给「展开样式 = 图标网格」那套用
             SyncStyleViews();                               // 两套展开样式 / 两套收起样式先摆好
 
-            // 触屏滑动翻页（2026-10-12 用户反馈）：按在格子上也能滑出去 ——
-            // ⚠️ 必须 handledEventsToo=true：格子的 PointerReleased 会被 Button 标 handled。
-            // ⚠️ 挂在 **Root** 上而不是 ToolGrid 上：Win7 触屏上格子的指针捕获可能中途丢，
+            // 触屏滑动翻页：按在格子上也能滑出去。
+            // 必须 handledEventsToo=true：格子的 PointerReleased 会被 Button 标 handled。
+            // 挂在 **Root** 上而不是 ToolGrid 上：Win7 触屏上格子的指针捕获可能中途丢，
             //    丢了以后事件按命中目标冒泡，手指滑到格缝/分页行时就到不了 ToolGrid 了。
             //    按下的位置另做一次"必须落在网格里"的判定（见 ToolGrid_PointerPressed）。
             Root.AddHandler(InputElement.PointerPressedEvent,
@@ -880,7 +861,7 @@ public sealed partial class ToolSidebarWindow : Window
 
             // 换显示器 / 改分辨率 / 改缩放：窗口尺寸 Avalonia 会按 DIP 自己跟，
             // 但贴边位置和那个**独立原生窗口**做的隐形热区是拿 Scale() 换算物理像素的，
-            // 不会自己跟 —— 不重算就会停在旧位置/旧大小（2026-10-25 用户报「侧边栏出问题了」）。
+            // 不会自己跟 —— 不重算就会停在旧位置/旧大小。
             ScalingChanged += (_, _) => OnScalingChanged();
             Root.ActualThemeVariantChanged += (_, _) =>
             {
@@ -921,12 +902,11 @@ public sealed partial class ToolSidebarWindow : Window
             {
                 _shownOnce = true;
                 // 显示前先把窗口底色定成成品色 —— 否则 Show() 那一帧是"不透明的默认白"，
-                // 每次弹出都白闪一下（用户 2026-10-02 反馈的"显示和隐藏时会闪一下白色"）。
+                // 每次弹出都白闪一下。
                 PrimeOpaqueBackdrop();
                 Show();
 
-                // ⚠️ 2026-10-06（用户「首次启动悬浮窗和展开侧边栏白色看不清字，切一下深浅色就好了」）：
-                //    Configure 里那次主题/取色发生在窗口还没显示时 —— RequestedThemeVariant 刚设上，
+                // Configure 里那次主题/取色发生在窗口还没显示时 —— RequestedThemeVariant 刚设上，
                 //    ActualThemeVariant 未必传播到位，面板可能按默认浅色画成白的，而文字/图标资源
                 //    却按深色渲染（白底白字）。现在窗口已进视觉树，重设主题会真正触发
                 //    ActualThemeVariantChanged → 整套配色（面板、钉住图标、窗口边）跟着重刷；
@@ -954,12 +934,12 @@ public sealed partial class ToolSidebarWindow : Window
             Topmost = true;
 
             MoveToEdge();
-            // ⚠️ 外观要等窗口真显示出来之后再收尾（构造期改窗口样式会让窗口显示不出来）
+            // 外观要等窗口真显示出来之后再收尾（构造期改窗口样式会让窗口显示不出来）
             WindowChrome.RemoveBorder(hwnd, rounded: true, dark: Root.ActualThemeVariant == ThemeVariant.Dark);
             // 别让任务管理器把侧边栏单列成一条「应用」（ShowInTaskbar=false 只管任务栏/Alt+Tab）
             WindowChrome.MarkToolWindow(hwnd);
             // 亚克力底（Win7 → Aero 毛玻璃 → 纯色兜底），也是显示之后才能上。
-            // ⚠️ alphaCorners: Win10 上 GPU 渲染同样带 WS_EX_NOREDIRECTIONBITMAP，DWM 无视
+            // alphaCorners: Win10 上 GPU 渲染同样带 WS_EX_NOREDIRECTIONBITMAP，DWM 无视
             //    SetWindowRgn —— 这和 Win11 是同一个坑，圆角一律改由内容 alpha 抠。
             BackdropTheme.Apply(this, null, "acrylic", alphaCorners: true);
 
@@ -982,7 +962,7 @@ public sealed partial class ToolSidebarWindow : Window
     {
         if (!_visible) return;
         _visible = false;
-        StopSlide();                                      // 藏了就别再让滑入的计时器挪窗口
+        StopSlide();                                      // 已隐藏，停止滑入计时器对窗口的移动
         HideHitPad();                                     // 整条都藏了，热区更不能留着挡点击
 
         // 音量浮窗（主音量 + 合成器）跟着一起收
@@ -992,11 +972,11 @@ public sealed partial class ToolSidebarWindow : Window
     }
 
     /// <summary>亚克力上面再压一层很淡的色：深色主题压深、浅色主题压白，保证字看得清。
-    /// ⚠️ 色值跟 FlyoutChrome.ApplyMaterial 逐字一致（2026-10-03 一起提到 205 的白 —— 浅色模式下要真的是白色）。</summary>
+    /// 色值跟 FlyoutChrome.ApplyMaterial 逐字一致，改就一起改。</summary>
     private void ApplyPanelBrush()
     {
-        // ⚠️ 2026-10-03（用户第 12 轮）：改全不透明强制色，与 FlyoutChrome.ApplyMaterial 逐字一致 ——
-        //    深色黑面板 #202020、浅色白面板 #FCFCFC；毛玻璃再灰也透不上来了。
+        // 全不透明强制色，与 FlyoutChrome.ApplyMaterial 逐字一致：
+        //    深色黑面板 #202020、浅色白面板 #FCFCFC；毛玻璃再灰也透不上来。
         var dark = Root.ActualThemeVariant == ThemeVariant.Dark;
         Panel.Background = new SolidColorBrush(dark
             ? Color.FromRgb(0x20, 0x20, 0x20)
@@ -1007,7 +987,6 @@ public sealed partial class ToolSidebarWindow : Window
     /// 每次显形**之前**把窗口自己的底色定成成品色。
     ///
     /// <para>
-    /// ── 为什么（用户 2026-10-02：「显示和隐藏时会闪一下白色」）────────────────
     /// <c>Show()</c> / <c>ShowWindow(SW_SHOW)</c> 只是让 Win32 窗口可见，
     /// 视效树的第一帧要等下一轮渲染 —— 中间那一帧窗口是**不透明但空白**的，
     /// 系统给的默认底色是**白的**。侧边栏弹出/收起非常频繁，所以这个白闪特别显眼。
@@ -1015,9 +994,9 @@ public sealed partial class ToolSidebarWindow : Window
     /// </para>
     ///
     /// <para>
-    /// ⚠️ 只在**没有模糊支持**的环境做（<see cref="OsInfo.SupportsAcrylicBlur"/> 为假）：
+    /// 只在**没有模糊支持**的环境做（<see cref="OsInfo.SupportsAcrylicBlur"/> 为假）：
     ///    能透视时窗口本来就能透出桌面、不会白闪，这时设成不透明反而会盖掉亚克力。
-    /// ⚠️ 色值跟 <see cref="Views.FlyoutChrome"/> 里那套**逐字一致**，改就一起改。
+    /// 色值跟 <see cref="Views.FlyoutChrome"/> 里那套**逐字一致**，改就一起改。
     /// </para>
     /// </summary>
     private void PrimeOpaqueBackdrop()
@@ -1041,7 +1020,7 @@ public sealed partial class ToolSidebarWindow : Window
 
     private void Expand()
     {
-        // 已经在展开态就别再展一次 —— 再走一遍等于把面板扔回屏幕外重滑，看着就是"那一条乱飞"
+        // 已处于展开态时不重复展开 —— 重复执行会把面板移回屏幕外重新滑入，表现为位置跳变
         if (_expanded) return;
 
         HideHitPad();                                     // 隐形热区跟收起条一起退场，别挡屏幕
@@ -1060,19 +1039,17 @@ public sealed partial class ToolSidebarWindow : Window
     }
 
     /// <summary>
-    /// 展开发（2026-10-29 二改）：窗口按展开尺寸摆到**屏幕外**，再整块**向屏幕里滑入**。
+    /// 展开发：窗口按展开尺寸摆到**屏幕外**，再整块**向屏幕里滑入**。
     ///
     /// <para>
-    /// 用户原话：「展开动画那个竖线会飞」→ 第一版改成了原地淡入 → 紧接着又说
-    /// 「现在是直接弹出来的，换成 向屏幕内滑动出现」。所以现在动的是**面板本身**：
-    /// 收起条在滑动开始前就已经藏掉（<c>CollapsedView.IsVisible = false</c>），
+    /// 动的是**面板本身**：收起条在滑动开始前就已经藏掉（<c>CollapsedView.IsVisible = false</c>），
     /// 屏幕上从边缘滑进来的只有展开面板，那条竖线不会再跟着飞。
     /// </para>
     ///
     /// <para>
-    /// ⚠️ 尺寸和屏幕外起点**一次**设下去，滑动期间窗口尺寸不变 —— 每帧只挪坐标，
+    /// 尺寸和屏幕外起点**一次**设下去，滑动期间窗口尺寸不变 —— 每帧只挪坐标，
     ///    内容不会重排、字不会抖。
-    /// ⚠️ 内容透明度 0 → 1 跟滑入同时跑：第一帧面板还没排版完时不会露出半成品。
+    /// 内容透明度 0 → 1 跟滑入同时跑：第一帧面板还没排版完时不会露出半成品。
     /// </para>
     /// </summary>
     private void ExpandInPlace()
@@ -1107,13 +1084,13 @@ public sealed partial class ToolSidebarWindow : Window
     {
         _idle.Stop();
         StopOutsideWatch();                               // 收起来就不用再看前台窗口了
-        StopSlide();                                      // 滑入还没走完就收了：停在原地，别再往屏幕里推
+        StopSlide();                                      // 滑入未完成即收起：停在原地，不再继续移动
 
         // animate=false 用在"要立刻消失"的场合（截图前、刚出现时），那种必须当帧就收干净。
         if (!_expanded || !ExpandedView.IsVisible || !animate)
         {
             // 淡出已经在跑：这一次是重复请求（Deactivated + 进程内按下钩子最常撞在一起）。
-            // 直接 FinishCollapse 会把淡出跳过 —— 面板瞬间缩成线、竖线换了个位置，就是用户说的「乱飞」。
+            // 直接 FinishCollapse 会跳过淡出 —— 面板瞬间缩成线、竖线换位，表现为位置跳变。
             if (_collapsing) return;
 
             _expanded = false;
@@ -1121,7 +1098,7 @@ public sealed partial class ToolSidebarWindow : Window
             return;
         }
 
-        _expanded = false;                                // 先立旗：收起期间自动收起那条路别再来一遍
+        _expanded = false;                                // 先立旗：避免收起期间再次触发自动收起
         _collapsing = true;
         var epoch = ++_collapseEpoch;
 
@@ -1144,7 +1121,7 @@ public sealed partial class ToolSidebarWindow : Window
     /// false = 当帧就位（截图前、窗口刚出现时那种要立刻收干净的场合，不能有任何可见动画）。
     /// </param>
     /// <param name="anchor">
-    /// true = 竖线钉在当前面板的**沿边中心**（用户收起时要的"原地变身"）；
+    /// true = 竖线钉在当前面板的**沿边中心**（收起时原地变身）；
     /// false = 按比例重新算（窗口刚出现、截图等场合，面板不一定还在原位，拿它当锚点只会把线甩走）。
     /// </param>
     private void FinishCollapse(bool fadeIn = false, bool anchor = false)
@@ -1186,7 +1163,7 @@ public sealed partial class ToolSidebarWindow : Window
 
     /// <summary>
     /// 把整块面板的透明度按住（不走动画）。收起后要给抓手"淡入"，就先用它把面板压到 0。
-    /// ⚠️ 移植说明：原版走 ElementCompositionPreview 直改合成器 Visual 的 Opacity；
+    /// 移植说明：原版走 ElementCompositionPreview 直改合成器 Visual 的 Opacity；
     ///    Avalonia 没有这套 API，直接设 <c>Panel.Opacity</c>（这一处本来就不需要动画）。
     /// </summary>
     private void SetPanelOpacity(double value)
@@ -1201,7 +1178,7 @@ public sealed partial class ToolSidebarWindow : Window
 
     /// <summary>
     /// 面板透明度从当前值过渡到 <paramref name="to"/>（展开淡入 / 收起淡出共用）。
-    /// ⚠️ 移植说明：原版是合成器 ScalarKeyFrameAnimation + 缓出贝塞尔；Avalonia 没有逐 Visual 的
+    /// 移植说明：原版是合成器 ScalarKeyFrameAnimation + 缓出贝塞尔；Avalonia 没有逐 Visual 的
     ///    合成动画，这里用 16ms 按帧计时器做线性过渡 —— 100~140ms 的透明度变化，肉眼差别可以忽略。
     /// </summary>
     private void FadePanelOpacity(double to, double ms, Action? done = null)
@@ -1267,11 +1244,10 @@ public sealed partial class ToolSidebarWindow : Window
     /// 把窗口从 <paramref name="from"/> 缓出地挪到 <paramref name="to"/>（只挪位置，不改尺寸）。
     ///
     /// <para>
-    /// ⚠️ 最后一拍**必须**用精确坐标再挪一次：按帧插值收尾时可能还差一两像素，
+    /// 最后一拍**必须**用精确坐标再挪一次：按帧插值收尾时可能还差一两像素，
     ///    不补这一下那条缝会一直留在屏幕边上。
-    /// ⚠️ 中断（收起 / 隐藏 / 切缩放 / 重新贴边）一律只调 <see cref="StopSlide"/>：
-    ///    **不要**顺手把窗口挪回去 —— 收起那条路在淡出后会自己落位，两边都动就是
-    ///    用户反复说的「那一条乱飞」。
+    /// 中断（收起 / 隐藏 / 切缩放 / 重新贴边）一律只调 <see cref="StopSlide"/>：
+    ///    不要在此移动窗口 —— 收起流程会在淡出后自行落位，两处同时落位会导致位置跳变。
     /// </para>
     /// </summary>
     private void SlideWindow(PixelPoint from, PixelPoint to, double ms = ExpandSlideMs, Action? done = null)
@@ -1341,8 +1317,8 @@ public sealed partial class ToolSidebarWindow : Window
             {
                 if (_expanded) return;
 
-                // ⚠️ 已经落对了就**什么都别做**。多挪一次窗口就多一帧重绘 ——
-                //    动画刚结束那一下最容易看出抖，这里不能无脑再摆一次（2026-09-26 优化）。
+                // 已经落对了就**什么都别做**。多挪一次窗口就多一帧重绘 ——
+                //    动画刚结束那一下最容易看出抖动，不能无脑再摆一次。
                 var size = CollapsedSize();
                 var pos = EdgePosition(size.Width, size.Height);
                 var now = WinSizePx();
@@ -1371,7 +1347,7 @@ public sealed partial class ToolSidebarWindow : Window
     /// </para>
     ///
     /// <para>
-    /// ⚠️ 延后一帧（Loaded）再算：<c>ScalingChanged</c> 触发时，系统的 WM_DPICHANGED
+    /// 延后一帧（Loaded）再算：<c>ScalingChanged</c> 触发时，系统的 WM_DPICHANGED
     /// 新尺寸/新位置可能还没落到窗口上，立刻量会量到旧尺寸，贴边会差一截。
     /// </para>
     /// </summary>
@@ -1425,18 +1401,15 @@ public sealed partial class ToolSidebarWindow : Window
     }
 
     // ══════════════════════════════════════════════════════════════════
-    //  点别处就收起（2026-10-18 加；同日二改：只认"真的点了外面"，不认焦点变化）
+    //  点别处就收起（只认"真的点了外面"，不认焦点变化）
     //
-    //  用户第一版反馈：「打开悬浮窗没钉住的情况下，点击非悬浮窗他不收缩」；
-    //  第二版反馈：「有点太灵敏了，打开就关，打开 3s 自动关，点击其他位置也关闭」。
-    //
-    //  ⛔ 第一版是**看前台窗口**做的 —— 但边条是 Topmost 工具窗口，点收起条展开时它
-    //    根本拿不到前台（前台还是主界面），于是刚展开就被判成"点了别处"直接收掉（打开就关）。
-    //  ✅ 现在改成只看**鼠标左键的新一次按下**：
-    //     · 展开后先给 700ms 冷静期（展开那一下的按下不能算数）；
-    //     · 之后每次检测到"左键从没按着 → 按着"，取光标下的窗口：
-    //         是自己 / 自己的弹层（owner 链）→ 不管；否则才收起；
-    //     · 光标只是移出去、或者焦点变了，都**不会**收 —— 只有真点下去才收。
+    //  不能用"看前台窗口"的方案 —— 边条是 Topmost 工具窗口，点收起条展开时它
+    //  根本拿不到前台（前台还是主界面），刚展开就会被判成"点了别处"直接收掉。
+    //  现在改成只看**鼠标左键的新一次按下**：
+    //   · 展开后先给 700ms 冷静期（展开那一下的按下不能算数）；
+    //   · 之后每次检测到"左键从没按着 → 按着"，取光标下的窗口：
+    //       是自己 / 自己的弹层（owner 链）→ 不管；否则才收起；
+    //   · 光标只是移出去、或者焦点变了，都**不会**收 —— 只有真点下去才收。
     // ══════════════════════════════════════════════════════════════════
 
     /// <summary>展开后多久内不理会鼠标按下（dip/毫秒）：展开那一下的点击不能把自己收掉。</summary>
@@ -1476,12 +1449,11 @@ public sealed partial class ToolSidebarWindow : Window
     }
 
     // ══════════════════════════════════════════════════════════════════
-    //  进程内的"按下"通知（2026-10-29 加）
+    //  进程内的"按下"通知
     //
-    //  ⛔ 为什么需要：触摸输入在 Windows 上走 WM_POINTER，**不会**把 VK_LBUTTON 置成按下状态，
+    //  为什么需要：触摸输入在 Windows 上走 WM_POINTER，**不会**把 VK_LBUTTON 置成按下状态，
     //     所以 <see cref="CheckOutsideClick"/> 里那套 GetAsyncKeyState 轮询在触摸屏上永远看不到"按下"。
-    //     用户原话：「展开时没钉住点别的地方非侧边栏不会关闭」—— 就是这条。
-    //  ✅ 做法：App 给每个 Window 挂一个隧道阶段的 PointerPressed 钩子（触摸/鼠标都有），
+    //  做法：App 给每个 Window 挂一个隧道阶段的 PointerPressed 钩子（触摸/鼠标都有），
     //     按下时通知这里。点在侧边栏自己的窗口 / 它的弹层上不算，其余窗口（主界面、工具窗…）都算"别处"。
     //     别的程序 / 桌面上的触摸点击不在本进程里，仍然由 CheckOutsideClick 的"前台变了"兜底。
     // ══════════════════════════════════════════════════════════════════
@@ -1629,12 +1601,11 @@ public sealed partial class ToolSidebarWindow : Window
                 }
                 else
                 {
-                    // ⚠️ 松开状态**清掉本地值、跟着主题走**（2026-10-01 修「亮色模式下钉子白得看不见」）：
-                    //    以前这里写死成 SolidColorBrush（暗色给白、亮色给黑）—— 可换主题时只有面板底色会重刷
-                    //    （ActualThemeVariantChanged 里只调了 ApplyPanelBrush），这个写死的颜色不会跟着变：
-                    //    暗色下启动过再切亮色，就成了「白钉子压白底」，整颗图标消失。
+                    // 松开状态**清掉本地值、跟着主题走**：写死颜色（暗色白/亮色黑）在换主题时
+                    //    不会跟着重刷（ActualThemeVariantChanged 只刷面板底色），暗色下启动再切亮色
+                    //    会变成「白钉子压白底」，整颗图标消失。
                     //    清掉本地值后它回到 IconElement 默认前景（主题画刷），深浅色都自动对。
-                    // ⚠️ 移植说明：FontIcon（FluentAvalonia）继承 IconElement，ForegroundProperty 走同一个。
+                    // 移植说明：FontIcon（FluentAvalonia）继承 IconElement，ForegroundProperty 走同一个。
                     _pinIcon.ClearValue(FontIcon.ForegroundProperty);
                 }
             }
@@ -1675,7 +1646,7 @@ public sealed partial class ToolSidebarWindow : Window
 
     /// <summary>
     /// 位置复原：沿边居中；两种模式都顺便把边退回默认的那条。
-    /// ⚠️ 双边模式（both）下**不改边** —— 它没有"哪一条边"的概念，保持两条并一起摆正。
+    /// 双边模式（both）下**不改边** —— 它没有"哪一条边"的概念，保持两条并一起摆正。
     /// </summary>
     private void Reset_Click(object? sender, RoutedEventArgs e)
     {
@@ -1753,7 +1724,7 @@ public sealed partial class ToolSidebarWindow : Window
     /// 「侧边布局」页改了**展开样式 / 收起样式** → 所有实例重排（跟换模块清单同一条路）。
     ///
     /// <para>
-    /// ⚠️ 收起样式换的是**窗口尺寸**（grip 20×110 / 紧凑 12×72 → line 6×220），所以不能只换视图，
+    /// 收起样式换的是**窗口尺寸**（grip 20×110 / 紧凑 12×72 → line 6×220），所以不能只换视图，
     ///    必须走完整的 ApplySize + MoveToEdge，否则收起条会按老尺寸贴边、看着就歪。
     /// </para>
     /// </summary>
@@ -1767,7 +1738,7 @@ public sealed partial class ToolSidebarWindow : Window
     /// 「侧边布局 → 收起条长度」滑杆动了 → 只把收起尺寸重算一遍（不重建模块按钮）。
     ///
     /// <para>
-    /// ⚠️ 跟 <see cref="ApplyStyle"/> 的分工：那边是换**样式**（要重建按钮、换视图），
+    /// 跟 <see cref="ApplyStyle"/> 的分工：那边是换**样式**（要重建按钮、换视图），
     ///    这边只动 <c>CollapsedDipW/H</c> 的两个长度值，滑杆拖动会连发很多次，
     ///    所以走这条轻路子（ApplySize + MoveToEdge + 圆角，不碰视图）。
     ///    展开态下改它没有可见变化（收起尺寸只在收起时用），但也不会出错。
@@ -1815,8 +1786,7 @@ public sealed partial class ToolSidebarWindow : Window
 
             if (grid) RenderGridPage();
 
-            // 收起样式的内芯：只有「圆角抓手」画那截 5×48，细竖线保持光溜溜
-            // （2026-10-31 按上游补回，见 ApplyCollapsedGrip）。
+            // 收起样式的内芯：只有「圆角抓手」画那截 5×48，细竖线保持光溜溜（见 ApplyCollapsedGrip）。
             ApplyCollapsedGrip();
             ApplyCornerRadius();
         }
@@ -1830,12 +1800,7 @@ public sealed partial class ToolSidebarWindow : Window
     /// 收起态的内芯小条（上游原版那个「圆角抓手」）：标准档 5×48 dip、紧凑档 4×34，
     /// 圆角 3、透明度 0.6，竖条时竖着、横条时横着。窗口尺寸仍由
     /// <see cref="CollapsedDipW"/> / <see cref="CollapsedDipH"/> 决定，这里只摆内芯、按样式决定显不显。
-    ///
-    /// ⚠️ 2026-10-31 用户「收起时的圆形抓手样式被砍了吗，win7 端怎么没有了，没砍的话补回来」：
-    ///    上游一直到 origin/main 都还画着这截（<c>GripStack</c> + <c>Grip</c>），
-    ///    本移植版 2026-10-17 按「我只要一个竖线，把现在竖线里面的那一小点去掉」把两套内芯一起删了
-    ///    —— 那次诉求其实只针对**细竖线**样式，抓手样式跟着被误伤。现在只在 grip 样式画回去，
-    ///    line 样式保持光溜溜（用户当时明确要的就是那个）。
+    /// 只在 grip 样式画内芯，line 样式保持无内芯（细竖线的既定外观）。
     /// </summary>
     private void ApplyCollapsedGrip()
     {
@@ -1859,7 +1824,7 @@ public sealed partial class ToolSidebarWindow : Window
     /// <summary>
     /// 窗口圆角不能超过**半宽**：收起成细竖线后窗口只有 6dip 宽，
     /// 还按 XAML 里写死的 8 裁，GDI 区域就会把两端裁成尖的（椭圆比矩形宽）。
-    /// ⚠️ 展开态一律用默认 8，别跟着网格面板的尺寸缩。
+    /// 展开态一律用默认 8，别跟着网格面板的尺寸缩。
     /// </summary>
     private void ApplyCornerRadius()
     {
@@ -1905,7 +1870,7 @@ public sealed partial class ToolSidebarWindow : Window
             {
                 Glyph = m.Glyph,
                 // 紧凑档（SidebarExpandedDensity = compact）图标按 CompactScale 缩一点；
-                // ⛔ 按钮本身的最小尺寸（MinHeight 52）不跟着缩 —— 细条上的键必须点得中。
+                // 按钮本身的最小尺寸（MinHeight 52）不跟着缩 —— 细条上的键必须点得中。
                 FontSize = CompactBody ? 20 * CompactScale : 20,
                 HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center
             });
@@ -1928,18 +1893,17 @@ public sealed partial class ToolSidebarWindow : Window
                 HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Center,
                 Content = content
             };
-            // ⚠️ 2026-10-15：**故意不给模块按钮挂 ToolTip**（同第 14 轮标题栏按钮的取舍）。
-            //    展开面板上本来就看得到模块名，tooltip 纯冗余；而它是个 Popup，
-            //    悬停一秒弹出后，按下去那一下会被 Popup 的轻.dismiss 吃掉 ——
-            //    实测（Win11 自动化点击）就是用户报的「秒表按钮点第一次没反应需要点第二次」。
-            //    模块按钮是高频点击件，宁可没有提示也不能丢点击。
+            // **故意不给模块按钮挂 ToolTip**：展开面板上本来就显示模块名，tooltip 纯冗余；
+            //    且 tooltip 是 Popup，弹出后按下去那一下会被 Popup 的轻 dismiss 吃掉，
+            //    表现为「按钮点第一次没反应需要点第二次」。模块按钮是高频点击件，
+            //    宁可没有提示也不能丢点击。
 
             if (m.Kind == SidebarModuleKinds.Action && TeachingActions.IsHold(m.Id))
             {
                 // 按住型（放大镜）：按下开始 → 松手结束。按住期间别让侧边栏自动收起，
                 // 否则按钮被一起收走、指针捕获也会断，放大镜就"按两下才亮"了。
                 var holdId = m.Id;
-                // ⚠️ handledEventsToo: true —— Button 内部会把 PointerPressed 标成 handled
+                // handledEventsToo: true —— Button 内部会把 PointerPressed 标成 handled
                 //（WinUI 的 UIElement 路由事件 → Avalonia 挂在控件实例上：control.AddHandler(event, handler, route, handledEventsToo)）
                 btn.AddHandler(InputElement.PointerPressedEvent,
                     new EventHandler<PointerPressedEventArgs>((_, _) =>
@@ -1985,10 +1949,10 @@ public sealed partial class ToolSidebarWindow : Window
 
     /// <summary>
     /// 「展开样式 = 图标网格」那一套的格子：**同一份模块清单**（用户在「侧边布局」勾的那些），
-    /// 末尾固定补「主页」「设置」两颗 —— 跟参考图里的 主页 / 设置 对应（用户 2026-10-11 定）。
+    /// 末尾固定补「主页」「设置」两颗 —— 跟参考图里的 主页 / 设置 对应。
     ///
     /// <para>
-    /// ⚠️ 这里只把格子建出来放进 <see cref="_gridCells"/>；摆到 <c>ToolGrid</c> 上、翻页都归
+    /// 这里只把格子建出来放进 <see cref="_gridCells"/>；摆到 <c>ToolGrid</c> 上、翻页都归
     ///    <see cref="RenderGridPage"/> 管。为什么不每页重建 Button：重建会把按住型模块（放大镜）
     ///    的指针捕获、以及按钮的悬停/回弹动画全部弄断。
     /// </para>
@@ -2105,7 +2069,7 @@ public sealed partial class ToolSidebarWindow : Window
     /// 把当前页的格子摆进 <c>ToolGrid</c>，并按页数显隐 / 重建分页点。
     ///
     /// <para>
-    /// ⚠️ 列数会随"贴哪条边"变（左右 4 列 / 上下 8 列），所以每次都重设行列定义；
+    /// 列数会随"贴哪条边"变（左右 4 列 / 上下 8 列），所以每次都重设行列定义；
     ///    格子本身**不重建**，只是从上一个父容器里搬过来（<c>Children.Clear()</c> 会先摘干净）。
     /// </para>
     /// </summary>
@@ -2158,7 +2122,7 @@ public sealed partial class ToolSidebarWindow : Window
 
     /// <summary>
     /// 分页点。一页放得下就整行收掉（面板也跟着矮一截，见 <see cref="GridPanelDip"/>）。
-    /// ⚠️ 圆点外面包一层 Button 当触摸靶（8dip 的点在触屏上根本点不中）。
+    /// 圆点外面包一层 Button 当触摸靶（8dip 的点在触屏上点不中）。
     /// </summary>
     private void BuildPagerDots(int pages)
     {
@@ -2191,7 +2155,7 @@ public sealed partial class ToolSidebarWindow : Window
                 BorderThickness = new Thickness(0),
                 Content = dot
             };
-            // ⚠️ Avalonia 的 ToolTip 是**附加属性**，C# 里只能用 SetTip 写，不能塞进对象初始化器
+            // Avalonia 的 ToolTip 是**附加属性**，C# 里只能用 SetTip 写，不能塞进对象初始化器
             ToolTip.SetTip(hit, "第 " + (p + 1) + " / " + pages + " 页");
             hit.Click += (_, _) => GoToPage(me);
             PagerDots.Children.Add(hit);
@@ -2219,7 +2183,7 @@ public sealed partial class ToolSidebarWindow : Window
         }
     }
 
-    // ── 网格换页（2026-10-12 用户反馈补）：两侧半透明小箭头 + 触屏左右滑动 ──
+    // ── 网格换页：两侧半透明小箭头 + 触屏左右滑动 ──
 
     /// <summary>翻一页（dir = +1 下一页 / -1 上一页，循环）。滚轮、箭头、触屏滑动共用这一个入口。</summary>
     private void FlipPage(int dir)
@@ -2244,17 +2208,16 @@ public sealed partial class ToolSidebarWindow : Window
     private void GridPrevPage_Click(object? sender, RoutedEventArgs e) => FlipPage(-1);
     private void GridNextPage_Click(object? sender, RoutedEventArgs e) => FlipPage(1);
 
-    // ── 触屏滑动翻页（2026-10-12 加；2026-10-29 重做；2026-10-30 去掉指针捕获）──
+    // ── 触屏滑动翻页 ──
     //
-    //  用户原话：「悬浮窗里面触摸屏翻页不怎么好用」→「翻页是滑动翻页不好用，按钮是好用的」。
-    //  前两版都靠"横滑 16dip 后 e.Pointer.Capture(ToolGrid) 把指针从格子的 Button 上抢走"。
-    //  ⛔ 这条路在 Win7 真机上不成立：无边框浮窗自己做的指针捕获会立刻丢（PointerCaptureLost），
-    //     捕获一丢状态就被清空，抬手时的位移算不出来 —— 表现就是"滑了没反应"（开发机 DWM 下正常）。
-    //  ✅ 现在的做法：**完全不抢指针**。格子 Button 自己捕获指针时，移动/抬手事件照样会从
-    //     Button 沿视觉树冒泡到 Root（挂的是 handledEventsToo=true，见构造区），位移一直能算；
-    //     唯一要解决的是"滑完抬手，Button 还会照常算一次点击" —— 用 _gridSwiping 标记：
-    //     横滑一过锁判就在 Button 的 Click 之前置位（Click 在 Button 自己的 PointerReleased
-    //     里同步触发，先于冒泡到 Root 的处理器），GridCell_Click 看到标记直接吞掉这一下。
+    //  做法：**完全不抢指针**。不把指针从格子的 Button 上抢走 ——
+    //  在 Win7 上无边框浮窗自己做的指针捕获会立刻丢（PointerCaptureLost），
+    //  捕获一丢状态就被清空，抬手时的位移算不出来，表现为"滑了没反应"。
+    //  格子 Button 自己捕获指针时，移动/抬手事件照样会从
+    //  Button 沿视觉树冒泡到 Root（挂的是 handledEventsToo=true，见构造区），位移一直能算；
+    //  唯一要解决的是"滑完抬手，Button 还会照常算一次点击" —— 用 _gridSwiping 标记：
+    //  横滑一过锁判就在 Button 的 Click 之前置位（Click 在 Button 自己的 PointerReleased
+    //  里同步触发，先于冒泡到 Root 的处理器），GridCell_Click 看到标记直接吞掉这一下。
 
     /// <summary>横向位移到这里就判成"要翻页"：本轮之后格子的 Click 一律作废（dip）。</summary>
     private const double GridSwipeLockDip = 12;
@@ -2295,7 +2258,7 @@ public sealed partial class ToolSidebarWindow : Window
             var dx = now.X - _gridSwipeStart.Value.X;
             var dy = now.Y - _gridSwipeStart.Value.Y;
 
-            // ⚠️ 必须"横向明显占优"才判：纵向挪动（比如想滚动、或手指歪了）不能当成翻页
+            // 必须"横向明显占优"才判：纵向挪动（比如想滚动、或手指歪了）不能当成翻页
             if (Math.Abs(dx) < GridSwipeLockDip || Math.Abs(dx) < Math.Abs(dy) * 1.2) return;
 
             _gridSwiping = true;
@@ -2358,11 +2321,11 @@ public sealed partial class ToolSidebarWindow : Window
         }
     }
 
-    // ── 网格面板的「快捷」行（关机 / 锁定 / 重启 / 打开应用，2026-10-11 用户定）────────
+    // ── 网格面板的「快捷」行（关机 / 锁定 / 重启 / 打开应用）────────
     //
-    // ⚠️ 关机 / 重启 = 走系统 shutdown 命令（/t 0 立即执行，不弹确认）；
-    //    锁定       = user32 LockWorkStation —— 回到登录界面，本会话和本程序都继续活着；
-    //    打开应用   = 底排「打开应用」同一条路（不收边条）。
+    // 关机 / 重启 = 走系统 shutdown 命令（/t 0 立即执行，不弹确认）；
+    // 锁定       = user32 LockWorkStation —— 回到登录界面，本会话和本程序都继续活着；
+    // 打开应用   = 底排「打开应用」同一条路（不收边条）。
 
     private void QuickShutdown_Click(object? sender, RoutedEventArgs e) => RunPowerCommand("/s /t 0", "关机");
 
@@ -2421,7 +2384,7 @@ public sealed partial class ToolSidebarWindow : Window
                     return;
                 }
 
-                // ⚠️ 「要先问一句」的动作（关全部）不能按老办法在 Run 之后就还焦点：
+                // 「要先问一句」的动作（关全部）不能按老办法在 Run 之后就还焦点：
                 //    侧边栏一失活，刚弹出来的确认面板就会被系统按"点了别处"关掉。
                 //    Run 里已经按 AsksFirst 区分过了，这里只管把面板弹出来。
                 var asks = TeachingActions.AsksFirst(m.Id);
@@ -2438,8 +2401,8 @@ public sealed partial class ToolSidebarWindow : Window
 
                     var confirmed = false;
 
-                    // ⚠️ 不只是"待确认"能走到这儿：出错时也会有提示（例如"截屏启动失败，看日志"）。
-                    //    那种没什么可确认的，给个「知道了」就行 —— 别摆红色危险键、也别去执行什么。
+                    // 不只是"待确认"能走到这儿：出错时也会有提示（例如"截屏启动失败，看日志"）。
+                    //    那种没什么可确认的，给个「知道了」就行 —— 不摆红色危险键、也不执行。
                     ShowConfirmFlyout(b, title, body, asks ? "确定关闭" : "知道了", () =>
                     {
                         if (!asks) return;                 // 纯提示：按掉就完事
@@ -2456,7 +2419,7 @@ public sealed partial class ToolSidebarWindow : Window
                     },
                     dangerStyle: asks);
 
-                    // ⚠️ 这里**绝不能**再调 RefocusPrevious()：那会立刻把侧边栏踢下台，
+                    // 这里**绝不能**再调 RefocusPrevious()：那会立刻把侧边栏踢下台，
                     //    刚弹出的面板当场被关掉 —— 这正是"前台有窗口时按了没反应"的直接原因。
                 }
                 else
@@ -2480,7 +2443,7 @@ public sealed partial class ToolSidebarWindow : Window
                 App.MainWindow?.OpenToolSettings(m.Page);      // 拉出主窗口并跳到那一页
             else if (m.Kind == SidebarModuleKinds.Window)
             {
-                // 独立窗口：文件快搜自己一扇浮窗（2026-10-29），其余三件学科工具共用学科工具窗
+                // 独立窗口：文件快搜自己一扇浮窗，其余三件学科工具共用学科工具窗
                 if (string.Equals(m.WindowTool, "file-search", StringComparison.Ordinal))
                     FileSearchWindow.ShowWindow();
                 else if (string.Equals(m.WindowTool, "quick-lookup", StringComparison.Ordinal))
@@ -2507,12 +2470,12 @@ public sealed partial class ToolSidebarWindow : Window
     /// <summary>
     /// 「音量」模块的入口：**边条不收**（浮窗是挨着边条长出来的一栏，边条留着才像一个整体），
     /// 直接把主音量浮窗开在边条内侧；浮窗里再点「展开」看合成器。
-    /// ⚠️ 必须先把自动收起压住：浮窗一显形就抢焦点，边条会以为自己"失焦"当场缩回去。
+    /// 必须先把自动收起压住：浮窗一显形就抢焦点，边条会以为自己"失焦"当场缩回去。
     /// </summary>
     private void ToggleVolume()
     {
         SuppressAutoCollapse = true;
-        SetFlyoutAnchor(this);          // ⚠️ 必须在这之前：浮窗的边/锚点都看它（点左条就贴左边弹）
+        SetFlyoutAnchor(this);          // 必须在这之前：浮窗的边/锚点都看它（点左条就贴左边弹）
         Log("点击「音量」模块 → 开/关主音量浮窗（锚点=" + _edge + "）");
         try
         {
@@ -2555,11 +2518,10 @@ public sealed partial class ToolSidebarWindow : Window
 
     // ── "要先问一句"的原生 Flyout ────────────────────────────
     //
-    // 为什么是原生 Flyout（而不是自己开个小窗口）：自己开窗要自己管窗口边框/背景/置顶/圆角，
-    // 结果被 Nick 一眼看穿"很丑、有奇妙的白色边框、还不置顶"。用框架的 Flyout：
-    // 描边/圆角/投影/主题全归系统，点别处自动收（light dismiss），也不用管 z 序。
+    // 为什么是原生 Flyout（而不是自己开个小窗口）：自己开窗要自己管窗口边框/背景/置顶/圆角。
+    // 用框架的 Flyout：描边/圆角/投影/主题全归系统，点别处自动收（light dismiss），也不用管 z 序。
     //
-    // ⚠️ 移植说明：原版那句 `ShouldConstrainToRootBounds = false`（不把 Flyout 裁在 92dip 宽的
+    // 移植说明：原版那句 `ShouldConstrainToRootBounds = false`（不把 Flyout 裁在 92dip 宽的
     //    边条窗口里）在 Avalonia 没有 —— Avalonia 的 Popup/Flyout 天生就是独立弹层，不裁边。
     //    资源键 ButtonBackground* / ButtonForeground* / ButtonBorderBrush* 在 Avalonia Fluent
     //    主题里同名存在，红底危险键那套写法可以原样照搬。
@@ -2572,7 +2534,7 @@ public sealed partial class ToolSidebarWindow : Window
 
     /// <summary>
     /// 「安全选项」弹出的小菜单：锁定 / 切换用户 / 注销。
-    /// ⚠️ Ctrl+Alt+Del 的蓝色界面属系统安全桌面，普通程序调不起来 —— 这里给的是它上面的操作本身。
+    /// Ctrl+Alt+Del 的蓝色界面属系统安全桌面，普通程序调不起来 —— 这里给的是它上面的操作本身。
     /// </summary>
     private void ShowSecurityFlyout(Button anchor)
     {
@@ -2642,7 +2604,7 @@ public sealed partial class ToolSidebarWindow : Window
                 if (ReferenceEquals(_securityFlyout, flyout)) _securityFlyout = null;
 
                 // 菜单收掉 = 用户没在继续操作 → 恢复自动收起。
-                // ⚠️ 例外：点「注销」会**紧接着**弹确认面板（那时 _confirmFlyout 已经挂上了），
+                // 例外：点「注销」会**紧接着**弹确认面板（那时 _confirmFlyout 已经挂上了），
                 //    这种情况不能解除压制，否则确认面板当场被收起来的边条一起带走。
                 if (_confirmFlyout is null) SuppressAutoCollapse = false;
             };
@@ -2769,7 +2731,7 @@ public sealed partial class ToolSidebarWindow : Window
             };
             danger.Click += (_, _) =>
             {
-                // ⚠️ 顺序要紧：先把"确认"做完（onConfirm 会把 confirmed 立起来），再收面板。
+                // 顺序要紧：先把"确认"做完（onConfirm 会把 confirmed 立起来），再收面板。
                 //    反过来的话，Closed 里的收尾会误当成"用户取消了"而去抢焦点。
                 try { onConfirm(); } catch (Exception ex) { Log("确认动作失败: " + ex.Message); }
                 flyout.Hide();
@@ -2813,7 +2775,7 @@ public sealed partial class ToolSidebarWindow : Window
     }
 
     /// <summary>边条贴哪条边 → Flyout 往哪边弹（贴左往右弹，依此类推）。
-    /// ⚠️ 收起态那条离屏幕边缘留了 <see cref="CollapsedGapDip"/> 的空隙，所以"贴边"的
+    /// 收起态那条离屏幕边缘留了 <see cref="CollapsedGapDip"/> 的空隙，所以"贴边"的
     ///    判据不能再用写死的 8px —— 得把空隙（按当前缩放换算）加进去，否则认不出这条边。</summary>
     private PlacementMode ConfirmPlacement()
     {
@@ -2839,37 +2801,33 @@ public sealed partial class ToolSidebarWindow : Window
 
     private void Strip_PointerPressed(object? sender, PointerPressedEventArgs e)
     {
-        // ⚠️ 2026-10-04（第 17 轮）：拖拽整条撤除。这里只做两件事 ——
-        //    记下"按着"、把指针捕获住。
-        //    ⚠️ 捕获必须留着：手指/鼠标按下后可能挪出收起条再抬起，
+        // 拖拽已撤除。这里只做两件事：记下"按着"、把指针捕获住。
+        //    捕获必须留着：手指/鼠标按下后可能挪出收起条再抬起，
         //    没有捕获的话 PointerReleased 不会回到这里，那一"点"就丢了（＝点了没反应）。
         _pressed = true;
         _idle.Stop();                                    // 按住期间别自动收起
 
-        // 2026-10-11 加"滑动展开"：只记起点，**不动窗口**。位移阈值判据见 Strip_PointerReleased。
+        // "滑动展开"：只记起点，**不动窗口**。位移阈值判据见 Strip_PointerReleased。
         _pressPos = e.GetPosition(Root);
         _lastPos = _pressPos;
         _swipedOpen = false;
 
         Log($"收起条：按下 device={e.Pointer.Type}");
-        // ⚠️⚠️ 2026-10-11 实测（便携版跑起来看 sidebar.log 才发现）：捕获目标**必须是 CollapsedView 自己**，
-        //    首版照抄了原来的 Capture(Root)。Avalonia 的指针捕获会把后续事件**路由到被捕获的那个控件**
+        // 捕获目标**必须是 CollapsedView 自己**（不能用祖先 Root）：
+        //    Avalonia 的指针捕获会把后续事件**路由到被捕获的那个控件**
         //    （Root 是 CollapsedView 的祖先，事件只会从 Root 往上冒泡，永远回不到 CollapsedView）——
-        //    结果 PointerMoved / PointerReleased 全都收不到，只有 PointerCaptureLost 会来。
-        //      · 点击展开没坏：CaptureLost 那条路把它兜住了（日志里就是「捕获丢失 → 当成单击，展开」）；
-        //      · **滑动展开则彻底失效**：它挂在 Strip_PointerMoved 上，而 Moved 根本不来。
-        //    改捕获自己之后 Moved/Released 才真正到手，滑动展开才有意义。
-        //    （SnipOverlayWindow 一直是"捕获谁就挂谁"的写法，就是这个道理；首版没跟上。）
+        //    捕获 Root 时 PointerMoved / PointerReleased 全都收不到，只有 PointerCaptureLost 会来。
+        //    捕获自己之后 Moved/Released 才真正到手，滑动展开才有意义。
         e.Pointer.Capture(CollapsedView);
         e.Handled = true;
     }
 
     /// <summary>
-    /// 2026-10-11 加：**向外滑就地展开**（贴左边向右滑、贴右边向左滑，上下边同理）。
+    /// **向外滑就地展开**（贴左边向右滑、贴右边向左滑，上下边同理）。
     ///
     /// <para>
-    /// ⚠️ 只是给"点击"多开一条路，**绝不取代它**：抬手时位移不够阈值的一律还按点击处理
-    ///    （见 Strip_PointerReleased）。这是 2026-10-04 那条教训的红线 ——
+    /// 只是给"点击"多开一条路，**绝不取代它**：抬手时位移不够阈值的一律还按点击处理
+    ///    （见 Strip_PointerReleased）。这是硬性红线 ——
     ///    触摸屏上手指按下必带几像素抖动，只要"位移不够就什么都不做"，用户看到的就是"点了没反应"。
     /// </para>
     /// </summary>
@@ -2881,7 +2839,7 @@ public sealed partial class ToolSidebarWindow : Window
         {
             _lastPos = e.GetPosition(Root);
 
-            // 已经展开过就别再来一遍（快速连滑会反复触发）
+            // 已展开过则不重复执行（快速连滑会反复触发）
             if (_swipedOpen || _expanded) return;
 
             if (OutwardDelta(_lastPos) >= SwipeThresholdDip)
@@ -2908,9 +2866,9 @@ public sealed partial class ToolSidebarWindow : Window
 
         if (_swipedOpen) { e.Handled = true; return; }    // 滑动那一路已经展开了
 
-        // ⚠️ 判据只有一条"该不该展开"，**没有第三种"什么都不做"**：
+        // 判据只有一条"该不该展开"，**没有第三种"什么都不做"**：
         //      · 向外滑够了  → 展开（滑动那条路，正常在 Moved 里就走掉了）
-        //      · 位移不够阈值 → 展开（＝点击，2026-10-04 定的老行为，原样保留）
+        //      · 位移不够阈值 → 展开（＝点击，点击展开的原样保留）
         //      · 朝**屏幕里**滑够了 20dip → 不展开（这是唯一被挡下的一种，
         //        而且必须是"明确的、朝着屏幕里的滑动"，手指抖动到不了这个量级）
         //      · 其余（沿边滑、斜着滑但没有明确向内）→ 一律展开，宁可多展一次
@@ -2934,10 +2892,10 @@ public sealed partial class ToolSidebarWindow : Window
 
         if (_swipedOpen) return;
 
-        // ⚠️ 2026-10-04（第 17 轮）：捕获丢失同样当成"点了一下"。
+        // 捕获丢失同样当成"点了一下"：
         //    未激活的工具窗口上，按下常常只换来一次捕获丢失（没有正常的 Released）——
         //    这里若不展开，那一下点击就彻底丢了。拖动已撤除，也不存在"把拖动误当点击"的问题。
-        //    2026-10-11：只有"明确朝屏幕里滑"才挡（跟 Released 同一条判据）。
+        //    只有"明确朝屏幕里滑"才挡（跟 Released 同一条判据）。
         if (OutwardDelta(_lastPos) <= -SwipeThresholdDip)
         {
             Log("收起条：捕获丢失，但刚才是向内滑动 → 不展开");
@@ -2989,7 +2947,7 @@ public sealed partial class ToolSidebarWindow : Window
         UpdateCollapsedLook();
     }
 
-    // ── 收起条隐形热区（2026-10-17：线太细点不着 / 手指滑不开）─────────
+    // ── 收起条隐形热区（线太细点不着 / 手指滑不开）─────────
 
     /// <summary>热区朝**屏幕里**多让出来的带宽（dip）。18 ≈ 鼠标"差一点点"也中、手指也能落进来。</summary>
     private const int HitPadInwardDip = 18;
@@ -3063,8 +3021,8 @@ public sealed partial class ToolSidebarWindow : Window
     private void HideHitPad() => _hitPad?.Hide();
 
     /// <summary>
-    /// 收起条的悬停效果：整条铺一层半透明强调色（2026-10-17 起两套样式一样 —— 都只是一条线）。
-    /// ⚠️ 只动这一层，**绝不碰 Panel 底色 / 窗口背景** —— 那套是防白闪的（见 ApplyPanelBrush）。
+    /// 收起条的悬停效果：整条铺一层半透明强调色（两套收起样式一致）。
+    /// 只动这一层，**绝不碰 Panel 底色 / 窗口背景** —— 那套是防白闪的（见 ApplyPanelBrush）。
     /// </summary>
     private void UpdateCollapsedLook()
     {
@@ -3085,7 +3043,7 @@ public sealed partial class ToolSidebarWindow : Window
     /// 松手时定位置：看窗口中心离哪条边最近就吸过去，沿边的位置按松手处记下来。
     ///   · 自由模式：左/右/上/下**四条边**都参与吸附，吸到哪条边存进 <c>SidebarFreeEdge</c>。
     ///   · 贴靠模式：**只吸左右两条** —— 松手时中心若更靠上下，也按左右就近归位（贴靠 = 左右模式）。
-    ///     ⚠️ 双边模式（设置 = both）下**不许换边** —— 换边就等于把"两边都有"拆成单边了。
+    ///     双边模式（设置 = both）下**不许换边** —— 换边就等于把"两边都有"拆成单边了。
     /// </summary>
     private void DockToNearestEdge()
     {
@@ -3125,22 +3083,21 @@ public sealed partial class ToolSidebarWindow : Window
                 }
             }
 
-            // 2026-10-24 上游恢复位置记忆：松手这一刻把沿边比例落盘。
-            // ⚠️ 只在松手写，拖动过程中绝不写 —— 拖动时反复 Save 既卡，
+            // 松手这一刻把沿边比例落盘。
+            // 只在松手写，拖动过程中绝不写 —— 拖动时反复 Save 既卡，
             //    又会把「开机最小化」启动早期"窗口尺寸还没定"的中间态当成最终位置存下来。
             App.Settings.Current.SidebarPosRatio = _liveRatio;
 
             App.Settings.Save();
 
-            // ⚠️⚠️ 2026-09-28 修：单边模式换不了边（Nick 报的"拖了但固定不到上/下/左边"）。
-            //   上次把单例改成"一条边一个实例"之后，_edge 变成**实例级只读**字段，
-            //   这里只改设置再 SnapToSetting() 是没用的 —— 这条实例还按自己那条老边走，松手一贴就弹回原边。
-            //   换边必须走 ApplySetting()：它按新设置重建实例集合（新的那条建出来、这条藏起来）再贴过去。
+            // 单边模式换边必须走 ApplySetting()：实例化之后 _edge 是**实例级只读**字段，
+            //   只改设置再 SnapToSetting() 没用 —— 这条实例仍按自己那条老边走，松手一贴就弹回原边。
+            //   ApplySetting() 按新设置重建实例集合（新的那条建出来、这条藏起来）再贴过去。
             if (edge != _edge)
             {
                 Log("换边: " + _edge + " → " + edge);
 
-                // 新边上的沿边比例：拖到哪就落在哪（上游 2026-10-23：先按旧比例 Present 会"先在下面出现，再突变上去"）
+                // 新边上的沿边比例：拖到哪就落在哪（先按旧比例 Present 会"先在下面出现，再突变上去"）
                 var sizeNow = WinSizePx();
                 var posNow = WinPos();
                 double along, span;
@@ -3210,7 +3167,7 @@ public sealed partial class ToolSidebarWindow : Window
             var flat = edge is "top" or "bottom";
 
             // 收起状态：窗口本身就是那条边条（厚/长见 CollapsedDipW/H），内芯只在
-            // 「圆角抓手」样式里画 —— 2026-10-31 按上游补回，见 ApplyCollapsedGrip。
+            // 「圆角抓手」样式里画（见 ApplyCollapsedGrip）。
             ApplyCollapsedGrip();
 
             // 展开面板：永远竖着排（贴上下边时就是两行）
@@ -3229,7 +3186,7 @@ public sealed partial class ToolSidebarWindow : Window
 
             // 底部那排按钮是**逐颗**开关（「侧边布局」页底部那五个开关，key 见 SidebarFooterKeys）。
             // 关掉的那颗用 Collapsed —— StackPanel 不吃折叠子项，整排自己跟着收；一颗都不剩时连分隔线一起收。
-            // ⚠️ 但**别靠 Visibility 反推高度**：尺寸那几处都有独立的"可见颗数"分支
+            // 但**别靠 Visibility 反推高度**：尺寸那几处都有独立的"可见颗数"分支
             //    （<see cref="PlannedSize"/> / <see cref="ExpandedLimits"/> / <see cref="ApplyScrollLimit"/>），
             //    靠 Visibility 算会在"重排前先量尺寸"的顺序上算错。
             var hiddenFooter = App.Settings.Current.SidebarFooterHidden ?? Array.Empty<string>();
@@ -3240,7 +3197,7 @@ public sealed partial class ToolSidebarWindow : Window
             FooterStack.IsVisible = footerCount > 0;
             Sep.IsVisible = footerCount > 0;
 
-            // 贴上下边时给按钮留出宽度，别挤成一坨
+            // 贴上下边时为按钮留出宽度，避免堆叠
             foreach (var b in _toolButtons)
             {
                 b.MinWidth = flat ? 64 : 0;
@@ -3259,7 +3216,7 @@ public sealed partial class ToolSidebarWindow : Window
             ApplyFooterContent(flat);
 
             // 模块多了就让工具区自己滚动（贴上下边时改成左右滚）
-            // ⚠️ WinUI 的 Vertical/HorizontalScrollMode（触摸平移开关）在 Avalonia 的 ScrollViewer
+            // WinUI 的 Vertical/HorizontalScrollMode（触摸平移开关）在 Avalonia 的 ScrollViewer
             //    上没有对应 API；滚动方向的启停已由下面两行 ScrollBarVisibility 完整控制，故降级丢弃。
             ToolsScroll.VerticalScrollBarVisibility = flat ? ScrollBarVisibility.Disabled : ScrollBarVisibility.Auto;
             ToolsScroll.HorizontalScrollBarVisibility = flat ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled;
@@ -3297,17 +3254,16 @@ public sealed partial class ToolSidebarWindow : Window
     /// 底下**五个**按钮（收起 / 常驻 / 位置复原 / 隐藏 / 打开应用）的内容：
     /// 贴左右边是**竖条** → 图标在上、文字在下（跟工具块一个样式）；
     /// 贴上/下边是**横条**（面板只有 112 高）→ 左图标、右文字，竖排会被裁掉。
-    /// ⚠️ 「打开应用」那颗是**图片图标**（软件自己的图标），走 SetFooterImageButton，别跟字形混。
+    /// 「打开应用」那颗是**图片图标**（软件自己的图标），走 SetFooterImageButton，别跟字形混。
     /// </summary>
     private void ApplyFooterContent(bool flat)
     {
         // 网格面板顶条那两颗的图标：XAML 里只把 FontIcon 当成 Content 摆着，这里把实例抓出来存住。
         //
-        // ⚠️ 2026-10-11 首版图省事，在 FontIcon 上写了 x:Name 指望字段自动赋值 —— **不成立**。
-        //    Avalonia 的 x:Name 只往 XAML 编译出来的那个同名字段里写，跟我这里手声明的
-        //    _gridFoldIcon / _gridPinIcon 不是一个东西，结果 CS0649：两个字段永远是 null，
-        //    顶条的钉住状态、箭头方向就再也不会跟着变（按钮本身还能点，纯视觉不更新，最难发现的那种）。
-        //    改成照经典那套的路子 —— 从内容里取实例（经典那套是 SetFooterButton 的 out 参数）。
+        // 不能指望在 FontIcon 上写 x:Name 让字段自动赋值：Avalonia 的 x:Name 只往 XAML
+        //    编译出来的那个同名字段里写，与手声明的 _gridFoldIcon / _gridPinIcon 不是同一个字段
+        //    （CS0649：两个字段永远为 null，顶条的钉住状态、箭头方向不再跟着变）。
+        //    所以照经典那套的路子 —— 从内容里取实例（经典那套是 SetFooterButton 的 out 参数）。
         _gridFoldIcon = GridFoldButton?.Content as FontIcon;
         _gridPinIcon = GridPinButton?.Content as FontIcon;
 
@@ -3321,7 +3277,7 @@ public sealed partial class ToolSidebarWindow : Window
 
     /// <summary>
     /// 底排那颗「打开应用」：版式跟 SetFooterButton 一模一样，只是把字形换成**软件自己的图标**
-    /// （Assets\AppIcon-512.png，内嵌资源；Nick 2026-09-26 要求：这颗不要用别的图标）。
+    /// （Assets\AppIcon-512.png，内嵌资源）。
     /// </summary>
     private static void SetFooterImageButton(Button b, string label, bool flat)
     {
@@ -3368,7 +3324,7 @@ public sealed partial class ToolSidebarWindow : Window
         {
             var path = EmbeddedAssets.ExtractToCache("AppIcon-512.png", "AppIcon-512.png");
             if (string.IsNullOrEmpty(path)) return null;
-            // ⚠️ 移植说明：原版用 BitmapImage.DecodePixelWidth=64 省内存；Avalonia 的 Bitmap 没有
+            // 移植说明：原版用 BitmapImage.DecodePixelWidth=64 省内存；Avalonia 的 Bitmap 没有
             //    解码尺寸选项，直接整张解（PNG 512² 解一次就缓存，代价可接受）。
             using var fs = System.IO.File.OpenRead(path);
             _appIconImage = new Bitmap(fs);
@@ -3415,7 +3371,7 @@ public sealed partial class ToolSidebarWindow : Window
 
     /// <summary>
     /// 底排五颗按钮 + 各自的设置 key（顺序 = 在侧边栏上的先后）。
-    /// ⚠️ key 是**存档格式**的一部分（<see cref="SidebarFooterKeys"/>），别随手改字面量。
+    /// key 是**存档格式**的一部分（<see cref="SidebarFooterKeys"/>），别随手改字面量。
     /// </summary>
     private (string Key, Button Btn)[] FooterItems() => new (string, Button)[]
     {
@@ -3428,7 +3384,7 @@ public sealed partial class ToolSidebarWindow : Window
 
     /// <summary>
     /// 底排当前**可见**几颗（0~5）—— 按设置里"关掉了哪几颗"过滤。
-    /// 尺寸处处用它，⛔ 别写死 5：逐颗开关之后，少一颗面板就得少一截。
+    /// 尺寸处处用它，不要写死 5：逐颗开关之后，少一颗面板就得少一截。
     /// </summary>
     private static int VisibleFooterCount()
     {
@@ -3454,7 +3410,7 @@ public sealed partial class ToolSidebarWindow : Window
             {
                 // 图标网格：宽按"一页铺得开的列数"算死（不随模块数变，多了只加页），
                 // 高按 顶条 + 网格 + 分页点(可选) + 快捷设置行 加起来，再夹到工作区内。
-                // ⚠️ 这条分支**不走 ExpandedLimits** —— 那套是给竖排列表定的（横条被钉死 112 高），
+                // 这条分支**不走 ExpandedLimits** —— 那套为竖排列表设定（横条固定 112 高），
                 //    网格面板贴上下边时要自己的一套。
                 var g = GridPanelDip();
                 var sc = Scale();
@@ -3482,7 +3438,7 @@ public sealed partial class ToolSidebarWindow : Window
                 else
                 {
                     dipW = ExpandedThicknessDip;
-                    // 展开后实际要多高：让内容自己报（2026-10-11 上游；2026-10-22 移植），见 ExpandedHeight
+                    // 展开后实际要多高：让内容自己报，见 ExpandedHeight
                     dipH = ExpandedHeight(dipW, lim.H);
                 }
             }
@@ -3496,20 +3452,19 @@ public sealed partial class ToolSidebarWindow : Window
     }
 
     /// <summary>
-    /// 竖条展开后**实际需要多高**（dip）—— 2026-10-11 上游 Nick 报「模块选得少的时候下面空一大块」。
-    /// （2026-10-22 自上游 1.2.0-insider1.3 移植。）
+    /// 竖条展开后**实际需要多高**（dip）。
     ///
-    /// 病因：老算法是 <c>max(PanelLengthDip(450), 200+55×个数) + 底排</c>，而 <see cref="ExpandedLimits"/>
-    /// 的 <c>H</c> 又拿「屏幕的 85%」当下限 ⇒ 本机算出来恒是 707，模块一少就白空三百多 dip。
+    /// 老算法是 <c>max(PanelLengthDip(450), 200+55×个数) + 底排</c>，而 <see cref="ExpandedLimits"/>
+    /// 的 <c>H</c> 又拿「屏幕的 85%」当下限，模块一少就白空一大块。
     ///
     /// 现在**让内容自己报高度**：把整个展开面板按「面板宽度 × 不限高」量一遍，取它的 DesiredSize
     /// （工具区是 ScrollViewer，<see cref="ApplyScrollLimit"/> 已经给它设了 MaxHeight ⇒ 内容超限时
-    /// 它报的就是那个上限，正好是我们要的"封顶后滚动"）。量不出来再退回按内容估算的公式。
+    /// 它报的就是那个上限，正好实现"封顶后滚动"）。量不出来再退回按内容估算的公式。
     /// </summary>
     private int ExpandedHeight(int dipW, double limitH)
     {
         // 锁定高度（「自适应高度」关掉）：滑块值就是面板高度，内容少也照撑满 —— 下面留白是预期的。
-        // ⚠️ 只对竖条（贴左右边、单列）生效：横条厚度固定（112 / 72），不参与这套。
+        // 只对竖条（贴左右边、单列）生效：横条厚度固定（112 / 72），不参与这套。
         if (!HeightAuto && !IsFlat) return (int)Math.Round(limitH);
 
         try
@@ -3523,8 +3478,8 @@ public sealed partial class ToolSidebarWindow : Window
             Log("量展开面板高度失败: " + ex.Message);
         }
 
-        // 兜底：不 Measure 了，按行数估算（跟按钮实际高度走，⛔别写死数字）
-        // ⚠️ 本移植版工具区是**单列**（没有上游的「每行三个」），所以行数 = 按钮数
+        // 兜底：不 Measure 了，按行数估算（跟按钮实际高度走，别写死数字）
+        // 本移植版工具区是**单列**（没有上游的「每行三个」），所以行数 = 按钮数
         var rows = Math.Max(1, _toolButtons.Count);
         var fn = VisibleFooterCount();
         var body = 34 + rows * (52 + 3) + (fn > 0 ? 10 + fn * (44 + 2) : 0) + 14;
@@ -3546,8 +3501,8 @@ public sealed partial class ToolSidebarWindow : Window
             return (Math.Min(workW, Math.Max(PanelLengthFlatDip, workW * 0.92)),
                     footerCount > 0 ? PanelThicknessFlatDip : PanelThicknessFlatBareDip);
 
-        // ⚠️ 竖条的高度上限＝「工作区高度 × 用户调的比例」（0.45~0.95，默认 0.75），
-        //    ⛔ 别再拿"屏幕的 85%"当下限 —— 那正是「模块少还空一大块」的根源（见 ExpandedHeight）。
+        // 竖条的高度上限＝「工作区高度 × 用户调的比例」（0.45~0.95，默认 0.75），
+        //    不要拿"屏幕的 85%"当下限 —— 那正是「模块少还空一大块」的根源（见 ExpandedHeight）。
         return (ExpandedThicknessDip, workH * SingleColumnMaxHeightRatio);
     }
 
@@ -3587,7 +3542,7 @@ public sealed partial class ToolSidebarWindow : Window
                 var max = Math.Max(120, ExpandedLimits().H - chrome);
                 ToolsScroll.MaxHeight = max;
                 // 锁定高度时把工具区撑到上限：底排按钮贴住面板下沿，空白留在工具与底排之间会很难看
-                // （自适应时 MinHeight 归零，让内容自己决定多高 —— 2026-10-18 上游；2026-10-22 移植）
+                // （自适应时 MinHeight 归零，让内容自己决定多高）
                 ToolsScroll.MinHeight = !HeightAuto ? max : 0;
                 ToolsScroll.MaxWidth = double.PositiveInfinity;
             }
@@ -3617,7 +3572,7 @@ public sealed partial class ToolSidebarWindow : Window
     private PixelSize CollapsedSize()
     {
         var scale = Scale();
-        // ⚠️ 两种收起样式尺寸不一样（grip 20×110、紧凑 12×72 / line 6×220，长度可调），换算式都收在
+        // 两种收起样式尺寸不一样（grip 20×110、紧凑 12×72 / line 6×220，长度可调），换算式都收在
         //    CollapsedDipW / CollapsedDipH 里 —— 圆角也是从那儿读的，改就一起改。
         return new PixelSize(
             (int)Math.Round(CollapsedDipW * scale),
@@ -3626,22 +3581,22 @@ public sealed partial class ToolSidebarWindow : Window
 
     /// <summary>
     /// 收起态那条离屏幕边缘留多少 dip —— **默认值兜底**。
-    /// 2026-10-11 上游（Nick：有用户不喜欢那道缝）改成可调，读「侧边布局」页的
-    /// 「收起时离屏幕边缘」→ <c>AppSettings.SidebarCollapsedGap</c>；真正用的是 <see cref="CollapsedGapDip"/>。
+    /// 可在「侧边布局 → 收起时离屏幕边缘」调整 → <c>AppSettings.SidebarCollapsedGap</c>；
+    /// 真正用的是 <see cref="CollapsedGapDip"/>。
     ///
-    /// ⚠️ 只作用于**收起态**：展开态的间距是写死的 <see cref="ExpandedGapDip"/>，不跟这一项走。
-    /// ⚠️ 连带 <see cref="ConfirmPlacement"/> 里"这条边"的判定阈值必须跟着放宽 ——
-    ///    它原来拿 `work.X + 8` 当"贴左"的判据，空隙一大就认不出来了。
+    /// 只作用于**收起态**：展开态的间距是写死的 <see cref="ExpandedGapDip"/>，不跟这一项走。
+    /// 连带 <see cref="ConfirmPlacement"/> 里"这条边"的判定阈值必须跟着放宽 ——
+    ///    它拿 `work.X + 8` 当"贴左"的判据，空隙一大就认不出来了。
     /// </summary>
     private const int CollapsedEdgeGapDip = 6;
 
     /// <summary>
-    /// 展开面板离屏幕边缘留多少 dip（2026-10-31 用户：「把侧边栏展开的向屏幕内移动一点 5px，距屏幕有个间距」）。
+    /// 展开面板离屏幕边缘留多少 dip。
     ///
-    /// ⚠️ 写死、**不进设置**：收起态那道缝是用户可调的（<see cref="CollapsedGapDip"/>），
+    /// 写死、**不进设置**：收起态那道缝是用户可调的（<see cref="CollapsedGapDip"/>），
     ///    展开态的间距只是统一视觉口径（面板别跟屏幕边糊在一起）。
-    /// ⚠️ 单位是 dip（跟本类其余尺寸一致）：200% 缩放的实际屏幕上就是 10 物理像素。
-    /// ⚠️ 四个方向都往**屏幕里**让，落位算式见 <see cref="EdgePosition"/>；滑入动画的终点也走它。
+    /// 单位是 dip（跟本类其余尺寸一致）：200% 缩放的实际屏幕上就是 10 物理像素。
+    /// 四个方向都往**屏幕里**让，落位算式见 <see cref="EdgePosition"/>；滑入动画的终点也走它。
     /// </summary>
     private const int ExpandedGapDip = 5;
 
@@ -3650,7 +3605,7 @@ public sealed partial class ToolSidebarWindow : Window
 
     /// <summary>
     /// 当前该留的空隙（dip）：读设置并夹到 <c>0 ~ MaxCollapsedGapDip</c>。
-    /// ⚠️ 夹取不能省：存档里躺着一个离谱的值时，边条会被推到屏幕中间去。
+    /// 夹取不能省：存档里躺着一个离谱的值时，边条会被推到屏幕中间去。
     /// </summary>
     private static int CollapsedGapDip
     {
@@ -3675,7 +3630,6 @@ public sealed partial class ToolSidebarWindow : Window
     /// <paramref name="anchor"/> = true：把竖线的沿边中心钉在**当前面板的沿边中心**上，再把等价比例写回
     /// <see cref="_liveRatio"/> —— 这样随后的 <see cref="ReassertCollapsed"/> / <see cref="UpdateHitPad"/> /
     /// <see cref="MoveToEdge"/> 算出来都是同一个点，竖线不会在收好之后又被搬去别处。
-    /// 用户报「收起时那一条还是乱飞」里，除了动画被跳过，另一半就是收好后的二次落位。
     /// </para>
     /// <para>
     /// <paramref name="anchor"/> = false：按比例重新算（窗口刚出现 / 截图这类面板不在原位的场合）。
@@ -3710,8 +3664,8 @@ public sealed partial class ToolSidebarWindow : Window
     }
 
     /// <summary>按当前贴的边算"贴边位置"（**纯计算，不动窗口**）。参数是窗口按哪套尺寸算。
-    /// ⚠️ 两种状态都会往里让空隙：收起态用 <see cref="CollapsedGapDip"/>（用户可在「侧边布局 → 收起时离屏幕边缘」调），
-    ///    展开态用写死的 <see cref="ExpandedGapDip"/>（2026-10-31 用户要求展开面板跟屏幕边留点间距）。</summary>
+    /// 两种状态都会往里让空隙：收起态用 <see cref="CollapsedGapDip"/>（用户可在「侧边布局 → 收起时离屏幕边缘」调），
+    ///    展开态用写死的 <see cref="ExpandedGapDip"/>。</summary>
     private PixelPoint EdgePosition(int width, int height)
     {
         var work = WorkAreaRect();
@@ -3723,13 +3677,13 @@ public sealed partial class ToolSidebarWindow : Window
         var myLen = flat ? width : height;
         var free = Math.Max(0, alongLen - myLen);
 
-        // ⛔ 位置记忆已移除（2026-10-19 上游，2026-10-22 移植）：它和「开机最小化」相互打架，而且拖完记住的位置
-        //    常常不再合适，手动调反而更顺手。启动/重建时一律沿边**居中**；
+        // 位置记忆已移除：它和「开机最小化」相互打架，而且拖完记住的位置
+        //    常常不再合适。启动/重建时一律沿边**居中**；
         //    拖动过程中对面靠 <see cref="_liveRatio"/> 跟随，但那只是内存状态，不落盘。
         //
-        // ⚠️ 2026-10-30：_liveRatio 现在是「**沿边中心**在工作区里的比例」（0.5 = 正中），不再是"可移动范围的顶端比例"。
-        //    原因：面板与收起条长度差好几倍，按顶端比例算的话，同一比例在两种状态下中心差半米 ——
-        //    收起时竖线会从面板中间跳到另一处，展开时面板又从竖线上方斜着冒出来（用户：「收起时那一条还是乱飞」）。
+        // _liveRatio 的语义是「**沿边中心**在工作区里的比例」（0.5 = 正中），不是"可移动范围的顶端比例"。
+        //    原因：面板与收起条长度差好几倍，按顶端比例算的话，同一比例在两种状态下中心偏差很大 ——
+        //    收起时竖线会从面板中间跳到另一处，展开时面板又从竖线上方斜着冒出来。
         //    改成中心对齐后，收起/展开两个方向都围绕同一条竖线对称生长。
         var ratio = _liveRatio < 0 ? 0.5 : Math.Clamp(_liveRatio, 0, 1);
         var center = (flat ? work.X : work.Y) + ratio * alongLen;
@@ -3756,7 +3710,7 @@ public sealed partial class ToolSidebarWindow : Window
     {
         try
         {
-            // ⚠️ 用自己的目标尺寸算，别读窗口实测尺寸 —— Resize 刚调完它还没更新，会按老尺寸贴边
+            // 用自己的目标尺寸算，别读窗口实测尺寸 —— Resize 刚调完它还没更新，会按老尺寸贴边
             var size = PlannedSize();
             var pos = EdgePosition(size.Width, size.Height);
             var x = pos.X;

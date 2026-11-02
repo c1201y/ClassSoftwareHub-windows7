@@ -13,9 +13,8 @@ namespace ClassSoftwareHub.Desktop.Services.Dictionary;
 ///
 /// <para>
 /// <b>为什么用 MyMemory。</b>它有公开的免密钥接口，两个方向都能直接调，返回 JSON。
-/// 试过但**不通**的：有道 <c>fanyi.youdao.com/translate</c>（已改版，返回的是网页）、
-/// Google <c>translate_a</c>（本机 SSL 不通）、微软 edge 翻译的取 token 端点（404）、Yandex（403）。
-/// 2026-11-01 实测只剩这一家用得住。
+/// 有道 <c>fanyi.youdao.com/translate</c>、Google <c>translate_a</c>、微软 edge 翻译的
+/// 取 token 端点、Yandex 等均已不可用，目前只有这一家可用。
 /// </para>
 /// <para>
 /// ⚠️ 它是社区翻译记忆库，不是大厂机器翻译：短句、日常表达够用，长句和术语会飘。
@@ -121,8 +120,8 @@ public static class TranslationService
                      || (first == '\'' && last == '\'');
         if (paired) return text[1..^1].Trim();
 
-        // 只剩一个孤零零的收尾引号（实测遇到过 "您今天过得好吗？”"）：它没有配对的开始引号，
-        // 说明是服务端自己加的噪声，去掉。⛔ 不能无脑 Trim('”')，正常引用句的收尾引号要去它是有配对的。
+        // 只剩一个孤零零的收尾引号：没有配对的开始引号，说明是服务端自己加的噪声，去掉。
+        // ⛔ 不能无脑 Trim('”')，正常引用句的收尾引号是有配对的。
         if (last == '”' && Count(text, '”') > Count(text, '“')) return text[..^1].Trim();
         if (first == '“' && Count(text, '“') > Count(text, '”')) return text[1..].Trim();
 

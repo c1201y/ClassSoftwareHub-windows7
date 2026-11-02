@@ -15,7 +15,7 @@ namespace ClassSoftwareHub.Desktop.Services;
 /// </para>
 /// <para>
 /// 用 <see cref="BigInteger"/> 而不是 long：消元中间结果的分母会连乘，
-/// 四个五元方程就能把 long 顶爆（真实踩过）。
+/// 四个五元方程就能把 long 顶爆（实际发生过）。
 /// </para>
 /// </summary>
 public readonly struct Rational : IEquatable<Rational>, IComparable<Rational>

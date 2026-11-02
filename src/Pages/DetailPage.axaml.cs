@@ -77,7 +77,7 @@ public sealed partial class DetailPage : PageBase
         StoreButton.Content = ui.T("detail.store-button", "获取");
         StoreOnlyHint.Text = ui.T("detail.store-only", "该软件通过 Microsoft Store 分发，单击上方按钮打开商店页面即可获取");
 
-        // 商店图标（2026-10-19，自上游 1.3）：内嵌资源解到缓存再绑，避免 unpackaged 下取不到
+        // 商店图标：内嵌资源解到缓存再绑，避免 unpackaged 下取不到
         if (StoreLogo.Source is null) StoreLogo.Source = LoadStoreLogo();
         StoreLogo.IsVisible = StoreLogo.Source is not null;
 
@@ -187,10 +187,9 @@ public sealed partial class DetailPage : PageBase
     }
 
     /// <summary>
-    /// 右栏「推荐应用」：先取同分类的，不够就用其他软件补齐（Nick：搜不到就随便推荐）。
-    /// ⛔ 标题不能叫「相似应用」—— 补齐的那部分只是别的软件，叫相似名不副实。
-    /// ⛔ 用 Id 的稳定哈希排序而不是 Random —— 同一台机器每次进来顺序一致，不会看着"跳来跳去"。
-    /// （2026-10-18 自上游 1.2.0 移植；顺带把 Core/StableRank 接上了）
+    /// 右栏「推荐应用」：先取同分类的，不够就用其他软件补齐。
+    /// 标题不能叫「相似应用」—— 补齐的那部分只是别的软件，名不副实。
+    /// 用 Id 的稳定哈希排序而不是 Random —— 同一台机器每次进来顺序一致。
     /// </summary>
     private void BuildRecommendations(SoftwareApp app)
     {
@@ -241,12 +240,11 @@ public sealed partial class DetailPage : PageBase
     }
 
     /// <summary>
-    /// 顶部色带（2026-10-18 自上游 1.2.0 移植）：一律等**图标主色**，颜色没就绪之前色带是透明的（等于页面底色）。
+    /// 顶部色带：一律等图标主色，颜色没就绪之前色带是透明的（等于页面底色）。
     ///
-    /// ⛔⛔ 上游上一版先用主题强调色顶上、几百毫秒后再换成图标色，被 Nick 点名"非常割裂"。
-    /// 现在只有两种情况会立刻上色：① 列表页已经预热过（缓存命中，进页面就是最终色）；
-    /// ② 取不到色（黑白图标 / SVG / 网络失败）⇒ 才退回强调色，这是兜底、不是过渡。
-    /// 其余情况取到后再淡入，读起来像"色带浮现"，不像"颜色换了"。
+    /// 只有两种情况会立刻上色：① 列表页已预热（缓存命中，进页面就是最终色）；
+    /// ② 取不到色（黑白图标 / SVG / 网络失败）⇒ 退回强调色兜底。
+    /// 其余情况取到后再淡入，避免出现"先一个色、再换一个色"的割裂观感。
     /// </summary>
     private async Task ApplyHeroColorAsync(SoftwareApp app)
     {
@@ -308,8 +306,8 @@ public sealed partial class DetailPage : PageBase
     }
 
     /// <summary>
-    /// 兜底头像的底色 + 首字（2026-10-02）。图标地址是第三方 CDN，教室里经常整片下不来，
-    /// 这时页头就是一个彩色方块配应用首字，而不是过去那个灰扑扑的购物袋字形。
+    /// 兜底头像的底色 + 首字。图标地址是第三方 CDN，可能整片不可达，
+    /// 此时页头用彩色方块配应用首字代替图标。
     /// </summary>
     private void ApplyAvatar()
     {
@@ -355,9 +353,9 @@ public sealed partial class DetailPage : PageBase
     }
 
     /// <summary>
-    /// 一行详细信息（2026-10-18 自上游 1.2.0 移植）。
-    /// ⛔ 不再放进灰色卡片（Nick：灰底很丑）—— 现在靠**行间细分割线 + 上下留白**分组，
-    /// 和商店里详情区的做法一致。分割线只画在行与行之间，末行不拖一条尾巴（见下面 FinishInfoRows）。
+    /// 一行详细信息。
+    /// 不放进灰色卡片：靠行间细分割线 + 上下留白分组，与商店详情区的做法一致。
+    /// 分割线只画在行与行之间，末行不画（见下面 FinishInfoRows）。
     /// </summary>
     private static Grid NewInfoRow(string label)
     {
@@ -442,7 +440,7 @@ public sealed partial class DetailPage : PageBase
     }
 
     /// <summary>
-    /// 拆分按钮的**主键**（左半边「下载」，2026-11-01 自上游 insider1.8 移植）。
+    /// 拆分按钮的**主键**（左半边「下载」）。
     /// ⚠️ Avalonia 11.2.8 的 SplitButton.Click 是普通 RoutedEventArgs（WinUI 那边是 SplitButtonClickEventArgs）。
     /// </summary>
     private void DownloadSplit_Click(object? sender, RoutedEventArgs e)
@@ -492,8 +490,8 @@ public sealed partial class DetailPage : PageBase
     }
 
     /// <summary>
-    /// 下载按钮分流（2026-10-18 对齐上游 1.2.0：判据统一到 <see cref="DownloadKind"/> 四分类，
-    /// 不再保留「只看后缀」的第二套实现）：
+    /// 下载按钮分流（判据统一到 <see cref="DownloadKind"/> 四分类，
+    /// 不保留「只看后缀」的第二套实现）：
     ///   · 微软商店本体 → 特例（商店没装的话商店链接是死的，得能把商店装回来）
     ///   · 商店页 → 拉起「微软商店」应用
     ///   · 文件直链 → 原生下载
@@ -502,6 +500,8 @@ public sealed partial class DetailPage : PageBase
     private async void OpenDownload(string url, Control? source = null,
         Services.DownloadRoute route = Services.DownloadRoute.Setting)
     {
+        try
+        {
         if (Services.StoreRepair.IsStoreItself(_app?.Id, url))
         {
             await ShowStoreSelfDialogAsync();
@@ -528,6 +528,11 @@ public sealed partial class DetailPage : PageBase
 
         // Page：链接是官网下载页 —— 交给网页浮层，让人自己在页面上点
         App.MainWindow?.ShowWebSheet(url, "官网下载");
+        }
+        catch (Exception ex)
+        {
+            AppLog.Fail("detail", ex, "打开下载链接失败");
+        }
     }
 
     /// <summary>

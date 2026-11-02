@@ -14,6 +14,13 @@ name: Windows 7 版 构建与发布
 #
 #  ⚠️ 产物是**正式版**构建：不带 -p:CshConsoleBuild=true，
 #     所以 exe 是 WinExe（Windows 子系统）—— 双击只出界面，不弹控制台黑窗。
+#
+#  ⚠️ 构建签名：官方包必须带签名（见 src/Core/BuildIdentity.cs），否则发出去就是「社区版」，
+#     在线服务会被后端拦。签名在 publish 期由 -p:CshBuildStampB64 编进程序集元数据，
+#     发布目录里**没有**明文的 build-stamp.txt —— 明文文件太容易被顺手拷走。
+#     签名文件只在 RUNNER_TEMP 里存在几秒，读完即删，工作区与产物都不留。
+#     密钥存在仓库 Secret CSH_BUILD_SECRET 里（Settings → Secrets and variables → Actions），
+#     不进仓库。没配这个 Secret 时本工作流会**直接失败**，这是有意的：宁可不出包，也不发错包。
 # ══════════════════════════════════════════════════════════════════════
 
 on:
@@ -94,7 +101,37 @@ jobs:
           "version=$v"      >> $env:GITHUB_OUTPUT
           "channel=$channel" >> $env:GITHUB_OUTPUT
 
-      # ── 1. 应用本体（注意：不带 CshConsoleBuild → WinExe，无控制台窗口）──
+      # ── 1. 生成官方构建签名 ──
+      #    构建号用 commit 短 SHA 而非时间戳：同一提交重跑得到同一份签名，便于复现与排障。
+      #    签名必须在 publish **之前**算出 —— 它要作为 -p:CshBuildStampB64 编进程序集元数据。
+      - name: 生成官方构建签名
+        id: stamp
+        shell: pwsh
+        env:
+          CSH_BUILD_SECRET: ${{ secrets.CSH_BUILD_SECRET }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:CSH_BUILD_SECRET)) {
+            throw '缺少仓库 Secret CSH_BUILD_SECRET（Settings → Secrets and variables → Actions → New repository secret）。'
+          }
+          $v = '${{ steps.ver.outputs.version }}'
+          $sha = $env:GITHUB_SHA.Substring(0, 7)
+          # ⚠️ 落盘一律用绝对路径：make-build-stamp.ps1 走 .NET 的 WriteAllText，
+          #    相对路径按**进程** CWD 解析，与 PowerShell 的 location 不是同一套东西。
+          # ⚠️ 写到 RUNNER_TEMP 而不是工作区：签名只以 base64 进程序集，工作树里连临时明文都不留。
+          $stamp = Join-Path $env:RUNNER_TEMP 'build-stamp.txt'
+          ./tools/make-build-stamp.ps1 -Version $v -BuildId "dv$v+$sha" -OutFile $stamp
+          if (-not $?) { throw '构建签名生成失败' }
+
+          $line = (Get-Content -LiteralPath $stamp -Raw).Trim()
+          $b64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($line))
+          Remove-Item -LiteralPath $stamp -Force
+          "b64=$b64" >> $env:GITHUB_OUTPUT
+          Write-Host "构建号   ：dv$v+$sha"
+          Write-Host "base64   ：$b64"
+          Write-Host "（明文签名行只在本进程里出现，不落工作区）"
+
+      # ── 2. 应用本体（注意：不带 CshConsoleBuild → WinExe，无控制台窗口）──
+      #    签名通过 -p:CshBuildStampB64 编进程序集，发布目录里**不再**有 build-stamp.txt。
       - name: 发布应用本体（WinExe，无控制台）
         shell: pwsh
         run: |
@@ -102,10 +139,11 @@ jobs:
             -c Release -r win-x64 --self-contained true `
             -p:PublishTrimmed=false -p:PublishReadyToRun=true `
             -p:Version=${{ steps.ver.outputs.version }} `
+            "-p:CshBuildStampB64=${{ steps.stamp.outputs.b64 }}" `
             -o dist/win7/app
           if ($LASTEXITCODE -ne 0) { throw '应用本体发布失败' }
 
-      # ── 2. 启动器（自包含 + 裁剪 + 单文件）──
+      # ── 3. 启动器（自包含 + 裁剪 + 单文件）──
       - name: 发布启动器
         shell: pwsh
         run: |
@@ -115,7 +153,7 @@ jobs:
             -o dist/win7
           if ($LASTEXITCODE -ne 0) { throw '启动器发布失败' }
 
-      # ── 3. 组装便携版（启动器 + app 文件夹）并打 zip ──
+      # ── 4. 组装便携版（启动器 + app 文件夹）并打 zip ──
       - name: 组装便携版
         shell: pwsh
         run: |
@@ -124,6 +162,7 @@ jobs:
             -LauncherDir dist/win7 `
             -Version ${{ steps.ver.outputs.version }} `
             -OutRoot dist `
+            -BuildStampB64 '${{ steps.stamp.outputs.b64 }}' `
             -Zip
           # ⚠️ 这里**不能**用 $LASTEXITCODE 判定 —— 那是给原生命令（dotnet/ISCC/node）用的。
           #    调用 .ps1 脚本时它不会被设置：每个 step 都是全新的 pwsh 进程，
@@ -131,7 +170,41 @@ jobs:
           #    脚本调用看 $? 才对（脚本内部已有 $ErrorActionPreference='Stop' + 关键处 throw）。
           if (-not $?) { throw '便携版组装失败' }
 
-      # ── 4. 编译安装版 ──
+      # ── 5. 校验便携包确实带签名 ──
+      #    打包脚本本身已经会拦，这里再验一遍最终 zip：漏发一次无签名包，
+      #    等于让所有装上去的人在开闸门后瞬间全部被拦，事故量级太大，多一道无损检查值得。
+      #    现在签名在程序集元数据里，所以检查的是 app\ClassSoftwareHub.dll 的字节。
+      - name: 校验便携包带官方签名
+        shell: pwsh
+        run: |
+          $ProgressPreference = 'SilentlyContinue'   # Expand-Archive 的进度条会把日志刷爆
+          $zip = "dist/ClassSoftwareHub-Portable-win7-dv${{ steps.ver.outputs.version }}.zip"
+          if (-not (Test-Path -LiteralPath $zip)) { throw "找不到便携包：$zip" }
+          # 用 Expand-Archive 而不是 System.IO.Compression.ZipFile：
+          # 前者在 Windows PowerShell 5.1 与 pwsh 7 上都可用，后者在 5.1 里需要 Add-Type。
+          $tmp = Join-Path $env:RUNNER_TEMP 'stamp-check'
+          if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force }
+          Expand-Archive -LiteralPath $zip -DestinationPath $tmp -Force
+
+          # 不该再有明文签名文件（有的话说明用了旧流程）
+          $txt = Get-ChildItem -LiteralPath $tmp -Recurse -Filter 'build-stamp.txt' | Select-Object -First 1
+          if ($txt) { throw "便携包里仍有明文 build-stamp.txt（$($txt.FullName)）—— 旧打包流程没退干净。" }
+
+          $dll = Get-ChildItem -LiteralPath $tmp -Recurse -Filter 'ClassSoftwareHub.dll' | Select-Object -First 1
+          if (-not $dll) { throw '便携包里找不到 ClassSoftwareHub.dll。' }
+          $bytes = [System.IO.File]::ReadAllBytes($dll.FullName)
+          if ($bytes.Length % 2 -ne 0) { $bytes = $bytes[0..($bytes.Length - 2)] }
+          # AssemblyMetadata 的字符串参数在元数据里是 UTF-8（SerString），同时试 UTF-16 兜底
+          $b64 = '${{ steps.stamp.outputs.b64 }}'
+          $hit = ([System.Text.Encoding]::UTF8.GetString($bytes).Contains($b64) -or
+                  [System.Text.Encoding]::Unicode.GetString($bytes).Contains($b64))
+          if (-not $hit) {
+            throw '程序集里找不到构建签名 —— 该包会被当成社区版，停止发布。'
+          }
+          Write-Host "✓ 签名已在程序集元数据内（$($dll.Name)，$([math]::Round($dll.Length / 1MB, 1)) MB）"
+          Remove-Item -LiteralPath $tmp -Recurse -Force
+
+      # ── 6. 编译安装版 ──
       - name: 编译安装包（Inno Setup 6）
         shell: pwsh
         run: |
@@ -140,7 +213,7 @@ jobs:
           & $iscc 'installer\ClassSoftwareHub-Win7.iss' "/DDesktopVersion=${{ steps.ver.outputs.version }}"
           if ($LASTEXITCODE -ne 0) { throw '安装包编译失败' }
 
-      # ── 5. 留档（哪怕是手动跑、不发 Release 也拿得到产物）──
+      # ── 7. 留档（哪怕是手动跑、不发 Release 也拿得到产物）──
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
@@ -151,7 +224,7 @@ jobs:
             dist/ClassSoftwareHub-Portable-win7-dv*.zip
             dist/installer/ClassSoftwareHub-Setup-win7-dv*.exe
 
-      # ── 6. 生成更新说明 ──
+      # ── 8. 生成更新说明 ──
       - name: 生成更新说明
         id: notes
         shell: pwsh
@@ -185,7 +258,7 @@ jobs:
           Get-Content -LiteralPath $path | Select-Object -First 30 | ForEach-Object { Write-Host $_ }
           "path=$path" >> $env:GITHUB_OUTPUT
 
-      # ── 7. 发 Release（打 tag / 勾了 publish 才发）──
+      # ── 9. 发 Release（打 tag / 勾了 publish 才发）──
       - name: 创建 GitHub Release
         if: ${{ startsWith(github.ref, 'refs/tags/') || inputs.publish }}
         shell: pwsh

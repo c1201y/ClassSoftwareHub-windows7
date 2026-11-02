@@ -10,14 +10,13 @@ namespace ClassSoftwareHub.Desktop.Core;
 /// 读 HTTP 请求头，并把它后面**已经读进来的字节**原样交回（body 的前缀）。
 ///
 /// <para>
-/// 抽成独立文件是为了能单测 —— 它曾经把局域网喊话整整卡了一个下午（2026-10-25）：
-/// <c>HttpClient</c> 发小请求时，请求头与 body 往往在**同一个 TCP 包**里到达，
+/// 抽成独立文件是为了能单测。注意 <c>HttpClient</c> 发小请求时，请求头与 body 往往在**同一个 TCP 包**里到达，
 /// 一次 <c>Read</c> 就把两者一起读了回来。老实现把整段内容当成「请求头」解析完就丢掉，
 /// 之后按 <c>Content-Length</c> 再去等 body 就永远等不到 ——
 /// 现象是「连接建立成功、监听正常、接受循环也在跑，但服务端永不应答」，客户端只能超时。
 /// </para>
 /// <para>
-/// ⛔ 所以调用方必须把 <c>Leftover</c> 当作 body 的开头，不要丢。
+/// 调用方必须把 <c>Leftover</c> 当作 body 的开头，不要丢。
 /// </para>
 /// </summary>
 public static class HttpHeadReader

@@ -16,7 +16,7 @@ public sealed record Element(int Number, string Symbol, int Row, int Column)
 ///
 /// <para>
 /// 位置不用手摆：按原子序数就能算出族和周期，只有镧系 / 锕系要单独归到第 8、9 行。
-/// 手摆 118 个格子既容易错位，也难看懂为什么错。
+/// 手摆 118 个格子既容易错位，出错后也不易排查原因。
 /// </para>
 /// </summary>
 public static class PeriodicTable
@@ -52,7 +52,7 @@ public static class PeriodicTable
     /// 1~103 号元素的中文名，下标 = 原子序数 - 1。
     ///
     /// <para>
-    /// ⛔ 完整周期表上只写符号是不行的（Nick 2026-10-17）：<c>Sn</c>、<c>Sb</c>、<c>Y</c>
+    /// ⛔ 完整周期表上只写符号是不行的：<c>Sn</c>、<c>Sb</c>、<c>Y</c>
     /// 这些符号连化学老师都要想一想，学生在表里找一个元素却只看到符号，等于没给线索。
     /// </para>
     /// <para>

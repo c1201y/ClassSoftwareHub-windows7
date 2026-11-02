@@ -66,7 +66,7 @@ public sealed record DownloadCandidate(string Url, string? Referer, string? ApiK
 /// 覆盖范围：**软件下载**（<see cref="DownloadService"/>）与**更新包下载**
 /// （<c>UpdateService.DownloadAndVerifyAsync</c>）两条链路都走这里，用户不必分别在两处设一次。
 ///
-/// 三个模式（2026-10-09 起，对齐 gh-stream 接口说明）：
+/// 三个模式（对齐 gh-stream 接口说明）：
 ///   · GitHub 源  —— 原样直连，一条候选，不探测不改写；
 ///   · 自建加速服务 —— 先向自建节点换一条**限时签名链接**（<see cref="MirrorSign"/>，抓取时必须带 Referer），
 ///                     固定首选；取不到签名就往后退到公益镜像（通道清单原序）→ GitHub 源；
@@ -75,7 +75,7 @@ public sealed record DownloadCandidate(string Url, string? Referer, string? ApiK
 /// ⚠️ 自建节点**不支持前缀拼接**（<c>节点/&lt;原始链接&gt;</c> 对任何 Referer 都 403），
 ///    只能用它自己签发的 <c>/d?u=…&amp;e=…&amp;s=…</c> 链接 —— 所以候选必须能携带 Referer（和可能的 X-Api-Key）。
 /// ⚠️ 换签名**直连节点**（<c>download.classsoftwarehub.cn/sign</c>），不再经站点后端中转：
-///    实测本机网络下节点通、而站点后端域名不通，走中转等于白等。
+///    本机网络下节点通、而站点后端域名不通，走中转等于白等。
 ///
 /// 和详情页那条「加速通道」的分工：
 ///   · 详情页 = 逐条**手动**挑公益镜像（<see cref="Core.GithubMirror.Channels"/>），一次一条链接；
@@ -185,7 +185,7 @@ public static class GithubRoute
 
         var signed = await MirrorSign.GetSignedUrlAsync(url, ct).ConfigureAwait(false);
 
-        // ⛔⛔ **自建就是自建**（2026-10-21 Nick 明确要求）：
+        // ⛔⛔ **自建就是自建**：
         //    选了「自建加速服务」就**只走自建**，拿不到签名就当场报错，
         //    不许静默回退到公益镜像或 GitHub 源。
         //    回退是「自动」模式的职责 —— 用户选自建就是为了验它到底通不通，
@@ -409,7 +409,7 @@ public static class GithubRoute
     }
 
 /// <summary>
-/// 与 Win7 版兼容层（2026-10-21）。
+/// 与 Win7 版兼容层。
 /// <para>
 /// 下面三个成员是 Win7 版 <c>DownloadService.cs</c> 直接引用的名字。我们的实现用
 /// <see cref="DownloadCandidate"/> 携带 Referer/Key，而对方用纯字符串、在发请求时自己贴 Referer。

@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using Avalonia;
-// ⚠️ WinUI → Avalonia（2026-10-18 自上游 1.2.0 移植）：Windows.Foundation.Point → Avalonia.Point
+// ⚠️ WinUI → Avalonia 移植：Windows.Foundation.Point → Avalonia.Point
 
 namespace ClassSoftwareHub.Desktop.Services;
 

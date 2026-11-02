@@ -23,7 +23,7 @@
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-                <!-- 标题行（2026-10-03 第 16 轮起**不再是拖动把手**：拖动已撤掉，见 VolumeWindow.axaml）。 -->
+                <!-- 标题行（拖动功能已移除，不再是拖动把手，见 VolumeWindow.axaml）。 -->
                 <Border x:Name="GripRow" Background="Transparent" MinHeight="22">
                     <StackPanel Orientation="Horizontal" Spacing="7">
                         <fa:FontIcon Glyph="&#xE767;" FontSize="13" Opacity="0.55" VerticalAlignment="Center" />

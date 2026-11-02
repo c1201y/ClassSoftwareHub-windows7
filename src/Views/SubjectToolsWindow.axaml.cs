@@ -383,6 +383,12 @@ public sealed partial class SubjectToolsWindow : Window
                 Activate();
             }
 
+            // ⚠️ 2026-11-01（真机反馈「学科工具窗口有黑边，拖动一下才消失」）：
+            //    首次 Show 时 Avalonia 的 surface 尺寸还是按"没被吃掉边框"的客户区算的，
+            //    WM_NCCALCSIZE 把客户区撑大之后那一圈没人画 —— 无合成的 Win7 上就是一条黑边。
+            //    尺寸/位置都定下来之后（再次显示也一样）补一次「非客户区重算 + 整窗重画」。
+            _frame?.RefreshFrame("学科工具窗显示");
+
             Activate();
         }
         catch (Exception ex)

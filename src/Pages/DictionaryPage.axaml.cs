@@ -18,16 +18,16 @@ using FluentAvalonia.UI.Controls;
 namespace ClassSoftwareHub.Desktop.Pages;
 
 /// <summary>
-/// 查阅单词（自上游 dv1.2.0-insider1.8 移植，需求清单第 17 条）。
+/// 查阅单词（自上游 dv1.2.0-insider1.8 移植）。
 ///
 /// <para>
-/// **两块独立区域**：上面「查单词」、下面「翻译句子」，各有各的输入框（上游 2026-11-01 Nick 定）。
+/// **两块独立区域**：上面「查单词」、下面「翻译句子」，各有各的输入框。
 /// 不合成一个框的理由：查词是敲几个字母挑候选，翻译是粘一整段话 —— 挤在一个框里，
 /// 补全列表在翻译时纯属碍事，而回车提交到底是"查"还是"翻"也得靠猜。
 /// </para>
 /// <para>
 /// 页面只负责"把请求送出去、把结果摆出来"，词源怎么选由 <see cref="DictionaryService"/> 决定 ——
-/// 这里⛔ 不判断"有没有网""该不该先查本地"，否则换个源就要改界面。
+/// 这里不判断"有没有网""该不该先查本地"，否则换个源就要改界面。
 /// </para>
 /// <para>
 /// ⚠️ 移植：上游的 <c>AutoSuggestBox</c> 换成了 <c>TextBox</c> + 内联 <c>ListBox</c> 候选。
@@ -89,7 +89,7 @@ public sealed partial class DictionaryPage : PageBase
         var token = ++_suggestToken;
 
         // ⚠️ Avalonia 的 TextChanged 可能在属性变更之后才派发：查询时程序改写文本，等事件到达时
-        //    _settingText 已经复位。不挡这一下，候选列表会在结果卡上方重新弹出来（上游也踩过）。
+        //    _settingText 已经复位。不挡这一下，候选列表会在结果卡上方重新弹出来。
         if (string.Equals(text.Trim(), _searchedText, StringComparison.Ordinal))
         {
             HideSuggest();

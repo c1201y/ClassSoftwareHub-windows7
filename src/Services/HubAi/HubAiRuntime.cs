@@ -12,7 +12,7 @@ namespace ClassSoftwareHub.Desktop.Services.HubAi;
 /// <summary>
 /// 一个会话的运行时：持有对话上下文与流式状态，**独立于页面存在**。
 ///
-/// 2026-10-23 建（Nick 选方案 B：「生成中随便切，后台继续跑完，回来就有」）。
+/// 运行时独立于页面存在：生成中可随意切换会话/页面，后台继续跑完，回来即可查看。
 /// 在此之前 `AiChatService` 是页面字段，切会话会 `Restore()` 覆盖正在写入的上下文，
 /// 切页/切会话时正在生成的回复就"腰斩"了。
 ///
@@ -33,7 +33,7 @@ public sealed class HubAiRuntime
     public const string DraftKey = "\u0001draft";
 
     /// <summary>
-    /// 浮层专用草稿键的前缀（2026-10-30 加）。
+    /// 浮层专用草稿键的前缀。
     /// ⚠️ 浮层每次展开都是**另一段对话**，不能和页面那份 draft 共用同一个键，
     /// 否则两边的上下文会串在一起（页面上"新建对话"的空白草稿被浮层的问答填满）。
     /// </summary>
@@ -61,7 +61,7 @@ public sealed class HubAiRuntime
     }
 
     /// <summary>
-    /// 淘汰空闲的运行时（2026-10-23 补）。
+    /// 淘汰空闲的运行时。
     /// 淘汰是**安全**的：空闲会话的上下文每次切回去都会从存档 `Restore` 一遍，
     /// 内存里这份只是缓存。⚠️ 正在跑的、以及还没存档的 draft 一律不动。
     /// </summary>
@@ -77,7 +77,7 @@ public sealed class HubAiRuntime
     }
 
     /// <summary>
-    /// 给 AI 浮层开一段**独立的空白对话**（2026-10-30）。
+    /// 给 AI 浮层开一段**独立的空白对话**。
     ///
     /// <para>
     /// 语义是「新开一个窗口 = 新开一个对话」：每次展开浮层都拿一份新的运行时，
@@ -92,7 +92,7 @@ public sealed class HubAiRuntime
     {
         lock (_gate)
         {
-            // 顺手清掉以前那些空闲的浮层草稿 —— 它们要么已 Adopt 到真实 id，要么已经被放弃
+            // 同时清理以前那些空闲的浮层草稿 —— 它们要么已 Adopt 到真实 id，要么已经被放弃
             foreach (var key in _map.Where(kv => kv.Key.StartsWith(FlyoutDraftPrefix, StringComparison.Ordinal)
                                                  && !kv.Value.IsRunning)
                                     .Select(kv => kv.Key)
@@ -118,7 +118,7 @@ public sealed class HubAiRuntime
             if (_map.Remove(sessionId, out var runtime)) dead = runtime;
         }
 
-        // 删的时候可能还在生成 —— 顺手停掉，别让它在后台白跑
+        // 删的时候可能还在生成 —— 一并停止，避免在后台空转
         dead?.Stop();
     }
 
@@ -129,7 +129,7 @@ public sealed class HubAiRuntime
     public static void AdoptDraft(string newSessionId) => Adopt(DraftKey, newSessionId);
 
     /// <summary>
-    /// 把 <paramref name="runtimeKey"/> 这份运行时改挂到真实会话 id 上（2026-10-30 抽出）。
+    /// 把 <paramref name="runtimeKey"/> 这份运行时改挂到真实会话 id 上。
     /// 浮层的草稿键不是 <see cref="DraftKey"/>，所以要多一个入口。
     /// </summary>
     public static void Adopt(string runtimeKey, string newSessionId)
@@ -210,8 +210,8 @@ public sealed class HubAiRuntime
             // ⛔ 必须是 `AiUsage.Empty`，不能写 `default` —— AiUsage 是 record（引用类型），
             //    `default` 是 null；用户在生成中途点了停止 / 新建对话，走的是
             //    OperationCanceledException 那条路，usage 仍然是 null，
-            //    于是 finally 里 `onCompleted(null)` → 页面 EstimateCost(usage) 直接空引用崩。
-            //    （2026-10-23 修，编译器 CS8600 / CS8604 指的就是这里。）
+            //    于是 finally 里 `onCompleted(null)` → 页面 EstimateCost(usage) 直接空引用崩
+            //    （编译器 CS8600 / CS8604 指的就是这里）。
             var usage = AiUsage.Empty;
             Exception? failure = null;
             try

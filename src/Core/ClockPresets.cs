@@ -6,7 +6,7 @@ using System.Text.Json;
 namespace ClassSoftwareHub.Desktop.Core;
 
 /// <summary>
-/// 一套命名的时钟外观（2026-09-27 Nick 要的「预设」）。
+/// 一套命名的时钟外观。
 /// 字段与 <see cref="ClockSettings"/> 一一对应 —— 存的是值，不是引用，
 /// 所以预设之间互不影响。
 /// </summary>
@@ -100,7 +100,7 @@ public static class ClockPresetStore
         /// <summary>
         /// 上次"正在使用的那套预设"的名字；空 = 上次没在用预设（外观是手调/默认的）。
         ///
-        /// ⚠️ 2026-09-28（Nick）：用来实现"每次启动遵循上次"——
+        /// 用来实现"每次启动遵循上次"——
         /// 非空且这套预设还在 → 启动就按**那套预设**铺（顺便把列表里那套标成"使用中"）；
         /// 空 → 就按 <see cref="LastUsed"/> 那个外观铺，**不强行套任何预设**。
         /// 用户手动改了外观就会把它清空（那时已经是"自定义"了）。

@@ -78,14 +78,14 @@ internal static class Program
             Array.Exists(args, a => a.Equals("--simulate-win7", StringComparison.OrdinalIgnoreCase))
             || Environment.GetEnvironmentVariable("CSH_SIMULATE_WIN7") == "1";
 
-        // ⚠️ 2026-10-08/09（抽号页随机灰矩形，真机两轮复核）：
+        // ⚠️ Win7 抽号页随机灰矩形问题（真机复核确认）：
         //   现象：Win7 抽号页出现位置随机的浅灰矩形残影，每帧形状不同。
         //   根因：Avalonia 组合渲染默认按脏矩形局部重绘 —— 每帧只重画变化区域，
         //   其余像素依赖渲染表面"保住上一帧"。Win7 老显卡（WGL / 老 Intel ICD）的
         //   表面保帧不可靠，未重绘区域会露出上一帧残留或随机垃圾像素。
         //   UseSaveLayerRootClip（脏区先画进中间表面再合成，Skia bug
         //   issues.skia.org/issues/327877721 的官方绕法）只解决 saveLayer 裁剪一类问题，
-        //   不改变对表面保帧的依赖 —— 2026-10-09 真机复核确认它单独启用无效。
+        //   不改变对表面保帧的依赖 —— 真机复核确认它单独启用无效。
         //   处置：Win7（含 --simulate-win7）默认直接走软件渲染，帧缓冲在进程内存里，
         //   保帧由进程自己保证，随机灰矩形从机制上不可能出现；需要验证 GPU 路径时
         //   加 --gpu-render 临时放行降级链（此时仍会带 UseSaveLayerRootClip）。
@@ -159,7 +159,7 @@ internal static class Program
             //     [OpenGL] Unknown requested PlatformApi 'DirectX11'
             // ANGLE(D3D11) 起不来 → 渲染器建不出来 → 窗口建不出来 → 进程随即退出。
             //
-            // 2026-10-09 定版（真机两轮复核后）：
+            // 定版（真机复核后）：
             //   · Win7 默认**软件渲染**：脏矩形局部重绘依赖渲染表面保帧，老显卡驱动
             //     （WGL / 老 Intel ICD）保帧不可靠，会产生随机灰矩形残影；
             //     软件渲染的帧缓冲在进程内存里，保帧天然可靠，从机制上根治该问题。

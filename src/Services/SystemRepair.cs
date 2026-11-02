@@ -58,7 +58,14 @@ public sealed record RepairTask(
 
 /// <summary>一次运行的结局。</summary>
 /// <param name="Cancelled">是我们主动中止的（而不是命令自己结束）。</param>
-public sealed record RepairOutcome(bool Cancelled, int ExitCode, string Note);
+/// <param name="StartedAtTicks">助手真正开始执行命令的 UTC ticks；0 = 老版本助手写的结局。</param>
+/// <param name="EndedAtTicks">命令结束的 UTC ticks；0 = 老版本助手写的结局。</param>
+public sealed record RepairOutcome(
+    bool Cancelled,
+    int ExitCode,
+    string Note,
+    long StartedAtTicks = 0,
+    long EndedAtTicks = 0);
 
 /// <summary>
 /// 系统修复指令（1.2.0 第二批第二条）。
@@ -355,6 +362,11 @@ public static class SystemRepair
         SafeDelete(pctPath);
         SafeDelete(beatPath);
 
+        // ⚠️ 计时从这里开始，**不是**从父进程写 run.json 那一刻 —— 中间隔着 UAC 等待，
+        //    用户按确认的早晚不该算进"命令跑了多久"（真机反馈过计时与日志对不上）。
+        var startedUtc = DateTime.UtcNow;
+        try { File.WriteAllText(manifestPath + ".start", startedUtc.Ticks.ToString()); } catch { }
+
         // ── 起子进程 ──
         // ⚠️ 统一走 cmd.exe /c：卡里的命令要么是单条，要么用 & 串了几条，交给 cmd 解释最省事。
         //    末尾补 `2>&1` 把 stderr 并进 stdout —— 两条流分开读的话日志顺序会错乱，
@@ -365,6 +377,10 @@ public static class SystemRepair
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardOutput = true,
+            // ⛔ 必须接管 stdin 再立刻关掉：助手是隐藏的 GUI 进程，子进程拿到的标准输入是**无效句柄**。
+            //    像 chkdsk 这种遇到"卷被占用"会先问一句「是否要强制卸下」的命令，读不到答案就当场退出
+            //    （真机表现为 1 秒结束、退出码 3、输出一个字都没有）。给一个干净的 EOF，它才会正常走只读检查。
+            RedirectStandardInput = true,
         };
         psi.ArgumentList.Add("/c");
         psi.ArgumentList.Add(task.Command + " 2>&1");
@@ -372,8 +388,10 @@ public static class SystemRepair
         using var process = Process.Start(psi);
         if (process is null)
         {
-            return new RepairOutcome(false, -1, "命令没能启动");
+            return new RepairOutcome(false, -1, "命令没能启动", startedUtc.Ticks, DateTime.UtcNow.Ticks);
         }
+
+        try { process.StandardInput.Close(); } catch { }
 
         var cancelled = false;
         var lastBeat = DateTime.MinValue;
@@ -406,11 +424,22 @@ public static class SystemRepair
                             HandleLine(text, writer, ref percent, ref lastPct, pctPath);
 
                         lastWasCr = b == (byte)'\r';
+                        continue;
                     }
-                    else
+
+                    // ⛔ sfc / chkdsk 靠**退格符**一遍遍改写同一行进度（「验证 0% 已完成。\b\b\b…验证 1%…」）。
+                    //    不处理 0x08 的话这些控制字符会原样进输出框 —— 真机上就是一串「□」，
+                    //    而且整行不再是标准进度行，连带把进度过滤也绕过去了。
+                    if (b == 0x08)
                     {
-                        pending.Add(b);
+                        if (pending.Count > 0) pending.RemoveAt(pending.Count - 1);
+                        continue;
                     }
+
+                    // 其它 C0 控制字符（响铃、清屏之类）没有显示意义，直接丢（Tab 保留）
+                    if (b < 0x20 && b != (byte)'\t') continue;
+
+                    pending.Add(b);
                 }
             }
 
@@ -475,13 +504,17 @@ public static class SystemRepair
                     Feed(chunk);
                 }
 
-                // ⛔ 不能只看 HasExited：退出那一瞬间管道里可能还剩数据没读完
-                if (process.HasExited && !drained && queue.IsEmpty) break;
+                // ⛔ 不能只看 HasExited：退出那一瞬间管道里可能还剩数据没读完。
+                // ⛔⛔ 也不能只看"队列为空"：命令秒退时（chkdsk 拒绝执行就是 1 秒结束），
+                //     抽数线程可能**还没来得及**把管道里的输出塞进队列 —— 早先在这里 break，
+                //     之后只 Sleep(150ms) 就收工，真机上表现为「退出码 3 + 输出一片空白」。
+                //     所以必须等抽数线程自己读完管道（它读到 EOF 才退出）再收尾。
+                if (process.HasExited && !drained && queue.IsEmpty && !reader.IsAlive) break;
                 if (!drained) Thread.Sleep(200);
             }
 
-            // 收尾：把还没成行的尾巴写出去（等一小会儿让抽数线程把最后一段送进队列）
-            Thread.Sleep(150);
+            // 收尾：等抽数线程把管道读干净，再取剩下的尾巴（最多等 2 秒，别为一个卡住的管道吊死）
+            reader.Join(2000);
             while (queue.TryDequeue(out var tail)) Feed(tail);
             if (pending.Count > 0) HandleLine(Decode(pending), writer, ref percent, ref lastPct, pctPath);
 
@@ -502,13 +535,16 @@ public static class SystemRepair
         var note = cancelled ? "已中止" : (exitCode == 0 ? "" : $"命令返回代码 {exitCode}");
         AppLog.Info("repair", $"「{task.Name}」结束：{(cancelled ? "已中止" : $"退出码 {exitCode}")}");
 
-        return new RepairOutcome(cancelled, exitCode, note);
+        return new RepairOutcome(cancelled, exitCode, note, startedUtc.Ticks, DateTime.UtcNow.Ticks);
     }
 
     /// <summary>处理一行输出。返回 true = 这行是进度条（已单独记进 .pct，不用写日志）。</summary>
     private static bool HandleLine(
         string text, StreamWriter writer, ref int percent, ref int lastPct, string pctPath)
     {
+        // 兜底：万一还有控制字符漏过来（不同工具的进度写法五花八门），别让它们进输出框
+        text = Sanitize(text);
+
         if (ProgressLine.IsMatch(text))
         {
             var m = PercentValue.Match(text);
@@ -533,6 +569,25 @@ public static class SystemRepair
         }
 
         return false;
+    }
+
+    /// <summary>去掉残留的控制字符（保留 Tab）—— 它们进输出框只会显示成一排「□」。</summary>
+    private static string Sanitize(string text)
+    {
+        var bad = false;
+        foreach (var ch in text)
+        {
+            if (ch < 0x20 && ch != '\t') { bad = true; break; }
+        }
+
+        if (!bad) return text;
+
+        var sb = new StringBuilder(text.Length);
+        foreach (var ch in text)
+        {
+            if (ch >= 0x20 || ch == '\t') sb.Append(ch);
+        }
+        return sb.ToString();
     }
 
     private static void Outcome(string manifestPath, RepairOutcome outcome)
@@ -725,14 +780,42 @@ public sealed class RepairSession
     {
         Task = task;
         ManifestPath = manifestPath;
-        StartedAt = File.GetLastWriteTime(manifestPath);
     }
 
     public RepairTask Task { get; }
 
     public string ManifestPath { get; }
 
-    public DateTime StartedAt { get; }
+    /// <summary>
+    /// 命令真正开始的时间（本地时间）。
+    /// <para>
+    /// ⚠️ 优先读助手写的 <c>.start</c>（提权之后、真正起命令那一刻）；助手还没写出来时退回清单文件的
+    /// 写入时间。**不能只**用清单时间：中间隔着 UAC 等待，用户按确认的早晚会被算进"用时"，
+    /// 真机上就会出现"界面显示 8 分 33 秒，日志里的命令只跑了 7 分钟"这种对不上的情况。
+    /// </para>
+    /// </summary>
+    public DateTime StartedAt
+    {
+        get
+        {
+            try
+            {
+                var path = ManifestPath + ".start";
+                if (File.Exists(path)
+                    && long.TryParse(File.ReadAllText(path).Trim(), out var ticks)
+                    && ticks > 0)
+                {
+                    return new DateTime(ticks, DateTimeKind.Utc).ToLocalTime();
+                }
+            }
+            catch
+            {
+                // 读不到就用清单时间兜底
+            }
+
+            return File.GetLastWriteTime(ManifestPath);
+        }
+    }
 
     private string OutPath => ManifestPath + ".out";
 

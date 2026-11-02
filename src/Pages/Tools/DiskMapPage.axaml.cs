@@ -346,11 +346,7 @@ public partial class DiskMapPage : Platform.PageBase
 
         if (entry is { IsDirectory: true })
         {
-            border.PointerPressed += (_, args) =>
-            {
-                args.Handled = true;
-                _ = ScanAsync(entry.FullPath);
-            };
+            TapActivate.Bind(border, () => _ = ScanAsync(entry.FullPath));
 
             border.PointerEntered += (_, _) => border.Opacity = 0.82;
             border.PointerExited += (_, _) => border.Opacity = 1;

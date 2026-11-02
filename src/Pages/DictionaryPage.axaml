@@ -7,16 +7,16 @@
     xmlns:fa="using:FluentAvalonia.UI.Controls">
 
     <!--
-      查阅单词（自上游 dv1.2.0-insider1.8 移植，需求清单第 17 条）。
+      查阅单词（自上游 dv1.2.0-insider1.8 移植）。
 
       版式照母版 Pages/AutoShutdownPage.xaml：三列 Grid 把内容钉在中间 960 宽。
 
-      **查单词与翻译句子是两张独立的卡，各用各的输入框**（上游 2026-11-01 Nick 定：
-      不要一个框又查词又翻句）。理由：查词是敲几个字母看候选，翻译是粘一整段句子；
+      **查单词与翻译句子是两张独立的卡，各用各的输入框**（不做"一个框又查词又翻句"）。
+      理由：查词是敲几个字母看候选，翻译是粘一整段句子；
       挤在一个框里，补全列表在翻译时纯属碍事。
 
       每张卡自己成一体：标题 → 输入 → 结果，结果与输入之间用一条淡分隔线断开。
-      结果一律在代码里逐条构造，⛔ 不用 ItemTemplate + x:Bind。
+      结果一律在代码里逐条构造，不用 ItemTemplate + x:Bind。
 
       ⚠️ 移植说明（WinUI → Avalonia）：
         · AutoSuggestBox 在 Avalonia/FA 里没有 → TextBox + 内联 ListBox 候选（同一张卡内、

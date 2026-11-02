@@ -26,10 +26,8 @@ public sealed record HashCheckRequest(string Hash, string AppName);
 /// <summary>
 /// 编码 / 哈希工具。
 ///
-/// 2026-09-29 重构（Nick）：按**用途**拆成两条主线（<c>SelectorBar</c> 两个页签），
+/// 按**用途**拆成两条主线（<c>SelectorBar</c> 两个页签），
 /// 默认停在「文件校验」—— 现实中这个工具绝大多数是被用来核对刚下载的安装包的。
-/// 原来两件事挤在同一屏（左边编解码、右边输出、下面一大块哈希 + 模式单选），
-/// 用户得先判断"我要看哪一块"，再在上下两处结果之间找。
 /// </summary>
 public sealed partial class EncodingToolPage : PageBase
 {
@@ -129,16 +127,12 @@ public sealed partial class EncodingToolPage : PageBase
     // ══════════ 哈希行（两个页签各一套，样式完全一致） ══════════
     /// <summary>
     /// 四种算法各一行：算法名（定宽）+ 值（占满，长了折行）+ 复制。
-    /// 2026-09-29 前是"标题一行、值框一行"的两行式，四个算法就是八行，一屏看不全。
     ///
-    /// ⚠️ 2026-09-29 二次调整（Nick）：「那些哈希值文本框，看起来像是可以编辑的，但实际上只是为了复制」。
-    ///    原来每行的值外面套一个灰底圆角 Border，视觉上跟 TextBox 一模一样 —— 用户会去点它想改。
-    ///    去掉了底框，改用逐行分隔线。
+    /// 哈希值文本框不可编辑、只用于复制：行值不套底框（否则看起来像可编辑的 TextBox），用逐行分隔线。
     ///
-    /// ⚠️ dv1.1.0（2026-10-02，Nick：「所有块都是方块包方块，像一张填满格子的 Excel」，照上游移植）：
-    ///    逐行分隔线仍是"手画的表格"，整块换成 **ListBox** 承载 —— 行容器 ListBoxItem 自带系统
-    ///    悬停底色 / 圆角 / 键盘导航，外面那张大卡片也一并删掉。
-    ///    ⚠️ 上游用 WinUI 的 ListView + ItemTemplate（x:Bind 到 HashRow）；Avalonia 无 ListView，
+    /// 整块用 **ListBox** 承载：行容器 ListBoxItem 自带系统
+    /// 悬停底色 / 圆角 / 键盘导航，外面不再套大卡片。
+    /// 上游用 WinUI 的 ListView + ItemTemplate（x:Bind 到 HashRow）；Avalonia 无 ListView，
     ///       且资源字典里的 DataTemplate 不参与事件绑定解析（复制键会编译失败），
     ///       所以这里仍走**代码后置建行**（本仓库既有做法），容器换成 ListBox 即可拿到同一份观感。
     /// </summary>

@@ -21,7 +21,7 @@ public enum HealthLevel
 public sealed record HealthFinding(HealthLevel Level, string Title, string Detail);
 
 /// <summary>
-/// 本地规则判断（2026-10-18）：**不接模型也能给出的结论**。
+/// 本地规则判断：**不接模型也能给出的结论**。
 ///
 /// <para>
 /// 存在的意义有两个：一是没有配置密钥的用户也得看到点有用的东西；二是它是模型输出的"下限"——
@@ -52,7 +52,7 @@ public static class MachineDiagnosis
     private const int DiskBusyPercent = 80;
 
     /// <summary>
-    /// 非系统盘已用的提醒线。**比系统盘宽松 10 个点**（Nick 2026-10-18 定：其他盘也要看）：
+    /// 非系统盘已用的提醒线。**比系统盘宽松 10 个点**：
     /// 数据盘装到八成是常态，系统盘装到八成就要出事了——更新失败、休眠文件写不下、虚拟内存吃紧。
     /// </summary>
     private const int DiskBusyPercentOther = 90;
@@ -116,7 +116,7 @@ public static class MachineDiagnosis
             }
         }
 
-        // ── 其他磁盘（2026-10-18 加）：系统盘健康不等于整机没空间问题 ──
+        // ── 其他磁盘：系统盘健康不等于整机没空间问题 ──
         // ⚠️ 合并成**一条**：三块盘各报一条，用户会以为整机到处是毛病。
         var crowded = s.Disks
             .Where(d => d.TotalMb > 0 && !ReferenceEquals(d, systemDisk))

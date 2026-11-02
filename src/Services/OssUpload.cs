@@ -88,10 +88,7 @@ public static class OssUpload
     private const string DefaultContentType = "application/octet-stream";
 
     /// <summary>大文件上传可能很久，超时交给调用方的 CancellationToken 管。</summary>
-    private static readonly HttpClient Http = new(Core.HttpTls.Handler())
-    {
-        Timeout = Timeout.InfiniteTimeSpan,
-    };
+    private static readonly HttpClient Http = Core.OfficialApi.Create(timeoutSeconds: 0);
 
     private sealed record SignedTarget(string Url, string Key, string ContentType, int OrphanMinutes);
 
@@ -143,8 +140,8 @@ public static class OssUpload
 
         var contentType = ContentTypeFor(filePath);
 
-        // ── 链路日志（对齐上游 2026-10-11）：上传/提交是"点了没反应"的高发区 ——
-        //    以前只把失败写成界面上一句人话，日志里什么都查不到。
+        // ── 链路日志（对齐上游）：上传/提交是"点了没反应"的高发区 ——
+        //    失败必须留有日志，不能只把一句人话写在界面上。
         var sw = System.Diagnostics.Stopwatch.StartNew();
         Core.AppLog.Begin("upload", $"上传「{info.Name}」开始 · {Core.AppLog.Size(info.Length)} · 用途={purpose} · 类型={contentType}");
 
@@ -158,7 +155,7 @@ public static class OssUpload
             }
             catch (OssUploadException ex) when (ex.Code == OssUploadErrorCode.Unreachable)
             {
-                // 只有「这个入口本身不可用」才值得换下一个；服务已经明确拒绝就别再试了
+                // 只有「这个入口本身不可用」才值得换下一个；服务已明确拒绝时不再重试
                 lastUnreachable = ex;
                 Core.AppLog.Warn("upload", $"入口 {baseUrl} 不可用（{ex.Message}）→ 换下一个");
                 continue;

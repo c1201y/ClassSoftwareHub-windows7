@@ -27,7 +27,7 @@ public enum DownloadState
 
 /// <summary>
 /// 任务类型 —— 决定卡片上摆哪些按钮、状态文案怎么说。
-/// （2026-10-18 自上游 1.2.0 移植。⚠️ 上游叫 DownloadKind；本仓库 Data 命名空间里
+/// （自上游 1.2.0 移植。⚠️ 上游叫 DownloadKind；本仓库 Data 命名空间里
 ///  已有「下载链接分类」的 DownloadKind，两者同名会歧义，故这里改名 DownloadTaskKind。）
 /// </summary>
 public enum DownloadTaskKind
@@ -51,7 +51,7 @@ public enum DownloadTaskKind
     /// 本地清理任务（自上游 1.8，AppData 管理在用）。
     /// <para>
     /// 没有链接、没有落盘文件，只有一个"删了多少 / 总共多少"的进度 —— 借这张表进「任务进行」页，
-    /// 让用户切走页面之后还能看到清理跑没跑完（Nick：「不然的话就孤零零的在那里」）。
+    /// 让用户切走页面之后还能看到清理跑没跑完，而不是"孤零零的在那里"。
     /// </para>
     /// <para>
     /// ⚠️ 完成态的 Path 为空，所以「打开 / 打开文件夹 / 安装」三颗按钮全都不会出现
@@ -65,9 +65,9 @@ public enum DownloadTaskKind
 /// 一条下载任务 —— 同时是给界面看的视图模型（属性变更会通知绑定）。
 ///
 /// ⚠️ 关键设计：**任务的生命周期跟任何对话框无关**。
-/// 以前下载是「一个模态弹窗守着下载」，把弹窗关掉就等于取消；半个 G 的包只能干等着。
+/// 若下载由「一个模态弹窗守着」，把弹窗关掉就等于取消；半个 G 的包只能干等着。
 /// 现在弹窗只是它的一张脸：点「看看别的」把弹窗收掉，任务照样在
-/// <see cref="DownloadManager"/> 里跑，左侧「任务进行」随时能看到进度、取消、打开（2026-09-26 起）。
+/// <see cref="DownloadManager"/> 里跑，左侧「任务进行」随时能看到进度、取消、打开。
 /// </summary>
 public sealed class DownloadTask : INotifyPropertyChanged
 {
@@ -518,7 +518,7 @@ public sealed class DownloadManager
         Start(task.Url, task.SuggestedName, task.Title, task.Route, task.Dir);
     }
 
-    // ── 外部托管任务（更新包，2026-10-18 自上游 1.2.0 移植）────────────────
+    // ── 外部托管任务（更新包，自上游 1.2.0 移植）────────────────
     //
     // 为什么不让更新下载也跑 RunAsync：更新那条路要「多候选线路 → 逐条校验 → 待装标记」，
     // 和普通下载（一条链接、一个文件）不是同一件事，硬塞进 RunAsync 只会两边都拧巴。
@@ -547,7 +547,7 @@ public sealed class DownloadManager
     //
     // 和更新包一样是"外部托管"：删除动作跑在 AppDataPage 里，这里只负责台账。
     // 为什么要走这张表而不是各自在页面里画一条进度条：清理一个几百 MB 的缓存目录可能要几十秒，
-    // 用户切到别的页面就再也看不到它跑到哪了 —— Nick 原话「孤零零的在那里，不知道有没有完成」。
+    // 用户切到别的页面就再也看不到它跑到哪了，只能"孤零零地"不知道有没有完成。
 
     /// <summary>
     /// 登记一条清理任务并显示到「任务进行」页。⚠️ 必须在 UI 线程调用。

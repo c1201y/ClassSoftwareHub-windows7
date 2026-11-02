@@ -131,7 +131,7 @@ public sealed partial class SidebarLayoutPage : PageBase
     /// <summary>
     /// 「展开面板高度」滑块的落盘防抖（2026-10-18 上游；2026-10-22 移植）。拖动一次会连着触发几十次 ValueChanged，
     /// 每次写一遍 settings.json 太浪费 —— 停手 350ms 再写。
-    /// ⚠️ 必须挂字段：局部变量会被 GC 回收，timer 就再也不 tick 了（踩过）。
+    /// 必须挂字段：局部变量会被 GC 回收，timer 就再也不 tick 了。
     /// ⚠️ 移植说明：Avalonia 的 DispatcherTimer 没有 IsRepeating，单发靠 Tick 里 Stop()。
     /// </summary>
     private DispatcherTimer? _heightSaveTimer;
@@ -230,7 +230,7 @@ public sealed partial class SidebarLayoutPage : PageBase
     {
         var s = App.Settings.Current;
 
-        // 贴靠模式只认左右两条边（Nick 2026-09-28 定：贴靠 = 左右模式）。
+        // 贴靠模式只认左右两条边（贴靠 = 左右模式）。
         // 老设置里若留着 top/bottom，这里归到右边 —— 想贴上下边需切到自由模式。
         if (s.SidebarEdge is not ("left" or "both" or "right"))
         {
@@ -296,7 +296,7 @@ public sealed partial class SidebarLayoutPage : PageBase
                 if (SidebarModeCombo.SelectedIndex != index) SidebarModeCombo.SelectedIndex = index;
             }
 
-            // 「动画方案」：拖放卡片的落位收尾用哪种（两种都保留，Nick 2026-10-01 定）
+            // 「动画方案」：拖放卡片的落位收尾用哪种（两种都保留，交给用户选）
             _dropDip = DropDipScale(s.SidebarDropAnim);
             if (DropAnimCombo is not null)
             {
@@ -964,7 +964,7 @@ public sealed partial class SidebarLayoutPage : PageBase
 
         // ⚠️ 拖动过（场上有替身卡）时：先**留着替身** —— 落位收势（SettleGhost）走完才撤它。
         //    不这么做的话，"提起来"的三样装饰（蓝描边 / 投影 / Opacity 0.95）会在收尾那一帧
-        //    同时蒸发、底下的卡同时由灰变亮 —— 用户看到的就是"突变有点丑"（上游 2026-10-01 Nick 提）。
+        //    同时蒸发、底下的卡同时由灰变亮 —— 突变观感不好。
         //    照上游的三步走：① 目标形态先就位 → ② 装饰退场 → ③ 最后才撤替身。
         var keepGhost = dragged && _ghost is not null;
 
@@ -1285,7 +1285,7 @@ public sealed partial class SidebarLayoutPage : PageBase
     /// 落位后的"收势"：把提起来的那几样装饰退场（透明度补满 + 可选的"轻落一下"收缩），
     /// 走完才把替身撤掉。
     ///
-    /// 为什么要有这一步（上游 2026-10-01 Nick 提）：落位原来是一帧里 <c>HideGhost()</c> + <c>Refresh()</c>
+    /// 为什么要有这一步：落位若是一帧里 <c>HideGhost()</c> + <c>Refresh()</c>
     /// 直接交接 —— "提起来"的三样标记（蓝描边 1.5px、投影、Opacity 0.95）在**一帧之内**同时蒸发，
     /// 底下的卡同时由灰变亮，就是那下突变。拆成"先就位、再收势、最后撤替身"三步才干净。
     ///
@@ -1347,7 +1347,7 @@ public sealed partial class SidebarLayoutPage : PageBase
     /// <summary>这一行该偏移多少：正数 = 往下退。</summary>
     /// <remarks>
     /// 被拿起来那一行的高度已经归零，所以**布局自己就把它后面的行往上收了一格**，
-    /// 这里只需要再加"空档造成的下退"。别再补一次"往上" —— 那会和布局的收拢重掉（踩过）。
+    /// 这里只需要再加"空档造成的下退"。别再补一次"往上" —— 那会和布局的收拢重复掉落。
     /// </remarks>
     private double RowOffset(int k) =>
         _holeSlot >= 0 && VisibleIndex(k) >= _holeSlot ? GapDip : 0;
@@ -1762,7 +1762,7 @@ public sealed partial class SidebarLayoutPage : PageBase
     }
 
     // ── 侧边栏放置模式 / 贴在哪条边 ───────────────────────────────────────
-    // 2026-09-28 Nick：这两项本质是"多个互斥选项里选一个"，跟「颜色模式」「更新通道」同类，
+    // 这两项本质是"多个互斥选项里选一个"，跟「颜色模式」「更新通道」同类，
     // 一律做成下拉；不做成一排单选按钮（会把 Header 和控件挤到卡片两端，中间空出一大片）。
 
     /// <summary>
@@ -2012,7 +2012,7 @@ public sealed partial class SidebarLayoutPage : PageBase
     // ── 展开面板高度 / 自适应高度（2026-10-18 上游；2026-10-22 移植） ──────────────
 
     /// <summary>
-    /// 「展开面板高度」滑块（2026-10-18 Nick：0.65→0.75 一直调不明白，索性把这个通道开放给用户）。
+    /// 「展开面板高度」滑块：把高度比例开放给用户调节。
     /// 值域 45%～95%（占工作区高度），默认 75%，步长 5%。
     ///
     /// ⚠️ 拖动是**连续触发**的：每一下都走 <c>ApplyHeightRatio()</c> 那条轻路（重新量尺寸 + 贴边），
@@ -2049,7 +2049,7 @@ public sealed partial class SidebarLayoutPage : PageBase
     }
 
     /// <summary>
-    /// 「自适应高度」开关（2026-10-18 Nick 要）：开 = 面板高度随模块数量伸缩，上面的比例只当上限；
+    /// 「自适应高度」开关：开 = 面板高度随模块数量伸缩，上面的比例只当上限；
     /// 关 = 高度锁死为那个比例，模块少时下方留白。
     ///
     /// ⚠️ 改完必须**重新量一遍尺寸**（<see cref="ToolSidebarWindow.ApplyHeightRatio"/>）——
@@ -2097,7 +2097,7 @@ public sealed partial class SidebarLayoutPage : PageBase
         _ => 3,
     };
 
-    // ── 关机方式（2026-10-18 Nick 要；2026-10-22 移植） ──────────────────────
+    // ── 关机方式 ──────────────────────
 
     /// <summary>「侧边布局 → 关机方式」切换：手动关机（滑动关机）／直接关机。</summary>
     private void ShutdownMode_SelectionChanged(object? sender, SelectionChangedEventArgs e)

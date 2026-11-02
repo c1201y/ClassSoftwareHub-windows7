@@ -9,7 +9,7 @@ public sealed record MirrorChannel(string Id, string Name, string Prefix);
 /// <summary>
 /// GitHub 下载链接的「国内加速」通道。
 /// 原理：把完整原始链接接在镜像域名后面（ghfast.top/https://github.com/...）。
-/// ⚠️ 第三方公益镜像，只做链接拼接，不中转不缓存；清单与站点保持一致。
+/// 第三方公益镜像，只做链接拼接，不中转不缓存；清单与站点保持一致。
 /// </summary>
 public static class GithubMirror
 {
@@ -25,7 +25,7 @@ public static class GithubMirror
     public static string MirrorUrl(string url, MirrorChannel channel) => channel.Prefix + url;
 
     // raw/ 是「仓库里单个文件」的直链（软件数据里的图标地址大量用它），与 releases/archive 同为文件下载；
-    // 漏掉它会让这些图标永远走官方直连（2026-10-30：首页图标加载慢，图标也纳入镜像）。
+    // 漏掉它会让这些图标永远走官方直连。
     private static readonly Regex GithubPath = new(
         @"^/[^/]+/[^/]+/(releases/download|archive|raw)/", RegexOptions.Compiled);
 
@@ -45,20 +45,19 @@ public static class GithubMirror
     }
 
     // 「这是不是 Microsoft Store 应用页」原先在这里另有一份 StoreUrl 正则；分类判定已统一到
-    // Data/DownloadLinkKind.cs（与站点 downloadLink.ts 同源），这份平行判据已删除
-    // （2026-10-18 自上游 1.2.0 移植，DetailPage 改用 DownloadItem.Kind）。
+    // Data/DownloadLinkKind.cs（与站点 downloadLink.ts 同源），这份平行判据已删除。
 }
 
 /// <summary>
-/// IP 直连反代（自上游 1.6 移植，2026-10-25 由凭舟吟提供并实测接入）。
+/// IP 直连反代（自上游 1.6 移植）。
 /// <para>
 /// 存在的理由：<see cref="GithubMirror.Channels"/> 全是**域名**，域名一旦被线路按 SNI 拦掉
 /// 就全部失效。这条走 **IP + 非标准端口**，不放行任何 GitHub 域名。
 /// </para>
 /// <para>
-/// ⛔ 拼法与公益镜像**不同**：公益镜像是「前缀 + 完整 URL」
+/// 拼法与公益镜像**不同**：公益镜像是「前缀 + 完整 URL」
 /// （<c>https://ghfast.top/https://github.com/…</c>），这条是**只换 host、路径原样**
-/// （<c>…:8426/owner/repo/releases/download/…</c>）。实测前缀式返回 404。
+/// （<c>…:8426/owner/repo/releases/download/…</c>），前缀式返回 404。
 /// </para>
 /// <para>
 /// 证书：Let's Encrypt 签发，SAN 里直接写着 <c>IP Address:209.33.174.187</c>，
@@ -77,7 +76,7 @@ public static class GithubIpRelay
 
     /// <summary>
     /// 能不能走这条：必须是 <see cref="GithubMirror.IsMirrorableUrl"/> 认可的文件地址，
-    /// 且 host 就是 github.com（其它几个 host 实测 404，硬拼过去只会白等一次超时）。
+    /// 且 host 就是 github.com（其它几个 host 拼接过去只会 404、白等一次超时）。
     /// </summary>
     public static bool CanRelay(string? url)
     {

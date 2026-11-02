@@ -24,7 +24,7 @@ public sealed record InstallResult(bool Started, bool SourceDeleted, string Mess
 ///
 /// ⚠️ Win7 上**没有**系统 tar.exe（那是 Win10 1803 才内置的）：.zip 照样走 BCL 完整可用；
 ///    其余格式会走到"未提供内置解压组件"的提示，请用户装 7-Zip / WinRAR 手动解压 ——
-///    比静默失败好，也不为此在 Win7 包里塞一个几 MB 的压缩库（移植注 2026-10-17）。
+///    比静默失败好，也不为此在 Win7 包里引入一个数 MB 的压缩库。
 ///
 /// 覆盖度是量过的：站点 61 个压缩包里 .zip 占 52（85%），其余是 3 个 .tar.xz、3 个 .tar.gz、
 /// 2 个 .7z、1 个 .rar —— zip 两边都完整支持；.rar 能否解开取决于系统 libarchive 版本

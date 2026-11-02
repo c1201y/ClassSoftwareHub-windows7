@@ -2,7 +2,7 @@ using System;
 
 namespace ClassSoftwareHub.Desktop.Core;
 
-/// <summary>一轮问答为什么停下来（2026-10-30，按时长限制取代轮次限制时抽出）。</summary>
+/// <summary>一轮问答为什么停下来（按时长限制取代轮次限制时抽出）。</summary>
 public enum AiStopReason
 {
     /// <summary>不需要停，继续跑下一轮。</summary>
@@ -19,7 +19,7 @@ public enum AiStopReason
 }
 
 /// <summary>
-/// AI 一轮问答的时间账（2026-10-30）。
+/// AI 一轮问答的时间账。
 ///
 /// <para>
 /// 为什么单独抽出来：<c>AiChatService</c> 依赖 App / 网络 / 工具，测试工程里跑不起来，
@@ -34,7 +34,7 @@ public static class AiTimeBudget
     public static readonly TimeSpan Default = TimeSpan.FromMinutes(8);
 
     /// <summary>
-    /// 轮次兜底。⚠️ 不是体验上限：正常链路离它很远，只有"工具立刻失败→模型立刻重试"
+    /// 轮次兜底。不是体验上限：正常链路离它很远，只有"工具立刻失败→模型立刻重试"
     /// 那种秒级死循环才撞得到（8 分钟能跑上千轮，纯烧 token）。
     /// </summary>
     public const int RoundGuard = 240;
@@ -64,7 +64,7 @@ public static class AiTimeBudget
     /// <summary>
     /// 抓到 <see cref="OperationCanceledException"/> 之后问一句：这是用户按的停止，还是我们掐的？
     /// <para>
-    /// ⚠️ 三种来源都抛同一种异常，只能靠这两个线索区分：
+    /// 三种来源都抛同一种异常，只能靠这两个线索区分：
     /// 用户令牌有没有被取消（<paramref name="userCancelled"/>）、已耗时离预算有多远。
     /// 判错的后果是给用户一句错误的解释（"跑到 8 分钟上限"实际只跑了 2 分钟），比不说更糟。
     /// </para>

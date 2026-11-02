@@ -6,11 +6,11 @@ namespace ClassSoftwareHub.Desktop.Platform;
 /// <summary>
 /// <see cref="NativeMethods"/> 的**补充**：从 exe 提取图标（<c>Services.AppIconService</c> 专用）。
 ///
-/// ⚠️ 为什么另开文件：<see cref="NativeMethods"/> / <see cref="NativeMethodsEx"/> 都不是 partial
+/// 为什么另开文件：<see cref="NativeMethods"/> / <see cref="NativeMethodsEx"/> 都不是 partial
 ///    且移植期要求不修改已就绪的 Platform 文件，所以按伴生类的惯例新开一个同命名空间的类。
 ///    调用方一律走 <c>Platform.NativeMethods*</c>。
 ///
-/// ⚠️ 通用约定：<c>UpdateLayeredWindow</c> 那条路没用上，这里只覆盖
+/// 通用约定：<c>UpdateLayeredWindow</c> 那条路没用上，这里只覆盖
 ///    <c>SHGetFileInfo → HICON → 取位图 → 读像素</c> 这一条（Win7 完整可用）。
 ///
 /// 每个导出仍按 <see cref="NativeMethods"/> 的惯例，在注释里标**最低可用系统**。
@@ -78,7 +78,7 @@ internal static class NativeMethodsIcons
 
     /// <summary>
     /// 最低 Win2000。把位图内容按指定格式读成裸像素（这里要 32bpp 的 BGRA）。
-    /// ⚠️ 需要一块 DC；位图的 <c>biHeight</c> 给**负数**表示行序自上而下，省得自己翻。
+    /// 需要一块 DC；位图的 <c>biHeight</c> 给**负数**表示行序自上而下，省得自己翻。
     /// </summary>
     [DllImport("gdi32.dll")]
     internal static extern int GetDIBits(IntPtr hdc, IntPtr hbmp, uint uStartScan, uint cScanLines,

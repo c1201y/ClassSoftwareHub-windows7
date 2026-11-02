@@ -66,9 +66,9 @@
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
                     <!--
-                      ⚠️ 深色**不做多色氛围渐变**（2026-10-18 实测翻车）：
+                      深色**不做多色氛围渐变**：
                           浅色下 5~8 级色差看着是"有温度"，同样的差值放在深色大面积上
-                          会变成脏斑 —— 尤其原来末端那个 #1E1519 偏红褐，整块看着像发霉。
+                          会变成脏斑。
                           深色用近乎同色的三段渐变 + 靠 1px 描边（#3E4449）把卡片从页面底上"拎起来"。
                     -->
                     <LinearGradientBrush x:Key="HubAiCardBackground" StartPoint="0,0" EndPoint="1,1">
@@ -98,7 +98,7 @@
 
     <platform:PageBase.Styles>
         <!--
-          ⛔ 2026-10-29（用户截图反馈「输入框还在」）：只给 TextBox 设 BorderThickness=0 不够 ——
+          只给 TextBox 设 BorderThickness=0 不够 ——
              Fluent 主题的 :focus 样式会**直接给模板里的 PART_BorderElement 设** BorderThickness
              （1,1,1,2）和强调色描边，模板绑定（TemplateBinding）优先级低于它，所以一聚焦
              那个圆角框 + 紫色下划线又冒出来了。
@@ -118,10 +118,10 @@
             <ColumnDefinition Width="24" />
         </Grid.ColumnDefinitions>
 
-        <!-- 2026-10-19 Nick 特批：本页取消 960 宽度限制、直接铺满。⛔ 别扩散到其它页面。 -->
+        <!-- 本页取消 960 宽度限制、直接铺满；不要扩散到其它页面。 -->
         <Grid Grid.Column="1" Margin="0,28,0,32">
             <Grid.ColumnDefinitions>
-                <!-- 左右两栏都可折叠。⚠️ 列宽用 Auto，由面板自身的 Width 决定 ——
+                <!-- 左右两栏都可折叠。列宽用 Auto，由面板自身的 Width 决定 ——
                      GridLength 不是 double，没法直接做宽度动画；动画打在面板的 Width 上才有滑入滑出手感。
                      ⚠️ 移植：Avalonia 的 ColumnDefinition 不能 x:Name（代码里也没用到这一列），去掉名字。 -->
                 <ColumnDefinition Width="Auto" />
@@ -249,10 +249,10 @@
                         </StackPanel>
 
                         <!--
-                          本机状态（2026-10-20 从右栏搬回对话流）：
-                          ⚠️ **默认隐藏**，第一次对话之后才出现（Nick：右栏不要了，本机状况等聊过再显示）。
-                          ⚠️ 里面用 Padding 而不是 Margin：卡片自身上下留白一致，跟着消息流滚动。
-                          ⚠️ 「本机状态」标题在上游 130 版里**重复写了两次**，按 1:1 保留（见交付总结）。
+                          本机状态（从右栏搬回对话流）：
+                          默认隐藏，第一次对话之后才出现。
+                          里面用 Padding 而不是 Margin：卡片自身上下留白一致，跟着消息流滚动。
+                          「本机状态」标题保留上游 130 版重复两次的原样（1:1 对齐）。
                         -->
                         <StackPanel x:Name="SidePanel" IsVisible="False" Spacing="10" Margin="0,8,0,0">
                             <TextBlock Text="本机状态" FontSize="12" FontWeight="SemiBold"
@@ -348,11 +348,10 @@
                                IsVisible="False" Margin="4,0,0,0" />
 
                     <!--
-                      2026-10-29（用户要求）：去掉圆角边框/底色的「输入框外壳」，
-                      就是一行**裸光标输入** —— 只剩 TextBox 自己的 caret + 水印。
+                      输入框去掉圆角边框/底色外壳，就是一行**裸光标输入** —— 只剩 TextBox 自己的 caret + 水印。
                       外壳一并删掉，不再需要焦点描边（原来 GotFocus/LostFocus 只改外壳边框色）。
-                      同日再调整：整块输入区加一层**渐变托底**（参考图那种上白下淡蓝），
-                      ⛔ 托底是面板背景，不是输入框 —— TextBox 仍然是 bare，没有自己的边框/底色。
+                      整块输入区加一层**渐变托底**（上白下淡蓝）；
+                      托底是面板背景，不是输入框 —— TextBox 仍然是 bare，没有自己的边框/底色。
                     -->
                     <Border Background="{DynamicResource HubAiInputBackground}"
                             BorderBrush="{DynamicResource HubAiInputBorder}" BorderThickness="1"

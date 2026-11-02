@@ -7,7 +7,7 @@ using ClassSoftwareHub.Desktop.Core;
 namespace ClassSoftwareHub.Desktop.Services.HubAi;
 
 /// <summary>
-/// 模型服务密钥的本地保管（2026-10-18）。
+/// 模型服务密钥的本地保管。
 ///
 /// <para>
 /// 用 Windows 自带的 <b>DPAPI</b>（<c>CryptProtectData</c>，CurrentUser 作用域）加密后落盘。
@@ -32,7 +32,7 @@ public static class SecretStore
     private const int CryptProtectUiForbidden = 0x1;
 
     /// <summary>
-    /// 按条目取文件路径（2026-10-18 多模型）。
+    /// 按条目取文件路径（多模型各一条目）。
     /// ⚠️ "default" 刻意沿用老文件名 <c>hubai-key.bin</c> —— 迁移过来的老用户不用重填密钥。
     /// </summary>
     private static string PathOf(string keyId)

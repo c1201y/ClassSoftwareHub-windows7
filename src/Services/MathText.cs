@@ -12,7 +12,7 @@ namespace ClassSoftwareHub.Desktop.Services;
 ///
 /// <para>
 /// 用途：函数分析面板里的每一项结论本来就是字符串（<c>(-π/2 + 2kπ, π/2 + 2kπ)</c> 这种），
-/// 直接塞进 TextBlock 就是一行线性文本 —— Nick 点名「依旧是线性文本，不是函数数学视图」。
+/// 直接塞进 TextBlock 就是一行线性文本，而非函数数学视图。
 /// </para>
 /// <para>
 /// ⛔ 这是给**我们自己生成的**结论字符串用的排版器，不是通用数学输入解析器：
@@ -20,16 +20,16 @@ namespace ClassSoftwareHub.Desktop.Services;
 /// 认不出来的字符一律原样当普通文本输出，绝不吃掉 —— 排错了比排不出更糟。
 /// </para>
 /// <para>
-/// ⛔⛔ 2026-10-21 重写为**自绘控件**（<c>MathView : Control</c>，用 FormattedText 逐块画）：
-///   之前用 <c>TextBlock + InlineUIContainer</c> 塞分数，分数在行里的垂直位置**完全由
+/// ⛔⛔ 实现为**自绘控件**（<c>MathView : Control</c>，用 FormattedText 逐块画）：
+///   若用 <c>TextBlock + InlineUIContainer</c> 塞分数，分数在行里的垂直位置**完全由
 ///   Avalonia 的 TextLine 决定**，而 11.2 的 TextLine 对 UI 容器只有"底边贴基线/行框底"
-///   这两种行为可选 —— 于是分母要么被裁、要么整个压在基线上和前面的数字挤成一排，
-///   用户连着两次截图反馈。自绘之后基线由我们自己算：分数线在基线上方 0.26em、
+///   这两种行为可选 —— 分母要么被裁、要么整个压在基线上和前面的数字挤成一排。
+///   自绘之后基线由我们自己算：分数线在基线上方 0.26em、
 ///   分母垂到基线以下，就是教材里的位置；宽度不够时按**块**折行（分析栏只有 150px 宽，
 ///   长结论必须能换行）。
 /// </para>
 /// <para>
-/// ⚠️ WinUI → Avalonia 移植（2026-10-18 自上游 1.2.0 移植）：
+/// ⚠️ WinUI → Avalonia 移植（自上游 1.2.0 移植）：
 ///   · WinUI 的 <c>RichTextBlock + Paragraph + InlineUIContainer</c> → 本移植版自绘（见上）；
 ///   · <c>Windows.UI.Text.FontStyle</c> → <c>Avalonia.Media.FontStyle</c>。
 /// </para>
@@ -295,7 +295,7 @@ public static class MathText
             _den = den;
             _brush = ctx.Brush;
 
-            // ⚠️ 2026-10-21：上下位置**按 em 比例**定，不能拿字框的 ascent/descent 去算 ——
+            // ⚠️ 上下位置**按 em 比例**定，不能拿字框的 ascent/descent 去算 ——
             //    字框里含大量上下留白（行距），照它算出来的分数会被拉成两三倍高。
             //    教材位置：分数线在基线上方 0.26em、分子基线 +0.36em、分母基线 −0.54em
             //    ⇒ 分子底贴着分数线、分母顶贴着分数线、分母整体垂到基线以下。

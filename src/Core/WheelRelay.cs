@@ -11,7 +11,7 @@ using Avalonia.VisualTree;
 namespace ClassSoftwareHub.Desktop.Core;
 
 /// <summary>
-/// 滚轮接力（2026-10-13 上游建。Nick：「首页左右两边的空白区还能滚，别的页面只有中间那一条能滚」）。
+/// 滚轮接力（自上游移植）。
 ///
 /// 现象：除了首页，其它页面为了把内容钉在中间 960 宽，滚动容器**只盖住中间那一列** ——
 ///   两侧留白、标题行、页脚这些"看着有地方、其实没有可滚的东西"的区域，
@@ -23,13 +23,13 @@ namespace ClassSoftwareHub.Desktop.Core;
 ///      但把整块面积纳入命中测试（与 App.axaml 给全站 ScrollViewer 加 Transparent 是同一招）；
 ///   ② 代码：构造函数里 <c>Core.WheelRelay.Attach(this, 主滚动容器)</c>。
 ///
-/// ⚠️ 接在**这一页（PageBase）**上、而不是根 Grid 上：PageBase 是冒泡路线上离得最近的共同祖先，
+/// 接在**这一页（PageBase）**上、而不是根 Grid 上：PageBase 是冒泡路线上离得最近的共同祖先，
 ///    一条 AddHandler 就够，也不用给根 Grid 起名字。
-/// ⚠️ <c>handledEventsToo</c> 传 false：指针落在**真的**滚动容器里时事件已被它自己消化，
+/// <c>handledEventsToo</c> 传 false：指针落在**真的**滚动容器里时事件已被它自己消化，
 ///    这里不能再动一次（否则一格里滚两倍）。
-/// ⚠️ 只做 ChangeView，不碰 ScrollMode —— 页面自己把滚动锁掉（如侧边布局拖动时）时自然不生效。
+/// 只做 ChangeView，不碰 ScrollMode —— 页面自己把滚动锁掉（如侧边布局拖动时）时自然不生效。
 ///
-/// ⚠️ WinUI → Avalonia 移植说明（2026-10-17）：
+/// WinUI → Avalonia 移植说明：
 ///   · <c>PointerRoutedEventArgs.GetCurrentPoint</c> → Avalonia 的 <c>PointerEventArgs.GetPosition(host)</c>；
 ///   · 滚轮位移在 Avalonia 里走 <c>PointerWheelEventArgs.Delta</c>（整档，一般 ±120）；
 ///   · Avalonia 的 <c>ScrollViewer.Offset</c> 是 Vector，没有 <c>ChangeView</c> —— 直接赋值
@@ -143,7 +143,7 @@ public static class WheelRelay
         var notches = Math.Abs(delta) >= 120 ? delta / 120.0 : delta;
         var max = Math.Max(0, pick.Extent.Height - pick.Viewport.Height);
 
-        // ⛔⛔ 2026-10-18 修（崩溃 0xc00000fd）：布局还没跑完时 Extent/Viewport 可能是 NaN，
+        // 布局还没跑完时 Extent/Viewport 可能是 NaN，
         //    `Math.Clamp(x, 0, NaN)` 返回的是 **NaN**，一旦把 NaN 写进 ScrollViewer.Offset，
         //    Avalonia 的 CoerceOffset 会一路 NaN 下去：NaN != NaN ⇒ 每次都被判成"变了"，
         //    ScrollContentPresenter 与 ScrollViewer 之间的双向绑定就无限互相触发，
@@ -180,7 +180,7 @@ public static class WheelRelay
     {
         try
         {
-            // ⚠️ Avalonia 的 Matrix 没有 TransformBounds（WinUI 才有）→ 用 TranslatePoint 算左上角再拼矩形。
+            // Avalonia 的 Matrix 没有 TransformBounds（WinUI 才有）→ 用 TranslatePoint 算左上角再拼矩形。
             var topLeft = sv.TranslatePoint(new Point(0, 0), host);
             if (topLeft is not { } tl) return false;
 

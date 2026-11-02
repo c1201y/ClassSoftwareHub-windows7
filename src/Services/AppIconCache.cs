@@ -23,7 +23,7 @@ namespace ClassSoftwareHub.Desktop.Services;
 ///   · <see cref="EnsureCachedAsync"/> —— 后台下载并存本地（fire-and-forget；按 URL 去重；走 GithubRoute 换线路）
 ///   · <see cref="Invalidate"/>        —— 站点数据更新后调用：整批标记陈旧，下次访问按需重下一次
 ///
-/// **容错顺序**（Nick 定的："网络通道先下载下来，超时了再用本地的"）：
+/// **容错顺序**（网络通道先下载，超时再用本地的）：
 ///   1. 本地新鲜       → 直接用，零网络；
 ///   2. 陈旧 / 没有    → 先用网络源（走换路后的通道）取最新；
 ///   3. 网络拿不到     → 退回本机那张旧图显示，绝不留占位字形（见 SoftwareApp 的 fallback）。
@@ -81,8 +81,7 @@ public static class AppIconCache
     /// <summary>
     /// 本地缓存文件的物理路径（不论新鲜与否）。
     /// 给「拿不到网络图也必须有点东西可用」的场合 —— 目前是图标主色提取：
-    /// 那张图就躺在盘上，没理由因为网络断了就把详情页色带刷成强调色
-    /// （2026-10-24 Nick 报 ClassIsland：本地有图，详情页却是强调色 + 购物袋占位）。
+    /// 那张图就躺在盘上，没理由因为网络断了就把详情页色带刷成强调色。
     /// </summary>
     public static bool TryGetLocalPath(string url, out string path)
     {
@@ -194,8 +193,8 @@ public static class AppIconCache
         {
             // 覆盖写 ⇒ 文件 mtime 自动变新 ⇒ 下次 IsStale 判定为"已刷新"，不会重复拉
             await StoreAsync(target, bytes, ct).ConfigureAwait(false);
-            // ⛔ memo 里存的还是按旧文件建的源，得踢掉让下次按新文件重建。
-            //    这里不在后台线程 new ImageSource —— 那东西必须在 UI 线程建。
+            // ⛔ memo 里存的还是按旧文件建的源，须移除以让下次按新文件重建。
+            //    此处不在后台线程 new ImageSource —— 必须在 UI 线程建。
             _memo.TryRemove(url, out _);
         }
         catch (Exception ex)
@@ -274,8 +273,8 @@ public static class AppIconCache
     /// 走网络通道取字节：**GitHub 系地址交给 <see cref="GithubRoute"/> 换线路**（官方直连 → 公益镜像 → 自建节点，
     /// 一条不通换下一条），非 GitHub 地址不做改写、直接下。
     ///
-    /// 为什么这里值得多走一层：本机 raw.githubusercontent.com 常年超时（之前几个软件图标取不到、
-    /// 只能显示名称首字，根子就在线路不通而不是图有问题）。
+    /// 为什么这里值得多走一层：本机对 raw.githubusercontent.com 直连常年超时，
+    /// 图标取不到的根子在线路不通而不是图有问题。
     /// ⛔ 只有 <see cref="Core.GithubMirror.IsMirrorableUrl"/> 认的地址才进换路流程 ——
     ///    既守"链接不许乱改写"的规矩，也避开了给每个普通 CDN 图标都刷一条换路日志。
     /// </summary>
@@ -303,8 +302,8 @@ public static class AppIconCache
             //    ⚠️ 只有图标允许这么干。安装包/更新包牵着完整性（要验 MD5/SHA256），
             //       线路必须严格按用户选的来，一步都不能让（见 Services/Updating/UpdateService）。
             //       图标是纯展示小图，取不到只会剩个占位字形，没有安全性可言。
-            //    📏 本机实测（2026-10-17）：直连 raw.githubusercontent.com 12 秒超时拿不到字节，
-            //       ghfast 也超时，gh-proxy 2.6 秒 200 —— 不逐个试，就永远以为"这个图标坏了"。
+            //    📏 直连 raw.githubusercontent.com 与部分镜像可能超时，须逐台尝试，
+            //       否则无法区分「图标坏了」与「线路不通」。
             var ordered = new List<MirrorChannel>();
             var good = _lastGoodMirror;                                  // 上次走通的排最前
             if (good is not null) ordered.Add(good);
@@ -342,7 +341,7 @@ public static class AppIconCache
     }
 
     /// <summary>把本地文件变成能绑到界面的源。⚠️ 必须在 UI 线程调。
-    /// ⚠️ Win7 移植（2026-10-18）：WinUI 的 SvgImageSource/BitmapImage → Avalonia 的 Bitmap。
+    /// Win7/Avalonia 下用 Bitmap 替代 WinUI 的 SvgImageSource/BitmapImage；
     ///     SVG 不在 Avalonia 核心里（本移植版不引第三方 SVG 包），svg 文件返回 null，
     ///     由调用方（Data.SoftwareApp.IconImage）走"首字色块"兜底 —— 与本仓库既有行为一致。</summary>
     private static IImage? MakeSource(string file)

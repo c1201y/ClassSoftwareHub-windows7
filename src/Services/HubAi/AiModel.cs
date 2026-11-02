@@ -6,7 +6,7 @@ using ClassSoftwareHub.Desktop.Core;
 namespace ClassSoftwareHub.Desktop.Services.HubAi;
 
 /// <summary>
-/// 一个**已配置的模型**（2026-10-18）。
+/// 一个**已配置的模型**。
 ///
 /// <para>
 /// 和 <see cref="AiProvider"/> 的区别：Provider 是"服务商预设"（代码里写死的那几家），
@@ -59,12 +59,12 @@ public sealed class AiModelEntry
 }
 
 /// <summary>
-/// 已配置模型的增删改与"当前使用哪一条"（2026-10-18）。
+/// 已配置模型的增删改与"当前使用哪一条"。
 ///
 /// <para>
 /// ⚠️ 旧的单模型字段（<c>HubAiProvider/HubAiBaseUrl/HubAiModel/...</c>）仍然保留，作为
 /// **当前生效值的镜像**：切换模型时同步写回。这样那些直接读旧字段的代码（用量估算等）不用全改，
-/// 也不会有"两个真相"。⛔ 以后新增功能请读这里的 <see cref="Active"/>，别再读旧字段。
+/// 也不会有"两个真相"。⛔ 以后新增功能请读这里的 <see cref="Active"/>，不得读旧字段。
 /// </para>
 /// </summary>
 public static class AiModelStore
@@ -110,7 +110,7 @@ public static class AiModelStore
 
         var provider = AiProviders.ById(settings.HubAiProvider);
 
-        // ⚠️ 顺手修掉早期的错误模型 ID：`deepseek-v4-flash` 只是兼容别名，
+        // ⚠️ 同时修复早期的错误模型 ID：`deepseek-v4-flash` 只是兼容别名，
         //    /v1/models 返回的正式 ID 是 `deepseek-flash`（对应 V4.1-Flash）。
         if (settings.HubAiProvider == "deepseek" && settings.HubAiModel == "deepseek-v4-flash")
         {

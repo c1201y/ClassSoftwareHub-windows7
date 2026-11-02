@@ -10,7 +10,7 @@ namespace ClassSoftwareHub.Desktop.Services;
 /// <summary>
 /// 自建 GitHub 加速节点（开源实现 gh-stream，线上入口 <see cref="NodeBaseUrl"/>）的「换签名链接」客户端。
 ///
-/// 节点规则（2026-10-09 在本机实测 —— ⚠️ 节点本身可达，反倒是站点后端域名走不通，所以是直连节点）：
+/// 节点规则（⚠️ 节点本身可达，反倒是站点后端域名走不通，所以是直连节点）：
 ///   · 只认限时签名链接 <c>GET /d?u=&lt;urlencode(原始链接)&gt;&amp;e=&lt;过期秒&gt;&amp;s=&lt;HMAC 签名&gt;</c>；
 ///     **不支持前缀拼接** —— <c>节点/&lt;原始链接&gt;</c> 这种写法对任何 Referer 都返回 403；
 ///   · 节点 <c>REFERER_MODE=strict</c> ⇒ 抓签名链接**必须带 Referer**（见 <see cref="Referer"/>），
@@ -25,7 +25,7 @@ namespace ClassSoftwareHub.Desktop.Services;
 ///   ③ 本机数据目录的同名文件 —— 开发机上放一份常驻，重编不会被冲掉。
 /// 三处都没有 ⇒ 自建加速整条跳过、安静回退公益镜像：**功能不会坏，只是不走节点**。
 ///
-/// ⛔ 也**不要在客户端本地算 HMAC**。节点 <c>SIGN_BIND=off</c> 时本地算确实也通（实测过），但那样
+/// ⛔ 也**不要在客户端本地算 HMAC**。节点 <c>SIGN_BIND=off</c> 时本地算确实也通，但那样
 ///    得把 <c>URL_SECRET</c> —— 一个能**自定义过期时间**的万能签名密钥 —— 塞进公开分发的安装包里；
 ///    <c>/sign</c> 只暴露一个「换 15 分钟签名」的钥匙，危害小得多。而且过期时间由服务端时钟说了算，
 ///    客户端系统时间不准也不会拿到一条出生即过期的链接。
@@ -45,7 +45,7 @@ public static class MirrorSign
 
     /// <summary>
     /// 抓签名链接时必须携带的 Referer（节点 Referer 白名单里的站点域）。
-    /// ⚠️ 这是节点放行的**硬要求**，不是可选优化 —— 实测不带它必被 403。
+    /// ⚠️ 这是节点放行的**硬要求**，不是可选优化 —— 不带它必被 403。
     /// </summary>
     public const string Referer = "https://classsoftwarehub.cn/";
 
@@ -60,26 +60,19 @@ public static class MirrorSign
 
     /// <summary>
     /// 单个代签入口的单次上限（自上游 1.6）。刻意比 <see cref="RequestTimeoutMs"/> 短：
-    /// sign.* 实测要 3.2 秒才回，给 5 秒余量；再久就是这条不通了，换下一条比干等划算。
+    /// sign.* 通常 3 秒多才回，给 5 秒余量；再久就是这条不通了，换下一条比干等划算。
     /// </summary>
     private const int SignEndpointTimeoutMs = 5000;
 
     /// <summary>整轮失败后多久内不再重试 —— 否则网络不通时每次下载都要白等 8 秒。</summary>
     private static readonly TimeSpan FailureCooldown = TimeSpan.FromMinutes(5);
 
-    private static readonly HttpClient Http = new(new HttpClientHandler
-    {
-        AllowAutoRedirect = true,
-        SslProtocols = Core.HttpTls.Protocols,   // Win7 默认不开 TLS 1.2
-    })
-    {
-        Timeout = Timeout.InfiniteTimeSpan,     // 靠 CancellationToken 控制单次超时
-    };
+    private static readonly HttpClient Http = Core.OfficialApi.Create(timeoutSeconds: 0);
 
     private static readonly object Gate = new();
 
     /// <summary>
-    /// 签名缓存（2026-10-21）：<c>原始链接 → (签名链接, 到期时刻)</c>。
+    /// 签名缓存：<c>原始链接 → (签名链接, 到期时刻)</c>。
     /// ⚠️ 代签接口（cshapi / submit）在国内**时通时不通**，每次下载都重新签就必然频繁失败、
     ///    一失败就掉到公益镜像（几百 KB/s）。签名本身带 15 分钟有效期（URL 里的 <c>e=</c>），
     ///    缓存到过期前复用，能把对接口的依赖降到最低。
@@ -119,11 +112,11 @@ public static class MirrorSign
             }
         }
 
-        // ── 第一步：**服务端代签**（2026-10-21）────────────────────────
+        // ── 第一步：**服务端代签** ─────────────────────────
         // Win7 版用的就是这条：`/api/mirror-sign?url=...`，**不带任何认证头**，
-        // 密钥由 Worker 端持有。我们之前只走本地密钥直签（`/sign` + `X-Api-Key`），
+        // 密钥由 Worker 端持有。若只走本地密钥直签（`/sign` + `X-Api-Key`），
         // 密钥一旦轮换就全面 401，只能退到公益镜像（而公益镜像限并发）。
-        // 现在先试代签：不依赖本机任何密钥文件，能通就不会再掉进公益镜像。
+        // 先试代签：不依赖本机任何密钥文件，能通就不会再掉进公益镜像。
         // ⚠️ 代签接口会间歇性抽风（TLS 被重置 / 超时），单次失败不代表不可用 —— 重试 2 轮、间隔 300ms。
         // ⚠️ 每轮必须单独掐表：静态 HttpClient 是 InfiniteTimeSpan，不自己限时的话一次 TLS 卡死
         //    会把整次下载挂到系统级超时（几分钟），用户看到的就是"点了下载没反应"。
@@ -299,18 +292,16 @@ public static class MirrorSign
 
         var endpoints = new[]
         {
-            // ⛔⛔ 2026-10-25 实测（福建）：**只有这一条通** —— 3.2 秒返回可用签名，签出来的链接
-            //    真能下到文件（HTTP 206，头两字节 4D5A = MZ，1 MB 实测）。必须排第一。
+            // ⛔⛔ **必须排第一**：3 秒多即返回可用签名，签出来的链接真能下到文件。
             //    （自上游 1.6 补；Win7 版早就有这条，移植版此前漏了。）
             "https://sign.classsoftwarehub.us.ci/api/mirror-sign",
 
-            // 2026-10-22：新后端 csh-api，单入口即可用，保留在主入口之后。
+            // 新后端 csh-api，单入口即可用，保留在主入口之后。
             "https://api.classsoftwarehub.cn/api/mirror-sign",
 
-            // ⚠️ 实测（2026-10-21）：cshapi 这条是通的（HTTP 200，返回 /d?u=...&e=...&s=...），
-            //    download.* 域名并不提供代签接口（返回 400），放到后面免得白走一次。
-            // ⚠️ 2026-10-25 复测（福建）：这两条都是 TLS 重置，但属于**快速失败**（0.09s / 0.27s），
-            //    不拖时间，留着 —— 换网络/换地区它们才是主力。
+            // ⚠️ cshapi 这条可用；download.* 域名并不提供代签接口（返回 400），放到后面免得白走一次。
+            //    后两条在部分网络下是 TLS 重置，但属于**快速失败**（亚秒级），不拖时间，留着
+            //    —— 换网络/换地区它们才是主力。
             "https://cshapi.132614.xyz/api/mirror-sign",
             "https://submit.132614.xyz/api/mirror-sign",
             NodeBaseUrl + "/api/mirror-sign",

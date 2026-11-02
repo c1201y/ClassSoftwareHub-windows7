@@ -52,21 +52,27 @@
                            SelectionChanged="Nav_SelectionChanged">
             <fa:NavigationView.MenuItems>
                 <!-- 字形只走 E7/E8/E9 老码位（ED 段是 Win10 空框） -->
+                <!-- ⚠️ FontIconSource **不会**继承 App.axaml 里 fa|FontIcon 的字体样式，
+                     不显式写 FontFamily 就落到默认字体、画成一串空框（真机反馈「导航栏没有图标」）。
+                     与主界面 ShellPage 的写法保持一致。 -->
                 <fa:NavigationViewItem Content="函数图像" Tag="function-plot" ToolTip.Tip="函数图像">
                     <fa:NavigationViewItem.IconSource>
-                        <fa:FontIconSource Glyph="&#xE9D2;" />
+                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24"
+                                           Glyph="&#xE9D2;" />
                     </fa:NavigationViewItem.IconSource>
                 </fa:NavigationViewItem>
 
                 <fa:NavigationViewItem Content="方程求解" Tag="equation" ToolTip.Tip="方程求解">
                     <fa:NavigationViewItem.IconSource>
-                        <fa:FontIconSource Glyph="&#xE8EF;" />
+                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24"
+                                           Glyph="&#xE8EF;" />
                     </fa:NavigationViewItem.IconSource>
                 </fa:NavigationViewItem>
 
                 <fa:NavigationViewItem Content="化学方程式配平" Tag="chemistry" ToolTip.Tip="化学方程式配平">
                     <fa:NavigationViewItem.IconSource>
-                        <fa:FontIconSource Glyph="&#xE80A;" />
+                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24"
+                                           Glyph="&#xE80A;" />
                     </fa:NavigationViewItem.IconSource>
                 </fa:NavigationViewItem>
             </fa:NavigationView.MenuItems>

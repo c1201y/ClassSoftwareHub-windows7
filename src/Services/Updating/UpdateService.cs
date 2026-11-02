@@ -195,8 +195,7 @@ public sealed class UpdateService
         await gate.WaitAsync(ct);
         try
         {
-            // ── 链路日志（对齐上游 2026-10-11）：更新是"最不能出错"的一条链路 ——
-            //    以前它失败时界面上只有一句人话，日志里什么都查不到。 ──
+            // ── 链路日志：更新是"最不能出错"的一条链路，失败时必须留有日志线索。 ──
             var sw = System.Diagnostics.Stopwatch.StartNew();
             AppLog.Begin("update", $"下载安装包「{package.Name}」· {package.Url}");
 
@@ -204,8 +203,8 @@ public sealed class UpdateService
             // 自建加速经本站 Worker 代签取限时直链，失败自动回落官方直链。
             var candidates = await GithubRoute.ResolveAsync(package.Url.AbsoluteUri, ct).ConfigureAwait(false);
 
-            // ⚠️ 最近发过坏包（校验不过）的线路排到最后（2026-10-18 自上游 1.2.0 移植）：
-            //    一次 60+ MB，明知道那条线路会发坏包还先试它纯属白费流量；
+            // ⚠️ 最近发过坏包（校验不过）的线路排到最后：
+            //    明知道那条线路会发坏包还先试它纯属白费流量；
             //    但也不能直接剔除 —— 线路可能已经修好，兜底顺序里仍保留。
             var pending = new List<DownloadCandidate>();
             var demoted = new List<DownloadCandidate>();
@@ -232,8 +231,7 @@ public sealed class UpdateService
                     // 下载交由 DownloadService 并行通道（与软件下载同一策略：大文件分片）。
                     // ⚠️ 分片按偏移乱序写入，无法边下载边计算增量哈希，
                     //    因此先完整落盘，再整文件读取计算 MD5/SHA256（本地磁盘开销可忽略）。
-                    // 2026-10-22 对齐上游 1.3：更新包改走「边下边算哈希 + 每个候选带自己的请求头」，
-                    // 不再复用 DownloadService 的分片通道 —— 分片乱序写入无法增量算哈希。
+                    // 更新包不走分片通道，改「边下边算哈希 + 每个候选带自己的请求头」。
                     using var md5 = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
                     using var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
                     await FetchPackageAsync(candidate, package, temp, md5, sha, progress, ct);
@@ -298,9 +296,8 @@ public sealed class UpdateService
                     lastError = ex;
 
                     // ⚠️ 校验不过 = **这条线路给的包是坏的**，不是"更新失败" ⇒ 换下一条重下，
-                    //    并把这条线路记成"最近发过坏包"（2026-10-18 自上游 1.2.0 移植）。
-                    //    起因：自建节点的 spool 把大包写坏 —— 字节数一样、内容块顺序错乱；
-                    //    老逻辑在这里直接抛，明明候选列表末尾还挂着 GitHub 官方直连，更新却死了。
+                    //    并把这条线路记成"最近发过坏包"。
+                    //    否则候选列表末尾明明还挂着可用直连，一次坏包就会让整条更新链路死掉。
                     if (ex is ChecksumMismatchException mismatch)
                     {
                         lastMismatch = mismatch;
@@ -442,7 +439,7 @@ public sealed class UpdateService
         try { if (File.Exists(path)) File.Delete(path); } catch { }
     }
 
-    // ── "这条线路最近发过坏包"的记账（进程内，不落盘；2026-10-18 自上游 1.2.0 移植）──
+    // ── "这条线路最近发过坏包"的记账（进程内，不落盘）──
     //
     // 为什么要有：坏包是**节点侧**的问题（自建节点的 spool 把大包写坏，
     // 字节数一样、内容块顺序错乱），同一条线路重下第二遍几乎必然还是坏包 ——
@@ -478,7 +475,7 @@ public sealed class UpdateService
     /// ⚠️ 对 .exe（Inno）必须延迟启动，不能直接启动：
     ///    Inno 启动即检查 .iss 的 <c>AppMutex</c>（即本应用的单实例 Mutex），
     ///    检测到应用仍在运行时，提示框会被 /SUPPRESSMSGBOXES 自动按「取消」处理，
-    ///    安装静默失败且无任何提示（实测应用运行期间安装 100% 失败）。
+    ///    安装静默失败且无任何提示。
     ///    因此借 cmd 的 ping 延迟约 3 秒，为调用方退出应用留出窗口；
     ///    调用方随后应立即退出（见 UpdateFlow.RunAsync / InstallPendingNowAsync）。
     ///
@@ -510,10 +507,9 @@ public sealed class UpdateService
         catch { }
         AppLog.Info("update", $"▶ 拉起安装程序 · {installerPath}{sizeText}");
 
-        // Inno Setup 静默参数：/SP- 不显示"准备安装"提示，/CLOSEAPPLICATIONS 自动关掉占用的应用，
         // Inno Setup 静默参数：/SP- 不显示"准备安装"提示，/CLOSEAPPLICATIONS 自动关掉占用的应用。
         // ⚠️ 桌面快捷方式（desktopicon 任务）**不再强制勾选**：升级时尊重用户当前的选择 ——
-        //    桌面上还留着旧图标就保留它；用户之前删过就显式取消勾选，别再建回来。
+        //    桌面上还留着旧图标就保留它；用户之前删过就显式取消勾选，不再重建。
         //    （手动重跑安装包走交互式「附加任务」页时，.iss 的 InitializeWizard 会按同一逻辑预填。）
         // ⛔⛔ 两种情况都必须**显式表态**，不能「不存在就不传参数」：
         //    静默安装不带任务参数时用的是**默认勾选集**，而 desktopicon 在 .iss 里默认是勾上的
@@ -614,7 +610,7 @@ public sealed class UpdateService
     public static string UpdatesDir => Path.Combine(AppPaths.DataDir, "updates");
 
 
-    /// <summary>2026-10-22 自上游 1.3 移植：更新包边下边算哈希（每个候选带自己的请求头）。</summary>
+    /// <summary>更新包边下边算哈希（每个候选带自己的请求头）。</summary>
     private static async Task FetchPackageAsync(
             DownloadCandidate candidate, UpdatePackage package, string temp,
             IncrementalHash md5, IncrementalHash sha, IProgress<DownloadProgress>? progress, CancellationToken ct)

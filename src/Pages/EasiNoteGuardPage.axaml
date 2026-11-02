@@ -23,7 +23,7 @@
       手写 Border 一律 Classes="cshCard"。
       ⚠️ 移植说明：原版 CommunityToolkit SettingsCard → 本工程自建 views:SettingsCard。
     -->
-    <!-- ⚠️ 2026-10-02：ScrollViewer 提到最外层（滚动条贴窗口右缘），边距改 Padding、居中改内层 Grid -->
+    <!-- ScrollViewer 提到最外层（滚动条贴窗口右缘），边距改 Padding、居中改内层 Grid -->
     <ScrollViewer Padding="24,36,24,44" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <Grid MaxWidth="960" HorizontalAlignment="Center">
             <StackPanel Spacing="4">

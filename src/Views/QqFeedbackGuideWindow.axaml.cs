@@ -17,10 +17,10 @@ namespace ClassSoftwareHub.Desktop.Views;
 ///
 /// = **标准窗口**（拖动 / 触屏拖动 / 阴影 / 圆角都交给 Windows）。
 ///
-/// ⚠️ 这扇窗**故意留在任务栏和 Alt+Tab 里**（跟项目里其它辅助窗相反）——
+/// 这扇窗**故意留在任务栏和 Alt+Tab 里**（与项目里其它辅助窗相反）：
 ///    用户要一边看它一边切到 QQ 里操作，切走了得能 Alt+Tab 摸回来。
 ///
-/// ⚠️ 四张截图走**内嵌资源**（<c>Assets\feedback\qq-step-*.png</c>），跟反馈页那两张卡片图标同一条路，
+/// 四张截图走**内嵌资源**（<c>Assets\feedback\qq-step-*.png</c>），跟反馈页那两张卡片图标同一条路，
 ///    单文件发布下也在（见 <see cref="EmbeddedAssets.ExtractToCache"/>）。
 ///
 /// ⚠️ 移植说明：
@@ -75,8 +75,8 @@ public sealed partial class QqFeedbackGuideWindow : Window
 
     /// <summary>
     /// 退出应用时**真正销毁**实例（<see cref="CloseIfOpen"/> 只是藏起来）。
-    /// ⛔ 同 <see cref="ToolPaletteWindow.CloseForExit"/>：Shutdown() 会漏窗口，
-    ///    没关掉的窗口会让进程退不掉（2026-10-04 实测）。
+    /// 同 <see cref="ToolPaletteWindow.CloseForExit"/>：Shutdown() 会漏窗口，
+    ///    没关掉的窗口会让进程退不掉。
     /// </summary>
     public static void CloseForExit()
     {
@@ -103,7 +103,7 @@ public sealed partial class QqFeedbackGuideWindow : Window
 
             Root.ActualThemeVariantChanged += (_, _) => { /* 系统标题栏配色归系统管，见类注释 */ };
 
-            // ⚠️ 原版走 handledEventsToo：焦点多半在里层 ScrollViewer 上，普通订阅收不到 Esc。
+            // 原版走 handledEventsToo：焦点多半在里层 ScrollViewer 上，普通订阅收不到 Esc。
             //    Avalonia 的等价做法 = Tunnel 路由 + handledEventsToo。
             Root.AddHandler(InputElement.KeyDownEvent,
                 new EventHandler<KeyEventArgs>((_, e) =>
@@ -112,8 +112,8 @@ public sealed partial class QqFeedbackGuideWindow : Window
                 }), RoutingStrategies.Tunnel, true);
 
             // 关掉 = 收起来，别真销毁（下次 Show 直接复用，省掉重新解图那一趟）
-            // ⛔ 应用正在退出时必须放行 —— 否则本窗会拦下 Shutdown() 的关窗、把整条退出流程
-            //    掐断，进程留在任务管理器里（同 ToolPaletteWindow，2026-10-04 实测）。
+            // 应用正在退出时必须放行 —— 否则本窗会拦下 Shutdown() 的关窗、
+            //    中断整条退出流程，进程留在任务管理器里（同 ToolPaletteWindow）。
             Closing += (_, args) =>
             {
                 Core.AppLog.Info("exit", $"QQ反馈窗 Closing: IsExiting={App.IsExiting}");
@@ -178,7 +178,7 @@ public sealed partial class QqFeedbackGuideWindow : Window
             Activate();
 
             // 原版还补了一记 Win32 的 SetForegroundWindow —— 隐藏后复显的窗口在系统层
-            // 可能只是「恢复显示」而没拿到前台，补一下保险（桌面场景真踩过）。
+            // 可能只是「恢复显示」而未获得前台，此处补一次前置。
             var hwnd = Backdrop.TryGetHwnd(this);
             if (hwnd != IntPtr.Zero) NativeMethods.SetForegroundWindow(hwnd);
         }

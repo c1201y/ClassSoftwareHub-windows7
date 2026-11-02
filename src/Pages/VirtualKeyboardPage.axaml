@@ -19,11 +19,10 @@
           Slider 的 StepFrequency 在 Avalonia 没有 —— 0.05 的步进改在 code-behind 里吸附（见 Scale_Changed 等的注释）。
         · ThemeResource → DynamicResource。
 
-      ⛔ 每一项都用 **系统 SettingsCard**（Nick 2026-09-30 明确：「不是要模仿 windows 原生，
-         我就是要 windows 原生」「颜色就用主题色就行了」）。别退回自绘 Border 行 ——
-         他自己举的正面例子就是设置页从自绘 Border 换成 SettingsCard 那次。
+      每一项都用**系统 SettingsCard**，不模仿 windows 原生自绘、颜色就用主题色。
+      不要退回自绘 Border 行。
     -->
-    <!-- ⚠️ 2026-10-03：ScrollViewer 提到最外层（滚动条贴窗口右缘），边距改 Padding、
+    <!-- ScrollViewer 提到最外层（滚动条贴窗口右缘），边距改 Padding、
          居中改内层 StackPanel 的 MaxWidth + Center；原「右边留 16」不再需要 -->
     <ScrollViewer Padding="24,36,24,44" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <StackPanel MaxWidth="960" HorizontalAlignment="Center">
@@ -50,13 +49,11 @@
                 <!--
                   两条横幅，一红一黄，都在标题下方、所有设置之前。
 
-                  【红】Nick 2026-09-30 要求置顶明示"极其不稳定"，用红色。
-                       ⛔⛔ 别再改它的配色：中间试过"实心红底 #C42B1C + 白字"，被 Nick 当场否掉 ——
-                          「为什么会这么红呢？刚才做的那一版红不是挺好的吗？」
-                          就用 InfoBar 自己的 Severity="Error" 原生配色（浅色 #FDE7E9 底 / 深色 #442726 底，
-                          红只落在图标与标题上）。**不要再加 Background / Foreground / IsIconVisible**。
+                  【红】置顶明示"极其不稳定"，用红色。
+                       配色用 InfoBar 自己的 Severity="Error" 原生配色（浅色 #FDE7E9 底 / 深色 #442726 底，
+                       红只落在图标与标题上）。**不要加 Background / Foreground / IsIconVisible**。
 
-                  【黄】说明这个功能为什么存在（Nick 2026-09-30 口述）：主要针对 Windows 10，
+                  【黄】说明这个功能为什么存在：主要针对 Windows 10，
                       大屏 + 高 DPI 下系统屏幕键盘体验差、自定义尺寸调节余地小。
                       用 Severity="Warning" 的原生观感，同样不动配色。
                 -->

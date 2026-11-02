@@ -12,7 +12,7 @@ using ClassSoftwareHub.Desktop.Views;
 namespace ClassSoftwareHub.Desktop.Services;
 
 /// <summary>
-/// 教室喊话（2026-10-25 上游 dv1.2.0-insider1.5，本轮移植）：后台轻轮询后端的 <c>/api/announce/poll</c>，
+/// 教室喊话：后台轻轮询后端的 <c>/api/announce/poll</c>，
 /// 收到就弹全屏喊话窗。
 ///
 /// <para>
@@ -38,17 +38,17 @@ namespace ClassSoftwareHub.Desktop.Services;
 public static class AnnounceService
 {
     /// <summary>单个入口的超时（与投稿一致：超时就换下一个入口，别让用户干等）。</summary>
-    private static readonly HttpClient Http = new(Core.HttpTls.Handler()) { Timeout = TimeSpan.FromSeconds(10) };
+    private static readonly HttpClient Http = Core.OfficialApi.Create(timeoutSeconds: 10);
 
     /// <summary>
-    /// 轮询专用客户端，超时压到 6 秒（2026-10-27）。
+    /// 轮询专用客户端，超时压到 6 秒。
     /// <para>
     /// 轮询是后台循环，不是用户点出来的操作 —— 一个入口卡 10 秒、三个入口就是 30 秒，
     /// 期间状态行一直显示「正在连接」，看起来就是「服务器连不上」。
     /// 6 秒还没回应基本可以判这一个入口不通，换下一个更划算。
     /// </para>
     /// </summary>
-    private static readonly HttpClient PollHttp = new(Core.HttpTls.Handler()) { Timeout = TimeSpan.FromSeconds(6) };
+    private static readonly HttpClient PollHttp = Core.OfficialApi.Create(timeoutSeconds: 6);
 
     private static readonly object Gate = new();
 
@@ -122,9 +122,8 @@ public static class AnnounceService
             IsRunning = true;
             _failStreak = 0;
             _backoffSec = 0;
-            // 每次启动一个独立的取消源：Stop 之后旧循环不会再「醒来发现自己还该跑」而继续存活。
-            // （以前 Stop 只翻 bool，旧循环的 Task.Delay 没被打断，重新开启后就会多出一条循环，
-            //   开关来回几次就同时有几条在轮询。）
+            // 每次启动一个独立的取消源，保证 Stop 后旧循环的 Task.Delay 被真正打断；
+            // 否则重新开启后会同时存在多条轮询循环。
             _loopCts?.Dispose();
             _loopCts = new CancellationTokenSource();
             var token = _loopCts.Token;
@@ -194,16 +193,14 @@ public static class AnnounceService
     // ── 入口调用：连接类失败立刻重试一次（自上游 1.8） ─────────────────────────
 
     /// <summary>
-    /// 调一个入口，**连接类失败就当场重试一次**（2026-10-27）。
+    /// 调一个入口，**连接类失败就当场重试一次**。
     /// <para>
-    /// 为什么要重试：主入口 <c>api.classsoftwarehub.cn</c> 走的是国内 CDN，实测同一秒内连打 5 次
-    /// 只成 1 次，失败全是 <c>schannel: failed to receive handshake</c> —— TLS 握手被丢包，
-    /// 属**概率性**失败。旧逻辑一次失败就换下一个入口，而三个入口只有它能通，
-    /// 于是整轮直接判定"服务器不可达"，用户侧就是「手机发过来收不到」。
-    /// 连试两次能把 1/5 提到 ~1/3 以上，代价只有 150 毫秒。
+    /// 原因：主入口 <c>api.classsoftwarehub.cn</c> 走国内 CDN，TLS 握手丢包属概率性失败，
+    /// 旧逻辑一次失败就换入口，而三个入口只有它能通，整轮会被误判为"服务器不可达"。
+    /// 连试两次可将成功率从 1/5 提至约 1/3，代价 150 毫秒。
     /// </para>
     /// <para>
-    /// ⚠️ **超时不重试**：那是真的慢，重试只会把等待翻倍（单次已经 6 秒）。
+    /// ⚠️ **超时不重试**：重试只会把等待翻倍（单次已 6 秒）。
     /// 只有连接被拒 / TLS 握手失败这类"根本没建立起来"的才重试。
     /// </para>
     /// </summary>
@@ -348,7 +345,7 @@ public static class AnnounceService
     private static readonly Queue<string> _recentIds = new();
 
     /// <summary>
-    /// 统一的展示入口：服务器通道与局域网通道共用（2026-10-25）。
+    /// 统一的展示入口：服务器通道与局域网通道共用。
     /// 两条路可能把同一条消息各送一次（本机既开着接收又在轮询），按 id 去重。
     /// ⛔ 日志只记 id / 长度 / 有无署名，不记正文 —— 教室机日志学生可能翻得到。
     /// </summary>
@@ -371,9 +368,9 @@ public static class AnnounceService
         AppLog.Begin("announce", $"收到喊话（{via}）id={msg.Id} 长度={msg.Text.Length} 时长={msg.Duration}s"
             + (string.IsNullOrEmpty(msg.From) ? "" : " 有署名"));
 
-        // ⛔ 这里曾经有一道「UI 调度器是否已抓到」的闸门，只有服务器轮询启动时才置真。
-        //    结果：只开局域网接收、没开服务器轮询的教室机，局域网消息全被丢掉（默认设置正是这样）。
-        //    Avalonia 的 Dispatcher.UIThread 在 Application 初始化后始终可用，Post 本身是线程安全的。
+        // ⛔ 不要加「UI 调度器是否已抓到」之类的闸门：只开局域网接收、没开服务器轮询的
+        //    教室机会因此丢掉全部消息（默认设置正是这样）。Avalonia 的 Dispatcher.UIThread
+        //    在 Application 初始化后始终可用，Post 本身是线程安全的。
         Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {
             try
@@ -497,7 +494,7 @@ public static class AnnounceService
         return (false, "unreachable", 0);
     }
 
-    // ── 服务端登记：谁保存了本机配对码（2026-10-25） ──────────────────────────
+    // ── 服务端登记：谁保存了本机配对码 ────────────────────────────────────────
     // 局域网内由 AnnounceLanService 直连对端解决（已经能用）；不在同一网段时走这里。
     // ⚠️ 服务端目前**还没实现**这三个端点，协议见 docs/教室喊话-服务端接口.md。
     //    404 / 网络不通一律按「服务端暂不支持」降级：不抛错、不打扰用户，

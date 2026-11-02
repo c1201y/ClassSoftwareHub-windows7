@@ -17,17 +17,16 @@ using ClassSoftwareHub.Desktop.Services.VirtualKeyboard;
 namespace ClassSoftwareHub.Desktop.Views;
 
 /// <summary>
-/// 自绘虚拟键盘的窗口（2026-09-30 从零重写那版删掉之后，2026-10-01 按新方向重做）。
+/// 自绘虚拟键盘的窗口。
 ///
-/// <b>设计原则（Nick 定的）</b>：
+/// <b>设计原则</b>：
 ///   · **不是"模仿"原生，是直接用系统控件** —— 键帽一律是真的 <see cref="Button"/> /
 ///     <see cref="ToggleButton"/>，**不设 <c>Style</c>、不设任何颜色**，模板 / 圆角 / 悬停 / 按下 /
-///     焦点全交给系统；窗口底色走主题画刷。上一版自己叠 <c>Border</c> + 写死 RGB + 手搓下沉，
-///     就是"粗糙劣质的网页感 / 分层乱七八糟"的字面来源。
+///     焦点全交给系统；窗口底色走主题画刷。不自行叠加样式与配色，保持系统控件观感。
 ///   · **零侵入**：不杀任何系统进程、不装常驻钩子（钩子归 <see cref="TouchWatcher"/> 管，
 ///     只在功能启用期间活着）；注册表只在用户显式打开「接管系统触摸键盘」时才动。
 ///
-/// <b>焦点机制</b>（⛔ 这一段是实测换来的，别改）：
+/// <b>焦点机制</b>（硬性约束）：
 ///   键盘窗口**绝不能加 <c>WS_EX_NOACTIVATE</c>** —— 窗口未激活时部分框架**完全不派发指针事件**，
 ///   键帽收不到"按下"（能显示、命中测试也对，就是不响应）。
 ///   所以：只加 <c>WS_EX_TOOLWINDOW</c>，显示走 <c>SW_SHOWNOACTIVATE</c>；
@@ -73,7 +72,7 @@ public sealed partial class VirtualKeyboardWindow : Window
     private int _targetWarnings;
     private int _restoreWarnings;
 
-    /// <summary>这一轮显示是用户主动要的（不是触摸自动弹的）——主动开的不自动收。</summary>
+    /// <summary>本轮显示由用户主动打开（非触摸自动弹出）——主动打开的不自动收起。</summary>
     public static bool ShownByUser { get; private set; }
 
     public static bool IsVisibleNow => _instance is not null && _instance._visible;
@@ -95,8 +94,8 @@ public sealed partial class VirtualKeyboardWindow : Window
         _targetTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
         _targetTimer.Tick += (_, _) => TrackTarget();
 
-        // ⚠️ Alt+F4 / 任务栏关闭会真的销毁平台窗口：单例还指着这个死对象的话，
-        //    之后每次显示都打在不存在的句柄上，键盘"再也弹不出来"（只能重启应用）。
+        // Alt+F4 / 任务栏关闭会真的销毁平台窗口：单例若仍指向已销毁对象，
+        //    之后每次显示都打在不存在的句柄上，键盘将无法再弹出（只能重启应用）。
         //    关闭时把单例放掉，下一次 Ensure() 重新建一个。
         Closed += (_, _) =>
         {
@@ -232,8 +231,8 @@ public sealed partial class VirtualKeyboardWindow : Window
 
     private void ShowInternal(bool userInitiated)
     {
-        // ⚠️ 幂等：自动弹出有两条来路（落点判定 / 用户在别的输入框再点一下），常前后脚到 ——
-        //    再来一次 ShowWindow 会闪一下。
+        // 幂等：自动弹出有两条来路（落点判定 / 用户在别的输入框再点一下），常前后脚到，
+        //    重复 ShowWindow 会闪一下。
         if (_visible)
         {
             if (userInitiated) ShownByUser = true;
@@ -245,18 +244,17 @@ public sealed partial class VirtualKeyboardWindow : Window
         var hwnd = HwndNow();
         _ = Show(hwnd);                              // SW_SHOWNOACTIVATE：显示但不抢前台
 
-        // ⚠️ 首次 Show() 之前窗口还没创建，句柄是 Zero —— 圆角与置顶都得在**显示之后**重取句柄。
+        // 首次 Show() 之前窗口还没创建，句柄是 Zero —— 圆角与置顶都得在**显示之后**重取句柄。
         hwnd = HwndNow();
 
-        // ⛔ 去白边 / 圆角必须在**显示之后**再调一次：DWM 首帧会按系统主题重刷一遍非客户区。
+        // 去白边 / 圆角必须在**显示之后**再调一次：DWM 首帧会按系统主题重刷一遍非客户区。
         if (hwnd != IntPtr.Zero)
             WindowChrome.RemoveBorder(hwnd, rounded: true,
                 dark: Root.ActualThemeVariant == ThemeVariant.Dark);
 
-        // ⚠️ 2026-10-06 实机反馈「点了输入框，键盘跑到那个窗口的底层、点不着」：
-        //    显示走 SW_SHOWNOACTIVATE（不激活，**也不置前**），摆位用 SetWindowPos(SWP_NOZORDER)（明确不动 Z 序），
-        //    两者叠加，键盘就老老实实停在原 Z 序位置上 —— 全屏的记事本 / WPS 一盖就"不见了"。
-        //    XAML 的 Topmost 在 Win7 上有时候来不及（Avalonia 是在窗口创建那一刻应用该属性），
+        // 显示走 SW_SHOWNOACTIVATE（不激活也不置前），摆位用 SetWindowPos(SWP_NOZORDER)（不动 Z 序），
+        //    两者叠加时键盘会停在原 Z 序位置上，被全屏窗口盖住。
+        //    XAML 的 Topmost 在 Win7 上有时来不及生效（Avalonia 在窗口创建那一刻应用该属性），
         //    这里在显示之后钉一次：TOPMOST + 不移动 / 不改尺寸 / **不激活**。
         //    与"不抢前台"的设计不冲突 —— 置顶管的是 Z 序，激活是另一回事。
         if (hwnd != IntPtr.Zero)
@@ -265,7 +263,7 @@ public sealed partial class VirtualKeyboardWindow : Window
 
         // 圆角区域是按当时的窗口尺寸算死的，而键盘宽度/字号在设置里能改 —— 挂上自动重算，
         // 否则改了宽度之后四角会被按旧尺寸裁歪（见 Core/RoundedCorners）。
-        // ⚠️ force=true：Win11 上无边框浮窗 DWM 拒绝给圆角（见 Core/RoundedCorners 类注释）。
+        // force=true：Win11 上无边框浮窗 DWM 拒绝给圆角（见 Core/RoundedCorners 类注释）。
         try { _corners ??= RoundedCorners.Attach(this, RoundedCorners.DefaultCornerRadiusDip, force: true); } catch { }
         _corners?.Refresh();
 
@@ -282,9 +280,9 @@ public sealed partial class VirtualKeyboardWindow : Window
     /// <summary>SW_SHOWNOACTIVATE 显示（首次走 Avalonia Show() 建内容层，随后切到不激活显示）。</summary>
     private bool Show(IntPtr hwnd)
     {
-        // ⚠️ 判断依据必须是 Avalonia 的可见性，不能是"只置真、永不复位"的 _shown：
+        // 判断依据必须是 Avalonia 的可见性，不能是"只置真、永不复位"的 _shown：
         //    Hide() 之后 Avalonia 认为窗口不可见（渲染 / 布局停了），此时只发 Win32 ShowWindow
-        //    会显示一个不刷新的空壳；Alt+F4 更狠，平台窗口已销毁，ShowWindow 直接打空。
+        //    会显示一个不刷新的空壳；Alt+F4 时平台窗口已销毁，ShowWindow 直接打空。
         //    每次交给 Avalonia Show() 自己同步状态，Closed 事件负责放掉单例重建。
         if (!IsVisible)
         {
@@ -311,7 +309,7 @@ public sealed partial class VirtualKeyboardWindow : Window
 
     private void ApplyTheme()
     {
-        // ⚠️ Avalonia 里 RequestedThemeVariant 只在 TopLevel / ThemeVariantScope 上生效，
+        // Avalonia 里 RequestedThemeVariant 只在 TopLevel / ThemeVariantScope 上生效，
         //    这里直接设在窗口（TopLevel）上，语义与原版 Root.RequestedTheme 相同。
         RequestedThemeVariant = ThemeCompat.Map(App.Settings.Current.VirtualKeyboardTheme);
     }
@@ -330,8 +328,8 @@ public sealed partial class VirtualKeyboardWindow : Window
         var layout = KeyboardLayouts.Get(_mode, _layer);
         var fontScale = App.Settings.Current.VirtualKeyboardFontScale;
 
-        // ⚠️ 先自检列宽：合计不对会让某一行静默留空/错位，肉眼在 15 列里看不出来。
-        //    只在有问题时说话（正常情况不刷日志）。
+        // 先自检列宽：合计不对会让某一行静默留空/错位，肉眼在 15 列里看不出来。
+        //    只在有问题时写日志（正常情况不刷）。
         var problems = KeyboardLayouts.Validate();
         if (problems.Count > 0) VkbdLog.Write("⚠️ 布局列宽异常：" + string.Join("；", problems));
 
@@ -423,7 +421,7 @@ public sealed partial class VirtualKeyboardWindow : Window
             else
             {
                 x = work.X + (work.Width - w) / 2;
-                y = work.Y + work.Height - h;      // ⚠️ 工作区矩形没有 Bottom，得自己加
+                y = work.Y + work.Height - h;      // 工作区矩形没有 Bottom，得自己加
             }
 
             x = Math.Clamp(x, work.X, Math.Max(work.X, work.X + work.Width - w));
@@ -472,9 +470,9 @@ public sealed partial class VirtualKeyboardWindow : Window
                 if (RenderScaling > 0) return RenderScaling;
             }
             catch { }
-            // ⚠️ GetDpiForWindow 是 Win10 1607+ 的入口点，Win7/8 上 user32 里**根本没有这个函数**，
-            //    直接调会抛 EntryPointNotFoundException。这里必须按系统版本挡一道，否则
-            //    虚拟键盘窗在 Win7 上一开就崩（这也是"点了没反应"的常见来源）。
+            // GetDpiForWindow 是 Win10 1607+ 的入口点，Win7/8 的 user32 里**没有这个函数**，
+            //    直接调用会抛 EntryPointNotFoundException。必须按系统版本挡一道，
+            //    否则虚拟键盘窗在 Win7 上一开就崩。
             if (Platform.OsInfo.IsWindows10OrLater)
             {
                 try
@@ -524,7 +522,7 @@ public sealed partial class VirtualKeyboardWindow : Window
         }
 
         // 真要送字了。
-        // ⚠️ 顺序不能反：点我们这一下已经把前台抢过来了（没有 NOACTIVATE 就躲不掉），
+        // 顺序不能反：点我们这一下已经把前台抢过来了（没有 NOACTIVATE 就躲不掉），
         //    必须先把前台还给用户原来那个窗口，紧接着送出的键才会落到它的输入框里。
         if (!RestoreTarget() && _restoreWarnings++ == 0)
             VkbdLog.Write("⚠️ 还前台没成功，这一下可能没送进输入框");
@@ -575,13 +573,13 @@ public sealed partial class VirtualKeyboardWindow : Window
 
         var hwnd = HwndNow();
 
-        // ⛔ 拖动交给系统合成（ReleaseCapture + WM_NCLBUTTONDOWN/HTCAPTION），
-        //    自己算 PointerMoved + Move 会"卡卡的、乱飘"。
+        // 拖动交给系统合成（ReleaseCapture + WM_NCLBUTTONDOWN/HTCAPTION），
+        //    自己算 PointerMoved + Move 会卡顿、位置乱飘。
         _ = NativeMethods.ReleaseCapture();
         _ = NativeMethods.SendMessage(hwnd, NativeMethods.WM_NCLBUTTONDOWN,
             new IntPtr(NativeMethods.HTCAPTION), IntPtr.Zero);
 
-        // ⚠️ SendMessage 返回时已经拖完了 —— 新位置要从窗口**读回来**再存。
+        // SendMessage 返回时已经拖完了 —— 新位置要从窗口**读回来**再存。
         var pos = PixelPoint.Origin;
         if (hwnd != IntPtr.Zero && NativeMethods.GetWindowRect(hwnd, out var r))
             pos = new PixelPoint(r.Left, r.Top);
@@ -663,7 +661,7 @@ public sealed partial class VirtualKeyboardWindow : Window
     /// <summary>
     /// 一个键帽。**就是一颗真的系统按钮**（可锁定的用 <see cref="ToggleButton"/>）——
     /// 不设 <c>Style</c>、不设任何颜色，模板 / 圆角 / 悬停 / 按下 / 焦点全由系统给。
-    /// ⚠️ Avalonia 没有 WPF 那个 ButtonBase（ToggleButton 直接继承 Button），字段类型用 Button。
+    /// Avalonia 没有 WPF 那个 ButtonBase（ToggleButton 直接继承 Button），字段类型用 Button。
     /// </summary>
     private sealed class KeyPad
     {
@@ -712,7 +710,7 @@ public sealed partial class VirtualKeyboardWindow : Window
             var latchable = def.Role is KeyRole.Modifier or KeyRole.Shift or KeyRole.Caps;
             _button = latchable ? new ToggleButton() : new Button();
 
-            // ⛔ 系统 Button 默认 MinWidth 很大。键帽是 Star 分列的，不清零整盘会被撑爆。
+            // 系统 Button 默认 MinWidth 很大。键帽是 Star 分列的，不清零整盘会被撑爆。
             _button.MinWidth = 0;
             _button.MinHeight = 0;
             _button.Padding = new Thickness(0);

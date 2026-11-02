@@ -16,9 +16,9 @@ public static class ShutdownMethods
 
     /// <summary>
     /// 调系统的 <c>SlideToShutDown.exe</c>，弹出那个"下滑关机"界面。
-    /// ⚠️ 它**只负责弹界面**：用户把滑块拉到底才真关，不拉就一直停在那儿 —— 这是刻意选的"高级感"，
-    ///    也意味着这种方式**没有"取消"的概念**（滑块自己就能取消），所以它不需要延迟。
-    /// ⚠️ Win7 没有这个 exe（Win8 起才有）—— <see cref="AutoShutdownConfig.NormalizeMethod"/>
+    /// 它**只负责弹界面**：用户把滑块拉到底才真关，不拉就一直停在那儿 ——
+    ///    也因此**没有"取消"的概念**（滑块自己就能取消），所以它不需要延迟。
+    /// Win7 没有这个 exe（Win8 起才有）—— <see cref="AutoShutdownConfig.NormalizeMethod"/>
     ///    会在缺文件时归一到「直接关机」，保证到点真的会关，而不是静默什么都不做。
     /// </summary>
     public const string Slide = "slide";
@@ -34,7 +34,7 @@ public static class ShutdownMethods
 /// <summary>
 /// 一个「关机点」：到点做什么、怎么做。
 ///
-/// ⚠️ 与「程序专杀」的规则一样，**每个点各自带自己的配置**（时间 / 方式 / 延迟），
+/// 与「程序专杀」的规则一样，**每个点各自带自己的配置**（时间 / 方式 / 延迟），
 ///    别把这些提到 <see cref="AutoShutdownConfig"/> 上做成全局的。
 /// </summary>
 public sealed class ShutdownPoint
@@ -52,7 +52,7 @@ public sealed class ShutdownPoint
 /// <summary>
 /// 「自动关机」的本地存档（%LOCALAPPDATA%\ClassSoftwareHub\autoshutdown.json）。
 ///
-/// ⚠️ 跟两个专杀（<c>procguard.json</c> / <c>easinote-guard.json</c>）**各存各的** ——
+/// 跟两个专杀（<c>procguard.json</c> / <c>easinote-guard.json</c>）**各存各的** ——
 ///    这个文件将来整个不要了也能直接删干净，不影响那两条线。
 /// </summary>
 public sealed class AutoShutdownConfig
@@ -63,8 +63,7 @@ public sealed class AutoShutdownConfig
 
     /// <summary>
     /// 延迟秒数的上限（一天）。防止手滑填个天文数字把机器永久排上关机。
-    /// ⚠️ 只有这一份 —— 巡检执行（<see cref="AutoShutdown"/>）与配置弹层的步进器上限都读它。
-    /// （2026-10-18 自上游 1.2.0 移植：原先藏在 AutoShutdown 里的私有常量提上来共用。）
+    /// 只有这一份 —— 巡检执行（<see cref="AutoShutdown"/>）与配置弹层的步进器上限都读它。
     /// </summary>
     public const int MaxDelaySeconds = 86400;
 
@@ -77,7 +76,7 @@ public sealed class AutoShutdownConfig
     /// <summary>
     /// 周一~周日各一组关机点。<c>Days[0]</c> = 周一 …… <c>Days[6]</c> = 周日。
     ///
-    /// ⚠️ 用 `(int)DayOfWeek` 取星期会得到"周日=0"，**不能直接拿去索引**，
+    /// 用 `(int)DayOfWeek` 取星期会得到"周日=0"，**不能直接拿去索引**，
     ///    一律走 <see cref="DayIndexOf"/> 换算。
     /// </summary>
     public List<List<ShutdownPoint>> Days { get; set; } = NewDays();
@@ -85,12 +84,11 @@ public sealed class AutoShutdownConfig
     /// <summary>
     /// **上一次保存过的那个关机点**（时间 / 方式 / 延迟），供"新增关机点"时当默认值。
     ///
-    /// 为什么有它（Nick 2026-10-12：「一个一个配置太麻烦了，如果上次设置的啥，这次可以直接套用」；
-    /// 2026-10-18 自上游 1.2.0 移植）：放学场景一天要排好几个点、七天排一遍，
+    /// 动机：放学场景一天要排好几个点、七天排一遍，
     /// 每次都得把 17:30 / 直接关机 / 60 秒重新填一遍。存下最后一个，下次开配置框时就是它，改个分钟数即可。
     ///
-    /// ⚠️ 它只是**输入助手**：不参与执行、不参与巡检，删掉整天也没影响 —— 所以别拿它当"配置"。
-    /// ⚠️ 与 <see cref="Days"/> 一样**只存一份**，新增/修改成功时覆盖（不攒历史，免得上限膨胀）。
+    /// 它只是**输入助手**：不参与执行、不参与巡检，删掉整天也没影响 —— 所以别拿它当"配置"。
+    /// 与 <see cref="Days"/> 一样**只存一份**，新增/修改成功时覆盖（不攒历史，免得上限膨胀）。
     /// </summary>
     public ShutdownPoint? LastPoint { get; set; }
 
@@ -129,7 +127,6 @@ public sealed class AutoShutdownConfig
 
         // "上次填过的那个"同样要规整：时间认不出就整个丢掉（退回内置默认值），
         // 免得手改坏了的 json 把新增框的默认值也带成 25:99
-        // （2026-10-18 自上游 1.2.0 移植）
         if (cfg.LastPoint is not null)
         {
             if (!IsValidTime(cfg.LastPoint.Time))
@@ -178,22 +175,22 @@ public sealed class AutoShutdownConfig
 }
 
 /// <summary>
-/// 「自动关机」的执行引擎（实验性功能，上游 2026-10-10 Nick 提；本文件自上游 dv1.1.3 移植）。
+/// 「自动关机」的执行引擎（实验性功能；本文件自上游 dv1.1.3 移植）。
 ///
 /// 与两个专杀（<see cref="ProcessGuard"/> / <see cref="EasiNoteGuard"/>）同一套范式：
 /// 靠本进程内的定时器巡检 —— **本程序没在跑就不会关**，没有注册 Windows 计划任务。
 ///
-/// ⚠️ 与专杀的关键差别：这里**不用"当前 HH:mm 撞字符串"**判到点，而是算「今天的目标时刻」，
+/// 与专杀的关键差别：这里**不用"当前 HH:mm 撞字符串"**判到点，而是算「今天的目标时刻」，
 ///    只要 <c>now</c> 落在目标时刻之后的 <see cref="LateWindow"/> 内就算命中。
 ///    原因：撞字符串时若那一分钟正好在睡眠/休眠就**永远错过**（17:30 睡着、17:31 醒来不会补），
 ///    而"放学自动关机"一旦漏掉 = 电脑整晚开着，正是这个功能要防的事。
 ///    容忍窗口又不能太长 —— 睡了两小时醒来才补关，反而会把正在用电脑的人坑进去。
 ///
-/// ⚠️ 排下去的 <c>shutdown /s /t</c> **由 Windows 自己数秒**：这中间就算本程序被退掉，
+/// 排下去的 <c>shutdown /s /t</c> **由 Windows 自己数秒**：这中间就算本程序被退掉，
 ///    到点仍然会关机（这是有意的 —— 用户要的就是"到点就关"）。
 ///    反悔的通道是侧边栏那颗「取消关机」按钮（走 <c>shutdown /a</c>）。
 ///
-/// ⚠️ Win7 移植说明：原版的 WinUI <c>DispatcherQueueTimer</c> 换成 Avalonia 的
+/// Win7 移植说明：原版的 WinUI <c>DispatcherQueueTimer</c> 换成 Avalonia 的
 ///    <c>DispatcherTimer</c>（同样跑在 UI 线程；Start 必须在 UI 线程调）。
 /// </summary>
 public static class AutoShutdown
@@ -324,7 +321,6 @@ public static class AutoShutdown
 
     /// <summary>
     /// 立即执行一次关机（侧边栏「关机」按钮调它，按 <paramref name="method"/> 走滑动或直关）。
-    /// 2026-10-18 上游新增；2026-10-22 移植。
     /// </summary>
     public static void ShutdownNow(string method, int delaySeconds = 0)
     {
@@ -372,7 +368,7 @@ public static class AutoShutdown
             using var process = Process.Start(psi);
             if (process is null) { error = "起不来"; return -1; }
 
-            // ⚠️ 这两个命令都是"登记一下就返回"（带上 /t 也不会等倒计时），实测毫秒级。
+            // 这两个命令都是"登记一下就返回"（带上 /t 也不会等倒计时），毫秒级。
             //    超时给短一点：取消关机是侧边栏动作、跑在 UI 线程上，卡住就是整条边条僵住。
             if (!process.WaitForExit(2000))
             {

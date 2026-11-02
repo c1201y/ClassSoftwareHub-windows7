@@ -5,7 +5,7 @@ namespace ClassSoftwareHub.Desktop.Core;
 /// <summary>
 /// 改完要用哪条外壳通知让界面重读（机制照 Dism++ 的 <c>ExplorerNotify</c>）。
 /// <para>
-/// ⚠️ 这里刻意<b>不叫"要不要重启资源管理器"</b>：2026-10-31 起默认走通知，杀 explorer 只是兜底按钮。
+/// 这里刻意<b>不叫"要不要重启资源管理器"</b>：默认走通知，杀 explorer 只是兜底按钮。
 /// 只有 <see cref="None"/> 是"写完注册表就完事"，其余两种由 <see cref="ShellNotify"/> 执行。
 /// </para>
 /// </summary>
@@ -27,8 +27,7 @@ public enum TweakScope
     /// <summary>
     /// <c>HKCU</c>：写当前用户。<b>绝大多数界面类设置的真实落点就在这儿，不需要管理员</b>。
     /// <para>
-    /// ⚠️ 2026-10-31 修正：一开始把"做系统"理解成"全写 HKLM"，把任务栏靠左这种也塞进提权批次；
-    /// 已登录用户的 HKCU 优先级更高，写 HKLM 反而可能看不到变化。
+    /// 界面类设置的落点必须是 HKCU：已登录用户的 HKCU 优先级更高，写 HKLM 反而可能看不到变化。
     /// </para>
     /// </summary>
     User,
@@ -50,7 +49,7 @@ public enum TweakRisk
 }
 
 /// <summary>
-/// 一条系统优化项（自上游 2026-10-31 移植，需求清单第 20 条，按 Dism++「系统优化」的能力对齐）。
+/// 一条系统优化项（自上游移植，按 Dism++「系统优化」的能力对齐）。
 ///
 /// <para>
 /// ⭐ <b>界面类项一律写当前用户（<c>HKCU</c>），不弹 UAC</b>。
@@ -63,7 +62,7 @@ public enum TweakRisk
 /// （Windows 大多数界面开关的默认态就是关）。
 /// </para>
 /// <para>
-/// ⛔ 只收录<b>键路径能确认</b>的项。拿不准的宁可不做 —— 写错键等于给用户一个什么都不做的开关。
+/// 只收录<b>键路径能确认</b>的项。拿不准的宁可不做 —— 写错键等于给用户一个什么都不做的开关。
 /// </para>
 /// </summary>
 public sealed class TweakDef
@@ -95,14 +94,14 @@ public sealed class TweakDef
     public TweakRefresh Refresh { get; init; } = TweakRefresh.None;
 
     /// <summary>
-    /// 多选一的可选值（2026-10-31 加）。非空 ⇒ 界面上用下拉框，而不是开关。
+    /// 多选一的可选值。非空 ⇒ 界面上用下拉框，而不是开关。
     ///
     /// <para>
     /// 照 Dism++ 的 <c>Type="Combo"</c> 那套：像"任务栏搜索框"其实是隐藏 / 仅图标 / 显示搜索框 <b>三态</b>，
     /// 拿开关表达只能覆盖两态，用户还得去系统设置里补第三态。下拉框才是它本来的样子。
     /// </para>
     /// <para>
-    /// ⚠️ 有 <see cref="Choices"/> 的项，<see cref="OnValue"/> / <see cref="OffValue"/> 不再表示"开/关"，
+    /// 有 <see cref="Choices"/> 的项，<see cref="OnValue"/> / <see cref="OffValue"/> 不再表示"开/关"，
     /// 只用来解释"值缺失时算哪一档"（<see cref="OffValue"/>）与"推荐值"（<see cref="OnValue"/>）。
     /// </para>
     /// </summary>
@@ -136,7 +135,7 @@ public sealed class TweakDef
     /// 这类项关掉时应当把值整个删掉，回到从未配置过的状态。
     /// </para>
     /// <para>
-    /// ⚠️ 只对"缺值 ≡ 关态"的项可用，否则删完会被读成别的意思。
+    /// 只对"缺值 ≡ 关态"的项可用，否则删完会被读成别的意思。
     /// </para>
     /// </summary>
     public bool DeleteWhenOff { get; init; }

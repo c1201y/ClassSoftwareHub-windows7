@@ -32,13 +32,9 @@ public static class InstallerCleanup
     /// <summary>
     /// 认哪些文件是"安装包"。
     ///
-    /// ⚠️ 原来是 <c>^ClassSoftwareHub-Setup-.+\.exe$</c> —— 与下载侧的白名单
-    ///    （<c>GitHubReleaseSource.InstallerExts</c> = .exe / .msi，认**任意**名字）对不上：
-    ///    名字稍有不同的安装包（<c>csh-setup-1.1.0.exe</c>、<c>...-Setup-dv1.1.0.msi</c>）
-    ///    对 Scan / Clean **永久不可见** → 「保留最近 N 个」静默失效、目录无限增长，
-    ///    设置页的本地安装包列表也不完整，用户用不了文档里宣称的"本地覆盖安装"。
-    ///
-    /// 现在认本目录下任何 <c>.exe</c> / <c>.msi</c>。安全边界靠**目录本身**保证：
+    /// ⚠️ 必须认本目录下任何 <c>.exe</c> / <c>.msi</c>（不能只匹配固定命名前缀 ——
+    ///    与下载侧的白名单对不上时，名字稍有不同的安装包对 Scan / Clean **永久不可见** →
+    ///    「保留最近 N 个」静默失效、目录无限增长）。安全边界靠**目录本身**保证：
     /// 这里只可能是 <c>UpdateService.UpdatesDir</c>（应用私有目录），绝不会波及系统的"下载"文件夹。
     /// <c>*.exe.part</c> / <c>*.md5</c> 不会匹配上（正则以 <c>.exe|.msi</c> 结尾），残片另有清理路径。
     /// </summary>
@@ -49,12 +45,10 @@ public static class InstallerCleanup
     /// 安装包的同名校验文件到底叫什么 —— **发版脚本是"追加"**：
     /// <c>tools/publish-release-win7.mjs</c> 里是 <c>path + '.md5'</c> → <c>X.exe.md5</c>。
     ///
-    /// ⚠️ 这里原来用 <c>Path.ChangeExtension(..., ".md5")</c>（"**替换**"扩展名）得到 <c>X.md5</c>，
-    ///    两边根本对不上，后果有两条：
-    ///    ① <see cref="Scan"/> 的 <c>HasMd5File</c> 恒为 false —— 界面上"带校验文件"的标记永远不亮；
-    ///    ② <see cref="Clean"/> 的孤儿判定算出 <c>X.exe.exe</c>（把 <c>X.exe.md5</c> 的 ".md5"
-    ///       换成 ".exe"）→ 永远找不到 → **把仍然有效的 X.exe.md5 当孤儿删掉**。
-    ///    现在以"追加"为准，同时兼容老的"替换"命名。
+    /// ⚠️ 校验文件命名是发版脚本的"**追加**"（<c>X.exe.md5</c>），不是 ChangeExtension 的"替换"（<c>X.md5</c>）。
+    ///    用"替换"会导致：① <see cref="Scan"/> 的 <c>HasMd5File</c> 恒为 false；
+    ///    ② <see cref="Clean"/> 的孤儿判定算出 <c>X.exe.exe</c>，**把仍然有效的 X.exe.md5 当孤儿删掉**。
+    ///    这里以"追加"为准，同时兼容老的"替换"命名。
     /// </summary>
     private static string SidecarPath(string packagePath) => packagePath + ".md5";
 
@@ -130,7 +124,7 @@ public static class InstallerCleanup
 
     /// <summary>
     /// 按保留数量清理：按修改时间从新到旧留 <paramref name="keep"/> 个，其余删除（连带同名 .md5）。
-    /// 顺手清掉「安装包已不在、只剩 .md5」的孤儿校验文件，以及**超过 2 小时没人写过的下载残片**。
+    /// 同时清理「安装包已不在、只剩 .md5」的孤儿校验文件，以及**超过 2 小时没人写过的下载残片**。
     /// <para>
     /// <paramref name="pendingPath"/> = 已下载待安装的那个包，**永远不删**：
     /// 它可能不是最新的（之后又下过别的包），按时间排序正好会把它挤出去 ——
@@ -156,7 +150,7 @@ public static class InstallerCleanup
             pendingFull = "";
         }
 
-        // ⚠️ 这里原来是 .Select( new FileInfo ) 后直接 OrderByDescending(fi => fi.LastWriteTimeUtc)：
+        // ⚠️ 不能直接 .Select(new FileInfo) 后按 LastWriteTimeUtc 排序：
         //    FileInfo 的属性是惰性读入并缓存的，文件在「枚举」与「排序」之间被删掉
         //    （本目录正被下载流程与 Clean 同时使用）就会抛 FileNotFoundException，整轮清理失败。
         var files = all
@@ -199,8 +193,8 @@ public static class InstallerCleanup
     /// <summary>
     /// 半截的下载残片（<c>*.part</c>）：更新下载失败 / 被取消时留下的东西。
     ///
-    /// ⚠️ 上面的 <see cref="InstallerPattern"/> 正则匹配不到它们，而它们**以前没有任何回收路径**
-    ///    —— 反复几次失败的更新就能在 %LOCALAPPDATA% 里堆出上百 MB，教室机的系统盘通常很小，
+    /// ⚠️ <see cref="InstallerPattern"/> 正则匹配不到它们，若没有回收路径，
+    ///    反复几次失败的更新就能在 %LOCALAPPDATA% 里堆出上百 MB，教室机的系统盘通常很小，
     ///    %LOCALAPPDATA% 满了会连带设置、内容缓存和整个应用一起完蛋。
     ///    ⚠️ 只清「超过 2 小时没人写过」的：正在下载的那一份绝不能碰。
     /// </summary>
@@ -254,7 +248,7 @@ public static class InstallerCleanup
     public static void Start()
     {
         // ⚠️ 设置必须在**调用线程**（UI 线程，App.OnFrameworkInitializationCompleted）上读好再传进去：
-        //    原来是在 Task.Run 里读 App.Settings.Current.InstallerKeepCount，与 UI 线程的初始化并发、
+        //    若在 Task.Run 里读 App.Settings.Current，与 UI 线程的初始化并发、
         //    没有任何同步 —— 撕裂读 / null 会被下面的 catch 吞成"本次会话静默跳过清理"，故障不可见。
         int keep;
         string pendingPath;

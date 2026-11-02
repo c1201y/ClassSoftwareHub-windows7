@@ -12,14 +12,13 @@ using FluentAvalonia.UI.Controls;
 namespace ClassSoftwareHub.Desktop.Views;
 
 /// <summary>
-/// 「示例名单」对话框（2026-09-29 Nick 提）。
+/// 「示例名单」对话框。
 ///
-/// 起因：导入名单这个功能本身没什么难的，难的是**用户不知道该交什么样的文件**——
-/// 一列姓名？两列？要不要表头？txt 要不要逗号分隔？以前只能在导入失败后从一行报错里猜。
-/// 现在把答案摆在动手之前：两张示意截图（Excel / txt 各一张），加一份可以直接用的示例文件。
+/// 用途：在导入名单前向用户说明可接受的文件格式（一列/两列、是否带表头、txt 分隔符等），
+/// 提供两张示意截图（Excel / txt）与可直接使用的示例文件。
 ///
-/// ⚠️ 两张图与两份示例文件都是**内嵌资源**（见 csproj &lt;EmbeddedResource&gt;），
-///    单文件发布下不会依赖任何外部文件；图片先释放到缓存目录再喂给 Image。
+/// 两张图与两份示例文件均为内嵌资源（见 csproj &lt;EmbeddedResource&gt;），
+/// 单文件发布下不依赖外部文件；图片先释放到缓存目录再喂给 Image。
 ///
 /// ⚠️ 移植说明：文件保存从 WinRT 的 FileSavePicker 换成 <c>IStorageProvider.SaveFilePickerAsync</c>
 ///    （对话框浮在 TopLevel 上，直接取自身所属 TopLevel；取不到退主窗口）；
@@ -28,23 +27,20 @@ namespace ClassSoftwareHub.Desktop.Views;
 public sealed partial class RosterSampleDialog : ContentDialog
 {
     /// <summary>
-    /// ⛔ 千万别删（2026-10-07，与 <see cref="RosterEditorDialog"/> 同一个坑）：
-    /// Avalonia 按 StyleKey 找样式，它默认 = 本类类型（<c>RosterSampleDialog</c>）。
+    /// 必须保留（与 <see cref="RosterEditorDialog"/> 同一个坑）：
+    /// Avalonia 按 StyleKey 找样式，默认 = 本类类型（<c>RosterSampleDialog</c>）；
     /// FluentAvalonia 主题里没有这个键 → 模板不应用 →
     /// <c>ContentDialog.OnApplyTemplate</c> 无条件 <c>NameScope.Get("PrimaryButton")</c> 抛
-    /// <see cref="System.Collections.Generic.KeyNotFoundException"/> → 布局中断 → 整页空白。
+    /// <see cref="System.Collections.Generic.KeyNotFoundException"/>，布局中断、整页空白。
     /// 显式指回 <see cref="ContentDialog"/> 即可（FA 上游 issue #24）。
-    /// ⚠️ 用 Avalonia 11 推荐的 <c>StyleKeyOverride</c>（旧的 <c>IStyleable.StyleKey</c> 已过时，CS0618）。
+    /// 使用 Avalonia 11 推荐的 <c>StyleKeyOverride</c>（旧的 <c>IStyleable.StyleKey</c> 已过时，CS0618）。
     /// </summary>
     protected override Type StyleKeyOverride => typeof(ContentDialog);
 
     /// <summary>用户点了「用示例名单试一下」——由调用方据此把示例装进抽取池。</summary>
     public bool UseSampleRequested { get; private set; }
 
-    /// <param name="hasExistingRoster">
-    /// 抽取池里已经有名单时，把按钮文案改成「替换」——避免用户以为只是"预览一下"，
-    /// 结果辛苦导入的名单被覆盖掉。
-    /// </param>
+    /// <param name="hasExistingRoster">抽取池中已有名单时，把按钮文案改为「替换」，避免用户误以为仅预览而覆盖已导入的名单。</param>
     public RosterSampleDialog(bool hasExistingRoster)
     {
         InitializeComponent();
@@ -81,7 +77,7 @@ public sealed partial class RosterSampleDialog : ContentDialog
 
     /// <summary>
     /// 把内嵌的示例文件另存到用户挑的位置。
-    /// ⚠️ 保存对话框**不关闭**当前对话框：用户可能两个格式都想要，也可能挑错地方想重来。
+    /// 保存对话框不关闭当前对话框：用户可能两种格式都需要，或需重新选择保存位置。
     /// </summary>
     private async Task SaveSampleAsync(string embeddedName, string suggestedName, string typeLabel)
     {

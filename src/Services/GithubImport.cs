@@ -307,7 +307,7 @@ public static class GithubImport
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
-                // 用户主动取消（不是单次超时）：直接结束，别再挨个镜像入口白等一轮
+                // 用户主动取消（不是单次超时）：直接结束，不再逐个镜像入口等待
                 throw;
             }
             catch (Exception exception)

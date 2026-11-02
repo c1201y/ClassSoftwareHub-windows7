@@ -4,7 +4,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <!--
-      紧凑数字输入：**标签在上、窄框、右侧上下箭头**（Nick 2026-10-03 定的形态，照 AdaptiveTrigger 面板那种样式）。
+      紧凑数字输入：**标签在上、窄框、右侧上下箭头**（照 AdaptiveTrigger 面板那种样式）。
 
       为什么不用原生 NumberBox：它数值放在 TextBox 里，触屏点一下会全选 + 弹"复制/粘贴"菜单，教室里很难受
       —— 这是 NumberStepper 当初自己写的原因（见 NumberStepper.axaml 注释）。所以这里沿用同一套做法：

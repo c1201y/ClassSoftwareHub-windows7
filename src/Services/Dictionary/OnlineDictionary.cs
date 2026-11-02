@@ -18,8 +18,7 @@ namespace ClassSoftwareHub.Desktop.Services.Dictionary;
 /// 所以下面每一层解析都做空值保护，任何一处对不上就整体判为"这个源没结果"，交给下一个源。
 /// </para>
 /// <para>
-/// ⚠️ 2026-11-01 实测两个接口在本机都直连可用（有道 ~55 KB、Free Dictionary ~2 KB）。
-///    日后若某个源长期不可用，把它的方法摘掉即可，调度层不用改。
+/// ⚠️ 两个接口均直连可用。日后若某个源长期不可用，把它的方法摘掉即可，调度层不用改。
 /// </para>
 /// </summary>
 public static class OnlineDictionary

@@ -12,7 +12,7 @@ using ClassSoftwareHub.Desktop.Core;
 namespace ClassSoftwareHub.Desktop.Views.Palette;
 
 /// <summary>
-/// 浮窗版时钟：大号时间 + 日期 + 一键进全屏时钟，**外加外观预览与预设切换**（2026-09-28 Nick 提）。
+/// 浮窗版时钟：大号时间 + 日期 + 一键进全屏时钟，外加外观预览与预设切换。
 ///
 /// 外观遵循「上次的样子」（<see cref="ClockPresetStore"/>）：上次在用某套预设就按那套画，
 /// 上次没用预设就保持那个自定义外观 —— 不会因为开一下浮窗就把工具页里调好的样子顶掉。
@@ -42,7 +42,7 @@ public sealed partial class MiniClock : UserControl
     /// <summary>浮窗收起时停表（省电省内存，收起状态下没人看）。</summary>
     public void Pause() => _timer.Stop();
 
-    /// <summary>浮窗再打开时恢复。⚠️ 顺手重读一次外观 —— 用户可能刚在工具页里换过预设、调过底色。</summary>
+    /// <summary>浮窗再打开时恢复。⚠️ 重新读取外观：用户可能刚在工具页里更改过预设或底色。</summary>
     public void Resume()
     {
         Reload();
@@ -199,8 +199,8 @@ public sealed partial class MiniClock : UserControl
     }
 
     /// <summary>
-    /// 恢复默认：退回出厂外观，并且**不再套用任何预设** ——
-    /// 这条要一起写进存档，否则下次打开又被上次那套预设顶回去（Nick 要的"遵循上次"就变成了"赖着不走"）。
+    /// 恢复默认：退回出厂外观，并且不再套用任何预设。
+    /// 此状态需一并写入存档，否则下次打开仍会套用上次的预设。
     /// </summary>
     private void ResetAppearance_Click(object? sender, RoutedEventArgs e)
     {
@@ -213,8 +213,8 @@ public sealed partial class MiniClock : UserControl
     }
 
     /// <summary>
-    /// 落盘。⚠️ 先读回最新的一份再改：工具页那边也在写这个文件（它管 Presets 列表），
-    /// 拿手上这份可能过期的快照整份覆盖，会把工具页刚存的预设抹掉。
+    /// 落盘。先读回最新的一份再修改：工具页也在写该文件（负责 Presets 列表），
+    /// 用本地的过期快照整份覆盖，会抹掉工具页刚保存的预设。
     /// </summary>
     private void Persist()
     {
@@ -240,19 +240,17 @@ public sealed partial class MiniClock : UserControl
     {
         var dark = ActualThemeVariant == ThemeVariant.Dark;
 
-        // 2026-09-28：浮窗现在自己就知道当前是哪套外观（上面那块预览就是照它画的），
-        // 所以直接把这份传过去 —— 在浮窗里切了预设再点全屏，全屏就该是刚切的那套。
-        // （以前传 null 是因为手上只有一套默认值，传过去反而会顶掉用户调好的设置。）
+        // 浮窗自身已知当前外观（预览即按它绘制），直接传入：
+        // 在浮窗里切换预设后进全屏，全屏应呈现刚切换的那套。
         Views.ClockFullscreenWindow.Show(_settings.Clone(), dark);
 
-        // 进全屏后浮窗还杵在那儿就得手动再关一次，多此一举 —— 顺手收掉。
-        // 它本来就浮在最上层，不收的话正好挡住全屏时钟中间那块字。
+        // 进全屏后收掉浮窗：其浮于最上层，会遮挡全屏时钟。
         Views.ToolPaletteWindow.HidePalette();
     }
 
     /// <summary>
     /// 「详细设置」：浮窗就这么大，放不下字体/底色/遮罩那一套 —— 直接把人送到应用里的时钟工具页。
-    /// 顺手把浮窗收起来，免得挡着主界面。
+    /// 同时收起浮窗，避免遮挡主界面。
     /// </summary>
     private void Details_Click(object? sender, RoutedEventArgs e)
     {

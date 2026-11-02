@@ -28,7 +28,7 @@ public sealed partial class ClockToolPage : PageBase
     private static readonly string[] ImageExts = { ".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".tif", ".tiff" };
 
     /// <summary>
-    /// 预设上限。⚠️ 2026-09-28（Nick）：20 → <b>5</b> —— 卡片列是"一眼挑一套"的陈列位，
+    /// 预设上限为 <b>5</b>：卡片列是"一眼挑一套"的陈列位，
     /// 不是仓库；超过 5 张就得换行、越堆越高，反而挑不出来。
     /// </summary>
     private const int MaxPresets = 5;
@@ -57,8 +57,8 @@ public sealed partial class ClockToolPage : PageBase
         InitializeComponent();
 
         // 先把上次的样子读回来（记忆），再铺控件初值。
-        // ⚠️ 2026-09-28（Nick）：「每次启动遵循上次」——上次在用某套预设，就按**那套预设**铺；
-        //    上次没在用预设（纯手调 / 默认），就按上次那个外观铺，**不强行套任何预设**。
+        // 每次启动遵循上次：上次在用某套预设，就按**那套预设**铺；
+        //    上次没在用预设（纯手调 / 默认），就按上次那个外观铺，不强行套任何预设。
         var state = ClockPresetStore.Load();
         _presets.AddRange(state.Presets);
 
@@ -197,6 +197,10 @@ public sealed partial class ClockToolPage : PageBase
     /// </summary>
     private static readonly Dictionary<string, Bitmap> PhotoCache = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>缓存淘汰上限；按插入顺序淘汰，超限即出队。</summary>
+    private const int PhotoCacheCapacity = 8;
+    private static readonly Queue<string> PhotoCacheOrder = new();
+
     private static Bitmap? DecodePhoto(string path)
     {
         string key = path;
@@ -212,7 +216,14 @@ public sealed partial class ClockToolPage : PageBase
         try
         {
             var bmp = new Bitmap(path);
+            while (PhotoCache.Count >= PhotoCacheCapacity && PhotoCacheOrder.Count > 0)
+            {
+                // 位图可能仍被现役 ImageBrush 引用，不主动 Dispose，交给终结器回收。
+                var stale = PhotoCacheOrder.Dequeue();
+                PhotoCache.Remove(stale);
+            }
             PhotoCache[key] = bmp;
+            PhotoCacheOrder.Enqueue(key);
             return bmp;
         }
         catch
@@ -335,7 +346,7 @@ public sealed partial class ClockToolPage : PageBase
         catch (Exception ex) { Toast.Text = "无法启动浏览器：" + ex.Message; }
     }
 
-    // ══════════ 外观预设 / 记忆（2026-09-27 Nick 提） ══════════
+    // ══════════ 外观预设 / 记忆 ══════════
 
     /// <summary>把 _settings 的当前值回灌到控件上（套用预设、恢复默认之后要用）。</summary>
     private void SyncControls()
@@ -371,7 +382,7 @@ public sealed partial class ClockToolPage : PageBase
     {
         // ⚠️ 先读回最新的一份再改：浮窗时钟也在写这个文件（它只动 LastUsed / LastUsedPreset）。
         //    拿手上这份可能已经过期的快照去整份覆盖，会把浮窗刚写进去的改回去 ——
-        //    「共用存档整份覆盖抹掉另一边」这个坑这台机器上踩过，别再各写各的。
+        //    「共用存档整份覆盖会抹掉另一边的改动」，必须先读回最新一份再改。
         var data = ClockPresetStore.Load();
         data.LastUsed = _settings.Clone();
         data.LastUsedPreset = _activePreset;
@@ -568,7 +579,7 @@ public sealed partial class ClockToolPage : PageBase
         if (existing >= 0) _presets[existing] = preset;
         else _presets.Add(preset);
 
-        // 存完就算"正在使用这套" —— 这样关掉再进来，起来的还是它（Nick 要的「遵循上次」）
+        // 存完就算"正在使用这套" —— 这样关掉再进来，起来的还是它（遵循上次）
         _activePreset = preset.Name;
 
         Persist();

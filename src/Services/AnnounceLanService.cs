@@ -28,7 +28,7 @@ public sealed record LanPeer(string Name, string Label, string PairCode,
 
     /// <summary>
     /// 是不是本机自己。
-    /// 注意：故意<b>不</b>把自己从列表里滤掉（2026-10-25）：只有一台机器时也需要能自测「直连 → 全屏」，
+    /// 注意：故意<b>不</b>把自己从列表里滤掉：只有一台机器时也需要能自测「直连 → 全屏」，
     /// 否则功能在装第二台机之前永远验证不了。列表上标「（本机）」免得用户误以为是别人。
     /// </summary>
     public bool IsSelf => string.Equals(PairCode, AnnounceService.MyPairCode, StringComparison.Ordinal);
@@ -36,7 +36,7 @@ public sealed record LanPeer(string Name, string Label, string PairCode,
     /// <summary>
     /// 实际要连的地址序列。
     /// 一台机器会有多块网卡（Wi-Fi / 有线 / WSL / Hyper-V 虚拟网卡），广播在每块网卡上各发一份，
-    /// 收到的源地址各不相同 —— 2026-10-25 实测就是存到了虚拟网卡地址，发送直接超时。
+    /// 收到的源地址各不相同 —— 曾因只存单一地址落到虚拟网卡上导致发送超时。
     /// 所以这里保留全部候选，逐个试；本机固定先走回环（回环不受防火墙入站规则影响）。
     /// </summary>
     public IReadOnlyList<string> Candidates
@@ -55,7 +55,7 @@ public sealed record LanPeer(string Name, string Label, string PairCode,
 }
 
 /// <summary>
-/// 教室喊话的局域网通道（2026-10-25，Nick 提：多一条路走，别过度依赖服务器）。
+/// 教室喊话的局域网通道：与服务器通道互补，避免过度依赖单一后端。
 ///
 /// <para>
 /// 三件事：
@@ -103,8 +103,8 @@ public static partial class AnnounceLanService
 
     private static DateTime _lastAccepted = DateTime.MinValue;
 
-    // ── 配对码爆破防护（2026-10-27） ──────────────────────────────────────────
-    //  6 位码只有 100 万种，而局域网里逐条试的成本极低。这里按来源 IP 计数：
+    // ── 配对码爆破防护 ────────────────────────────────────────────────────────
+    //  6 位码只有 100 万种，而局域网里逐条试的成本极低。按来源 IP 计数：
     //  2 分钟内错 5 次就锁 2 分钟（正常发送方一次就对，不会被误伤）。
     //  ⛔ 只防枚举，不替代配对码本身 —— 配对码仍是唯一凭证。
     private const int PairFailLimit = 5;
@@ -203,9 +203,8 @@ public static partial class AnnounceLanService
                 IsRunning = true;
                 AppLog.Begin("announce-lan", $"局域网通道已启动（发现 {DiscoveryPort} / 收件 {ReceivePort}，本机标识「{LabelOrDefault}」）");
 
-                // 起来之后顺手看一眼防火墙（2026-10-27）。
-                // 被拦的时候通道「启动成功、日志正常」，可外面一个包都进不来 —— 只有一条明确记录
-                // 才能把这种「看着正常其实不通」的情况在现场区分开。⚠️ 只写日志，不弹任何窗口。
+                // 启动后同时检查防火墙：被拦时通道「启动成功、日志正常」但外面一个包都进不来，
+                // 需要明确记录才能在现场区分开。⚠️ 只写日志，不弹任何窗口。
                 _ = Task.Run(async () =>
                 {
                     try
@@ -289,15 +288,25 @@ public static partial class AnnounceLanService
         var client = _udp;
         if (client is null) return;
 
+        int errorStreak = 0;
         while (!token.IsCancellationRequested)
         {
             UdpReceiveResult packet;
             try
             {
                 packet = await client.ReceiveAsync();
+                errorStreak = 0;
             }
             catch (ObjectDisposedException) { return; }
-            catch (SocketException) { continue; }
+            catch (SocketException)
+            {
+                // 连续失败多为适配器变动/端口被占，退避一下避免空转烧 CPU
+                if (++errorStreak >= 5)
+                {
+                    try { await Task.Delay(1000, token); } catch (OperationCanceledException) { return; }
+                }
+                continue;
+            }
             catch (Exception ex)
             {
                 AppLog.Fail("announce-lan", ex, "接收心跳失败");
@@ -346,8 +355,8 @@ public static partial class AnnounceLanService
             var isNewIp = !ips.Contains(ip);
             if (isNewIp && ips.Count < 12) ips.Add(ip);
 
-            // 2026-10-27：对方心跳里自带的本机地址列表也一并收下。
-            // 为什么需要：只靠「包的源地址」推断对方可连地址，在交换机端口隔离 / 双网卡 / 中间设备
+            // 对方心跳里自带的本机地址列表也一并收下。
+            // 只靠「包的源地址」推断对方可连地址，在交换机端口隔离 / 双网卡 / 中间设备
             // 转发的情况下会拿到一个连不通的地址 —— 现象就是「列表里看得到它，但发过去超时」。
             if (root.TryGetProperty("ips", out var ipsEl) && ipsEl.ValueKind == JsonValueKind.Array)
             {
@@ -428,7 +437,7 @@ public static partial class AnnounceLanService
     /// <summary>
     /// 一条心跳的内容。
     /// <para>
-    /// <c>ips</c> 是本机全部 IPv4（2026-10-27 补）：对方据此得到一组「能直接连」的地址候选，
+    /// <c>ips</c> 是本机全部 IPv4：对方据此得到一组「能直接连」的地址候选，
     /// 不再只依赖广播包的源地址 —— 多网卡、交换机端口隔离、中间设备转发的情况下，
     /// 源地址经常不是可连地址，症状是「列表里看得到它，发过去却超时」。
     /// </para>
@@ -564,8 +573,8 @@ public static partial class AnnounceLanService
 
     private static void StartReceiver(CancellationToken token)
     {
-        // 2026-10-25 改用裸 Socket：TcpListener 在这台机器上出现过「isBound=True 却连不上」的怪状，
-        // 这里显式 bind/listen，状态一目了然，也少一层封装可怀疑。
+        // 用裸 Socket 而非 TcpListener：后者在本机出现过「isBound=True 却连不上」的怪状，
+        // 显式 bind/listen 状态一目了然，也少一层封装可怀疑。
         _socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
         _socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
         _socket.Bind(new IPEndPoint(IPAddress.Any, ReceivePort));
@@ -578,7 +587,7 @@ public static partial class AnnounceLanService
     }
 
     /// <summary>
-    /// 自检（2026-10-25）：从进程内部 POST 一条 health 请求到自己的收件端口。
+    /// 自检：从进程内部 POST 一条 health 请求到自己的收件端口。
     /// <para>
     /// 为什么需要它：外部探针会被沙箱网络隔离干扰，而用户的机器上又不能每次都靠人点一遍。
     /// 自检跑在同一进程、同一网络栈里，结果直接写日志 —— 收件链路坏没坏，一眼就能看出来。
@@ -631,7 +640,7 @@ public static partial class AnnounceLanService
             }
             catch (Exception ex)
             {
-                // 2026-10-25：以前这里只 continue，循环一旦持续抛错就变成静默空转（连日志都没有）
+                // 持续抛错时必须记日志并退避，否则循环会静默空转
                 AppLog.Fail("announce-lan", ex, "接受连接失败");
                 try { await Task.Delay(300, token); } catch { return; }
                 continue;
@@ -660,7 +669,7 @@ public static partial class AnnounceLanService
             var remoteIp = RemoteIpOf(client);
             try
             {
-                // 读请求头最多等 5 秒：不说话的连接不能把处理线程永久挂住（以前就是这么挂的）
+                // 读请求头最多等 5 秒：不说话的连接不能把处理线程永久挂住
                 using var headCts = CancellationTokenSource.CreateLinkedTokenSource(token);
                 headCts.CancelAfter(TimeSpan.FromSeconds(5));
 
@@ -825,7 +834,7 @@ public static partial class AnnounceLanService
 
     /// <summary>
     /// 处理对方的登记请求（<c>POST /bind</c>）：对方在发送端保存了本机的配对码，把它记下来，
-    /// 供本机在「谁保存了本机配对码」里查看与删除（2026-10-25 Nick：防滥用）。
+    /// 供本机在「谁保存了本机配对码」里查看与删除（防滥用）。
     /// 仍然要求配对码正确 —— 不知道本机码的人连登记都做不了，名单不会被随便塞满。
     /// </summary>
     private static async Task OnBindAsync(string json, NetworkStream stream, string remoteIp)
@@ -938,7 +947,7 @@ public static partial class AnnounceLanService
 
     /// <summary>
     /// 处理对方的「解除登记」请求（<c>POST /unbind</c>）：对方（码的主人）把本机的登记删掉了，
-    /// 本机也要把「已保存的电脑」里那条删掉 —— 单边删除会让两边对不上（2026-10-25 Nick 指出）。
+    /// 本机也要把「已保存的电脑」里那条删掉 —— 单边删除会让两边对不上。
     /// </summary>
     private static async Task OnUnbindAsync(string json, NetworkStream stream, string remoteIp)
     {
@@ -954,8 +963,8 @@ public static partial class AnnounceLanService
             return;
         }
 
-        // ⛔ 授权：只有「这个码的主人」才能让本机删掉已保存项（2026-10-27）。
-        //    以前只校验"是 6 位数字" ⇒ 局域网里任何机器都能发一条随便的码，把别人的记录删掉。
+        // ⛔ 授权：只有「这个码的主人」才能让本机删掉已保存项。
+        //    若只校验"是 6 位数字"，局域网里任何机器都能发一条随便的码删掉别人的记录。
         //    判据用发现表（心跳里的码 + 源 IP）：既证明知道码，也证明请求来自那台机器。
         //    码的主人不在广播（比如刚开机）时拒绝，等它下次心跳补发即可。
         LanPeer? peer = null;
@@ -1136,12 +1145,8 @@ public static partial class AnnounceLanService
 
     // ════════════════════════ 防火墙 ════════════════════════
     //
-    // 2026-10-27 整体搬到 Services/FirewallGateway.cs。旧实现（就在这个位置）判据太窄：
-    // 只看「规则在不在 + 输出像不像已启用/公用」，没看它到底覆不覆盖公用网络 ——
-    // 机器上留下的旧规则是「域,专用」时，校园网/机房网下等于没加，页面就会一直提示要放行。
-    //
-    // 现在由 FirewallGateway 负责：查询优先走 PowerShell（-EncodedCommand，与代码页无关），
-    // Win7 默认的 PS 2.0 没有 NetSecurity 模块时自动回落 netsh 启发式；判据是
-    // 「存在 + 已启用 + Profile 含公用」，另外单独查本程序有没有入站 Block 规则
+    // 防火墙判定整体在 Services/FirewallGateway.cs：查询优先走 PowerShell（-EncodedCommand，
+    // 与代码页无关），Win7 默认的 PS 2.0 没有 NetSecurity 模块时自动回落 netsh 启发式；
+    // 判据是「存在 + 已启用 + Profile 含公用」，另外单独查本程序有没有入站 Block 规则
     // （Block 永远优先于 Allow，这条不查出来，端口规则再怎么对也收不到包）。
 }

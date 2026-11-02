@@ -21,7 +21,7 @@ namespace ClassSoftwareHub.Desktop.Services;
 /// 结果按 URL 缓存（同一次运行里反复进出同一个软件不重复下载）。
 /// </para>
 /// <para>
-/// ⚠️ Win7 移植说明（2026-10-18 自上游 1.2.0 移植）：WinUI 的 BitmapDecoder /
+/// ⚠️ Win7 移植说明：WinUI 的 BitmapDecoder /
 /// InMemoryRandomAccessStream 在 .NET 6 上没有，改用 **SkiaSharp** 解码到 48×48 再逐像素统计；
 /// 渐变画刷/颜色全部换成 Avalonia 类型，语义与上游一致。
 /// </para>
@@ -126,7 +126,7 @@ public static class IconPalette
         {
             // ① 本机已经有这张图 → **直接拿它算色，不走网络**。
             //    取色只要"大致对"，而这张就是同一个 URL 下下来的，没有先等 2.5 秒超时的理由
-            //    （2026-10-24：网络不通时详情页会先顶强调色、再跳成正确色，观感就是"颜色换了一下"）。
+            //    （网络不通时详情页会先顶强调色、再跳成正确色，观感就是"颜色换了一下"。）
             picked = await PickFromLocalAsync(url).ConfigureAwait(false);
 
             // ② 本机没有才联网；联网失败再退回本机那张试一次
@@ -162,7 +162,7 @@ public static class IconPalette
 
     private static Color? FromBytes(byte[] bytes)
     {
-        // ⚠️ Win7 移植（2026-10-18）：SkiaSharp 解码 + 手工缩放到 48×48（等价上游 BitmapDecoder
+        // ⚠️ Win7 移植：SkiaSharp 解码 + 手工缩放到 48×48（等价上游 BitmapDecoder
         //    的 BitmapTransform.Fant），再走同一段 HSV 统计。
         SKBitmap? sample;
         try

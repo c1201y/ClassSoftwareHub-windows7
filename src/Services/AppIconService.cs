@@ -19,7 +19,7 @@ namespace ClassSoftwareHub.Desktop.Services;
 ///    Avalonia 的等价物是 <c>Avalonia.Media.Imaging.Bitmap(Stream)</c>（解码 BMP 流），
 ///    所以这里手搓一段 32bpp BMP（跟 Services/ScreenCapture 同一套 54 字节头写法）再交给它。
 ///
-/// <para>2026-10-18 自上游 1.2.0 移植：
+/// <para>自上游 1.2.0 移植：
 /// ① 拆成两条路 —— exe/dll 走 Win32 提取，png/jpg 等图片（商店应用图标）直接按文件解码；
 /// ② 加 <see cref="Prewarm"/> 后台预热（「应用卸载」页几百个应用，冷路径上几十毫秒会让列表一滚就迟滞）。</para>
 /// </summary>

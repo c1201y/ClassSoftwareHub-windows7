@@ -58,7 +58,7 @@ public sealed partial class SoftwarePage : PageBase
         // ⚠️ 原版构造函数里还有 Core.WheelRelay.Attach(this, TileGrid, CompactGrid)；
         //    本移植版把 ScrollViewer 提到了页面最外层，滚轮本来就由它统一接管，不需要再接力。
 
-        // 卡片宽度按可用宽度自适应（上游 2026-10-24 Nick：「右边空的能开蜜雪冰城了」）
+        // 卡片宽度按可用宽度自适应
         TileGrid.Loaded += (_, _) => FitCards();
         TileGrid.SizeChanged += (_, _) => FitCards();
         CompactGrid.Loaded += (_, _) => FitCards();
@@ -70,14 +70,13 @@ public sealed partial class SoftwarePage : PageBase
 
     public override void OnNavigatedTo(object? parameter)
     {
-        // ⛔ **只有带了分类参数才改分类**（2026-10-22）。
-        //    以前无条件 `_category = parameter as string ?? ""`，于是从「系统工具」点进某个软件、
-        //    再返回时参数是 null ⇒ 分类被清成「全部」，用户得重新点一遍（Nick 反馈的核心问题）。
-        //    现在：带参数 = 用户主动切分类；不带参数（返回/从导航进来）= **保持上次选择**。
+        // 只在带了分类参数时才改分类。
+        // 不带参数（返回 / 从导航进来）= 保持上次选择；若无条件清成空串，返回后分类会被重置为「全部」，
+        // 用户得重新点一遍。带参数 = 用户主动切分类。
         if (parameter is string requestedCategory && requestedCategory.Length > 0)
             _category = requestedCategory;
 
-        // 总闸关掉时入口卡整体隐藏（Nick 2026-10-18 定：不占位、不留灰块）。
+        // 总闸关掉时入口卡整体隐藏（不占位、不留灰块）。
         // ⚠️ 必须每次导航都重读一次 —— 本页实例长驻，用户去设置里开关一次再回来，
         //    页面不会重建，只在构造时读一次会一直是旧状态。
         HubAiEntry.IsVisible = App.Settings.Current.HubAiEnabled;

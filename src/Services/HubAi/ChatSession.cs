@@ -11,7 +11,7 @@ namespace ClassSoftwareHub.Desktop.Services.HubAi;
 /// <summary>
 /// 历史对话里的一个消息节点。
 /// <para>
-/// ⛔⛔ 2026-10-23 起是**树**，不再是数组：同一条 <see cref="ParentId"/> 下的多个节点
+/// ⛔⛔ 当前是**树**结构，不是数组：同一条 <see cref="ParentId"/> 下的多个节点
 /// 就是同一个位置的多个版本（对提问"编辑后重发"、对回答"重新生成"都只是长出一个兄弟节点）。
 /// 旧文件（线性 entries、没有 id/parentId）由 <see cref="ChatSession.EnsureTree"/> 自动补齐，
 /// 不用迁移脚本。
@@ -33,7 +33,7 @@ public sealed class SessionEntry
     public string Content { get; set; } = "";
 
     /// <summary>
-    /// 这一轮 assistant 的思考过程（2026-10-18 加）。
+    /// 这一轮 assistant 的思考过程。
     /// ⚠️ 之前不存，翻历史时"思考过程"整块消失，用户以为丢了 —— 它其实是对话内容的一部分。
     /// </summary>
     [JsonPropertyName("reasoning")]
@@ -61,7 +61,7 @@ public sealed class ChatSession
     [JsonPropertyName("tokens")]
     public int Tokens { get; set; }
 
-    /// <summary>当前显示的那一支的叶子节点（2026-10-23 加）。空 = 取最后一条。</summary>
+    /// <summary>当前显示的那一支的叶子节点。空 = 取最后一条。</summary>
     [JsonPropertyName("currentId")]
     public string? CurrentId { get; set; }
 
@@ -87,7 +87,7 @@ public sealed class ChatSession
             // ⛔⛔ 必须**确定性**生成，不能用随机 id。
             //    旧文件在磁盘上没有 id，每次加载都补一遍 —— 若每次补出来的不一样，
             //    页面拿到的 id 和 `SaveBranch` 里 `Load()` 补出来的就会对不上，
-            //    新节点挂到 parentId 上等于挂到空处，整棵树直接断掉（2026-10-23 踩过）。
+            //    新节点挂到 parentId 上等于挂到空处，整棵树直接断掉（曾实际发生）。
             var candidate = $"e{i}";
             var n = i;
             while (Entries.Any(e => string.Equals(e.Id, candidate, StringComparison.Ordinal)))
@@ -171,7 +171,7 @@ public sealed class ChatSession
 }
 
 /// <summary>
-/// 历史对话的本地存取（2026-10-18，2026-10-23 改为树）。一次对话一个文件，
+/// 历史对话的本地存取（树结构）。一次对话一个文件，
 /// 放在 <c>AppDataDir\hubai-sessions\</c>。
 ///
 /// <para>
@@ -379,7 +379,7 @@ public static class ChatSessionStore
     {
         var first = branch.FirstOrDefault(e => e.Role == "user")?.Content ?? fallback;
 
-        // 去掉换行、压成一行，太长就截断 —— 列表上一行放不下就变成两行，很难看
+        // 去掉换行、压成一行，太长就截断 —— 列表上一行放不下会折成两行，显示效果差
         var line = string.Join(' ', first.Split('\n', '\r', StringSplitOptions.RemoveEmptyEntries)).Trim();
         if (line.Length == 0) line = "未命名对话";
 

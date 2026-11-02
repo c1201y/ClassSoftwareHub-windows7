@@ -273,8 +273,7 @@ public sealed partial class ShellPage : PageBase
 
     /// <summary>
     /// 窄窗口（面板显示模式 Minimal，窗口宽 &lt; 820 DIP）下，NavigationView 会把返回按钮和汉堡按钮
-    /// **浮在内容区左上角**，不给内容留位置 —— 而每个页面的标题正好也在左上角，于是两样东西叠在一起
-    /// （Nick 2026-09-26 反馈「标题和返回、汉堡重叠」）。
+    /// 浮在内容区左上角**，不给内容留位置 —— 而每个页面的标题正好也在左上角，于是两样东西叠在一起。
     /// 这里按显示模式给内容整体让出头顶那一条：Minimal 让 48（＝按钮那一行的高度）；其余模式不用让
     /// （Compact 时按钮在左侧 48 宽的面板栏里、Expanded 时在展开的面板里，都压不到内容）。
     /// </summary>
@@ -332,11 +331,11 @@ public sealed partial class ShellPage : PageBase
     /// <summary>
     /// 把"当前页"的导航高亮 + 分组展开**重新钉一遍**（幂等）。
     ///
-    /// <para>⚠️ 2026-10-07 新增。根因：<see cref="SelectTag"/> 在 ShellPage 构造 / <c>Init()</c>
+    /// <para>根因：<see cref="SelectTag"/> 在 ShellPage 构造 / <c>Init()</c>
     /// 阶段就会跑，而此刻 NavigationView（FluentAvalonia 2.4.1）的项容器尚未 realize：
     /// 往一个**折叠的分组**里设 <c>SelectedItem</c>，FA 的选中指示条（导航栏左边那根带颜色的竖线）
-    /// 找不到可视落点就整条不画；<c>IsExpanded=true</c> 也可能被紧随其后的首次布局冲掉。
-    /// 现象就是 Nick 说的"在二级菜单里那根竖线不见了"。</para>
+    /// 找不到可视落点就整条不画；<c>IsExpanded=true</c> 也可能被紧随其后的首次布局冲掉，
+    /// 表现为二级菜单里选中竖线不显示。</para>
     ///
     /// <para>对策：布局停稳（Loaded 优先级）后再调一次 <see cref="SelectTag"/>，
     /// 顺带把父项展开；此时项容器已存在，FA 能把竖线正确定位到**子项**上。</para>
@@ -424,8 +423,8 @@ public sealed partial class ShellPage : PageBase
         => _captionInteractive ??= new Control[]
         {
             BackButton, ThemeButton, CaptionMinButton, CaptionMaxButton, CaptionCloseButton,
-            // ⛔⛔ 2026-10-19：搜索框也必须列进来 —— 它整块坐在标题栏里，
-            //    不挖出来的话点它就是"系统拖动窗口"，输入框永远拿不到焦点（用户报「搜索栏点不了没有用」）。
+            // 搜索框也必须列进来：它整块坐在标题栏里，
+            // 不挖出来的话点它就是"系统拖动窗口"，输入框永远拿不到焦点。
             SearchBox
         };
 
@@ -464,11 +463,8 @@ public sealed partial class ShellPage : PageBase
                 ? "M3.5,0.5 H9.5 V6.5 H3.5 Z M0.5,3.5 H6.5 V9.5 H0.5 Z"    // 向下还原
                 : "M0.5,0.5 H9.5 V9.5 H0.5 Z");                            // 最大化
 
-            // ⚠️ 2026-10-03（用户第 14 轮「金刚有时候点了没反应」）：**故意不挂 ToolTip**。
-            //    Avalonia 的 Tooltip 是独立 Popup 窗口，悬停一秒就弹出来，这时按下去那一下
-            //    会被 Popup 的 dismiss 吃掉（真机「点了没反应」的头号嫌疑）；
-            //    GripRow 上同一坨问题当年就实测过（Tooltip 一弹，系统模态拖动循环直接被搅掉）。
-            //    三大金刚是高频点击件，宁可没有提示也不能丢点击。
+            // 故意不挂 ToolTip：Tooltip 是独立 Popup 窗口，悬停弹出后紧接着的那次点击
+            // 会被 Popup 的 dismiss 吃掉。三大金刚是高频点击件，宁可没有提示也不能丢点击。
         }
         catch
         {
@@ -510,15 +506,14 @@ public sealed partial class ShellPage : PageBase
         NavigateTag(start);
         Platform.PortLog.Step("ShellPage.Init: 首页导航完成 = " + start);
 
-        // ⚠️ 2026-10-07（Nick：「导航栏左边跟随页面切换变位置的那根带颜色的竖线哪去了，
-        //    在二级菜单里尤其明显」）：Init 阶段 NavigationView 的项容器还没 realize ——
-        //    此刻往**折叠的分组**里塞 SelectedItem，FA 的选中指示条（那根竖线）找不到落点，
-        //    整条就不画；IsExpanded 也可能被随后的首次布局冲掉。
-        //    所以布局停稳之后再补钉一次（详见 ReassertNavSelection）。
+        // Init 阶段 NavigationView 的项容器还没 realize：
+        // 此刻往折叠的分组里塞 SelectedItem，FA 的选中指示条（那根竖线）找不到落点，
+        // 整条就不画；IsExpanded 也可能被随后的首次布局冲掉。
+        // 所以布局停稳之后再补钉一次（详见 ReassertNavSelection）。
         Dispatcher.UIThread.Post(() => { ReassertNavSelection(); FixGroupFlyoutPlacement(); }, DispatcherPriority.Loaded);
 
-        // 再补一发延时兜底：NavigationView 的项容器是**懒 realize** 的，Loaded 那一发常常还是太早
-        // （实测：起始页是二级页时，分组仍旧不展开、竖线仍旧不画）。450ms 后容器已就绪，这一发能钉住。
+        // 再补一发延时兜底：NavigationView 的项容器是**懒 realize** 的，Loaded 那一发常常还是太早，
+        // 起始页是二级页时分组仍旧不展开、竖线仍旧不画；450ms 后容器已就绪，这一发能钉住。
         var navFix = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
         navFix.Tick += (_, _) => { navFix.Stop(); ReassertNavSelection(); FixGroupFlyoutPlacement(); };
         navFix.Start();
@@ -595,13 +590,12 @@ public sealed partial class ShellPage : PageBase
     /// <summary>
     /// 关掉导航栏（含所有项与子项）的 ToolTip。
     ///
-    /// <para>⚠️ 2026-10-15：导航项的 ToolTip 是独立的一条问题（与上面那组「首击被吞」的浮层问题
-    /// 不是同一个东西，但同属「Popup 遮挡 / 吃点击」这一族）。鼠标在导航项上停留到悬停延时后，
-    /// 提示浮层会弹在导航面板右侧、压到内容区上沿（真机截图已拍下），落在那一块的点击会先被浮层
-    /// 消费掉。导航项的文案在展开面板里本来就完整可见，ToolTip 纯属冗余，宁可没有提示也不能丢点击
-    /// —— 与第 14 轮「金刚按钮点了没反应」（见 <see cref="UpdateCaptionGlyphs"/> 的注释）同一取舍。</para>
+    /// <para>导航项的 ToolTip 是独立的一条问题（与「首击被吞」的浮层问题同属「Popup 遮挡 / 吃点击」一族）。
+    /// 鼠标在导航项上停留到悬停延时后，提示浮层会弹在导航面板右侧、压到内容区上沿，
+    /// 落在那一块的点击会先被浮层消费掉。导航项的文案在展开面板里本来就完整可见，
+    /// ToolTip 纯属冗余，宁可没有提示也不能丢点击。</para>
     ///
-    /// <para>⚠️ 关的是「服务」而不是逐项清 <c>Tip</c>：Avalonia 的 <c>ToolTipService.Update</c>
+    /// <para>关的是「服务」而不是逐项清 <c>Tip</c>：Avalonia 的 <c>ToolTipService.Update</c>
     /// 是从命中元素沿 <c>VisualParent</c> 链**向上**找第一个 <c>ServiceEnabled == false</c> 的祖先
     /// 并直接返回，所以在这里关一次即可覆盖整支子树，与项容器何时被懒 realize 无关。</para>
     /// </summary>
@@ -756,6 +750,9 @@ public sealed partial class ShellPage : PageBase
     public void NavigateToFeedbackForm(string kind)
     {
         SelectTag("feedback");
+
+        // 这条路不经过 NavigateTagCore，授权提示得单独补一次
+        PromptLicense("feedback-form");
         ContentFrame.Navigate(typeof(FeedbackFormPage), kind);
     }
 
@@ -775,7 +772,7 @@ public sealed partial class ShellPage : PageBase
         catch (Exception ex)
         {
             // 某个页面自己加载失败（比如 XAML 里引了不存在的资源键）不该把整个应用带走 ——
-            // 之前踩过：应用会记住上次停留的页，页面一坏就变成「一启动就崩」，用户连设置都进不去。
+            // 否则应用记住上次停留的页后，页面一坏就会「一启动就崩」，连设置都进不去。
             LogNavFailure(tag, ex);
             if (tag != "home")
             {
@@ -784,9 +781,40 @@ public sealed partial class ShellPage : PageBase
         }
     }
 
+    /// <summary>需要在线授权的入口 → 提示文案。没列在这里的页面完全不受影响。</summary>
+    private static readonly (string Tag, string Reason)[] LicensePrompts =
+    {
+        ("submit", "软件投稿要走官方服务端：当前不是正版，请输入激活码激活。"),
+        ("announce", "教室喊话要走官方服务端：当前不是正版，请输入激活码激活。"),
+        ("feedback", "反馈中心要走官方服务端：当前不是正版，请输入激活码激活。"),
+        ("feedback-form", "提交反馈要走官方服务端：当前不是正版，请输入激活码激活。"),
+        ("mirror", "系统镜像下载加速要走官方服务端：当前不是正版，请输入激活码激活。"),
+        ("apps", "软件下载加速要走官方服务端：当前不是正版，请输入激活码激活。"),
+    };
+
+    /// <summary>
+    /// 进入在线服务页面时主动提示一次授权。判定与去重都在 <see cref="Services.License.LicenseGate"/>：
+    /// 官方构建、已激活、本次运行里已经点过「以后再说」的入口都不会再弹。
+    /// </summary>
+    private static void PromptLicense(string tag)
+    {
+        // 软件页的分类直达 tag 是 cat:&lt;分类&gt;，与 "apps" 是同一张页面
+        var key = tag.StartsWith("cat:", StringComparison.Ordinal) ? "apps" : tag;
+
+        foreach (var (candidate, reason) in LicensePrompts)
+        {
+            if (!string.Equals(candidate, key, StringComparison.Ordinal)) continue;
+            _ = Services.License.LicenseGate.EnsureAsync(reason, key);
+            return;
+        }
+    }
+
     private void NavigateTagCore(string tag)
     {
         CurrentTag = tag;   // 崩溃日志靠它记下"当时在哪一页"（见 App.OnUnhandledException）
+
+        // 在线服务入口：非官方构建且未激活时，进来就提示一次（每页每次运行最多一次）
+        PromptLicense(tag);
 
         // 内置工具子页：tag 就是 ToolCatalog 里的 Id（导航子项在 ShellPage.axaml 里 XAML 声明，
         // 见该处长注释 —— 必须 XAML 声明，FA 2.4.1 才把选中竖线画到子项上）。
@@ -1060,9 +1088,9 @@ public sealed partial class ShellPage : PageBase
         //    显式 SelectTag 一遍，两条路径都吃到同一套高亮逻辑。
         NavigateTo(tag);
 
-        // ⚠️ 2026-10-15：点的是分组子项 → 父分组的子项浮层必须主动关掉，否则它会一直挂着，
-        //    并把用户离开导航后的**第一次点击**吃掉（用户报的「秒表按钮点第一次没反应」）。
-        //    详见 CloseGroupFlyout 的注释。
+        // 点的是分组子项 → 父分组的子项浮层必须主动关掉，否则它会一直挂着，
+        // 并把用户离开导航后的第一次点击吃掉。
+        // 详见 CloseGroupFlyout 的注释。
         //    延后一帧执行：FA 在导航收尾时会重建这个浮层，得等它建完再关。
         var group = AllTopItems()
             .FirstOrDefault(top => top.MenuItems.OfType<NavigationViewItem>().Contains(item));

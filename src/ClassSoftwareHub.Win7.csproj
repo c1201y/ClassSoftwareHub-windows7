@@ -35,10 +35,10 @@
     <ApplicationResourceIncludeAssetsFromPackages>true</ApplicationResourceIncludeAssetsFromPackages>
 
     <!-- 版本号规则见 Core/ShellConfig.cs（ShellVersion 是唯一来源，这里只是写进 exe 的元数据） -->
-    <Version>1.2.0-insider1.5</Version>
+    <Version>1.2.0-insider1.6</Version>
     <AssemblyVersion>1.2.0.0</AssemblyVersion>
     <FileVersion>1.2.0.0</FileVersion>
-    <InformationalVersion>1.2.0-insider1.5</InformationalVersion>
+    <InformationalVersion>1.2.0-insider1.6</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Product>ClassSoftwareHub</Product>
     <AssemblyTitle>ClassSoftwareHub</AssemblyTitle>
@@ -78,6 +78,23 @@
     <OutputType>Exe</OutputType>
     <DefineConstants>$(DefineConstants);CSH_CONSOLE</DefineConstants>
   </PropertyGroup>
+
+  <!--
+    官方构建签名（编译期注入到程序集元数据）
+
+      dotnet publish ... -p:CshBuildStampB64=<base64>
+
+    值是 build-stamp.txt 整行内容的 base64（由 tools/make-build-stamp.ps1 生成后转换）。
+    BuildIdentity 从 AssemblyMetadata 里读它，不再依赖 exe 同目录的明文 txt ——
+    明文文件谁都能顺手拷走，塞进程序集至少挡住「复制粘贴」这一层。
+
+    ⚠️ 必须传 base64 而不是原文：AssemblyMetadata 的字符串以明文躺在程序集的 #US 堆里，
+       `strings` 就能看到；base64 让「一眼可见」变成「先解一次码」。
+    ⚠️ 属性为空（本地普通 build）时不注入，运行时按社区版处理，属正常情况。
+  -->
+  <ItemGroup Condition="'$(CshBuildStampB64)' != ''">
+    <AssemblyMetadata Include="CshBuildStamp" Value="$(CshBuildStampB64)" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="11.2.8" />

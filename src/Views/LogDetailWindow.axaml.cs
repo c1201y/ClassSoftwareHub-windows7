@@ -101,10 +101,9 @@ public sealed partial class LogDetailWindow : Window
             if (SessionBox.ItemsSource is null) ReloadSessions();
             StartFollow();
 
-            // ⚠️ 2026-10-19 修（用户：日志详细窗口深浅色没适配）：
-            //    构造期那次 ThemeCompat.Apply 发生在**窗口显示之前**，主题变体未必传播到位，
-            //    窗口会一直用默认（浅色）那一套 —— 工具浮窗踩过同一个坑（见 ToolPaletteWindow 的同款注释）。
-            //    显示出来之后再补一次主题 + 材质；并且订阅主题变化，窗口开着时切深浅色也跟着变。
+            // 构造期那次 ThemeCompat.Apply 发生在窗口显示之前，主题变体未必传播到位，
+            // 窗口会一直使用默认（浅色）主题（工具浮窗存在同样问题）。显示后补刷一次主题 + 材质，
+            // 并订阅主题变化，保证窗口开着时切换深浅色也能跟随。
             ApplyThemeNow();
 
             ActualThemeVariantChanged -= OnThemeChanged;
@@ -117,10 +116,8 @@ public sealed partial class LogDetailWindow : Window
     {
         try
         {
-            // ⚠️ 2026-10-19（用户报「日志页详细日志窗口深浅色没适配」）：
-            //    这里必须用 **main 作用域**（跟主界面的「颜色模式」走），不能用默认的 external。
-            //    本窗口是日志页的子窗口，用户开着「分体主题 + 外部分体=dark」时，
-            //    external 会把它染成深色而主界面是浅色 —— 看起来就是"没适配"。
+            // 必须使用 main 作用域（跟随主界面的「颜色模式」），不能用默认的 external：
+            // 本窗口是日志页的子窗口，分体主题下 external 会把它染成与主界面不一致的颜色。
             ThemeCompat.Apply(Root);
             BackdropTheme.Apply(this, Root, App.Settings.Current.Backdrop);
             _chips.RefreshTheme();          // 筛选芯片的画刷是构造期写死的实例值，得跟着重算
@@ -135,7 +132,7 @@ public sealed partial class LogDetailWindow : Window
 
     // ── 对外 ─────────────────────────────────────────────────────────────
 
-    /// <summary>摊开这扇窗。已经开着就切到指定的会话 / 文件，再把它调到前面。</summary>
+    /// <summary>显示窗口。已开着时切换到指定的会话 / 文件，并置于前台。</summary>
     public static void Show(string? sessionName, string? fileName)
     {
         try

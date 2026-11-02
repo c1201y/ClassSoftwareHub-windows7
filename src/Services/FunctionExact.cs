@@ -3,7 +3,7 @@ using System.Linq.Expressions;
 namespace ClassSoftwareHub.Desktop.Services;
 
 /// <summary>
-/// 函数分析的**精确结论**入口。原则只有一条（Nick 定）：
+/// 函数分析的**精确结论**入口。原则只有一条：
 /// <b>给出的每一项都必须是函数本身的性质，不随视窗移动而变</b>。
 ///
 /// <para>
@@ -248,7 +248,7 @@ public static class FunctionExact
     /// <summary>
     /// 精确数字写法：**先试 π 的整数/分数倍，再试简单分数，最后才退回小数**。
     /// ⛔ 分母为 2、3、4、6 的 π 倍数写成 π/2、2π/3 这种，是教科书写法；
-    /// 一律写成 1.5708 会立刻显得"机器算的"（Nick 反复点过这一点）。
+    /// 一律写成 1.5708 会立刻呈现机器生成的观感，不符合教科书写法。
     /// </summary>
     private static string ExactNum(double v)
     {

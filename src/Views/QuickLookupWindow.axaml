@@ -12,7 +12,7 @@
       · 跟主页面一样**分成两块**：上面查单词、下面翻译句子，各用各的输入框（不共用一个框）。
       · 窗口用自绘 32px 标题栏（与文件快搜 / 常用工具窗同一套：整条可拖、系统贴边/双击/边缘缩放），
         × / Esc = 收起（不销毁，下次打开秒开）。
-      · 结果只在代码里构造，⛔ 不用 ItemTemplate + x:Bind。
+      · 结果只在代码里构造，不用 ItemTemplate + x:Bind。
 
       ⚠️ 移植：AutoSuggestBox → TextBox + 内联 ListBox 候选；IsTextSelectionEnabled → SelectableTextBlock。
     -->

@@ -17,16 +17,9 @@ namespace ClassSoftwareHub.Desktop.Views;
 /// 不需要开主界面，从托盘就能点出来。
 ///
 /// <para>
-/// ── 窗口边框方案（2026-09-24 改过一次，2026-10-02 又改回来）──────────────
-/// 2026-09-24 曾退回**标准窗口**（系统标题栏 + 原生边框），理由是"自绘那套在触屏上拖不动"。
-/// 但那个"拖不动"是**旧实现**的问题（自己用指针事件算位移），不是这个方案固有的：
-/// 现在整条 32px 标题栏报 <c>HTCAPTION</c>，拖动由**系统的 modal move loop** 执行 ——
-/// 鼠标、触屏、贴边、双击全都跟原生窗口一模一样。
-/// </para>
-///
-/// <para>
-/// ⚠️ 为什么要改回来：用户实机反馈「内置工具窗口还有原生边框」——
-///    之前是「系统标题栏 + 应用内 32px 自绘标题栏」**两条标题栏叠着**，很难看。
+/// 窗口边框方案：**自绘 32px 标题栏**，整条报 <c>HTCAPTION</c>，
+/// 拖动由**系统的 modal move loop** 执行 —— 鼠标、触屏、贴边、双击全都跟原生窗口一模一样。
+/// 不要退回「系统标题栏 + 应用内自绘标题栏」的叠层方案（两条标题栏并存）。
 /// </para>
 ///
 /// 用法：<c>ToolPaletteWindow.ShowTool("timer")</c> / <c>HidePalette()</c> / <c>TogglePalette()</c>。
@@ -38,7 +31,7 @@ namespace ClassSoftwareHub.Desktop.Views;
 ///   · 材质/圆角必须等窗口真显示之后再上（构造期拿不到 HWND），挪进了 ShowPalette；
 ///   · 标题栏方案：**所有系统**都用 <see cref="Core.SelfDrawnFrame"/> 接管非客户区
 ///     （系统标题栏/边框/三大金刚键一个像素都不留），关闭键由 AppTitleBar 里那个 Button.caption 承担；
-///     ⛔ 别退回「客户区扩展 + PreferSystemChrome」：用户实测那样右上角会顶着原生关闭/最小化/最大化按钮；
+///     不要退回「客户区扩展 + PreferSystemChrome」：那样右上角会顶着原生关闭/最小化/最大化按钮；
 ///   · UpdateCaptionButtonColors 砍掉了：系统按钮已经不存在了。
 /// </summary>
 public sealed partial class ToolPaletteWindow : Window
@@ -129,8 +122,8 @@ public sealed partial class ToolPaletteWindow : Window
 
     /// <summary>
     /// 退出应用时**真正销毁**实例 —— 和平时"关掉=收起来"（<see cref="HidePalette"/>）是两回事。
-    /// ⛔ 为什么必须有：desktop.Shutdown() / Application.Exit() 会漏窗口，浮窗没被关掉就会把消息循环撑住、
-    ///    让进程留在任务管理器里（2026-10-04 实测，见 MainWindow.FinishExit 的注释）。
+    /// 为什么必须有：desktop.Shutdown() / Application.Exit() 会漏窗口，浮窗没被关掉就会把消息循环撑住、
+    ///    让进程留在任务管理器里（见 MainWindow.FinishExit 的注释）。
     /// </summary>
     public static void CloseForExit()
     {
@@ -163,7 +156,7 @@ public sealed partial class ToolPaletteWindow : Window
         {
             Title = "常用工具";
             ShowInTaskbar = false;          // 不进任务栏、不进 Alt+Tab（入口是**托盘上它自己的图标**）
-            // ⚠️ 2026-10-03（用户第 14 轮）：放开缩放 —— SelfDrawnFrame 的 ResizeEnabled 一起开，
+            // 放开缩放 —— SelfDrawnFrame 的 ResizeEnabled 一起开，
             //    六条边都能拖（见 AttachSelfDrawnFrame）。内容区是弹性布局，拉大跟着铺开。
             CanResize = true;
             MinWidth = 300;                 // 别让用户缩到工具挤烂
@@ -172,11 +165,10 @@ public sealed partial class ToolPaletteWindow : Window
 
             try
             {
-                // ⛔ 2026-10-29（用户反馈「常用工具有原生关闭/最小化/最大化按钮」）：
-                //    这里原来在 Win10/11 上走 `ExtendClientAreaToDecorationsHint=true + PreferSystemChrome`，
-                //    那是「客户区扩展 + 让系统画标题栏按钮」—— 结果就是窗口右上角顶着三个原生按钮，
+                // 不能走 `ExtendClientAreaToDecorationsHint=true + PreferSystemChrome`：
+                //    那是「客户区扩展 + 让系统画标题栏按钮」—— 窗口右上角会顶着三个原生按钮，
                 //    和我们自己那条 32px 的 AppTitleBar 两套并存。
-                //    现在**所有系统**都走自绘：系统标题栏/边框一个像素都不留，
+                //    **所有系统**都走自绘：系统标题栏/边框一个像素都不留，
                 //    拖动/贴边/双击最大化/边缘缩放仍然由系统执行（HTCAPTION / HT*），手感 100% 原生。
                 ExtendClientAreaToDecorationsHint = false;
                 AttachSelfDrawnFrame();
@@ -204,8 +196,8 @@ public sealed partial class ToolPaletteWindow : Window
         Closed += (_, _) => Core.AppLog.Info("exit", "浮窗 Closed");
 
         // 关掉 = 收起来，别真销毁。
-        // ⛔ 但**应用正在退出时必须放行**：desktop.Shutdown() 逐个关窗，撞上被取消的关闭会中止整条退出流程
-        //    → 只要本窗开着，托盘「退出」后进程就会赖在任务管理器里不走（2026-10-04 实测复现）。
+        // 但**应用正在退出时必须放行**：desktop.Shutdown() 逐个关窗，撞上被取消的关闭会中止整条退出流程
+        //    → 只要本窗开着，托盘「退出」后进程就会赖在任务管理器里不走。
         //    App.IsExiting 由 MainWindow.ExitApp / 主窗真的关闭时置位。
         Closing += (_, args) =>
         {
@@ -236,7 +228,7 @@ public sealed partial class ToolPaletteWindow : Window
         try
         {
             _frame = SelfDrawnFrame.Attach(this);
-            // ⚠️ 2026-10-03（用户第 14 轮）：开边缘缩放 —— 六条边在 NCHITTEST 报 HT*，系统模态缩放循环接管
+            // 开边缘缩放 —— 六条边在 NCHITTEST 报 HT*，系统模态缩放循环接管
             _frame.ResizeEnabled = true;
             _frame.TitleBarHeight = TitleBarHeightDip; // 32dip 以内返回 HTCAPTION，拖动交给系统
             _frame.InteractiveRegions = TitleBarInteractiveRegions;
@@ -260,7 +252,7 @@ public sealed partial class ToolPaletteWindow : Window
     {
         var list = new System.Collections.Generic.List<Rect>(2);
 
-        // ⚠️「打开页面」和「关闭」都要挖出来：不挖的话点它们会被系统当成拖窗 —— 点击直接丢失。
+        // 「打开页面」和「关闭」都要挖出来：不挖的话点它们会被系统当成拖窗 —— 点击直接丢失。
         AddInteractiveRegion(list, OpenPageButton);
         AddInteractiveRegion(list, CaptionCloseButton);
 
@@ -307,8 +299,7 @@ public sealed partial class ToolPaletteWindow : Window
                 _shownOnce = true;
                 Show();                                     // Avalonia 首次显示（原版 Activate）
 
-                // ⚠️ 2026-10-06（用户「首次启动悬浮窗白底白字」同因同修）：构造期那次
-                //    ThemeCompat.Apply 发生在窗口显示之前，主题变体未必传播到位；
+                // 构造期那次 ThemeCompat.Apply 发生在窗口显示之前，主题变体未必传播到位；
                 //    显示后补一次主题 + 按钮配色，再 Dispatcher 补一拍兜底。
                 ThemeCompat.Apply(Root, external: true);
                 ApplySelection();
@@ -318,10 +309,10 @@ public sealed partial class ToolPaletteWindow : Window
                     ApplySelection();
                 }, Avalonia.Threading.DispatcherPriority.Loaded);
 
-                // ⚠️ 圆角要在显示之后补一次（构造期窗口尺寸还没有最终定）：
+                // 圆角要在显示之后补一次（构造期窗口尺寸还没有最终定）：
                 //    Win10/7 走 SetWindowRgn 裁剪，尺寸/半径没变时是空转。
                 _corners?.Refresh();
-                // ⚠️ 材质必须等窗口真显示出来之后再上（构造期拿不到 HWND，上了也是纯色兜底）
+                // 材质必须等窗口真显示出来之后再上（构造期拿不到 HWND，上了也是纯色兜底）
                 BackdropTheme.Apply(this, Root, _backdropPrefer);
                 ApplyPosition();
             }
@@ -358,7 +349,7 @@ public sealed partial class ToolPaletteWindow : Window
         _visible = false;
         SavePosition();
 
-        // 收起 = 没人看：停掉里面的表，顺手把内存还给系统
+        // 收起后无渲染需求：停掉内部计时器并释放内存
         try { ClockView.Pause(); TimerView.Pause(); StopwatchView.Pause(); } catch { }
 
         // 先淡出，播完再藏 —— 别"啪"一下消失（系统 Flyout 收起也是淡出）
@@ -459,10 +450,9 @@ public sealed partial class ToolPaletteWindow : Window
     private int ClientHeightPx() => (int)Math.Round(ClientSize.Height * Scale());
 
     /// <summary>
-    /// 位置 + 尺寸：用户动过就用他放的（并保证还在屏幕里）；没动过就摆**屏幕正中间**。
+    /// 位置 + 尺寸：用户调整过就沿用其位置（并保证仍在屏幕内）；否则居中显示。
     /// ⚠️ 老版本存在右下角的旧坐标会在 PositionVersion 升级后被忽略一次，重新居中。
-    /// ⚠️ 2026-10-03（用户第 14 轮「内置工具窗口可以拖动调整大小」）：窗口可缩放了，
-    ///    尺寸（dip）跟位置一起记忆；没存过就用默认的 400×360。
+    /// ⚠️ 窗口支持拖动缩放：尺寸（dip）与位置一同记忆；未存过时使用默认 400×360。
     /// </summary>
     private void ApplyPosition()
     {

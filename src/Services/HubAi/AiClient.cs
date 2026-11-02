@@ -16,7 +16,7 @@ using ClassSoftwareHub.Desktop.Core;
 namespace ClassSoftwareHub.Desktop.Services.HubAi;
 
 /// <summary>
-/// 模型调用（2026-10-18）。只认 OpenAI 兼容协议，见 <see cref="AiProviders"/> 的说明。
+/// 模型调用。只认 OpenAI 兼容协议，见 <see cref="AiProviders"/> 的说明。
 ///
 /// <para>
 /// ⛔⛔ 三条铁律：
@@ -353,7 +353,7 @@ public static class AiClient
     }
 
     /// <summary>
-    /// 按服务商翻译"思考开关"（2026-10-18，逐家对着官方文档核过）。
+    /// 按服务商翻译"思考开关"（已逐家对照官方文档核对）。
     ///
     /// <para>
     /// ⚠️ 同一个能力，四家四种写法：

@@ -8,7 +8,7 @@ namespace ClassSoftwareHub.Desktop.Platform;
 /// <see cref="NativeMethods"/>/<see cref="NativeMethodsEx"/> 的**第二批补充**：托盘图标、全局低级钩子、
 /// 以及教学动作需要的那几个零散 user32 导出。
 ///
-/// ⚠️ 为什么另开文件：<see cref="NativeMethods"/> 不是 partial 且移植期要求不修改已就绪的 Platform 文件，
+/// 为什么另开文件：<see cref="NativeMethods"/> 不是 partial 且移植期要求不修改已就绪的 Platform 文件，
 ///    没法就地扩展，所以按伴生类的惯例新开一个同命名空间的类。调用方一律走 <c>Platform.NativeMethods*</c>。
 ///
 /// 每个导出仍按 <see cref="NativeMethods"/> 的惯例，在注释里标**最低可用系统**。
@@ -134,19 +134,19 @@ internal static class NativeMethodsShell
 
     /// <summary>
     /// 最低 Win2000。挂/改/删托盘图标 + 弹气泡。
-    /// ⚠️ Win7 上气泡就是**托盘气泡**（<c>NOTIFYICONDATA</c> 的 <c>uTimeout</c> 字段，实际时长由系统定）；
+    /// Win7 上气泡就是**托盘气泡**（<c>NOTIFYICONDATA</c> 的 <c>uTimeout</c> 字段，实际时长由系统定）；
     ///    Win10+ 才会被转成 Action Center 的 toast。
-    /// ⚠️ <c>SetLastError = true</c> 是**排障刚需**：NIM_ADD 在 explorer 无响应 / 完整性不足 /
+    /// <c>SetLastError = true</c> 是**排障刚需**：NIM_ADD 在 explorer 无响应 / 完整性不足 /
     ///    参数不被接受时返回 FALSE，没有这个修饰符 <c>Marshal.GetLastWin32Error</c> 拿到的是
-    ///    上一条无关调用的残留值（实测拿到 0，把"静默拒绝"伪装成"没有错误"），根因直接瞎掉。
-    /// ⚠️ <c>EntryPoint</c> 显式写 W 后缀：CharSet 自动探测依赖 CLR 的后缀回退链，
+    ///    上一条无关调用的残留值，"静默拒绝"会被伪装成"没有错误"，根因直接瞎掉。
+    /// <c>EntryPoint</c> 显式写 W 后缀：CharSet 自动探测依赖 CLR 的后缀回退链，
     ///    显式指定可避免任何模糊解析（Ansi 版结构体按 Unicode 布局解释会直接错位）。
     /// </summary>
     [DllImport("shell32.dll", EntryPoint = "Shell_NotifyIconW", CharSet = CharSet.Unicode, SetLastError = true)]
     internal static extern bool Shell_NotifyIcon(uint dwMessage, ref NOTIFYICONDATA lpData);
 
     /// <summary>
-    /// 现代版（V3）布局。⚠️ 偏移处那个 <c>uVersion</c> 与 V2 的 <c>uTimeout</c> 是**同一块联合体**：
+    /// 现代版（V3）布局。偏移处那个 <c>uVersion</c> 与 V2 的 <c>uTimeout</c> 是**同一块联合体**：
     ///   调 NIM_SETVERSION 时它是版本号，弹气泡（NIM_MODIFY + NIF_INFO）时它是超时（毫秒）。
     /// </summary>
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -254,7 +254,7 @@ internal static class NativeMethodsShell
 
     // ══════════════════════════════════════════════════════════════════
     //  user32 —— 全局低级鼠标钩子（触摸监听）
-    //  最低 Win2000，Win7 完整可用。⚠️ 32/64 位必须同位数才能注入，本项目只出 x64。
+    //  最低 Win2000，Win7 完整可用。32/64 位必须同位数才能注入，本项目只出 x64。
     // ══════════════════════════════════════════════════════════════════
 
     internal delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);

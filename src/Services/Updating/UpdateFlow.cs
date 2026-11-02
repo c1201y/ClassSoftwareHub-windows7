@@ -146,12 +146,10 @@ public static class UpdateFlow
 
         var allowClose = false;          // 收尾阶段（正在安装）才允许关窗
         var userCancelled = false;       // 用户主动点了「取消下载」
-        var closedByUser = false;        // 弹窗已经被用户关掉了，后面别再 Hide
+        var closedByUser = false;        // 弹窗已经被用户关掉了，后续不再 Hide
 
-        // ⚠️ 这个 token 就是"卡死时的出口"。原来它根本没接线：
-        // UpdateService 里的 HttpClient 是 Timeout.InfiniteTimeSpan（注释写着"靠 CancellationToken 控制"），
-        // 但 DownloadAndVerifyAsync 调用时没传 ct —— 于是连接建立后传输停滞（半开连接、镜像挂起）时
-        // ReadAsync 会永久阻塞，弹窗又关不掉，用户只能杀进程。
+        // ⚠️ 这个 token 就是"卡死时的出口"：下载通道若无取消令牌，
+        // 连接建立后传输停滞（半开连接、镜像挂起）时 ReadAsync 会永久阻塞，弹窗又关不掉。
         using var cts = new CancellationTokenSource();
 
         var dialog = new ContentDialog
@@ -177,11 +175,11 @@ public static class UpdateFlow
             try { cts.Cancel(); } catch { /* 已经取消过了 */ }
         };
 
-        // ⚠️ 这里原来把 ShowAsync 的 Task 直接丢掉（`_ = ...`）：弹窗解析不到宿主、或已经有
-        //    ContentDialog 在显示（RunAsync 被调两次）时会抛 InvalidOperationException ——
+        // ⚠️ ShowAsync 的 Task 不能无人观察：弹窗解析不到宿主、或已有 ContentDialog 在显示
+        //    （RunAsync 被调两次）时会抛 InvalidOperationException ——
         //    异常被静默吞掉 → 弹窗根本没出现，dialog.Closing 也就从没挂上 →
         //    userCancelled 永远 false、cts 永远取消不了，下载在"没界面、停不掉"的状态下跑完。
-        //    现在：同步抛的直接中止；异步失败的把异常观察掉并取消下载（宁可不下，也别闷头跑）。
+        //    处理：同步抛的直接中止；异步失败的把异常观察掉并取消下载（宁可不下，也别闷头跑）。
         try
         {
             var showTask = owner is null ? dialog.ShowAsync() : dialog.ShowAsync(owner);
@@ -207,8 +205,7 @@ public static class UpdateFlow
 
         try
         {
-            // 进度改成 DownloadProgress（2026-10-18 自上游 1.2.0 移植）：
-            // 它带已收字节 / 总字节 / 速度，任务页的卡片与普通下载是同一套快照。
+            // 进度用 DownloadProgress：它带已收字节 / 总字节 / 速度，任务页的卡片与普通下载是同一套快照。
             var progress = new Progress<DownloadProgress>(p =>
             {
                 bar.Value = p.Indeterminate ? 0 : p.Percent;
@@ -227,7 +224,7 @@ public static class UpdateFlow
             var downloaded = await TryReuseLocalAsync(package, destination, t => status.Text = t, cts.Token)
                              ?? await service.DownloadAndVerifyAsync(package, destination, progress, cts.Token);
 
-            cts.CancelAfter(Timeout.Infinite);   // 下载完了，别再触发超时打断安装
+            cts.CancelAfter(Timeout.Infinite);   // 下载完成，取消超时以免打断安装
             bar.Value = 100;
 
             // ⚠️⚠️ 安装前最后一道闸：**未校验的包绝不能执行**。
@@ -248,7 +245,7 @@ public static class UpdateFlow
             // ⚠️⚠️ RunInstaller 只是"安排"（它内部会先等约 3 秒才拉起安装程序），
             //    随后必须**立刻真的退出应用**：Inno 一启动就查 AppMutex，
             //    这时应用还在的话安装会被静默取消（详见 UpdateService.RunInstaller 注释）。
-            //    顺序反了（先装后退 / 不退）就是 2026-10-01「1.2 升不到 1.3」的根因。
+            //    顺序反了（先装后退 / 不退）安装会被静默取消、表现为「版本没变」。
             UpdateService.RunInstaller(downloaded.FilePath);
             allowClose = true;
             await Task.Delay(400);       // 让 cmd 来得及把延迟启动安排下去，再走
@@ -300,14 +297,14 @@ public static class UpdateFlow
 
         _ = Task.Run(async () =>
         {
-            // ── 更新下载也进「任务进行」页（2026-10-18 自上游 1.2.0 移植） ──
+            // ── 更新下载也进「任务进行」页 ──
             // 任务页、导航徽标、完成通知这些观察者都靠 DownloadManager 的台账工作，
             // 所以这里登记一条 DownloadTask，把进度与结局回报进去，界面一行都不用改。
             DownloadTask? tracked = null;
             try
             {
                 // ⚠️ 必须回 UI 线程登记：TrackUpdate 往 ObservableCollection 里 Insert，
-                //    而这里整段跑在 Task.Run 的线程池线程上（进度/收尾早就用 RunOnUi 了，唯独漏了登记这一步）。
+                //    而这里整段跑在 Task.Run 的线程池线程上。
                 tracked = RunOnUiGet(() => DownloadManager.Current.TrackUpdate(
                     $"更新 {release.Tag}", release.Tag,
                     "正在下载更新包。下载完成后可点「安装」立即安装（安装时会先退出本程序）。",
@@ -407,7 +404,7 @@ public static class UpdateFlow
     }
 
     /// <summary>
-    /// 「任务进行」页的更新包点「安装」（2026-10-18 自上游 1.2.0 移植）。
+    /// 「任务进行」页的更新包点「安装」。
     ///
     /// 与 <see cref="InstallPendingNowAsync"/> 是同一条路，差别只在取哪条路径：
     /// 后者从设置里的"待装标记"拿，这里直接从**这一条任务的落盘路径**拿 ——
@@ -550,7 +547,7 @@ public static class UpdateFlow
             }
             catch
             {
-                // 连提示都弹不出来：日志已经记下了，别再把异常抛给调用方
+                // 连提示都弹不出来：日志已经记下，不向调用方抛出异常
             }
             return false;
         }
@@ -562,7 +559,7 @@ public static class UpdateFlow
     ///
     /// ⚠️⚠️ 顺序与在线更新完全一致：<see cref="UpdateService.RunInstaller"/> 只是"安排"
     ///    （它自己会先等约 3 秒），随后必须**立刻真的退出应用** —— Inno 一启动就查 AppMutex，
-    ///    应用还在跑的话安装会被静默取消、用户端只表现为"版本没变"（2026-10-01 的根因）。
+    ///    应用还在跑的话安装会被静默取消、用户端只表现为"版本没变"。
     /// </summary>
     public static async Task InstallLocalAsync(string installerPath)
     {
@@ -580,8 +577,8 @@ public static class UpdateFlow
     /// ⚠️⚠️ 必须走 <see cref="MainWindow.ExitApp"/>（它会先置 <c>_exitRequested</c>）。
     ///    直接调 <c>Application.Current.Exit()</c> 会被 MainWindow 里 AppWindow.Closing 的托盘逻辑
     ///    拦成"用户点了 ×" → <c>SW_HIDE</c> 躲进托盘，**进程不退** → 安装程序查到 AppMutex 占用 →
-    ///    静默模式自动取消 → 安装失败且无任何提示。这就是 2026-10-01「1.2 无法更新到 1.3」的根因。
-    ///    ⚠️ 移植：Avalonia 侧同样是"必须走 MainWindow.ExitApp()"这条路，见上面注释。
+    ///    静默模式自动取消 → 安装失败且无任何提示。
+    ///    Avalonia 侧同样是"必须走 MainWindow.ExitApp()"这条路，见上面注释。
     /// </summary>
     private static void ExitAppNow()
     {
@@ -651,8 +648,8 @@ public static class UpdateFlow
                 // 那边会直接抛 MissingChecksumException（见 UpdateService.DownloadAndVerifyAsync），
                 // 界面据此提示"该发布未提供校验值"，不会白下大文件。
                 //
-                // ⚠️ 这里**绝不能删本地包**（原来会拿 package.Size 比，对不上就删）：
-                //    ① 接口缺 size 时 GitHubReleaseSource 给的是 0 → 一次"检查更新"就把用户
+                // ⚠️ 这里**绝不能删本地包**：
+                //    ① 接口缺 size 时 GitHubReleaseSource 给的是 0 → 拿 size 比较会把用户
                 //       留着回滚 / 离线覆盖安装的包删掉，再重下几百 MB；
                 //    ② 既然压根不打算用它，删它一点好处都没有。
                 return null;
@@ -672,9 +669,9 @@ public static class UpdateFlow
     }
 
     /// <summary>
-    /// 把「待装更新」补进任务列表（2026-10-22 自上游 1.3 移植）。
+    /// 把「待装更新」补进任务列表。
     /// <para>
-    /// 起因：包是**上一次会话**下好的（<c>UpdatePendingPath</c> 存在设置里），重启后任务列表是空的 ——
+    /// 包是**上一次会话**下好的（<c>UpdatePendingPath</c> 存在设置里），重启后任务列表是空的 ——
     /// 用户在「任务进行」页看不到它，只能去首页横幅点安装。这里按需补一条已完成的更新任务卡片，
     /// 与「后台下载完成」那条完全同构（同一个 TrackUpdate + CompleteExternal 套路）。
     /// </para>

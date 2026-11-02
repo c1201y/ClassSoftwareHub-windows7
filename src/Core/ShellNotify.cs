@@ -4,10 +4,11 @@ using System.Runtime.InteropServices;
 namespace ClassSoftwareHub.Desktop.Core;
 
 /// <summary>
-/// 改完注册表后通知外壳刷新（自上游 2026-10-31 移植，机制照 Dism++ 的 <c>ExplorerNotify</c> 抄过来）。
+/// 改完注册表后通知外壳刷新（自上游移植，机制同 Dism++ 的 <c>ExplorerNotify</c>）。
 ///
 /// <para>
-/// 为什么需要它：任务栏、桌面的很多设置<b>写进注册表不会自己重读</b> —— 以前的办法是
+/// 为什么需要它：任务栏、桌面的很多设置<b>写进注册表不会自己重读</b> ——
+/// 以前的办法是
 /// <c>taskkill /f /im explorer.exe</c> 再拉起来，代价是用户所有资源管理器窗口被关掉、
 /// 界面还要僵几秒。Dism++ 用的是两条外壳通知，改完立刻生效、一个窗口都不动：
 /// <list type="bullet">
@@ -17,14 +18,14 @@ namespace ClassSoftwareHub.Desktop.Core;
 /// </para>
 ///
 /// <para>
-/// ⛔⛔ <b>桌面的那条只发给 Progman 一个窗口</b>，绝不 <c>HWND_BROADCAST</c>。
+/// <b>桌面的那条只发给 Progman 一个窗口</b>，绝不 <c>HWND_BROADCAST</c>。
 /// <c>WM_COMMAND</c> 是"命令"语义，广播出去可能被别的程序当成自己的命令号执行 ——
 /// 为了一次刷新去动别人的窗口不值得。拿不到 Progman 就直接不发：宁可没反应，
 /// 用户还能点界面上的「重启资源管理器」兜底。
 /// </para>
 ///
 /// <para>
-/// ⚠️ 两条都带 1 秒超时、都吞异常：这是"锦上添花"的一步，失败了不该让整次应用报错。
+/// 两条都带 1 秒超时、都吞异常：这是"锦上添花"的一步，失败了不该让整次应用报错。
 /// </para>
 /// </summary>
 public static class ShellNotify

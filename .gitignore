@@ -21,6 +21,10 @@ Thumbs.db
 desktop.ini
 .DS_Store
 
+## 发布密钥与构建签名（绝不入库；详见 docs/正版校验与服务端接入.md）
+.secrets/
+build-stamp.txt
+
 ## AI 协作工具的工作目录（本地备份等，不入库）
 .workbuddy/
 

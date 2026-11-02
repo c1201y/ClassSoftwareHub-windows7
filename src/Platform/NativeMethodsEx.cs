@@ -8,7 +8,7 @@ namespace ClassSoftwareHub.Desktop.Platform;
 /// <see cref="NativeMethods"/> 的**补充**：SystemInfo / ScreenCapture / WindowChrome 需要的
 /// Win32 导出，按移植契约「所有 P/Invoke 都必须集中在 Platform」的规矩收在这里。
 ///
-/// ⚠️ 为什么另开一个类而不是并进 <see cref="NativeMethods"/>：
+/// 为什么另开一个类而不是并进 <see cref="NativeMethods"/>：
 ///    那个文件**不是 partial**（且移植期明确要求不修改已就绪的 Platform 文件），
 ///    没法就地扩展，所以新开一个同命名空间的伴生类。语义上二者是一回事，
 ///    调用方一律走 <c>Platform.NativeMethods*</c>。
@@ -77,14 +77,14 @@ internal static class NativeMethodsEx
 
     /// <summary>
     /// 最低 WinXP。CPU 特性查询（PF_VIRT_FIRMWARE_ENABLED = 21）。
-    /// ⚠️ 这个位会被 Hyper-V / VBS 挡住，见 SystemInfo.VirtualizationText 的说明。
+    /// 这个位会被 Hyper-V / VBS 挡住，见 SystemInfo.VirtualizationText 的说明。
     /// </summary>
     [DllImport("kernel32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool IsProcessorFeaturePresent(uint feature);
 
     // ── 剪贴板写位图（Win7 上唯一可靠的「复制图片」路径）─────────────
-    // ⚠️ Avalonia 的 IClipboard 只认文本 / 文件，没有位图格式，
+    // Avalonia 的 IClipboard 只认文本 / 文件，没有位图格式，
     //    所以截图的「复制到剪贴板」直接走 Win32 的 CF_DIB。
 
     /// <summary>最低 Win2000。</summary>
@@ -158,7 +158,7 @@ internal static class NativeMethodsEx
         public uint dmReserved1, dmReserved2, dmPanningWidth, dmPanningHeight;
     }
 
-    /// <summary>⚠️ 必须用 W 版导出名：64 位 user32 **没有** 裸露的 <c>GetWindowLongPtr</c>，
+    /// <summary>必须用 W 版导出名：64 位 user32 **没有** 裸露的 <c>GetWindowLongPtr</c>，
     /// 只有 <c>GetWindowLongPtrW</c> / <c>...A</c>。</summary>
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
     internal static extern IntPtr GetWindowLongPtrW(IntPtr hWnd, int nIndex);
@@ -273,7 +273,7 @@ internal static class NativeMethodsEx
     /// <summary>属于客户区（内容自己处理）。</summary>
     internal const int HTCLIENT = 1;
 
-    // ⚠️ HTCAPTION(2) 已在 NativeMethods 里定义，不重复；下面这几档共 8 个方向。
+    // HTCAPTION(2) 已在 NativeMethods 里定义，不重复；下面这几档共 8 个方向。
     internal const int HTLEFT = 10;
     internal const int HTRIGHT = 11;
     internal const int HTTOP = 12;
@@ -320,7 +320,7 @@ internal static class NativeMethodsEx
     //  最低 WinXP（comctl32 v6）。SetWindowSubclass 是在**既有 WndProc 之上**再叠一层，
     //  DefSubclassProc 把消息转发给下一环 —— 与框架自己的消息处理天然并存，
     //  不像 SetWindowLong 替换 WndProc 那样要自己保存/还原旧指针。
-    //  ⚠️ 必须在**拥有该窗口的线程**上调用。
+    //  必须在**拥有该窗口的线程**上调用。
 
     internal delegate IntPtr SubclassProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam,
         uint uIdSubclass, IntPtr dwRefData);
@@ -332,7 +332,7 @@ internal static class NativeMethodsEx
     internal static extern IntPtr DefSubclassProc(IntPtr hWnd, uint uMsg, IntPtr wParam, IntPtr lParam);
 
     // ══════════════════════════════════════════════════════════════════
-    //  非客户区绘制的抑制（2026-10-02）
+    //  非客户区绘制的抑制
     //
     //  「拖拽调整大小时又冒出原生边框」的根治。光靠 WM_NCCALCSIZE 返回 0 在
     //  Win10/11 的 DWM 合成下就够了，但**关了 DWM 合成的 Win7 经典主题**下，
@@ -365,7 +365,7 @@ internal static class NativeMethodsEx
     /// 期间鼠标每动一像素就改一次窗口尺寸 → <c>Resized</c> / <c>PositionChanged</c> 会密集触发。
     /// 这段窗口期内**只做必须跟着走的最小工作**（重排页面、重画），
     /// 把"要不要发网页脚本、要不要重算浮层落点"这类重活推到 <see cref="WM_EXITSIZEMOVE"/>，
-    /// 否则拖拽就会一顿一顿的（用户报的"拖拽调整大小卡卡的"）。
+    /// 否则拖拽就会一顿一顿的。
     /// </para>
     /// </summary>
     internal const uint WM_ENTERSIZEMOVE = 0x0231;
@@ -374,7 +374,7 @@ internal static class NativeMethodsEx
     internal const uint WM_EXITSIZEMOVE = 0x0232;
 
     // ══════════════════════════════════════════════════════════════════
-    //  DWM 非客户区渲染策略（2026-10-02，修「出现两个关闭按钮」）
+    //  DWM 非客户区渲染策略
     // ══════════════════════════════════════════════════════════════════
 
     /// <summary><c>DWMWA_NCRENDERING_POLICY</c>：由 DWM 决定非客户区（标题栏/边框）画不画。</summary>
@@ -394,7 +394,7 @@ internal static class NativeMethodsEx
     /// </summary>
     internal const int DWMNCRP_DISABLED = 1;
 
-    /// <summary>取/设窗口类样式（<c>GCL_STYLE</c>）。⚠️ 改的是**整个类**，不是单个窗口。</summary>
+    /// <summary>取/设窗口类样式（<c>GCL_STYLE</c>）。改的是**整个类**，不是单个窗口。</summary>
     internal const int GCL_STYLE = -26;
 
     /// <summary>窗口类的背景刷（只读，排障用）。</summary>
@@ -445,13 +445,13 @@ internal static class NativeMethodsEx
     //
     //  Win7 上 DwmSetWindowAttribute(DWMWA_WINDOW_CORNER_PREFERENCE) 是不认的，
     //  必须用 SetWindowRgn 把窗口形状裁成圆角矩形。
-    //  ⚠️ 只能用在**不可缩放**的窗口上：区域之外的像素不参与命中测试，
+    //  只能用在**不可缩放**的窗口上：区域之外的像素不参与命中测试，
     //     主窗口那圈缩放边会被裁掉，点不中。
     // ══════════════════════════════════════════════════════════════════
 
     /// <summary>
     /// 建一个圆角矩形区域。
-    /// ⚠️ <paramref name="right"/> / <paramref name="bottom"/> 是**坐标**不是宽高，
+    /// <paramref name="right"/> / <paramref name="bottom"/> 是**坐标**不是宽高，
     ///    且是**开区间**：想要 w×h 的整块就传 (0, 0, w, h)，传 w+1 会多出 1 像素。
     ///    <paramref name="ellipseWidth"/> / <paramref name="ellipseHeight"/> 是圆角椭圆的**直径**。
     /// </summary>
@@ -470,7 +470,7 @@ internal static class NativeMethodsEx
 
     /// <summary>
     /// 释放 GDI 对象。
-    /// ⚠️ <c>SetWindowRgn</c> <b>成功</b>之后区域归系统所有，那时<b>绝不能</b>调它 ——
+    /// <c>SetWindowRgn</c> <b>成功</b>之后区域归系统所有，那时<b>绝不能</b>调它 ——
     /// 只有设置失败（区域还在我们手上）时才要自己释放。
     /// </summary>
     [DllImport("gdi32.dll", SetLastError = true)]

@@ -16,20 +16,16 @@ namespace ClassSoftwareHub.Desktop.Views;
 ///    <see cref="ToolSidebarWindow.SuppressAutoCollapse"/> 是有时效的（15 秒到点自己恢复，防"永远不收"），
 ///    这里用个慢速定时器**持续续上**，浮窗一关就放手。
 ///
-/// ⚠️⚠️ 收窗判据：**看鼠标，不看焦点**（2026-10-02 实机改，这是一次真 bug 的修复）
+/// 收窗判据：**看鼠标，不看焦点**。
 ///
-///   旧实现：<c>Deactivated</c> → 等 220ms → 问 GetForegroundWindow 是不是自己 → 不是就收。
-///   实机日志把它的下场记得清清楚楚（sidebar.log）：
-///       09:30:31 点击「音量」模块 → 音量浮窗现在 开着
-///       09:30:32 点击「音量」模块 → 音量浮窗现在 关着（关着且刚才是点击开，说明浮窗没能显示）
-///   —— **弹出不到 1 秒就把自己收掉了**，用户看到的就是"点了没反应 / 闪一下就没"。
-///   原因：Win7 上 <c>SetForegroundWindow</c> 对这种 Topmost 浮动小窗并不总是生效
-///   （前台锁规则 + 边条自己也是 Topmost），浮窗压根没拿到前台 → "失焦"判据当场成立 → 自杀。
+///   旧实现基于 <c>Deactivated</c> 失焦判据：Win7 上 <c>SetForegroundWindow</c> 对这种
+///   Topmost 浮动小窗并不总是生效（前台锁规则 + 边条自己也是 Topmost），浮窗可能
+///   始终拿不到前台，"失焦"判据当场成立，弹出不到 1 秒就被自己收掉。
 ///
-///   现在改成看**鼠标位置**：不依赖任何焦点语义。
+///   现在改为看**鼠标位置**：不依赖任何焦点语义。
 ///     · 用户拖着滑块时鼠标必然在窗口里 → 绝不会误收；
-///     · 鼠标真的移开了，等 <see cref="CloseAfterMs"/> 才收 → 也正是 Win10/11 音量浮窗的行为；
-///     · 鼠标在**侧边栏**上也算"还在自己家"（用户可能从浮窗移回边条点别的模块）。
+///     · 鼠标真的移开了，等 <see cref="CloseAfterMs"/> 才收 → 与 Win10/11 音量浮窗行为一致；
+///     · 鼠标在**侧边栏**上也算"未离开"（用户可能从浮窗移回边条点别的模块）。
 /// </summary>
 public static class VolumeFlyoutGroup
 {
@@ -43,10 +39,8 @@ public static class VolumeFlyoutGroup
     private static DispatcherTimer? _holdTimer;
     private static int _awayTicks;
 
-    // ⚠️ 「钉住」机制整段删了（2026-10-03，用户原话：「音量调节浮窗不要有钉住功能要会消失」）：
-    //    以前"拖过一次就钉住，鼠标移开也不收"—— 但用户的预期就是 Win10/11 那套：
-    //    浮窗是临时面板，鼠标移开就该收，拖到哪里都一样。现在一律鼠标离开满
-    //    <see cref="CloseAfterMs"/> 就收（Esc / 再点一次模块也一样）。
+    // 「钉住」机制已删：浮窗是临时面板，鼠标移开就应收起（与 Win10/11 行为一致）。
+    //    一律鼠标离开满 <see cref="CloseAfterMs"/> 就收（Esc / 再点一次模块也一样）。
 
     /// <summary>主音量浮窗 / 合成器浮窗的 HWND（由各自窗口在配置时注册）。</summary>
     public static IntPtr MainHwnd { get; set; }
@@ -96,7 +90,7 @@ public static class VolumeFlyoutGroup
     }
 
     /// <summary>某个浮窗收完了叫一声：两个都收干净了才放开边条（滑出动画还得靠边条的位置），
-    /// 并且顺手把边条也收回去（点音量时压住的那份自动收起，早就错过了它自己的失焦时机）。</summary>
+    /// 并同时收起音量边条（其因被音量浮窗覆盖，已错过自身的失焦时机）。</summary>
     public static void OnAnyHidden()
     {
         if (VolumeWindow.IsVisible || VolumeMixerWindow.IsVisible) return;
@@ -112,8 +106,8 @@ public static class VolumeFlyoutGroup
         VolumeWindow.CloseIfOpen();
         VolumeMixerWindow.CloseIfOpen();
 
-        // ⚠️ 两个都已经是"关"了（比如用户点了两次同一个模块），上面那两行就不会走到 OnAnyHidden，
-        //    监视器会一直空转 —— 这里补一刀，保证它一定停得下来。
+        // 两个都已经是"关"了（比如重复点击同一模块），上面两行不会走到 OnAnyHidden，
+        //    监视器会一直空转 —— 这里兜底再调一次，保证它一定停得下来。
         if (!VolumeWindow.IsVisible && !VolumeMixerWindow.IsVisible) OnAnyHidden();
     }
 

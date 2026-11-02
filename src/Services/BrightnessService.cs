@@ -14,14 +14,13 @@ namespace ClassSoftwareHub.Desktop.Services;
 ///
 /// 跟音频那边一个原则：**读不到就老实说读不到**，绝不抛异常、绝不假装 0%。
 ///
-/// ⚠️ 亮度有**两条完全不同的路**，用错路的现象就是"明明能调却说读不到"（2026-09-26 踩过）：
+/// ⚠️ 亮度有**两条完全不同的路**，用错路的现象就是"明明能调却说读不到"：
 ///   ① **WMI**（<c>root\wmi:WmiMonitorBrightness / WmiMonitorBrightnessMethods</c>）
 ///      —— 笔记本内屏走这条。**Windows 自己的亮度滑块也是走它**。✅ Win7 完整可用。
 ///   ② **dxva2.dll**（<c>Get/SetMonitorBrightness</c>）—— 那是 **DDC/CI（MCCS 0x10）**，
 ///      归**外接显示器**用。内屏**根本不支持 DDC/CI**，拿 HMONITOR 或 physical monitor 句柄去问
 ///      都是一路失败（错误码是 0xC02xxxxx 那类图形错误）。
-///      一开始只写了这条 → 内屏上永远"读不到设备"，这就是那个 bug。
-/// 所以现在是 **WMI 优先、dxva2 兜底**：内屏走 WMI，外接显示器（支持 DDC/CI 的）走 dxva2。
+/// 所以必须是 **WMI 优先、dxva2 兜底**：内屏走 WMI，外接显示器（支持 DDC/CI 的）走 dxva2。
 ///
 /// 自动亮度（跟随环境光）又是另一回事：得有**环境光传感器（ALS）**。
 /// 没传感器的机器上 Windows 设置里那个开关也是摆设 —— 所以先探传感器，没有就把开关置灰。
@@ -121,7 +120,7 @@ public static class BrightnessService
     /// </summary>
     private static bool WriteAny(int percent)
     {
-        if (_writePath == 3) return false;                       // 已经确认三条都不通，别再白试
+        if (_writePath == 3) return false;                       // 已经确认三条路径均不可用，不再重试
         if (_writePath == 0 && WmiWrite(percent)) return true;
         if (_writePath == 1 && Dxva2Write(percent)) return true;
         if (_writePath == 2 && GammaWrite(percent)) return true;
@@ -185,7 +184,7 @@ public static class BrightnessService
                 using var result = mo.InvokeMethod("WmiSetBrightness", args, null);
 
                 // ⚠️ 用 Properties[…] 而不是 result["ReturnValue"]：
-                //    这个方法的 CIM 映射里**没有 ReturnValue 这一项**（实测：Invoke-CimMethod 返回的对象是空的），
+                //    这个方法的 CIM 映射里没有 ReturnValue 这一项，
                 //    用索引器取会直接抛 ManagementException → 日志被刷屏、还误判成失败。
                 var rc = result?.Properties["ReturnValue"]?.Value;
                 if (rc is not null && Convert.ToInt32(rc) != 0) continue;   // 0 = 成功
@@ -304,10 +303,9 @@ public static class BrightnessService
     // ════════════════════════════════════════════════════════════════
     // ③ 软件亮度（gamma ramp）—— 前两条路都走不通时的兜底
     //
-    // 为什么需要它（2026-10-02 实机日志）：
-    //    目标机上 WMI 直接「不支持」（没有可调亮度内屏），DDC/CI 也拿不到物理显示器句柄
-    //    （GetNumberOfPhysicalMonitorsFromHMONITOR 失败，err=0xC0262585 = 图形子系统错误）。
-    //    这台机器（虚拟机 / 远程桌面）**物理上就没有可调亮度的显示器** ——
+    // 为什么需要它：
+    //    部分目标机（虚拟机 / 远程桌面）上 WMI「不支持」且 DDC/CI 拿不到物理显示器句柄
+    //    （err=0xC0262585 = 图形子系统错误）—— 物理上就没有可调亮度的显示器，
     //    前两条路再怎么修都是徒劳，界面只能永远显示「不可读」、滑块永远拖着没反应。
     //
     // 兜底办法：改显卡的 gamma 查找表。把 0..255 的每个输入整体压小，屏幕上就是变暗了。
@@ -316,7 +314,6 @@ public static class BrightnessService
     // ⚠️ 说清楚它和真亮度的区别（界面上的 ToolTip 也这么写）：
     //    · 真的调背光：暗部细节还在，画面整体变暗；
     //    · gamma 模拟：**亮部一起压下去**，暗部会更糊一点，对比度略降。
-    //    但在"显示器根本不听话"的机器上，这是唯一能让那颗滑块真的动起来的办法。
     //
     // ⚠️ 退出时一定要 <see cref="RestoreGamma"/>，否则用户的屏幕会一直暗着。
     // ════════════════════════════════════════════════════════════════
@@ -556,7 +553,7 @@ public static class BrightnessService
             });
             if (p is null) return null;
 
-            // ⚠️ 两个流必须并发读、且**先**读再等：原来的顺序是「同步 ReadToEnd → WaitForExit(4000)」，
+            // ⚠️ 两个流必须并发读、且**先**读再等：若先同步 ReadToEnd 再 WaitForExit，
             //    子进程一旦卡住不退出，ReadToEnd 会一直等下去，4 秒超时形同虚设（审计 P2 #22）。
             var stdout = p.StandardOutput.ReadToEndAsync();
             var stderr = p.StandardError.ReadToEndAsync();
@@ -593,16 +590,15 @@ public static class BrightnessService
         }
     }
 
-    /// <summary>已经报过的失败就别再报（见 <see cref="Log"/> 的调用点）。</summary>
+    /// <summary>已报过的失败不重复记录（见 <see cref="Log"/> 的调用点）。</summary>
     private static readonly HashSet<string> _loggedOnce = new();
 
     /// <summary>
     /// 同一条失败消息**只记一次**。
     ///
-    /// ⚠️ 2026-10-02：浮窗开着的时候亮度是每 3 秒读一次，而这台机器两条物理路都注定失败 ——
-    ///    实测 brightness.log 就成了每 3 秒两行的复读机（WMI + dxva2 各一行，一直刷到天黑）。
-    ///    这种刷屏会把真正有用的信息顶出诊断控制台，也让日志文件白白长大。
-    ///    "读不到"是这台机器的**恒定事实**，说一次就够。
+    /// ⚠️ 亮度在浮窗开着时每 3 秒读一次，物理路不支持的机器会反复失败 ——
+    ///    不节流的话日志会被同一句失败刷屏，把真正有用的信息顶出诊断控制台。
+    ///    "读不到"是这类机器的**恒定事实**，说一次就够。
     /// </summary>
     private static void LogOnce(string message)
     {

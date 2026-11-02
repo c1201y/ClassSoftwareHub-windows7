@@ -7,17 +7,17 @@
 
     <!--
       反馈中心：**照着网页版 #/feedback 一比一抄**（版式 / 留白 / 字号 / 图标都对齐，
-      文案直接取站点「文字设置.ts」里 feedback.* 那批字，2026-09-26 Nick 要求）。
+      文案直接取站点「文字设置.ts」里 feedback.* 那批字）。
 
         本页 = **选择态**：页头「反馈中心」→ 主视觉横幅（大标题 + 副标题）→ 两张类型卡
                           → 提交后的处理流程（三步）→ 请先查阅已有反馈 → 草稿条
-        表单态已拆成独立页面 FeedbackFormPage（2026-09-30）。
+        表单态已拆成独立页面 FeedbackFormPage。
 
-      ⚠️ 2026-09-30 Nick 要求改成正常页面逻辑：单击类型卡走 **Frame 导航** 进
-         FeedbackFormPage，⛔ 不再是同一页里靠 Visibility 互斥切换。
+      单击类型卡走 **Frame 导航** 进
+         FeedbackFormPage，不再是同一页里靠 Visibility 互斥切换。
          返回走导航栏那一个返回按钮（全站铁律），所以这里没有页内"返回"。
 
-      ⚠️ 卡片图标用的是跟网页版**同一套 PNG**（Assets\feedback\report.png / suggest.png），
+      卡片图标用的是跟网页版**同一套 PNG**（Assets\feedback\report.png / suggest.png），
          不是字体图标 —— 这两张图是站点 src/assets/feedback 里原样搬过来的。
 
       ⚠️ 移植说明（WinUI → Avalonia/FluentAvalonia）：
@@ -135,10 +135,9 @@
                                     Background="{DynamicResource ControlFillColorSecondaryBrush}"
                                     Padding="18,18,18,20">
                                 <!--
-                                  ⚠️ 这里必须是 Grid（Auto + *），⛔ 不能用 Orientation="Horizontal" 的 StackPanel：
+                                  这里必须是 Grid（Auto + *），不能用 Orientation="Horizontal" 的 StackPanel：
                                      横向 StackPanel 会拿**无限宽度**去量孩子，里面那句 TextWrapping="Wrap"
-                                     就永远不触发（量出来是一整行），最后被 Border 的圆角裁剪切掉半个字
-                                     —— 2026-09-30 Nick 抓到的"文字被生硬切断"就是这个。
+                                     就永远不触发（量出来是一整行），最后被 Border 的圆角裁剪切掉半个字。
                                 -->
                                 <Grid>
                                     <Grid.ColumnDefinitions>
@@ -255,9 +254,9 @@
                     <!--
                       草稿条。
                         · 单击「恢复上次填写」= 带着草稿里的类型直接进表单页；
-                        · 右上角那个 ✕（IsClosable=True 的关闭按钮）= **丢弃草稿**（2026-10-04 Nick 指定），
+                        · 右上角那个 ✕（IsClosable=True 的关闭按钮）= **丢弃草稿**，
                           点下去会先确认一次，确认后删本地草稿文件并清掉进程内那一份 —— 草稿条不再冒出来。
-                      ⚠️ 别把这个 ✕ 改成「只把提示条收起来」：那样下次进本页又会出现，正是 Nick 说的"一直在很烦"。
+                      不要把这个 ✕ 改成「只把提示条收起来」：那样草稿文件还在，下次进本页又会出现。
                     -->
                     <fa:InfoBar x:Name="DraftBar" IsOpen="False" Severity="Informational"
                                 Title="存在上次填写的反馈草稿" Message="可直接继续填写；点右上角关闭按钮可丢弃这份草稿。"

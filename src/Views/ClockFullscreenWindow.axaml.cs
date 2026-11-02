@@ -15,11 +15,7 @@ namespace ClassSoftwareHub.Desktop.Views;
 /// <summary>
 /// 全屏时钟窗口：铺满屏幕，按 Esc / 双击屏幕 / 右上角那颗按钮退出；外观完全跟随页面里的设置。
 ///
-/// ⚠️ **同一时刻只允许存在一个**（2026-09-27 改）。
-///    以前每次点「全屏时钟」都 new 一个，触屏上连点几下就叠出十几二十个全屏窗口 ——
-///    它们长得一模一样、又都盖满屏幕，看起来就是「点了一下，然后卡死了 / 关不掉了」。
-///    现场反馈原话：「为什么能开一堆全屏时钟」。
-///    现在统一走 <see cref="Show"/>：已经开着就**就地更新设置并拉到前台**，不再叠新的。
+/// 同一时刻只允许存在一个：统一走 <see cref="Show"/>，已开着时就地更新设置并拉到前台，不再新建实例。
 ///
 /// ⚠️ 移植说明：原版走 <c>AppWindow.SetPresenter(FullScreen)</c>；
 ///    Avalonia 里对应 <see cref="Window.WindowState"/> = <see cref="WindowState.FullScreen"/>，
@@ -34,6 +30,9 @@ public sealed partial class ClockFullscreenWindow : Window
     private bool _dark;
     private readonly DispatcherTimer _timer;
 
+    /// <summary>当前铺在窗口上的背景位图；替换或关窗时释放（Bitmap 持有非托管像素内存）。</summary>
+    private Bitmap? _bgBitmap;
+
     /// <summary>退出入口的淡出倒计时（毫秒）。到 0 就藏起来，别一直压着时钟。</summary>
     private readonly DispatcherTimer _exitTimer;
     private int _exitRemainMs;
@@ -45,9 +44,8 @@ public sealed partial class ClockFullscreenWindow : Window
     /// <summary>
     /// 唯一入口：开一个全屏时钟。已经开着就复用（拉到最前），**不会**再多出一个窗口。
     ///
-    /// <paramref name="settings"/> 传 null = 「只把已经开着的那个调到前面来，别动它的外观」。
-    /// 侧边栏那个小浮窗的「全屏时钟」按钮就是这样调的：它手上只有一套默认设置，
-    /// 要是拿它去覆盖用户刚在工具页里调好的底色/字体，就变成「点一下外观被打回原形」了。
+    /// <paramref name="settings"/> 传 null = 仅将已开着的窗口调到前台，不更新外观
+    /// （调用方没有可用的设置时使用，避免覆盖已调好的配置）。
     /// </summary>
     public static void Show(ClockSettings? settings, bool darkTheme)
     {
@@ -98,9 +96,8 @@ public sealed partial class ClockFullscreenWindow : Window
             // Avalonia 的 FullScreen 状态走无边框全屏，任务栏也被盖住 —— 与原版 AppWindow 全屏语义一致。
             WindowState = WindowState.FullScreen;
 
-            // ⚠️ Win11 上全屏窗口默认还带圆角 + 一圈细边框 → 屏幕四角/边上会露出底下的桌面，
-            // 看着像"屏幕外面套了一圈"。这里把圆角关掉、边框设成无色。
-            // （Win10 / Win7 不认识这些属性，调用失败无所谓。）
+            // Win11 上全屏窗口默认带圆角与细边框，会在屏幕四角露出底下桌面；
+            // 关闭圆角并将边框设为无色（Win10 / Win7 不识别这些属性，调用失败可忽略）。
             var hwnd = Backdrop.TryGetHwnd(this);
             if (hwnd != IntPtr.Zero) WindowChrome.RemoveBorder(hwnd, rounded: false, dark: _dark);
         }
@@ -111,7 +108,7 @@ public sealed partial class ClockFullscreenWindow : Window
         Tick();
         _timer.Start();
 
-        // 第一次进来自动把「怎么退出」亮几秒 —— 触屏用户没有 Esc 键，得让他看见
+        // 首次显示时短暂提示退出方式（触屏环境无 Esc 键）
         RevealExit();
 
         // 显示一帧后再落焦点（窗口还没起来时 Focus 不生效）
@@ -141,11 +138,15 @@ public sealed partial class ClockFullscreenWindow : Window
         {
             try
             {
+                var next = new Bitmap(_settings.BackgroundImagePath);
+                var old = _bgBitmap;
+                _bgBitmap = next;
                 Root.Background = new ImageBrush
                 {
-                    Source = new Bitmap(_settings.BackgroundImagePath),
+                    Source = next,
                     Stretch = Stretch.UniformToFill,
                 };
+                old?.Dispose();
             }
             catch
             {
@@ -248,5 +249,7 @@ public sealed partial class ClockFullscreenWindow : Window
         _timer.Stop();
         _exitTimer.Stop();
         if (ReferenceEquals(_current, this)) _current = null;
+        _bgBitmap?.Dispose();
+        _bgBitmap = null;
     }
 }

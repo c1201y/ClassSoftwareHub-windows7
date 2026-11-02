@@ -15,7 +15,7 @@ using ClassSoftwareHub.Desktop.Views.Oobe;
 namespace ClassSoftwareHub.Desktop.Controls;
 
 /// <summary>
-/// 欢迎页开场（2026-10-31，按上游 12 格分镜实现，自 dv1.2.0-insider1.8 移植）。
+/// 欢迎页开场（按上游 12 格分镜实现，自 dv1.2.0-insider1.8 移植）。
 ///
 /// <para>
 /// 一出戏一条时间线，全部在 UI 线程上用 <c>await Task.Delay</c> 串起来：
@@ -24,7 +24,7 @@ namespace ClassSoftwareHub.Desktop.Controls;
 /// </para>
 ///
 /// <para>
-/// ⛔ 别再往这里加字距收拢（ClassIsland 那套 Spacing/MinWidth 收紧）。
+/// ⛔ 不要往这里加字距收拢（ClassIsland 那套 Spacing/MinWidth 收紧）。
 /// ⛔ 品牌名不是独立的一份文字：它就是 <see cref="Wordmark"/>，靠 TranslateY 先抬到画面中线，
 ///    最后落回排版里的自然位置 —— 所以中线上的字和落下来的字永远是同一个元素。
 /// </para>
@@ -91,7 +91,7 @@ public partial class OobeWelcomeIntro : UserControl
 
         /// <summary>
         /// 眼下这格占多宽。**永远是硬值**：字块此刻有多宽就占多宽（没了就 0），不做补间 ——
-        /// Nick 2026-10-31：这里要像打字机，字走多宽，行就是多宽，别平滑收缩。
+        /// 观感要求如打字机：字走多宽，行就是多宽，不做平滑收缩。
         /// </summary>
         public double Advance;
 
@@ -637,7 +637,7 @@ public partial class OobeWelcomeIntro : UserControl
     /// 多余的字位一没，后面的字立刻补上来；等噪声散完，这行已经是品牌名的排版。
     ///
     /// <para>
-    /// ⛔ 宽度**一律是硬切**，不许做补间（Nick 2026-10-31）：这里要像打字机 ——
+    /// ⛔ 宽度**一律是硬切**，不许做补间：这里要像打字机 ——
     ///    屏幕上此刻是哪些字，行宽就是那些字本身有多宽。字一没，行立刻变短；
     ///    字一认成品牌字母，占宽立刻变成那个字母的字宽。把它做成"平滑收缩"会让
     ///    行宽和实际字形对不上，看着像一条橡皮筋在缩。
@@ -811,8 +811,8 @@ public partial class OobeWelcomeIntro : UserControl
     /// 把中线上那行字交给真正的品牌名控件。两边是同一套字、同一种逐字排版、同一个位置，
     /// 所以可以直接一帧换过去 —— 不需要交叉淡化，也就没有双影。
     ///
-    /// ⛔ 别再改回"这边淡出、那边淡入"：只要排版差一个像素，淡化期间就会看到一层重影
-    ///    （用户说的"突变"，2026-10-31 踩过）。
+    /// ⛔ 不要改回"这边淡出、那边淡入"：只要排版差一个像素，淡化期间就会看到一层重影
+    ///    （即用户所述的"突变"，已实际验证）。
     /// </summary>
     private void HandOffToWordmark()
     {
@@ -836,7 +836,7 @@ public partial class OobeWelcomeIntro : UserControl
         VersionShift.Y = 8;
 
         // 品牌名：从画面中线**直线**落到排版里的位置。
-        // ⛔ 别再顺手加横向位移（以前有个 -22→0 的"弧"）—— 横竖两条动画一叠加，
+        // ⛔ 不要加横向位移（曾有 -22→0 的"弧"）—— 横竖两条动画一叠加，
         //    看上去就是先往左下滑、再往右下滑，用户明确要求直着下来。
         WordmarkShift.X = 0;
         WordmarkShift.Y = _wordmarkLift;

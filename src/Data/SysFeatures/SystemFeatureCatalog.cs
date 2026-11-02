@@ -6,7 +6,7 @@ using ClassSoftwareHub.Desktop.Services;
 namespace ClassSoftwareHub.Desktop.Data.SysFeatures;
 
 /// <summary>
-/// 系统功能清单（自上游 2026-10-31 移植，需求清单第 20 条）。
+/// 系统功能清单（自上游移植）。
 ///
 /// <para>
 /// 口径：<b>这一页就是对系统大操刀的，弹 UAC 是正常做法，不绕</b>。
@@ -14,18 +14,18 @@ namespace ClassSoftwareHub.Desktop.Data.SysFeatures;
 /// </para>
 ///
 /// <para>
-/// ⛔ 收录标准：<b>改之前的当前值读得到、改之后能重读验证</b>。两条缺一不可：
+/// 收录标准：<b>改之前的当前值读得到、改之后能重读验证</b>。两条缺一不可：
 /// <list type="bullet">
 ///   <item>读不到 → 界面上只能显示"—"，用户点了也不知道原来是什么，等于死开关；</item>
 ///   <item>验证不了 → 只能"看起来成功了"，这与 <c>FirewallGateway</c> 吃过的亏是同一类。</item>
 /// </list>
-/// 上游 2026-10-31 因此砍掉四项：<b>休眠文件类型</b>（<c>HiberFileType</c> 只有设过才存在）、
+/// 因此不收录：<b>休眠文件类型</b>（<c>HiberFileType</c> 只有设过才存在）、
 /// <b>关闭硬盘时间</b>、<b>合盖行为</b>、<b>唤醒时需要密码</b>（这三项在没被改过的机器上
 /// <c>ACSettingIndex</c> 是空的，回落默认值也读不出具体数字）。等找到可靠的读法再加。
 /// </para>
 ///
 /// <para>
-/// ⛔ 不收 <c>HKCU</c> 的项：提权批次跑在管理员令牌下，写 HKCU 会写到管理员账户去。
+/// 不收 <c>HKCU</c> 的项：提权批次跑在管理员令牌下，写 HKCU 会写到管理员账户去。
 /// </para>
 /// </summary>
 public static class SystemFeatureCatalog
@@ -258,7 +258,7 @@ public static class SystemFeatureCatalog
             Header = "远程桌面",
             Description = "教室机建议保持关闭。",
             Glyph = "\uE8AF",
-            // ⚠️ 这个键是"拒绝连接"，语义与其它项相反：1 = 已禁用
+            // 这个键是"拒绝连接"，语义与其它项相反：1 = 已禁用
             Read = () => SystemFeatures.ReadRegistryInt(RdpKey, "fDenyTSConnections"),
             Command = v => new[] { SysFeatureRules.RegAdd(RdpKey, "fDenyTSConnections", v) },
             Label = v => v != 0 ? "已关闭" : "已开启",

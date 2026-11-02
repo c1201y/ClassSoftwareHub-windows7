@@ -16,7 +16,6 @@ namespace ClassSoftwareHub.Desktop.Pages;
 
 /// <summary>
 /// 发布说明里的一条（已经转过 Markdown，直接能往界面上摆）。
-/// （2026-10-18 自上游 1.2.0 移植：原来的「字号/字重」三档换成「是不是列表项」，层级交给分组。）
 /// </summary>
 public sealed class NoteLine
 {
@@ -38,8 +37,7 @@ public sealed class NoteLine
 /// 发布说明里的一个**分组**：Markdown 的标题连同它下面的条目。
 ///
 /// <para>
-/// ⛔ 原来是一整条平铺的 <see cref="NoteLine"/> 列表，标题只比正文大一号 —— "前言/更新日志/其他内容"
-/// 全糊在一起（Nick 点名）。分组之后组标题独立成行、组间留白，层级才立得住。
+/// 分组显示：组标题独立成行、组间留白；平铺列表的标题与正文层级不清晰。
 /// </para>
 /// </summary>
 public sealed class NoteBlock
@@ -162,14 +160,12 @@ public sealed partial class ChangelogPage : PageBase
         var channel = UpdateChannels.ToDisplay(UpdateChannels.Parse(App.Settings.Current.UpdateChannel));
         var repo = $"{ShellConfig.UpdateRepoOwner}/{ShellConfig.UpdateRepoName}";
 
-        // Win7 版 2026-10-04 起用**独立仓库**（ClassSoftwareHub-windows7），
-        // 与 WinUI 版（ClassSoftwareHub-Desktop）的 Release 列表完全隔离 —— 这里如实写明，
-        // 用户才不会以为看到的是 WinUI 版那条线。
+        // Win7 版使用独立仓库（ClassSoftwareHub-windows7），与 WinUI 版的 Release 列表完全隔离，
+        // 界面上如实写明，避免用户误以为是 WinUI 版的内容。
         var branchNote = ShellConfig.ReleaseBranch.Length > 0
             ? $"（Windows 7 版独立仓库 · {ShellConfig.ReleaseBranch} 分支）"
             : "";
 
-        // 原来这里是一张占掉 15% 屏高的大卡，只写版本号和两句说明 —— 压成一行副标题
         HeaderMeta.Text = $"当前版本 {ShellConfig.VersionPrefix}{ShellConfig.ShellVersion}　·　{channel}"
                           + $"　·　发布说明读取自 {repo}{branchNote}"
                           + (ShellConfig.IsInsider ? "。当前为内测构建，可能尚未发布至仓库。" : "。");
@@ -200,9 +196,8 @@ public sealed partial class ChangelogPage : PageBase
                 return;
             }
 
-            // ⚠️ 故意用 Insider 通道去拉（它是"两种都收"的 permissive 那一档），
-            //    这样「全部版本」在正式版通道的用户那儿也看得到完整历史 ——
-            //    筛选交给下拉，不再跟着用户的更新通道走（Nick 2026-09-26）。
+            // 固定用 Insider 通道拉取（该通道收录正式版与预览版），正式版用户也能看到完整历史；
+            // 筛选交给下拉，不跟随用户的更新通道。
             var releases = await _updater.GetHistoryAsync(UpdateChannel.Insider, 30);
 
             if (releases.Count == 0)

@@ -86,7 +86,7 @@ internal static class SubmitClient
             {
                 // 连不上 / 超时 / 响应不是 JSON（路由还没上）→ 换下一个入口。
                 // ⛔ 这里以前是**裸的 `catch {}`** —— 于是"提交失败"在日志里一个字都没有，
-                //    这正是一次审计里数出来的 269 个静默 catch 之一（2026-10-11 补日志时改掉）。
+                //    正是一次代码审计里数出的 269 个静默 catch 之一。
                 Core.AppLog.Warn("submit",
                     $"入口 {baseUrl} 提交失败（{ex.GetType().Name}: {ex.Message}）→ 试下一个");
             }
@@ -98,10 +98,8 @@ internal static class SubmitClient
 
     private static HttpClient CreateClient()
     {
-        var client = new HttpClient(Core.HttpTls.Handler())
-        {
-            Timeout = TimeSpan.FromSeconds(20),
-        };
+        // 走 OfficialApi：自带构建标识与激活凭证，未授权时由授权闸门负责弹窗
+        var client = Core.OfficialApi.Create(timeoutSeconds: 20);
         client.DefaultRequestHeaders.UserAgent.ParseAdd($"ClassSoftwareHub/{ShellConfig.ShellVersion} submit");
         return client;
     }

@@ -11,7 +11,7 @@ using ClassSoftwareHub.Desktop.Core;
 namespace ClassSoftwareHub.Desktop.Services;
 
 /// <summary>
-/// 表格里的一行日志。日志页与详细视图共用（2026-10-11 从 LogViewerPage 里抽出来的）。
+/// 表格里的一行日志。日志页与详细视图共用。
 ///
 /// ⚠️ <see cref="LevelGlyph"/> / <see cref="LevelText"/> 只管"是什么"，**颜色不走绑定** ——
 /// SystemFillColor* 那批画刷在 DataTemplate 里按项取不到，统一由
@@ -94,7 +94,7 @@ public sealed class LogStats
 /// <summary>
 /// 日志文件的读取 / 解析 / 统计。日志页（<c>LogViewerPage</c>）与详细视图
 /// （<c>LogDetailWindow</c>）**共用这一份** —— 两个视图对同一条日志的解析结果必须一模一样，
-/// 各写一份迟早会漂移（这正是 2026-10-11 抽出它的原因）。
+/// 各写一份迟早会漂移。
 ///
 /// 解析要能吃下这些形态：
 ///   · 新格式：<c>[2026-10-11 00:13:41.123] [警告] [tray] 消息</c>（<see cref="AppLog"/>）；
@@ -119,7 +119,7 @@ public static class LogReader
     /// 文件用途说明。键是文件名（忽略大小写），值是「短名 + 整句」：
     ///   · 短名进下拉（<c>crash.log　崩溃</c>），够短才扫得快；
     ///   · 整句进「说明」弹窗，讲清"记什么、什么时候该看它"。
-    /// ⛔ 别再让短名和整句写成同一个词 —— 那样说明就只是在重复文件名。
+    /// ⛔ 短名和整句不得是同一个词 —— 那样说明就只是在重复文件名。
     /// 没登记的文件不会被隐藏，只标成「应用日志」。
     /// </summary>
     private static readonly Dictionary<string, (string Short, string Long)> Known = new(StringComparer.OrdinalIgnoreCase)
@@ -265,7 +265,7 @@ public static class LogReader
                     var last = list[^1];
                     // ⚠️ 级别取"更强的那一个"：堆栈行里才会出现 Exception / 异常 字样，
                     //    标题行反而可能只是一句普通描述 —— 只按首行判的话，
-                    //    crash.log 的崩溃条目会被标成"信息"（2026-10-02 实测踩到）。
+                    //    crash.log 的崩溃条目会被标成"信息"。
                     var lv = GuessLevel(line);
                     var level = Rank(lv) > Rank(last.Level) ? lv : last.Level;
                     list[^1] = new LogEntry
@@ -317,7 +317,7 @@ public static class LogReader
                         }
                     }
 
-                    // 再往后若是 [模块名] 就摘出来 —— 2026-10-11 起模块名挪到了行内这一格
+                    // 再往后若是 [模块名] 就摘出来 —— 新版日志格式把模块名挪到了行内这一格
                     var module = "";
                     if (rest.Length > 0 && rest[0] == '[')
                     {
@@ -414,7 +414,7 @@ public static class LogReader
     /// <paramref name="fresh"/> 是不是只是 <paramref name="old"/> 的**续接**（旧的是新的前缀）。
     ///
     /// 用途：静默跟随时**只追加新行**，不把整张表重建 —— 整表重建会瞬间清空再填满，
-    /// 每 2 秒来一次就是"画面一抖一抖"（Nick 2026-10-11 报的正是这个）。
+    /// 每 2 秒来一次就是"画面一抖一抖"。
     /// 比的是 <see cref="LogEntry.Raw"/>（文件原文）而不是 <see cref="LogEntry.Index"/>：
     /// 续读时前端那段的序号是重新编的，不代表内容变了。
     /// </summary>

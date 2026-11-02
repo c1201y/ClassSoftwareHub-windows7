@@ -17,13 +17,12 @@ namespace ClassSoftwareHub.Desktop.Platform;
 /// </summary>
 public static class ThemeCompat
 {
-    // ⛔⛔ 两套主题，别搞混（2026-10-29 上游 1.8 定稿的口径）：
+    // 两套主题，别搞混（上游 1.8 定稿的口径）：
     //   · 应用主题（设置里的「颜色模式」）：**其余所有窗口都跟这个** —— 主界面、学科工具窗、
     //     音量 / 亮度浮窗、截图窗、条款与声明、日志详细视图、反馈引导窗……
     //   · 外部组件主题（「桌面悬浮窗单独设置外观」+「外部组件外观」）：**只作用于桌面悬浮件** ——
     //     ① 「常用工具」浮窗（随机抽号 / 课堂计时 / 秒表计时 / 全屏时钟）；② 屏幕边缘的工具侧边栏。
-    //   以前侧边栏 / 音量浮窗 / 截图窗等全登记成 external，分体一开连文档窗都跟着变深，
-    //   主界面浅色时整片发黑。现在只有 ToolPaletteWindow 与 ToolSidebarWindow 传 external: true。
+    //   其余窗口不能登记成 external，否则分体一开会连文档窗都跟着变深。
     private static readonly List<(WeakReference<StyledElement> Ref, bool External)> Roots = new();
 
     /// <summary>设置里的主题（system | light | dark）映射成 Avalonia 的 ThemeVariant。</summary>
@@ -51,7 +50,7 @@ public static class ThemeCompat
     /// <summary>
     /// 把当前设置的主题应用到某个窗口/控件，并登记（之后改设置会一起变）。
     /// 对应原版 <c>ThemeHost.Apply(FrameworkElement root, bool external)</c>。
-    /// ⚠️ <paramref name="external"/> **只对桌面悬浮件传 true**（常用工具浮窗 / 侧边栏），
+    /// <paramref name="external"/> **只对桌面悬浮件传 true**（常用工具浮窗 / 侧边栏），
     ///    其余窗口一律用默认值 —— 让它们跟应用主题走。
     /// </summary>
     public static void Apply(StyledElement root, bool external = false)
@@ -95,8 +94,8 @@ public static class ThemeCompat
     }
 
     /// <summary>
-    /// ⚠️ Avalonia 里 <c>RequestedThemeVariant</c> **不在 <c>StyledElement</c> 上**
-    ///    （实测核验：只有 <c>Application</c> / <c>TopLevel</c>（含 Window）/ <c>ThemeVariantScope</c> 有）。
+    /// Avalonia 里 <c>RequestedThemeVariant</c> **不在 <c>StyledElement</c> 上**
+    ///    （核验：只有 <c>Application</c> / <c>TopLevel</c>（含 Window）/ <c>ThemeVariantScope</c> 有）。
     ///    所以这里按类型分派；传进来的若是普通控件，就顺着逻辑树往上找到它所在的 TopLevel 再设。
     /// </summary>
     private static void ApplyTheme(StyledElement root, ThemeVariant variant)

@@ -12,7 +12,7 @@ namespace ClassSoftwareHub.Desktop.Services;
 /// （Cloudflare Worker <c>classhub</c>，令牌在服务端），<c>POST {入口}/api/feedback</c>。
 /// 提交成功 = 议题已经建好在 <see cref="Data.Feedback.RepoUrl"/> 里，不需要用户登录 GitHub。
 ///
-/// ── 客户端 → 服务端的契约（2026-10-04 对着线上服务端实测反推出来的）──────────────
+/// ── 客户端 → 服务端的契约 ──────────────
 /// 请求体（JSON）：
 /// <code>
 /// {
@@ -30,8 +30,8 @@ namespace ClassSoftwareHub.Desktop.Services;
 ///
 /// 响应（与 /api/submit、/api/echocave 同一套形状，客户端就是这么解析的）：
 ///   · 成功 → <c>{"success": true, "message": "反馈已提交！会尽快出现在公开议题列表里。"}</c>
-///   · 失败 → <c>{"error": "人话原因"}</c>（实测如「请选择反馈类型」「请填写详细描述」）
-/// ⚠️ 实测服务端**不回 url**，所以界面上不给「查看议题」按钮。
+///   · 失败 → <c>{"error": "人话原因"}</c>（如「请选择反馈类型」「请填写详细描述」）
+/// ⚠️ 服务端**不回 url**，所以界面上不给「查看议题」按钮。
 /// ⚠️ 服务端没这条路由 / 连不上时，<see cref="SubmitAsync"/> 返回 <c>Ok=false</c> + 人话，
 ///    界面据此把用户引到「在 GitHub 上提交」那条兜底路。
 /// </summary>
@@ -59,7 +59,7 @@ public static class FeedbackSubmit
         string title, string detail, string contact,
         CancellationToken ct = default)
     {
-        // ── 链路日志（对齐上游 2026-10-11）：提交失败以前只在界面上弹一句话，日志里查不到。
+        // ── 链路日志：提交失败必须能在日志里查到。
         //    ⛔ 只记标题、**绝不记正文与联系方式**（联系方式是按隐私约定要密文外发的）。
         var sw = System.Diagnostics.Stopwatch.StartNew();
         Core.AppLog.Begin("submit", $"提交反馈 · 类型={kind}/{subKind} · 标题「{title}」");

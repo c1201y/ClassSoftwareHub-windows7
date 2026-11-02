@@ -42,7 +42,7 @@ public static class TeachingActions
         {
             switch (id)
             {
-                // 系统快捷三件套（2026-10-11，自上游 dv1.1.3 移植）：任务管理器 / 剪贴板历史 /
+                // 系统快捷三件套（自上游 dv1.1.3 移植）：任务管理器 / 剪贴板历史 /
                 // 安全选项里的那几项（锁定 / 切换用户 / 注销）
                 case "taskmgr": OpenTaskManager(); break;
                 case "clipboard": return ClipboardHistory();
@@ -60,7 +60,7 @@ public static class TeachingActions
                 // 取消关机：返回值就是给用户看的一句话（「已取消」或「当前没有待执行的关机」），
                 // 侧边栏会拿它弹一个原生提示浮层（见 ToolSidebarWindow 的 hint 那一段）。
                 case "cancelshutdown": return Data.AutoShutdown.CancelPending();
-                // 杀希沃（2026-10-12 Nick 要；2026-10-18 自上游 1.2.0 移植）：立刻清一次白板5 的残留进程，不带时间点。
+                // 杀希沃（自上游 1.2.0 移植）：立刻清一次白板5 的残留进程，不带时间点。
                 // ⚠️ 安全闸在 EasiNoteGuard.RunOnce 里 —— **有可见窗口的一律放过**（老师正开着白板讲课）。
                 case "killseewo": return KillEasiNote();
                 case "shutdown": return PrepareShutdown();
@@ -87,8 +87,8 @@ public static class TeachingActions
     /// 一次性动作：先把"用户正在用的那个窗口"记下来，做完再把焦点还回去（别打断讲课）。
     ///
     /// ⚠️ 例外：「要先问一句」的动作（见 `AsksFirst`）**先不还焦点** —— 侧边栏一旦失活，
-    /// 刚弹出来的确认面板会被系统按"点了别处"关掉。用户看到的就是
-    /// "前台有窗口时这按钮点了没反应，得先把窗口全最小化才能用"（2026-09-26 修）。
+    /// 刚弹出来的确认面板会被系统按"点了别处"关掉，用户看到的就是
+    /// "前台有窗口时这按钮点了没反应"。
     /// 这类动作由调用方在面板关掉后自己还焦点，见 `ToolSidebarWindow.Tool_Click`。
     /// </summary>
     public static string? Run(string id)
@@ -112,7 +112,7 @@ public static class TeachingActions
 
     /// <summary>
     /// 焦点观察器（保留）：只在"确实是个能用的应用窗口"时才记一下。
-    /// ⚠️ 现在**不再用它来决定"关前台关谁"**（它会把顺手抢焦点的悬浮助手也算进来，2026-09-25 踩过），
+    /// ⚠️ 现在**不再用它来决定"关前台关谁"**（它会把抢占焦点的悬浮助手也算进来），
     /// 只作为 ReturnFocus 的兜底。
     /// </summary>
     public static void StartFocusWatcher()
@@ -167,7 +167,7 @@ public static class TeachingActions
     }
 
     /// <summary>任务视图：等于 Win+Tab。</summary>
-    // ── 系统快捷三件套（2026-10-11，自上游 dv1.1.3 移植）────────────────────────────
+    // ── 系统快捷三件套（自上游 dv1.1.3 移植）────────────────────────────
 
     /// <summary>
     /// 任务管理器：直接调起 Windows 自带的 <c>taskmgr.exe</c>（等同 Ctrl+Shift+Esc）。
@@ -198,7 +198,7 @@ public static class TeachingActions
     /// 剪贴板历史（等同 Win+V）—— 只能模拟按键，系统没给对应的 API。
     ///
     /// ⚠️ 发键**之前**必须先把焦点还回"用户刚才在用的那个窗口"：剪贴板面板挑中一条之后，
-    ///    内容是往**打开面板时的活动窗口**里粘的；焦点要是还杵在侧边栏上，粘过去就掉进侧边栏了。
+    ///    内容是往**打开面板时的活动窗口**里粘的；若焦点仍停留在侧边栏上，粘过去就落入侧边栏了。
     ///    还焦点是异步排队的（见 <see cref="RefocusPrevious"/>），所以这里再隔一拍才发键。
     /// </summary>
     private static string? ClipboardHistory()
@@ -228,8 +228,7 @@ public static class TeachingActions
     }
 
     /// <summary>
-    /// 立刻结束希沃白板5 后台滞留的残留进程（侧边栏「杀希沃」，2026-10-12 Nick 要；
-    /// 2026-10-18 自上游 1.2.0 移植）。
+    /// 立刻结束希沃白板5 后台滞留的残留进程（侧边栏「杀希沃」，自上游 1.2.0 移植）。
     ///
     /// 复用 <see cref="Data.EasiNoteGuard.RunOnce"/> —— 它自带那道**唯一的安全闸**：
     /// 有可见顶层窗口的一律放过（老师正开着白板讲课就不动它），只清"没有任何窗口"的残留进程。
@@ -407,7 +406,7 @@ public static class TeachingActions
     /// <summary>
     /// 系统放大镜（Windows 自带那个 `Magnify.exe`）：
     /// 没开就调起来（起来后自动切到"镜头"模式 = 跟着鼠标跑的那块），开着就**优雅关掉**（发关闭消息，不硬杀）。
-    /// ⚠️ 自研那版（自抓屏 + 自绘控制条）已封存到 `_csh_scratch\magnifier-v3-archive\`，想捡回来再改。
+    /// ⚠️ 自研那版（自抓屏 + 自绘控制条）已封存到 `_csh_scratch\magnifier-v3-archive\`，可随时取回。
     /// </summary>
     private static void ToggleSystemMagnifier()
     {
@@ -593,8 +592,8 @@ public static class TeachingActions
 
     /// <summary>
     /// 找"用户正在看的那个应用窗口"。
-    /// ⚠️ 2026-09-25 教训：原来用"上一次不在我们家的前台窗口"这个记法，**会记错人**
-    /// （别的程序（如悬浮助手）顺手抢一下焦点就被记下来了），结果按下去关的是别的应用，
+    /// ⚠️ 不能用"上一次不在我们家的前台窗口"这个记法，**会记错人**
+    /// （其他程序（如悬浮助手）抢占一下焦点就被记录下来），结果按下去关的是别的应用，
     /// 用户看到的就是"关前台关不掉前台，只关掉一部分应用"。
     /// 现在改成：① 当前前台要是"干净的应用窗口"就用它；② 否则按 **z 序**从上往下找第一个合格的
     /// （我们自己的窗口是置顶的，所以"我们下面那个"正是用户刚才在用的窗口）。
@@ -733,7 +732,7 @@ public static class TeachingActions
 
     /// <summary>
     /// 是不是"我们家的"窗口 —— **用进程名判断，包含我们的其它实例**。
-    /// ⚠️ 2026-09-25：只比自己的 pid 不够（另一个实例的窗口会被当成"别人"，被"关前台"关掉）。
+    /// ⚠️ 只比自己的 pid 不够：另一个实例的窗口会被当成"别人"，被"关前台"关掉。
     /// </summary>
     private static bool IsOurApp(IntPtr hwnd)
     {

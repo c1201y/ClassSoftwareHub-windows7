@@ -26,10 +26,7 @@ public sealed class ClockSettings
     public bool Hour12 { get; set; }
 
     /// <summary>
-    /// 把另一份设置的值整体拷进来。
-    ///
-    /// ⚠️ 2026-09-28：这段以前在工具页和浮窗各写了一份（字段列表容易漏同步）。
-    /// 现在只有这一处 —— 加字段就改这里，别在调用方再手抄一遍。
+    /// 把另一份设置的值整体拷进来。加字段时只改这里，不要在调用方再手抄一遍。
     /// </summary>
     public void CopyFrom(ClockSettings other)
     {
@@ -63,10 +60,9 @@ public static class ClockRender
     public static readonly string[] InkLabels = { "自动（跟随底色）", "白色字", "黑色字" };
 
     /// <summary>
-    /// 时钟字体候选。**按本机实际安装的字体过滤**（2026-10-27）：
-    /// 干净 Win7 上 Bahnschrift / Cascadia Mono / Segoe UI Variable Display 都不存在，
-    /// 原表却把它们列出来 —— 选中后静默回退，界面上还写着那个字体名，等于骗用户。
-    /// 现在只列装得上的，标签与字体一一对应。
+    /// 时钟字体候选。**按本机实际安装的字体过滤**：干净 Win7 上 Bahnschrift /
+    /// Cascadia Mono / Segoe UI Variable Display 不存在，列出会在选中后静默回退、
+    /// 界面却仍显示该字体名。只列装得上的，标签与字体一一对应。
     /// </summary>
     private static readonly (string Family, string Label)[] FontChoices =
     {
@@ -125,9 +121,9 @@ public static class ClockRender
     /// 主要用来兜**旧存档**：老版本存过 <c>Georgia</c>（已剔除）、或在 Win10 上存过
     /// Win7 没有的字体 —— 直接拿它去 new FontFamily 会让那台机器继续抖 / 静默回退。
     ///
-    /// ⚠️ 剔除 Georgia 的原因（自上游 dv1.1.3 移植）：它的 <c>tnum</c> 只重映射货币符号、不碰数字
-    ///    （<c>1</c>=880 vs <c>0</c>=1257），靠等宽数字拉不平 ⇒ 大号时间居中排时每跳一秒整行宽度就变一次，
-    ///    看上去就是"数字一直左右抖"。换成同为"优雅衬线"、数字天生等宽的 Cambria。
+    /// 剔除 Georgia 的原因（自上游 dv1.1.3 移植）：它的 <c>tnum</c> 只重映射货币符号、不碰数字
+    ///    （<c>1</c>=880 vs <c>0</c>=1257），等宽数字拉不平 ⇒ 大号时间居中排时秒数跳动会带动
+    ///    整行宽度变化。改用同为衬线、数字天生等宽的 Cambria。
     /// </summary>
     public static string NormalizeFont(string? family)
     {
@@ -144,8 +140,8 @@ public static class ClockRender
     /// 「等宽数字」的字形特性，给代码里建的时间 TextBlock 用
     /// （XAML 那边写 <c>FontFeatures="+tnum"</c>，同一个特性的两种写法）。
     ///
-    /// ⚠️ 打开 tnum 后每个数字占同样宽度，大号时间居中排时整行宽度恒定 ⇒ 秒数跳动时不会左右抖。
-    ///    ⛔ 这不是装饰：字体默认是比例字宽，Bahnschrift 里 <c>1</c> 只有 <c>4</c> 的一半宽。
+    /// 打开 tnum 后每个数字占同样宽度，大号时间居中排时整行宽度恒定，秒数跳动不会带动行宽。
+    ///    这是功能约束而非装饰：字体默认为比例字宽，Bahnschrift 里 <c>1</c> 只有 <c>4</c> 的一半宽。
     /// </summary>
     public static FontFeatureCollection TabularDigits { get; } =
         new() { FontFeature.Parse("+tnum") };
@@ -178,7 +174,7 @@ public static class ClockRender
     /// <summary>
     /// 蒙版 / 材质。原版亚克力、云母用 WinUI 的 <c>AcrylicBrush</c>（真的会模糊底下的背景图）。
     ///
-    /// ⚠️ Avalonia **没有元素级的亚克力画刷**（<c>AcrylicBrush</c> 不存在；它只有窗口级的
+    /// Avalonia **没有元素级的亚克力画刷**（<c>AcrylicBrush</c> 不存在；它只有窗口级的
     ///    <c>WindowTransparencyLevel</c>，见 <c>Platform.Backdrop</c>）。所以这里用原版的
     ///    <c>FallbackColor</c> 语义 —— 半透明纯色（Acrylic 不支持时 WinUI 自己也是退到它）。
     /// </summary>
@@ -205,13 +201,13 @@ public static class ClockRender
     /// <summary>
     /// 原版是 <c>AcrylicBrush { TintColor, TintOpacity, FallbackColor }</c>。
     /// Avalonia 没有这个画刷 → 直接取 <paramref name="fallback"/>（它已按蒙版浓度算好 alpha），
-    /// 与 WinUI 在"亚克力不可用"时的降级表现一致。
+    /// 与 WinUI 在"亚克力不可用"时的降级表现一致，界面标签为「半透明 · 亚克力（近似）」，
+    /// 不暗示这里有真模糊。
     /// </summary>
     private static Brush Acrylic(Color tint, double opacity, Color fallback)
     {
         // tint / opacity 保留只为与调用处一一对应（原 AcrylicBrush 的 TintColor / TintOpacity）；
         // Avalonia 下没有亚克力画刷可用，真正生效的是 fallback。
-        // ⚠️ 界面标签已改成「半透明 · 亚克力（近似）」，不再暗示这里有真模糊。
         _ = tint;
         _ = opacity;
         return new SolidColorBrush(fallback);

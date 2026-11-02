@@ -38,7 +38,7 @@ public sealed partial class FileSearchView : UserControl
         DetachedFromVisualTree += (_, _) => Detach();
     }
 
-    /// <summary>把焦点放进搜索框（浮窗显示 / 页面进入时调用），顺手全选上次的关键词。</summary>
+    /// <summary>把焦点放进搜索框（浮窗显示 / 页面进入时调用），并全选上次的关键词。</summary>
     public void FocusSearch()
     {
         try

@@ -76,8 +76,8 @@ public sealed partial class SpinField : UserControl
     }
 
     /// <summary>
-    /// 刷新显示。⚠️ _updating 这一下很关键：外面设置 Maximum 时会夹到当前 Value，
-    /// 那是"被动修正"，不该再触发一次 ValueChanged 回头存一遍存档。
+    /// 刷新显示。_updating 标志用于抑制被动触发：外部设置 Maximum 时会夹到当前 Value，
+    /// 这类"被动修正"不应再触发 ValueChanged 回写存档。
     /// </summary>
     private void Refresh()
     {

@@ -7,7 +7,7 @@ namespace ClassSoftwareHub.Desktop.Platform;
 /// <see cref="NativeMethods"/> 及各伴生类的**又一批补充**：views-b2 移植需要的零散 user32 / kernel32 导出
 /// （迷你计时器响铃 Beep、贴纸窗 / 虚拟键盘窗的 DPI 与窗口句柄查询）。
 ///
-/// ⚠️ 为什么另开文件：<see cref="NativeMethods"/> 不是 partial 且移植期要求不修改已就绪的
+/// 为什么另开文件：<see cref="NativeMethods"/> 不是 partial 且移植期要求不修改已就绪的
 ///    Platform 文件，所以按伴生类惯例新开一个同命名空间的类。调用方一律走 <c>Platform.NativeMethods*</c>。
 ///
 /// 每个导出仍按 <see cref="NativeMethods"/> 的惯例，在注释里标**最低可用系统**。

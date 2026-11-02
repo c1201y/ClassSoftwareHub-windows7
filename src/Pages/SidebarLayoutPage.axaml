@@ -128,7 +128,7 @@
                                           IsCheckedChanged="SidebarSwitch_Toggled" />
                         </views:SettingsCard>
 
-                        <!-- 按钮文案：短名（两三个字）还是长名（最多四个字，2026-10-30 Nick 要，自 1.8 移植）。
+                        <!-- 按钮文案：短名（两三个字）还是长名（最多四个字）。
                              侧边栏按钮上的字是建按钮时写进去的，改这项要重建侧边栏才看得到。 -->
                         <views:SettingsCard Header="按钮使用长名" Description="最多四个字，便于辨认。">
                             <views:SettingsCard.HeaderIcon>
@@ -253,8 +253,8 @@
                         </views:SettingsCard>
 
                         <!--
-                          展开面板高度（2026-10-18 Nick：别再固定调死，交给用户自己拖；2026-10-22 自上游 1.2.0-insider1.3 移植）
-                          ⚠️ 滑块 45~95（占工作区高度），拖动即时生效；落盘防抖 350ms（见 HeightRatio_ValueChanged）。
+                          展开面板高度：交给用户自己拖。
+                          滑块 45~95（占工作区高度），拖动即时生效；落盘防抖 350ms（见 HeightRatio_ValueChanged）。
                           ⚠️ 上游此处写「仅对紧凑模式（单列）有效」—— 本移植版工具区本来就是单列（没有「每行三个」），
                              所以只对**贴左右两边**（竖排）生效；贴上下边是固定厚度的横条，不吃这一项。
                         -->
@@ -276,8 +276,8 @@
                         </views:SettingsCard>
 
                         <!--
-                          自适应高度（2026-10-18 Nick 要；2026-10-22 自上游 1.2.0-insider1.3 移植）
-                          ⚠️ 开 = 高度随模块数量伸缩（比例只当上限）；关 = 锁死为上方比例，模块少时下方留白。
+                          自适应高度：
+                          开 = 高度随模块数量伸缩（比例只当上限）；关 = 锁死为上方比例，模块少时下方留白。
                         -->
                         <views:SettingsCard Header="自适应高度"
                                                Description="展开面板的高度随其中模块的数量伸缩，上方设置的比例只作为上限：模块较少时面板随之收短，不会在下方留出空白。关闭后高度固定为上方比例，模块较少时下方会留白。">
@@ -405,8 +405,8 @@
 
                     <!--
                       ============ 关机 ============
-                      2026-10-18 Nick 要：侧边栏「关机」按钮的两种方式在这里选。
-                      ⚠️ 版式照旧：组标题 + Caption 说明 + SettingsCard + 4px 组内间距。
+                      侧边栏「关机」按钮的两种方式在这里选。
+                      版式照旧：组标题 + Caption 说明 + SettingsCard + 4px 组内间距。
                     -->
                     <TextBlock Text="关机" FontSize="14" FontWeight="SemiBold" Margin="0,24,0,8" />
                     <TextBlock FontSize="12" Opacity="0.6" TextWrapping="Wrap" Margin="0,-4,0,8"
@@ -429,9 +429,9 @@
 
                     <!--
                       ============ 动画方案 ============
-                      2026-10-01 Nick：两种落位收尾都做出来之后觉得都挺好，索性都留给用户自己挑。
-                      ⚠️ 版式照旧：组标题 + Caption 说明 + SettingsCard + 4px 组内间距，不许自己叠 Border。
-                      ⚠️ 两项都用 ComboBox：与「颜色模式」「侧边栏放置模式」同一套交互，不做成一排单选按钮。
+                      两种落位收尾都保留，交给用户自己挑。
+                      版式照旧：组标题 + Caption 说明 + SettingsCard + 4px 组内间距，不许自己叠 Border。
+                      两项都用 ComboBox：与「颜色模式」「侧边栏放置模式」同一套交互，不做成一排单选按钮。
                     -->
                     <TextBlock Text="动画方案" FontSize="14" FontWeight="SemiBold" Margin="0,24,0,8" />
                     <TextBlock FontSize="12" Opacity="0.6" TextWrapping="Wrap" Margin="0,-4,0,8"

@@ -11,7 +11,7 @@ namespace ClassSoftwareHub.Desktop.Services.HubAi;
 public sealed record ToolPackInstallResult(bool Ok, string Message, ToolPack? Pack);
 
 /// <summary>
-/// 工具包的远程安装（2026-10-18）。
+/// 工具包的远程安装。
 ///
 /// <para>
 /// 走的是**和软件下载同一条线路**：<see cref="GithubRoute.ResolveAsync"/> 会按用户的设置生成

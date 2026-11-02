@@ -15,7 +15,7 @@ public static class ShellConfig
     /// <summary>
     /// 原生外壳版本（跟站点版本无关）。
     ///
-    /// 命名规则（Nick 指定）：<c>dv</c> + <c>主.功能.补丁</c> + <c>-insider架构.迭代</c>
+    /// 命名规则：<c>dv</c> + <c>主.功能.补丁</c> + <c>-insider架构.迭代</c>
     /// <list type="bullet">
     ///   <item>第一位「架构」——只有整个应用的架构/技术路线发生重大变动才会动；</item>
     ///   <item>第二位「功能」——每叠加一块新功能涨一次（例如「下载后台化」落地时会被它抬一位）；</item>
@@ -30,47 +30,15 @@ public static class ShellConfig
     /// → 用户反馈还有问题 → 继续改成 <c>1.0.0-insider1.1</c>
     /// → 一直改到没问题 → **整个 <c>-insider</c> 后缀删掉** → 上线正式版 <c>1.0.0</c>。
     ///
-    /// ⚠️ 基数不随便抬（否则旧包会被强制顶掉）。
+    /// 基数不随便抬（否则旧包会被强制顶掉）。
     /// </summary>
-    // 2026-10-04：1.1.0-insider1.2 → **首个正式版 1.0.0**（按上面那套流程删掉 -insider 后缀；
-    // 同时把基数从「预览线跑到的 1.1.0」落回干净的首发 1.0.0）。
-    // 2026-10-06：**1.0.0 → 1.1.0**（对齐 WinUI 桌面版 1.1 正式版，把 1.1 相对 1.0 新增的功能
-    // 全数补进本版：日志查看 / 回声洞 / 联系方式本地加密 / 全屏秒表与全屏计时 / 到点铃声 /
-    // 安装包管理等；基数按"叠加一块新功能涨一位"的规则抬到功能位）。
-    // 2026-10-10：对齐 WinUI 桌面版 dv1.1.x 功能集：提交软件 OSS 直传
-    // （OssUpload / SubmitEndpoint / DeviceFingerprint / IconResize）＋ 内容"一切从网络取"
-    // （取消安装包内置内容包，GithubContentSync 整理版本 v2）＋ 浮窗抽号结果字号整体上调 ＋
-    // 悬浮窗打开工具页动画只播一次。版本号经用户确认**留回 1.1.0**（功能并入 1.1 正式线，
-    // 不再单独抬到 1.1.1；基数不动，旧包不会被强制顶掉）。
-    // 2026-10-11：**1.1.0 → 1.1.1**（对齐 WinUI 桌面版 dv1.1.2 + dv1.1.3-insider1.1 的功能集：
-    // 日志「启动一次一个目录」+ 按版本分的素材缓存 + 日志页重写与详细视图 + 设置页「存储」区
-    // 与列表分页 + 全屏时钟/秒表等宽数字（修数字左右抖）+ 实验页「自动关机」+ 安装程序条款页；
-    // 本轮是一次成规模的功能追加，按"叠加一块新功能涨一位"的规则抬到 1.1.1）。
-    // 客户端据此判定 IsInsider=false → 走 stable 通道，只认非预发布的 Release。
-    // 2026-10-12：**1.1.1 → 1.1.1-insider1.0**（进入 1.1.1 预览线：本轮补齐上游
-    // dv1.1.2 → dv1.1.3-insider1.1 的服务层链路日志采纳，随后按用户要求转入预览版发布；
-    // 客户端据此判定 IsInsider=true → 默认走 insider 通道，可同时看到预发布与正式版）。
-    // 2026-10-29：版本号**回到 1.2.0-insider1.3** —— GitHub 上只发布到 insider1.2，
-    // 1.4~1.8 都是本地没发出去的号（按 f24a12c「用本仓库发布计数」的规矩作废），
-    // 本轮新包就排在最后一次发布的下一位。内容：侧边栏展开改成从屏幕外滑入、
-    // 收起条不再乱飞、展开面板内的触摸翻页重做，外加 Hub AI 输入区渐变托底 + 矢量发送图标。
-    // 2026-10-30：版本号**仍是 1.2.0-insider1.3**（用户：先用 1.3 提交，提交后再统一抬号）。
-    // 这一版的内容攒在一起：导航栏图标 20 → 24；侧边栏网格翻页改成面板下方独立一行
-    // ◀ ● ● ▶（不再压住首末列、点击不再被吞）；收起时一连两次 Collapse 只认第一次
-    // （以前第二次会跳过淡出，边上那条看着像"乱飞"）；网格滑动翻页不再抢指针
-    // （按钮照样能点，横滑改成"移动中判据 + 抬手隧道补判 + 面板级事件跟踪"，滑完不会误开工具）。
-    // 2026-10-30：**1.2.0-insider1.3 → 1.2.0-insider1.4**。新功能：
-    // ① 「文件快搜」工具（自带后台目录索引 + 本机缓存，浮窗 / 完整页 / 侧边栏 / 托盘四处入口）。
-    // 2026-10-31：版本号**保持 1.2.0-insider1.4**（用户明确要求不抬号）。新增「PPT 续播」。
-    // 2026-11-01：**1.2.0-insider1.4 → 1.2.0-insider1.5**。移植上游 dv1.8（OOBE 初次配置向导等），
-    // 并把「云母」在 Win10 上的请求接到系统亚克力（以前 Win10 选云母会直接落纯色）。
-    public const string ShellVersion = "1.2.0-insider1.5";
+    public const string ShellVersion = "1.2.0-insider1.6";
 
     /// <summary>当前是不是预览（内测）构建 —— 版本号里带 <c>insider</c> 即为真。</summary>
     public static bool IsInsider =>
         ShellVersion.Contains("insider", System.StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>桌面版的版本号前缀（Nick 指定：dv）。</summary>
+    /// <summary>桌面版的版本号前缀（<c>dv</c>）。</summary>
     public const string VersionPrefix = "dv";
 
     // ════════════════════════════════════════════════════════════════
@@ -88,7 +56,7 @@ public static class ShellConfig
     public const string UpdateRepoOwner = "c1201y";
 
     /// <summary>
-    /// 更新仓库名 —— **Windows 7 移植版有自己独立的仓库**（2026-10-04 起独立成库）。
+    /// 更新仓库名 —— **Windows 7 移植版有自己独立的仓库**。
     ///
     /// 与 WinUI 版（ClassSoftwareHub-Desktop）彻底分家：Release 列表、更新日志各看各的，
     /// 不存在"收到另一个版本的更新"这种事。正式版 = Release 的 Latest；预览版 = Pre-release。
@@ -103,15 +71,12 @@ public static class ShellConfig
     /// <summary>
     /// Release tag 前缀 —— 独立仓库之后**留空**（不再需要）。
     ///
-    /// 历史：2026-10-04 之前 Win7 版与 WinUI 版共用 <c>ClassSoftwareHub-Desktop</c>，
-    /// 而 GitHub 的 Release 列表是**仓库级**的、不分分支，只能靠前缀
-    /// （<c>win7-dv1.0.0</c>）分家。现在 Win7 版独立成库，天然隔离，
-    /// 于是清空本项 —— tag 回到干净的 <c>dv1.0.0</c> 形状。
+    /// 过去与 WinUI 版共用仓库时靠前缀（<c>win7-dv1.0.0</c>）分家；独立成库后天然隔离。
     /// 机制本身保留：将来若又需要合库，填上前缀即可（发版脚本要同步改）。
     /// </summary>
     public const string UpdateTagPrefix = "";
 
-    /// <summary>可选：GitHub 令牌（留空走匿名，60 次/小时，够用）。⚠️ 永远不要写死在公开仓库里。</summary>
+    /// <summary>可选：GitHub 令牌（留空走匿名，60 次/小时，够用）。永远不要写死在公开仓库里。</summary>
     public const string UpdateToken = "";
 
     /// <summary>
@@ -126,10 +91,10 @@ public static class ShellConfig
     /// <summary>
     /// 设置页「站点版本」那一行显示的全文。
     ///
-    /// ⛔⛔ **不要再改回去读内容包的 <c>text/ui.json → app.version</c>**（2026-10-04 踩实了）：
+    /// **不要再改回去读内容包的 <c>text/ui.json → app.version</c>**：
     ///   内容包（联网同步下来的缓存）里 <c>text/</c> 这类文件不在 GitHub 仓库的「软件数据/」维护范围内，
-    ///   同步不会更新它 —— 缓存里一旦有旧文案就**冻结**在装机/上次同步那版：
-    ///   该字段会一直停在旧值（上游实测老机器上读到的是 2.3.2），怎么升级客户端都不会变，
+    ///   同步不会更新它 —— 缓存里一旦有旧文案就**冻结**在装机/上次同步那版，
+    ///   该字段会一直停在旧值，怎么升级客户端都不会变，
     ///   用户就会看到「客户端 1.6 / 站点版本 2.3.2」这种自相矛盾的搭配。
     ///
     /// 站点的真实版本只有客户端自己知道（发版时人工对齐），所以这里以**编译进程序的常量**为准，
@@ -140,10 +105,10 @@ public static class ShellConfig
     public const string WebView2DownloadUrl = "https://developer.microsoft.com/microsoft-edge/webview2/";
 
     /// <summary>
-    /// Hub AI 工具包在站点仓库里的位置（2026-10-18 上游新增；2026-10-22 移植）。
+    /// Hub AI 工具包在站点仓库里的位置。
     ///
     /// <para>
-    /// ⚠️ 这个文件里**只有声明式 JSON**（工具名 / 说明 / 参数 schema），没有任何可执行内容 ——
+    /// 这个文件里**只有声明式 JSON**（工具名 / 说明 / 参数 schema），没有任何可执行内容 ——
     /// 下载并执行远程代码等于把安全交给一个随时可能被改的文件，杀软也会直接拦。
     /// 真正的实现永远在主程序里，按 id 分派。详见 <see cref="Services.HubAi.ToolPack"/>。
     /// </para>
@@ -188,11 +153,9 @@ public static class ShellConfig
     /// <summary>
     /// 「把主窗口叫出来」的命名事件名。
     ///
-    /// ⛔ 为什么必须有这个：默认关闭窗口是**收进托盘**（<c>CloseToTray</c> 默认 true），进程并没有退出。
+    /// 为什么必须有这个：默认关闭窗口是**收进托盘**（<c>CloseToTray</c> 默认 true），进程并没有退出。
     /// 此时用户再点桌面图标 / 开始菜单 / 双击 exe，新起来的第二个实例会被 <see cref="MutexName"/>
-    /// 挡在门外 —— 2026-09-30 之前那里是直接 <c>Environment.Exit(0)</c>，**什么反应都没有**，
-    /// 用户只能去任务管理器结束进程（实测反馈就是这么来的）。
-    /// 现在第二个实例改为先敲这个事件，让第一个实例把主窗口亮出来，然后自己才退。
+    /// 挡在门外 —— 第二个实例先敲这个事件，让第一个实例把主窗口亮出来，然后自己才退。
     /// </summary>
     public const string ActivateEventName = "ClassSoftwareHub.Desktop.ActivateMainWindow";
 
@@ -220,7 +183,7 @@ public static class ShellConfig
     /// 提交软件走 <c>{入口}/api/submit</c>；回声洞投稿走 <c>{入口}/api/echocave</c>；
     /// 反馈中心走 <c>{入口}/api/feedback</c>（见 <see cref="Services.FeedbackSubmit"/>）；
     /// OSS 直传签名走 <c>{入口}/api/oss-sign</c>。
-    /// 入口清单唯一出处见 <see cref="ServiceEndpoints.All"/>（2026-10-27 三入口重排）；
+    /// 入口清单唯一出处见 <see cref="ServiceEndpoints.All"/>；
     /// 成功的那个记进 <see cref="SubmitEndpointFile"/>。
     /// </summary>
     public static readonly string[] SubmitEndpoints = ServiceEndpoints.All;
@@ -267,7 +230,7 @@ public static class ShellConfig
     /// <summary>
     /// 这个主机名是不是「本家」网页（官网本体 / 子域 / 自有服务端点）。
     ///
-    /// ⛔ 用途是 WebView 桥接的来源校验：应用内浮层可以导航到任意第三方网页（网盘、软件官网），
+    /// 用途是 WebView 桥接的来源校验：应用内浮层可以导航到任意第三方网页（网盘、软件官网），
     ///    而 shell-shim.js 是所有文档都会执行的 —— 不校验来源，任何网页都能调
     ///    <c>setAutoStart</c> / <c>setTelemetry</c> / <c>window</c> 这些原生能力。
     /// </summary>
@@ -303,7 +266,7 @@ public static class ShellConfig
     /// <summary>增量同步下来的内容缓存目录。</summary>
     public static string CachedContentDir => System.IO.Path.Combine(AppPaths.DataDir, "content");
 
-    // ⚠️ 「安装包自带内容包」（BundledContentDir）已随上游 2026-10-05 定案删除：
+    // 「安装包自带内容包」（BundledContentDir）已删除：
     //    装机残留会让已下架的软件永远"删了又复活"，且自带 text/ 写进缓存后再也不更新。
     //    现在内容**只**来自网络同步（GithubContentSync → CachedContentDir），
     //    新装机器首次启动必须联网，拿不到就是空清单 + 重试入口。
@@ -315,7 +278,7 @@ public static class ShellConfig
     public const string DevContentDir =
         @"C:\Users\Programmer_Nick\OneDrive\文档\Visual Studio 18 项目文件\ClassSoftwareHub\dist\content";
 
-    /// <summary>应用内网页浮层（WebSheet，比如详情页里「顺手看一眼官网」）—— 全程序唯一还会用到 WebView2 的地方。⚠️「提交软件」早已是原生页（Pages/SubmitPage.xaml），别再看这条注释。</summary>
+    /// <summary>应用内网页浮层（WebSheet，比如详情页里「顺手看一眼官网」）—— 全程序唯一还会用到 WebView2 的地方。</summary>
     public const string SubmitPageUrl = "https://classsoftwarehub.cn/#/submit";
 }
 

@@ -9,7 +9,7 @@ using Avalonia.Media;
 namespace ClassSoftwareHub.Desktop.Core;
 
 /// <summary>
-/// 极简 Markdown → 控件（2026-10-18 上游新增；2026-10-22 移植到 Avalonia；2026-10-23 上游补表格，本轮跟随）。
+/// 极简 Markdown → 控件。
 ///
 /// <para>
 /// 为什么自己写而不是引库：模型输出永远是 Markdown
@@ -17,23 +17,23 @@ namespace ClassSoftwareHub.Desktop.Core;
 /// 一堆用不上的东西，而这里需要的只有这几类语法 —— 够用就行。
 /// </para>
 /// <para>
-/// ⛔ 仍然**不支持**代码块、图片、链接：这三样在 AI 回答里出现频率低，按纯文本显示信息也不会丢。
+/// 仍然**不支持**代码块、图片、链接：这三样在 AI 回答里出现频率低，按纯文本显示信息也不会丢。
 /// </para>
 /// <para>
-/// ⚠️ 移植说明：WinUI 的 <c>RichTextBlock + Paragraph</c> 在 Avalonia 没有对应物
+/// 移植说明：WinUI 的 <c>RichTextBlock + Paragraph</c> 在 Avalonia 没有对应物
 /// （<c>TextBlock.Inlines</c> 是扁平的，没有"块"这一层）⇒ 这里改成
 /// **往一个 Panel（通常是 StackPanel）里塞若干 TextBlock**，一个 TextBlock 就是一段，
 /// 段内用 <c>Run</c> 表达粗体/等宽；表格则渲染成真正的 <see cref="Grid"/>。调用方负责清空/复用这个 Panel。
 /// </para>
 /// <para>
-/// ⚠️ 流式渲染时这个方法会被反复调用（约每 80ms 一次），所以实现要够轻：
+/// 流式渲染时这个方法会被反复调用（约每 80ms 一次），所以实现要够轻：
 /// 只做一次字符串切分，不建语法树、不回溯。
 /// </para>
 /// </summary>
 public static class MarkdownText
 {
     /// <summary>把 <paramref name="markdown"/> 渲染成控件填进 <paramref name="target"/>，会清空原有内容。</summary>
-    /// <param name="foreground">正文颜色。⚠️ Panel 没有 Foreground 可继承，必须显式往下传。</param>
+    /// <param name="foreground">正文颜色。Panel 没有 Foreground 可继承，必须显式往下传。</param>
     public static void Apply(Panel target, string markdown, Brush? foreground = null,
         double fontSize = 14, double lineHeight = 24)
     {
@@ -164,7 +164,7 @@ public static class MarkdownText
     }
 
     // ══════════════════════════════════════════════════════════════════
-    //  表格（2026-10-23 上游补，本轮跟随移植）
+    //  表格
     // ══════════════════════════════════════════════════════════════════
 
     /// <summary>这一行是不是 |---|---| 形态的分隔行（只允许 | - : 空白，且至少 3 个连字符）。</summary>

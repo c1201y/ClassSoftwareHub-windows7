@@ -3,7 +3,7 @@ namespace ClassSoftwareHub.Desktop.Data;
 /// <summary>
 /// 一个键"按下去干什么"。
 ///
-/// ⚠️ 这里刻意**不区分大小写**：字母键只有"哪个虚拟键码"，大小写由上档状态决定 ——
+/// 这里刻意**不区分大小写**：字母键只有"哪个虚拟键码"，大小写由上档状态决定 ——
 ///    跟真键盘一样。理由：中文输入法只认虚拟键码，送 Unicode 字符会绕过输入法
 ///    （打拼音出不来的那种毛病就是这么来的）。
 /// </summary>
@@ -168,7 +168,7 @@ public sealed record KeyboardLayout(string Id, string Name, int Columns, IReadOn
 /// **两套模式**（对应设置里的「键盘布局」）：
 ///   · <c>full</c>    完整 —— 5 行 × 15 格，功能键齐全（Esc / Tab / Caps / 双 Shift / Ctrl / ⊞ / Alt / 方向键）
 ///   · <c>compact</c> 精简 —— 4 行 × 12 格，数字并到字母键上当键帽上方小字
-/// ⚠️ **默认必须是完整**（Nick 2026-09-30 明确：「我不是教你使用系统的布局吗」）。
+/// **默认必须是完整**。
 ///
 /// **三个层**（对应键盘上的切换键）：<c>letters</c> / <c>symbols</c> / <c>numpad</c>。
 /// </summary>
@@ -182,7 +182,7 @@ public static class KeyboardLayouts
     public const string Numpad = "numpad";
 
     /// <summary>「键盘布局」下拉里的项（**完整在前**）。</summary>
-    /// <remarks>⚠️ 原版用 C# 12 集合表达式 <c>[ModeFull, ModeCompact]</c>；本移植版锁 C# 10，
+    /// <remarks>原版用 C# 12 集合表达式 <c>[ModeFull, ModeCompact]</c>；本移植版锁 C# 10，
     ///          改成等价的 <c>new[] { … }</c>（数据不变）。</remarks>
     public static readonly IReadOnlyList<string> Modes = new[] { ModeFull, ModeCompact };
 
@@ -216,7 +216,7 @@ public static class KeyboardLayouts
     ///
     /// 为什么要它：网格是按 <see cref="KeyboardLayout.Columns"/> 建固定列数的，
     /// 某一行合计少一格 → 末尾**静默**留空一条；多一格 → 最后一个键**静默**挤到下一列，
-    /// 整行错位。以前只能靠人工把每行加一遍才知道对不对（改布局时踩过）。
+    /// 整行错位。自动自检免去人工逐行核对。
     /// </summary>
     public static IReadOnlyList<string> Validate()
     {
@@ -247,7 +247,7 @@ public static class KeyboardLayouts
 
     // ── 底部功能行（两个模式各一条，切层时复用）──────────────
 
-    // ⚠️ 方向键**四颗都要有**：上一版漏了「上」，光标只能往下挪不能往上挪 ——
+    // 方向键**四颗都要有** ——
     //    这是"完整"布局的硬缺口，不是可选装饰。空格让出 1 格（6→5）给它。
     private static KeyDef[] BottomFull() =>
     new KeyDef[] {
@@ -329,10 +329,10 @@ public static class KeyboardLayouts
 
     // ── 符号层 ──────────────────────────────────────────────
     //
-    // ⚠️ 这一层曾经**第 2/3/4 行各多一颗键**（合计 16 ≠ 15），网格是固定 15 列的，
+    // 这一层每行合计必须等于 15（网格固定 15 列），
     //    多出来的那颗会静默挤到下一列、整行错位 —— 肉眼在 15 列里根本看不出来，
-    //    是 `KeyboardLayouts.Validate()` 的自检日志把它揪出来的（2026-09-30）。
-    //    ⛔ 以后往这里加键，先去掉等量的重复键；符号在相邻行重复出现是刻意的，
+    //    靠 `KeyboardLayouts.Validate()` 的自检日志发现。
+    //    以后往这里加键，先去掉等量的重复键；符号在相邻行重复出现是刻意的，
     //       挑"别处已经有"的那颗删最安全。
 
     private static KeyboardLayout SymbolsFull() => new(Symbols, "符号", 15,

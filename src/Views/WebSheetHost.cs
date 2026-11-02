@@ -11,11 +11,11 @@ namespace ClassSoftwareHub.Desktop.Views;
 /// <summary>
 /// 应用内网页浮层（WebSheet）用的 **CoreWebView2 宿主**。
 ///
-/// ⛔ 为什么需要这个文件：Avalonia **没有 WebView2 控件**（原版是 WinUI 的
-///    <c>Microsoft.UI.Xaml.Controls.WebView2</c>）。本工程只引了 <c>Microsoft.Web.WebView2</c> 的 **Core**
+/// 背景：Avalonia 没有 WebView2 控件（原版为 WinUI 的
+///    <c>Microsoft.UI.Xaml.Controls.WebView2</c>）。本工程只引用 <c>Microsoft.Web.WebView2</c> 的 Core 版
 ///    （见 PORTING.md：Win7 上 WebView2 运行时止于 109，SDK 锁 1.0.1587.40）。
-///    Core 版提供 <c>CoreWebView2Environment.CreateCoreWebView2ControllerAsync(IntPtr)</c> ——
-///    即"自带宿主"模式：我们自己建一个子窗口（HWND），把 WebView 挂进去。
+///    Core 版提供 <c>CoreWebView2Environment.CreateCoreWebView2ControllerAsync(IntPtr)</c>，
+///    即"自带宿主"模式：自建子窗口（HWND）承载 WebView。
 ///
 /// 做法：
 ///   ① 在 Avalonia 主窗口下面建一个 WS_CHILD 子窗口；
@@ -23,8 +23,8 @@ namespace ClassSoftwareHub.Desktop.Views;
 ///   ③ Controller 的 Bounds = 子窗口客户区（物理像素），位置由外边 SetWindowPos 摆；
 ///   ④ 显示/隐藏靠 Controller.IsVisible，离场时 Close + 销毁子窗口。
 ///
-/// ⚠️ 这套是**未经 Win7 实机验证**的（本地无 Win7，也不一定有 WebView2 运行时）。所以整个类一行都不许抛：
-///    任何一步失败都返回不可用，MainWindow 那边会走「用系统浏览器打开」的降级路径。
+/// 此实现未经 Win7 实机验证（可能缺少 WebView2 运行时），因此整个类不允许抛出异常：
+///    任何一步失败都返回不可用，由 MainWindow 走「用系统浏览器打开」的降级路径。
 /// </summary>
 internal sealed class WebSheetHost : IDisposable
 {
@@ -56,8 +56,7 @@ internal sealed class WebSheetHost : IDisposable
     /// <summary>要开新窗口（target=_blank 之类）。</summary>
     public event Action<string>? NewWindowRequested;
 
-    /// <summary>网页发来的消息（JSON）。</summary>
-    /// <summary>网页 → 原生消息。第二个参数是发出消息的文档地址（用于来源校验）。</summary>
+    /// <summary>网页 → 原生消息（JSON）。第二个参数是发出消息的文档地址（用于来源校验）。</summary>
     public event Action<string, string?>? WebMessageReceived;
 
     private WebSheetHost(IntPtr parent, NativeMethodsShell.WndProcDelegate proc)
@@ -151,8 +150,8 @@ internal sealed class WebSheetHost : IDisposable
                     try { json = e.TryGetWebMessageAsString(); } catch { }
                 }
                 if (string.IsNullOrEmpty(json)) return;
-                // ⚠️ 必须把消息来源一起传出去：浮层可以导航到任意第三方网页（网盘、软件官网），
-                //    而 shim 是在所有文档上执行的 —— 只有「来源是本家站点」才允许调桥接。
+                // 必须传出消息来源：浮层可导航到任意第三方网页，而 shim 在所有文档上执行，
+                // 调用方需校验来源为本家站点才允许桥接。
                 string? source = null;
                 try { source = e.Source; } catch { }
                 WebMessageReceived?.Invoke(json!, source);

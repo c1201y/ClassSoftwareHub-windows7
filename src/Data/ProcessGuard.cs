@@ -10,9 +10,9 @@ using ClassSoftwareHub.Desktop.Platform;
 namespace ClassSoftwareHub.Desktop.Data;
 
 /// <summary>
-/// 一条「程序专杀」规则：盯着某一个进程，到达设定时间点就结束它（2026-09-28 Nick 提）。
+/// 一条「程序专杀」规则：盯着某一个进程，到达设定时间点就结束它。
 ///
-/// ⚠️ 每条规则**各自带一份时间点** —— 这是 Nick 明确要求的「可以为每个程序单独配置杀除的时间」，
+/// 每条规则**各自带一份时间点** ——
 ///    所以别把时间点提到 <see cref="ProcessGuardConfig"/> 上做成全局的。
 /// </summary>
 public sealed class ProcessGuardRule
@@ -36,7 +36,7 @@ public sealed class ProcessGuardRule
 /// <summary>
 /// 「程序专杀」的本地存档（%LOCALAPPDATA%\ClassSoftwareHub\procguard.json）。
 ///
-/// ⚠️ 跟白板专杀（<c>easinote-guard.json</c>）**各存各的**：Nick 明确要求白板专杀保持独立、不与通用专杀合并。
+/// 跟白板专杀（<c>easinote-guard.json</c>）**各存各的**：白板专杀保持独立、不与通用专杀合并。
 ///    这里的文件将来整个不要了也能直接删干净，不影响白板专杀那条线。
 /// </summary>
 public sealed class ProcessGuardConfig
@@ -103,14 +103,14 @@ public sealed class ProcessGuardConfig
 }
 
 /// <summary>
-/// 「程序专杀」的执行引擎（实验性功能，2026-09-28 Nick 提）。
+/// 「程序专杀」的执行引擎（实验性功能）。
 ///
 /// 与白板专杀（<see cref="EasiNoteGuard"/>）的差别只有"盯谁"：
 ///   · 白板专杀：写死只认白板5 家族（<c>EasiNote*</c>），不碰集控端与更新组件；
 ///   · 程序专杀：盯用户在页面上指定的任意进程名，每条规则各自带时间点。
 /// 判定"在不在用"的安全闸是**同一套**：只看该进程有没有可见的顶层窗口。
 ///
-/// ⚠️ 定时同样靠本进程内的 <see cref="DispatcherTimer"/> —— **本程序没在跑就不会查杀**，
+/// 定时同样靠本进程内的 <see cref="DispatcherTimer"/> —— **本程序没在跑就不会查杀**，
 ///    没有注册 Windows 计划任务，不去动系统里任何东西。
 /// </summary>
 public static class ProcessGuard
@@ -280,7 +280,7 @@ public static class ProcessGuard
 
     // ── 定时巡检 ─────────────────────────────────────────────
 
-    // ⚠️ 原版用 Microsoft.UI.Dispatching.DispatcherQueueTimer；Avalonia 的等价物是
+    // 原版用 Microsoft.UI.Dispatching.DispatcherQueueTimer；Avalonia 的等价物是
     //    Avalonia.Threading.DispatcherTimer —— IsEnabled 期间按 Interval 反复触发，
     //    等价于原版的 IsRepeating = true（没有单独的 IsRepeating 属性）。
     private static DispatcherTimer? _timer;
@@ -360,6 +360,6 @@ public static class ProcessGuard
     }
 
     // ── P/Invoke ─────────────────────────────────────────────
-    // ⚠️ 原版在本文件里直接 [DllImport]；按 PORTING.md §5「业务代码禁止另写 DllImport」，
+    // 原版在本文件里直接 [DllImport]；按 PORTING.md §5「业务代码禁止另写 DllImport」，
     //    已统一改用 Platform.NativeMethods 里现成的 EnumWindows / IsWindowVisible / GetWindowThreadProcessId。
 }

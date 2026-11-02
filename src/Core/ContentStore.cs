@@ -41,8 +41,8 @@ public sealed class ContentStore
 
     /// <summary>
     /// 内容被重新加载了（同步完成 / 手动刷新后触发）。界面订阅它就能在数据到手时立刻重建列表，
-    /// 而不是等用户切页 —— ⛔ 别去掉：安装包不再自带清单后，首启的"空 → 有"全靠这个通知。
-    /// ⚠️ 事件在 UI 线程上触发（Load 的调用点都在 UI 线程），订阅方若不确定请自行用 Dispatcher 兜一层。
+    /// 而不是等用户切页 —— 安装包不自带清单后，首启的"空 → 有"全靠这个通知。
+    /// 事件在 UI 线程上触发（Load 的调用点都在 UI 线程），订阅方若不确定请自行用 Dispatcher 兜一层。
     /// </summary>
     public event Action? Changed;
 
@@ -52,11 +52,10 @@ public sealed class ContentStore
     /// <summary>
     /// 内容被重新读了几次。<see cref="Load"/> 每跑一次 +1。
     ///
-    /// ⛔ 给界面做"内容真的变了没有"的判据用，别拿 <see cref="ContentVersion"/> 或
-    /// <see cref="Source"/> 代替（上游 2026-10-05 踩到）：manifest.json 不再同步，ContentVersion 恒为空；
-    /// Source 又永远是同一个目录路径 —— 两者组合根本判不出"同步把 16 个补成了 84 个"，
-    /// 于是首启时页面会一直停在旧列表上，非等用户切页才刷新。
-    /// ⚠️ 它只在 <see cref="Load"/> 里涨，纯粹切页不会变 —— 所以不会破坏"切回来就别重建"的优化。
+    /// 给界面做"内容真的变了没有"的判据用，不要拿 <see cref="ContentVersion"/> 或
+    /// <see cref="Source"/> 代替：manifest.json 不再同步，ContentVersion 恒为空；
+    /// Source 又永远是同一个目录路径 —— 两者组合判不出同步是否真的带来了新数据。
+    /// 它只在 <see cref="Load"/> 里涨，纯粹切页不会变，因此不破坏"切回来就别重建"的优化。
     /// </summary>
     public int Revision { get; private set; }
 
@@ -114,7 +113,7 @@ public sealed class ContentStore
         {
             Source = "（无数据源）";
             // 镜像清单有安装包内置兜底（见 LoadMirror 的说明）：清单基本不变，
-            // 就算一次网都没连上也不能让「系统镜像下载」页开天窗（用户 2026-10-11 定案）。
+            // 就算一次网都没连上也不能让「系统镜像下载」页开天窗。
             LoadMirror(BundledMirrorFile);
             Changed?.Invoke();          // 让"正在获取 / 没取到"的空清单提示能立刻刷出来
             return;
@@ -128,7 +127,7 @@ public sealed class ContentStore
         LoadManifestVersion(Path.Combine(root, "manifest.json"));
 
         // 站点文字（拿不到就留空，界面用兜底文案）。
-        // ⚠️ 站点仓库现在**没有放** text/ui.json（见 Data.UiText 的说明），
+        // 站点仓库现在**没有放** text/ui.json（见 Data.UiText 的说明），
         //    所以正式环境走到这儿一定是空 —— 不是 bug，别去"修"它。
         LoadMirror(Path.Combine(root, "text", "mirror-sites.json"));
         LoadUi(Path.Combine(root, "text", "ui.json"));
@@ -164,9 +163,8 @@ public sealed class ContentStore
     /// 安装包内置的镜像清单（随包发布 <c>content/text/mirror-sites.json</c>，见 csproj 的 Content 项）。
     ///
     /// 为什么镜像要留内置兜底而软件清单不留：站点仓库的「软件数据/」里**从来没有**
-    /// <c>text/mirror-sites.json</c>（上游 WinUI 版同样没有 —— UiText.cs 的注释原以为有），
-    /// 纯联网模式下两版的镜像页都会开天窗；而这份清单基本不更新（2026-10-11 用户定案），
-    /// 内置进应用、同步到了就用网上的即可。
+    /// <c>text/mirror-sites.json</c>（上游 WinUI 版同样没有），纯联网模式下两版的镜像页
+    /// 都会开天窗；而这份清单基本不更新，内置进应用、同步到了就用网上的即可。
     /// </summary>
     private static string BundledMirrorFile =>
         Path.Combine(AppContext.BaseDirectory, "content", "text", "mirror-sites.json");
@@ -215,7 +213,7 @@ public sealed class ContentStore
     private static string Or(string a, string b) => a.Length > 0 ? a : b;
 
     /// <summary>
-    /// 找一个可用的内容目录。**只有两个候选，没有"安装包自带"这一档**（上游 2026-10-05 定案）：
+    /// 找一个可用的内容目录。**只有两个候选，没有"安装包自带"这一档**：
     ///   · 正式版：本地缓存（%LOCALAPPDATA%\ClassSoftwareHub\content，由 GithubContentSync 同步）；
     ///   · 开发机：站点工程产物目录（正式用户机器上不存在，自动跳过）。
     /// DEBUG 把开发目录放最前面，方便改站点工程立刻看效果。
@@ -332,7 +330,7 @@ public sealed class ContentStore
                             Hash = ReadString(d, "hash"),
                             // 维护者显式声明的落地方式（file / store / netdisk / page），
                             // 不写就由 DownloadLinkKind 按域名与后缀推断
-                            // （2026-10-18 自上游 1.2.0 移植，见 Data/DownloadLinkKind.cs）
+                            // （见 Data/DownloadLinkKind.cs）
                             DeclaredKind = ReadString(d, "kind"),
                         };
                         if (item.Platform.Length > 0 || item.Url.Length > 0) app.Downloads.Add(item);

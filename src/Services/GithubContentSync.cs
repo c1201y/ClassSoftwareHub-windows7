@@ -21,7 +21,7 @@ public sealed record RepoContentResult(bool Ok, bool Updated, int Files, string 
 /// 为什么不用站点的 content/manifest.json：那份清单站点一直没发布（404），
 /// 但仓库里「软件数据/apps/*.json + categories.json」就是原文，公开仓库不用令牌也能读。
 /// 桌面端要用的其它内容（系统镜像清单）同样放在「软件数据/」下，跟着一起同步 ——
-/// 这是"安装包不自带内容、一切从网络取"之后唯一的数据来源（上游 2026-10-05）。
+/// 这是"安装包不自带内容、一切从网络取"之后唯一的数据来源。
 ///
 /// 做法（尽量省请求 —— 未登录的 GitHub 接口只有 60 次/小时，机房还是同一个出口 IP）：
 ///   1) 问一下分支头 commit sha（**每次同步就 1 个请求**，走 api.github.com，失败换镜像）
@@ -72,7 +72,7 @@ public static class GithubContentSync
     /// 缓存里记的版本对不上时就强制走一次完整同步（列目录 + 清理），把上一种规则留下的东西收拾干净。
     ///
     /// 改同步规则（清理范围变了 / 布局变了）就 +1。
-    /// v2 = 取消安装包内置内容包，同期把删除范围从 apps/ 扩到整个内容目录（上游 2026-10-05）。
+    /// v2 = 取消安装包内置内容包，同期把删除范围从 apps/ 扩到整个内容目录。
     /// </summary>
     private const string SyncFormat = "2";
 
@@ -100,8 +100,8 @@ public static class GithubContentSync
         {
             Directory.CreateDirectory(Dir);
 
-            // ── 链路日志（对齐上游 2026-10-11）：内容同步是"软件列表是空的 / 数据一直不更新"
-            //    这类反馈的唯一线索。以前它失败时只把一句人话交给界面，日志里什么都没有。 ──
+            // ── 链路日志：内容同步是"软件列表是空的 / 数据一直不更新"
+            //    这类反馈的唯一线索，失败必须留有日志。 ──
             var sw = System.Diagnostics.Stopwatch.StartNew();
             Core.AppLog.Begin("content", $"开始同步软件数据 · 仓库 {RepoUrl}");
 
@@ -179,16 +179,15 @@ public static class GithubContentSync
 
             // 仓库里没有的，本地也跟着删 —— 包含两类：
             //   ① 软件被下架（不删的话清单里留着幽灵条目）；
-            //   ② 装机残留 —— 安装包以前自带过内容包，老机器缓存里躺着 text/、holiday/ 这类
-            //      仓库根本不维护的文件。安装包不再自带内容后，它们没有任何更新途径，
-            //      留着只会永远停在装机那天（上游 2026-10-05 定案）。
+            //   ② 装机残留 —— 安装包不再自带内容后，老机器缓存里 text/、holiday/ 这类
+            //      仓库根本不维护的文件没有任何更新途径，留着只会永远停在装机那天。
             // ⚠️ 列目录被 GitHub 截断时**不删**：那种情况下 paths 是残缺的，删了等于误伤。
             if (!truncated) DeleteUnknownFiles(keep);
 
             try { await File.WriteAllTextAsync(stamp, head, Utf8NoBom, ct).ConfigureAwait(false); } catch { }
             try { await File.WriteAllTextAsync(formatFile, SyncFormat, Utf8NoBom, ct).ConfigureAwait(false); } catch { }
 
-            // 图标跟着软件数据一起旧（2026-10-18 自上游 1.2.0 移植）：Apps JSON 里记着图标地址，
+            // 图标跟着软件数据一起旧：Apps JSON 里记着图标地址，
             // 站点换了图 / 换了地址就该往下拉新的。
             // ⛔ 只有**真有文件变化**才失效 —— head 换了但内容一字未改时不必让上百个图标白重下一次。
             //    标记陈旧（不是删除）⇒ 界面先用旧图顶上，后台逐个覆盖，视觉不断档。
@@ -393,7 +392,6 @@ public static class GithubContentSync
 
             // ⚠️ 这个函数是**每处理一个文件就会被叫一次**的（入口是"边下边记"），
             //    所以日志必须按「入口真的换了」才记 —— 否则同步 112 个文件就刷 112 行同样的废字。
-            //    （2026-10-18 自上游 1.2.0 移植）
             if (before != index)
                 Core.AppLog.Info("content", $"{kind} 入口改用：{label}");   // 排查"内容源不对"的第一手依据
         }
@@ -403,22 +401,21 @@ public static class GithubContentSync
     /// <summary>
     /// 清掉内容目录里「本次没从仓库同步到」的文件 —— 下架的软件、以及装机残留。
     ///
-    /// ⛔⛔ 历史上这里曾经反着来：删完立刻从**安装包自带的内容包**里把缺的补回来
-    /// （<c>SeedMissingFiles</c>，overwrite:false），于是仓库删掉的软件**删了又被补回**，
-    /// 用户永远看不到它下架（上游实测本机就复活过一个已下架的激活工具）。同时自带的 text/ 一旦写进缓存
-    /// 就再也不更新。2026-10-05 Nick 定案取消安装包内置内容，这个回填连同它的病根一起删掉。
+    /// ⛔⛔ 这里**绝不回填**：若删完立刻从**安装包自带的内容包**里把缺的补回来，
+    /// 仓库删掉的软件会被补回，用户永远看不到它下架；自带的 text/ 一旦写进缓存也再也不更新。
+    /// 安装包内置内容已取消，缺什么就该让它缺着，由仓库数据决定内容。
     ///
     /// 放的：`.` 开头的元文件（<c>.reposha</c> / <c>.repofmt</c>）。
     /// 兜底：任何一步失败都只当没清干净 —— 绝不能连累本次已经同步下来的数据。
     /// </summary>
     /// <summary>
     /// 是不是**本机派生**的缓存文件 —— 它们由本机生成，但本身不属于仓库内容，
-    /// 不能被上面的清理当"装机残留"扫掉（2026-10-18 自上游 1.2.0 移植）：
+    /// 不能被上面的清理当"装机残留"扫掉：
     ///   · <c>icons/</c>      —— 软件图标磁盘缓存（<see cref="AppIconCache"/>）
     ///   · <c>quickicons/</c> —— 快捷入口图标按主题着色后的产物（<see cref="QuickLinkIconLoader"/>）
     ///
-    /// ⚠️ 之前这里递归清了整个 content 目录，只豁免 `.` 开头的元文件 ⇒ 每同步一次，
-    ///    图标缓存就被整个删光、下次进页面又要从头下载一遍 —— "本地缓存"名存实亡。
+    /// ⚠️ 若递归清了整个 content 目录、只豁免 `.` 开头的元文件，图标缓存会被整个删光、
+    ///    下次进页面又要从头下载一遍 —— "本地缓存"名存实亡。
     /// </summary>
     private static bool IsDerivedCache(string file)
     {
@@ -445,7 +442,7 @@ public static class GithubContentSync
                 try { File.Delete(file); } catch { /* 删不掉算了 */ }
             }
 
-            // 顺手收掉空目录：holiday/ 这种整个被清完之后会剩个空壳，留着碍眼
+            // 同时清理空目录：holiday/ 这类整个清空之后只剩空目录，留着无意义
             foreach (var folder in Directory.EnumerateDirectories(Dir, "*", SearchOption.AllDirectories)
                          .OrderByDescending(d => d.Length))
             {

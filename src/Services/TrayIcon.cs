@@ -258,9 +258,9 @@ public sealed class TrayIcon : IDisposable
     /// <summary>
     /// 调用现场快照：线程、COM 套间、管理员、以及**本进程与资源管理器的完整性级别**。
     ///
-    /// UIPI 的判据是"低完整性不能向高完整性窗口发消息"，光看「是不是管理员」判断不了 ——
-    /// 2026-10-28 实机就踩过：进程自称管理员、实际令牌是 Medium，托盘窗口在 High 的 explorer 里，
-    /// err=5 看着像权限不足，翻文档才发现方向被记反了。把两边的 IL 直接打出来，远端排障不用再猜。
+    /// UIPI 的判据是"低完整性不能向高完整性窗口发消息"，光看「是不是管理员」判断不了
+    /// （进程可能自称管理员、实际令牌是 Medium，而托盘窗口在 High 的 explorer 里）。
+    /// 把两边的 IL 直接打出来，远端排障不用再猜。
     /// </summary>
     private static string DescribeCaller()
     {

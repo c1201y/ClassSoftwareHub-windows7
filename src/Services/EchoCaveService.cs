@@ -71,7 +71,7 @@ public static class EchoCaveService
         //    走镜像转发，不消耗本机的 GitHub 匿名配额。
         "https://gh-proxy.com/https://api.github.com/repos/{0}/{1}/contents/{3}?ref={2}",
         // ② jsDelivr 的文件清单：匿名、无配额，但它的**包索引可能整个目录漏掉**
-        //    （2026-10-03 实测：仓库里的 `回声洞/` 不在清单里，而同一路径走 CDN 直读是 200）
+        //    （仓库里的 `回声洞/` 不在清单里，而同一路径走 CDN 直读是 200）
         //    ⇒ 只当补充，解析不出字条就继续往下走。
         "https://data.jsdelivr.com/v1/packages/gh/{0}/{1}@{2}?structure=flat",
     };
@@ -239,7 +239,7 @@ public static class EchoCaveService
     /// 逐个入口试拿「字条文件清单」（按编号排好）。
     /// <c>Listed=false</c> ＝ **所有入口都没答话**（网络问题）；
     /// <c>Listed=true</c> 且清单为空 ＝ **链路是通的、但目录里确实没有字条**。
-    /// 这两种必须分开，否则"目录空"会被当成"请检查网络"报给用户（2026-10-03 修）。
+    /// 这两种必须分开，否则"目录空"会被当成"请检查网络"报给用户。
     /// </summary>
     private static async Task<(bool Listed, List<string> Paths)> ListAsync(CancellationToken ct)
     {

@@ -6,12 +6,11 @@
     xmlns:fa="using:FluentAvalonia.UI.Controls">
 
     <!-- 和首页 / 内置工具 / 软件下载同一套版式：内容钉在中间 960 宽 -->
-    <!-- ⚠️ 2026-10-02：ScrollViewer 提到最外层（滚动条贴窗口右缘），边距改 Padding、居中改内层 Grid；
+    <!-- ScrollViewer 提到最外层（滚动条贴窗口右缘），边距改 Padding、居中改内层 Grid；
          原来套在列表外面的那层 ScrollViewer 解开，列表直接铺在行里（外层统一管滚动） -->
-    <!-- ⚠️ 2026-10-03（用户第 12 轮「任务进行界面布局有问题」）：
-         内层 Grid 原来 HorizontalAlignment="Center" —— Avalonia 里 Center 是**缩成内容宽**再居中，
-         空状态下内容只有标题和提示那几百像素，整页就挤在屏幕中间一条窄带里（标题都不贴左了）。
-         改成和 SubmitPage 同一套三列钉宽：两侧 1* 吸收余量，中列 998* 且 MaxWidth=960。 -->
+    <!-- 内层 Grid 必须用三列钉宽：Avalonia 里 HorizontalAlignment="Center" 是缩成内容宽再居中，
+         空状态下整页会挤在屏幕中间一条窄带里。
+         与 SubmitPage 同一套：两侧 1* 吸收余量，中列 998* 且 MaxWidth=960。 -->
     <ScrollViewer Padding="24,36,24,44" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <Grid>
             <Grid.ColumnDefinitions>
@@ -32,11 +31,11 @@
             </StackPanel>
 
             <!-- 任务列表：不用 ListView —— 这里不需要选中，用 ItemsControl 省掉一整套容器 chrome
-                 ⚠️ Grid 无 RowSpacing=14 → 第 1、2 行加 14 上 Margin -->
+                 Grid 无 RowSpacing=14 → 第 1、2 行加 14 上 Margin -->
             <ItemsControl x:Name="TaskList" Grid.Row="1" Margin="0,14,0,2">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <!-- 2026-10-30（上游 1.8）重排：圆角、图标落位、间距三处对齐到其他页面。
+                            <!-- 圆角、图标落位、间距三处对齐到其他页面。
                                  ⚠️ 间距只留两档：卡片内 8（行与行）、8（卡片之间）。 -->
                             <Border CornerRadius="8" Padding="16,14" Margin="0,0,0,8"
                                     Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"

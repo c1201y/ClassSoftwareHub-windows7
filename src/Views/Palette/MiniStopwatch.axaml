@@ -6,9 +6,7 @@
          ⚠️ 移植说明：原版按钮行的 Grid 有 ColumnSpacing="8"，Avalonia 的 Grid 没有间距属性，
          改用第 2/3/4 列的 Margin 模拟，间距值不变。
 
-         2026-10-03（上游 dv1.1.0）：上游把「计次」整个砍掉换成了「全屏」（理由是"教室里没人用"）。
-         2026-10-06（Nick 实机反馈）：**我们保留计次，只把"最多 3 次"这个上限去掉** ——
-            · 一次活动里往往要记十几个人的成绩，只留 3 条等于没法用；
+         计次功能保留（上游一度移除）：一次活动里往往要记十几个人的成绩，上限 3 条没法用 ——
             · 计次列表改成可滚动的列表（见 LapPanel），条数不再受浮窗高度限制；
             · 全屏按钮同时保留（上游那份改进照收）。 -->
     <Grid>
@@ -30,14 +28,14 @@
         </StackPanel>
 
         <!-- 计次（分段）列表：不限条数、可滚动；一次都没记的时候整块收起来。
-             ⛔ 别再给这里加"最多 N 条" —— 2026-10-06 用户要的就是不限量。 -->
+             不要给这里加"最多 N 条"上限 —— 设计上就是不限量。 -->
         <Border x:Name="LapPanel" Grid.Row="1" Margin="0,4,0,0" MaxHeight="118"
                 CornerRadius="4" Padding="10,6,10,6" BorderThickness="1"
                 IsVisible="False"
                 BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
                 Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
-            <!-- ⚠️ 2026-10-06（用户「计次的数字和滚动条在一起了」）：Fluent 的滚动条是**盖在内容上**
-                 的 overlay——右列的时间值会被滚动条压住。右侧留 12px 内边距把数字往左让开。 -->
+            <!-- Fluent 的滚动条是**盖在内容上**的 overlay——右列的时间值会被滚动条压住。
+                 右侧留 12px 内边距把数字往左让开。 -->
             <ScrollViewer x:Name="LapScroll" VerticalScrollBarVisibility="Auto"
                           HorizontalScrollBarVisibility="Disabled" Padding="0,0,12,0">
                 <StackPanel x:Name="LapHost" Spacing="2" />

@@ -23,7 +23,7 @@
 
             <StackPanel Grid.Column="1" MaxWidth="960" Spacing="4">
 
-                <!-- 标题。（原来的「实验性功能」徽标 2026-10-12 去掉了：功能转正、搬进「内置工具」） -->
+                <!-- 标题。（「实验性功能」徽标已去掉：功能转正、搬进「内置工具」） -->
                 <StackPanel Spacing="6" Margin="0,0,0,20">
                     <TextBlock Text="自动关机" FontSize="28" FontWeight="Bold" />
                     <TextBlock FontSize="12" Opacity="0.65" TextWrapping="Wrap"

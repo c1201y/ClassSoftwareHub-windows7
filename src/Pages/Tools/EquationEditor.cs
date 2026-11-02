@@ -14,10 +14,10 @@ using ClassSoftwareHub.Desktop.Services;
 namespace ClassSoftwareHub.Desktop.Pages.Tools;
 
 /// <summary>
-/// 方程编辑器（浮层里那块；2026-10-18 自上游 1.2.0 移植，WinUI → Avalonia）。
+/// 方程编辑器（浮层里那块；WinUI → Avalonia 移植）。
 ///
 /// <para>
-/// 与化学式编辑器同一套思路（Nick 2026-10-17）：
+/// 与化学式编辑器同一套思路：
 /// **不让用户对着空白框回忆语法**，而是把数字、变量、运算符、函数做成大按钮点出来；
 /// 预览按数学排版显示、边输边校验，「确定」只在式子真的能被求解器理解时才亮。
 /// </para>
@@ -341,9 +341,9 @@ internal sealed class EquationEditor
         vars.Margin = new Thickness(0, 6, 0, 0);
         panel.Children.Add(vars);
 
-        // ⛔ 常用式子放**左**列：右列（运算 + 函数）本来就快占满一屏，
-        //    再往下塞一块就只能滚动才看得见（Nick 视角：藏起来等于没有）。
-        // 只留三类最常用的：幂、指数、三角各一个。⛔ 铺满两行会让浮层在默认窗口下就装不下，
+        // 常用式子放**左**列：右列（运算 + 函数）本来就快占满一屏，
+        //    再往下塞一块就只能滚动才看得见（藏起来等于没有）。
+        // 只留三类最常用的：幂、指数、三角各一个。铺满两行会让浮层在默认窗口下就装不下，
         // 用户得滚动才看得见 —— 藏起来的按钮等于没有。
         panel.Children.Add(SectionTitle("常用"));
         var common = Grid3x2(new[]

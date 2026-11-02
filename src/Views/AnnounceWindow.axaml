@@ -42,8 +42,8 @@
             <StackPanel x:Name="LinesPanel" IsVisible="False" HorizontalAlignment="Center" />
             <!--
               正文只用 Medium 这一个字面（对齐上游 dv1.2.0-insider1.5 的 BodyText）。
-              ⛔ 不要加 FontWeight="Bold"：内嵌字体集合里只有 Medium(500) 一个字重，
-                 请求 700 时 Avalonia 会去别处找最接近的字面，字宽/字形随之变化 —— 正是「字体不对」的来源。
+              不要加 FontWeight="Bold"：内嵌字体集合里只有 Medium(500) 一个字重，
+                 请求 700 时 Avalonia 会去别处找最接近的字面，字宽/字形随之变化。
                  四种出场动画的行块都由 code-behind 抄 BodyText 的 FontWeight，这里不加，它们也不加。
             -->
             <TextBlock x:Name="BodyText" TextWrapping="Wrap" TextAlignment="Center"

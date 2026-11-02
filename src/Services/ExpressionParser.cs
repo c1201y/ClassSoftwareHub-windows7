@@ -47,7 +47,7 @@ public sealed class ExpressionException : Exception
 /// </summary>
 public static class ExpressionParser
 {
-    /// <summary>表达式长度上限（防粘贴一坨东西进来）。</summary>
+    /// <summary>表达式长度上限（防止粘贴超长内容）。</summary>
     private const int MaxLength = 512;
 
     /// <summary>递归深度上限（防 <c>((((((…</c> 把栈打穿）。</summary>
@@ -380,7 +380,7 @@ public static class ExpressionParser
                 continue;
             }
 
-            // ── 运算符（顺手认下从别处粘进来的全角 / 数学符号）──
+            // ── 运算符（同时识别从别处粘进来的全角 / 数学符号）──
             TokKind kind;
             switch (c)
             {

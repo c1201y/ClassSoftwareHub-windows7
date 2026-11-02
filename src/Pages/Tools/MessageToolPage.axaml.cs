@@ -11,7 +11,7 @@ using ClassSoftwareHub.Desktop.Platform;
 namespace ClassSoftwareHub.Desktop.Pages.Tools;
 
 /// <summary>
-/// 桌面留言（2026-10-06 Nick 提）：
+/// 桌面留言：
 /// 输入一句话 → 调字号 / 颜色 / 底色 → 做成**桌面悬浮窗**钉在桌面上，或**全屏**铺满屏幕展示。
 ///
 /// <para>

@@ -69,7 +69,7 @@ public sealed record DownloadedFile(string Path, string FileName, long Bytes)
 /// 大文件采用多路并行（阈值见 <see cref="ParallelThreshold"/>）：
 /// 单条 TCP 流的吞吐受接收窗口与往返时延限制，串行读写期间链路空转，
 /// 在高时延的自建节点上单流速度很低。自建节点与各公益镜像均支持
-/// <c>Accept-Ranges: bytes</c>（实测返回 206），因此先探测区间支持情况，
+/// <c>Accept-Ranges: bytes</c>（该源返回 206），因此先探测区间支持情况，
 /// 再按区间分多路并行下载；探测失败或分片被拒时自动退回单流，保证下载始终可用。
 /// </summary>
 public static class DownloadService
@@ -129,7 +129,7 @@ public static class DownloadService
 
     /// <summary>
     /// 这一版下载该存到哪儿：用户指定过就用他指定的，否则用系统「下载」文件夹
-    /// （2026-11-01 自上游 insider1.8 移植）。
+    /// （自上游 insider1.8 移植）。
     ///
     /// <para>
     /// ⚠️ 指定目录已经不在了（U 盘拔了、网络盘掉线、被手动删掉）→ 退回系统「下载」。
@@ -179,7 +179,7 @@ public static class DownloadService
     private const int StreamBufferBytes = 256 * 1024;
 
     /// <summary>
-    /// 两次收到数据之间的最长间隔（2026-10-27）。
+    /// 两次收到数据之间的最长间隔。
     /// 半开连接不会自己报错，读请求会永远挂着 —— 界面表现为进度条永久停住。
     /// 45 秒与更新下载同一口径：正常 CDN 再慢也不会静默 45 秒。
     /// </summary>
@@ -230,8 +230,8 @@ public static class DownloadService
 
         var fileName = ResolveFileName(url, suggestedName);
 
-        // ── 链路日志（对齐上游 2026-10-11）：下载是用户最常撞坑、也最难自证的一条链路。
-        //    以前失败时只把 ex.Message 弹到界面上，日志里一个字都没有；现在每一步都留痕。 ──
+        // ── 链路日志（对齐上游）：下载是用户最常撞坑、也最难自证的一条链路。
+        //    失败必须留有日志，不能只把 ex.Message 弹到界面上。 ──
         var label = string.IsNullOrWhiteSpace(suggestedName) ? fileName : suggestedName!.Trim();
         var sw = System.Diagnostics.Stopwatch.StartNew();
         Core.AppLog.Begin("download", $"下载「{label}」开始 · 线路={route}");
@@ -626,7 +626,7 @@ public static class DownloadService
     /// <summary>
     /// 「这是不是一个能下载的文件」的判定已统一到 <see cref="Data.DownloadLinkKind"/>（与站点
     /// src/gallery/downloadLink.ts 同源，含 kind 显式声明、商店页、网盘页三类）。
-    /// 这里原有一份只看扩展名的 IsDirectFileUrl，两套判据会漂移，已删除（2026-10-18 对齐上游 1.2.0）——
+    /// 这里不保留只看扩展名的旧 IsDirectFileUrl，两套判据会漂移（对齐上游 1.2.0）——
     /// 判定请调 <c>DownloadLinkKind.Of(url) == DownloadKind.File</c>。
     /// </summary>
 

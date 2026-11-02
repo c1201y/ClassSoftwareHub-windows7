@@ -6,7 +6,7 @@ using ClassSoftwareHub.Desktop.Core;
 namespace ClassSoftwareHub.Desktop.Services;
 
 /// <summary>
-/// 一次性清掉「旧结构」遗留在数据根上的死文件（Nick 2026-10-10 定案）。
+/// 一次性清掉「旧结构」遗留在数据根上的死文件。
 ///
 /// 背景：以前所有东西都堆在数据根上 —— 解包的图片/图标、十几个模块各自的 <c>.log</c>。
 /// 后来虽然分批改到 <c>cache\</c> / <c>logs\</c>，但两处搬迁函数都写成
@@ -70,7 +70,7 @@ public static class LegacyCleanup
                 if (TryDelete(file)) removed++;
 
         // ② 旧日志 —— 只在 logs\ 里已有同名时才删（否则它是唯一的一份，留着）
-        //    ⚠️ 2026-10-11 起 logs\ 下面不再平铺模块日志，而是「启动一次一个会话目录」，
+        //    ⚠️ logs\ 下面已改为「启动一次一个会话目录」的层级结构，
         //       所以这里要**递归**找同名，不能再只看 logs\ 根（否则这条规则永远判 false，旧副本收不掉）。
         var logRoot = AppLog.Root;
         foreach (var file in Directory.GetFiles(root, "*.log"))

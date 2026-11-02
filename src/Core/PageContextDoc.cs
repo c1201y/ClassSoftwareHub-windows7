@@ -6,12 +6,11 @@ using System.Text.Json.Serialization;
 namespace ClassSoftwareHub.Desktop.Core;
 
 /// <summary>
-/// 一页的「现场数据」，作为结构化 JSON 交给 Hub AI（2026-10-30，Nick 要求）。
+/// 一页的「现场数据」，作为结构化 JSON 交给 Hub AI。
 ///
 /// <para>
-/// 取代原来那一句话摘要（"在「AppData 管理」页，可清理 245 项…"）。Nick 的原话是
-/// 「相关信息太少了，就像喂给 AI 的提示词那样……生成一份详细的 JSON 文件给 AI 读，
-/// 让 AI 知道更详细的信息，这点信息够谁看」。
+/// 取代原来那一句话摘要（"在「AppData 管理」页，可清理 245 项…"），
+/// 为模型提供足够详细的页面现场信息。
 /// </para>
 ///
 /// <para>
@@ -28,7 +27,7 @@ namespace ClassSoftwareHub.Desktop.Core;
 /// </para>
 ///
 /// <para>
-/// ⛔ 每个字段只放**事实**，不放下结论（"该清这个"属于模型该说的话）。与 <c>MachineSnapshot</c> 同一原则。
+/// 每个字段只放**事实**，不放下结论（"该清这个"属于模型该说的话）。与 <c>MachineSnapshot</c> 同一原则。
 /// </para>
 /// </summary>
 public sealed class PageContextDoc

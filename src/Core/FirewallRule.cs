@@ -12,7 +12,7 @@ namespace ClassSoftwareHub.Desktop.Core;
 /// </para>
 ///
 /// <para>
-/// ⚠️ **同一个键可以出现多次**（上例的 <c>Profile</c> 写了三遍，表示规则同时作用于两个网络类型），
+/// **同一个键可以出现多次**（上例的 <c>Profile</c> 写了三遍，表示规则同时作用于两个网络类型），
 /// 所以解析时值要收集成列表，不能「后者覆盖前者」—— 那会只剩最后一种网络，判「是否覆盖公用」时误判成否。
 /// </para>
 ///
@@ -75,10 +75,9 @@ public sealed class FirewallRule
     /// <summary>这些值里有没有「任何网络」的表示法。Windows 在不同版本里写法不一，全都认。</summary>
     private static bool ProfileCoversPublic(Dictionary<string, List<string>> map)
     {
-        // ⚠️ **没有 Profile 字段 = 所有网络**（2026-10-28 实测）。
+        // **没有 Profile 字段 = 所有网络**：
         //    `netsh advfirewall firewall add rule … profile=any` 建出来的规则串里根本没有 Profile=
-        //    —— any 是默认值，序列化时被省略。以前「没有就返回 false」导致修复明明成功、
-        //    界面却一直说没放行。
+        //    —— any 是默认值，序列化时被省略；判成 false 会导致修复成功但界面仍显示未放行。
         if (!map.TryGetValue("Profile", out var profiles) || profiles.Count == 0) return true;
 
         foreach (var profile in profiles)

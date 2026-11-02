@@ -9,7 +9,7 @@ using ClassSoftwareHub.Desktop.Core;
 namespace ClassSoftwareHub.Desktop.Services.HubAi;
 
 /// <summary>
-/// 一个可交给模型调用的工具**声明**（2026-10-18）。
+/// 一个可交给模型调用的工具**声明**。
 ///
 /// <para>
 /// ⚠️⚠️ 这里只有"说明书"，**没有任何可执行代码**。
@@ -73,7 +73,7 @@ public sealed class ToolPack
 }
 
 /// <summary>
-/// 工具包的本地存取（2026-10-18）。装好的包放在 <c>AppDataDir\hubai-tools\toolpack.json</c>。
+/// 工具包的本地存取。装好的包放在 <c>AppDataDir\hubai-tools\toolpack.json</c>。
 /// 没装过就是不存在 —— 这也正是"可选安装、不占空间"的落点：不装就一个字节都没有。
 /// </summary>
 public static class ToolPackStore

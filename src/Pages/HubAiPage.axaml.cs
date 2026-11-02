@@ -26,7 +26,7 @@ using FluentAvalonia.UI.Controls;
 namespace ClassSoftwareHub.Desktop.Pages;
 
 /// <summary>
-/// Hub AI 完整对话页（2026-10-18；2026-10-22 WinUI → Avalonia 移植）。
+/// Hub AI 完整对话页。
 ///
 /// <para>
 /// ⚠️ **当前没有接模型**：<see cref="SendAsync"/> 只回一句占位。AiClient、诊断采集（硬件 / 负载 /
@@ -34,7 +34,7 @@ namespace ClassSoftwareHub.Desktop.Pages;
 /// </para>
 /// <para>
 /// 接模型时这里是唯一需要改的地方：把占位回复换成 <c>AiClient.StreamAsync</c> 的流式回调。
-/// 与「软件下载」页右下浮层共用同一套逻辑，⛔ 别各写一套。
+/// 与「软件下载」页右下浮层共用同一套逻辑，不要各写一套。
 /// </para>
 /// <para>
 /// ⚠️ 移植说明（WinUI → Avalonia，逐条对应 PORTING.md 第 4 节）：
@@ -67,7 +67,7 @@ public sealed partial class HubAiPage : PageBase
     /// <summary>
     /// 浮层刚问完一轮时记下的会话 id。
     /// <para>
-    /// 2026-10-30 上游加：浮层与页面共用同一个会话运行时，但本页只**首次**导航时初始化，
+    /// 浮层与页面共用同一个会话运行时，但本页只在首次导航时初始化，
     /// 切回来不会重载 —— 留个标记，进来时主动切到那条会话，思考过程与工具轨迹就都在了。
     /// </para>
     /// </summary>
@@ -77,9 +77,9 @@ public sealed partial class HubAiPage : PageBase
     {
         base.OnNavigatedTo(parameter);
 
-        // ⛔⛔ 只在**首次**导航时初始化。切走再回来时 OnNavigatedTo 会再跑一遍，
-        //    如果又去重建 ItemsSource，SelectedItem 变化会在**下一拍**才触发 SelectionChanged，
-        //    那时 _switchingSession 已经复位 ⇒ 直接把当前对话覆盖成历史回放（Nick 反复遇到的“回来就丢”）。
+        // 只在首次导航时初始化。切走再回来时 OnNavigatedTo 会再跑一遍，
+        // 如果又去重建 ItemsSource，SelectedItem 变化会在下一拍才触发 SelectionChanged，
+        // 那时 _switchingSession 已复位，会把当前对话覆盖成历史回放。
         if (!_uiReady)
         {
             _uiReady = true;
@@ -102,8 +102,7 @@ public sealed partial class HubAiPage : PageBase
             Dispatcher.UIThread.Post(() => SelectSessionById(reloadId));
         }
 
-        // 布局实测（排查"内容偏右"这类问题只能靠量，靠推断会翻车）
-        // ⚠️ 必须在 LayoutUpdated 里量 —— OnNavigatedTo 阶段所有宽度都还是 0。
+        // 必须在 LayoutUpdated 里量 —— OnNavigatedTo 阶段所有宽度都还是 0。
         // ⚠️ 移植：WinUI 的 ActualWidth → Avalonia 的 Bounds.Width；Visibility → IsVisible。
         void DumpLayout(object? s, EventArgs args)
         {
@@ -226,7 +225,7 @@ public sealed partial class HubAiPage : PageBase
         BindRuntime(HubAiRuntime.For(null));   // 新对话 = 干净的 draft 运行时
         _liveBubble = null;
 
-        // 「↑ 编辑上一条」的状态必须在这里断掉（2026-10-23 修）：
+        // 「↑ 编辑上一条」的状态必须在这里断掉：
         // 否则用户拉回上一条后改主意点了"新对话"，下一条消息会去截断一个已经空了的会话。
         _editingFromHistory = false;
 
@@ -326,7 +325,7 @@ public sealed partial class HubAiPage : PageBase
         WelcomePanel.IsVisible = false;
         SidePanel.IsVisible = true;
 
-        // ⚠️ ⚠️ 2026-10-20：**相邻的 assistant 记录必须合并成一个气泡**。
+        // 相邻的 assistant 记录必须合并成一个气泡：
         //    一次工具调用会存下两条 assistant（“想一段” + “结论”），
         //    若逐条渲染，历史里就会出现两个「已完成」两段深度思考，中间还夹着一大块空白。
         // ⭐ 数据源用 Branch() —— 只画**当前那一支**；
@@ -390,12 +389,11 @@ public sealed partial class HubAiPage : PageBase
             bubble.Status.Text = "已完成";
             MarkdownText.Apply(bubble.Body, mergedContent.ToString());
 
-            // ⚠️ 历史里只存了文本，但**元数据行不能少** —— Nick 要求“切回来原封不动”，
-            //    没有复制/重试和模型用量，看起来就是“全丢了”。
+            // 历史里只存了文本，但元数据行不能少：没有复制/重试和模型用量，记录就不完整。
             var histPalette = BubblePalette();
             var copyText = mergedContent.ToString();
 
-            // ⚠️ 格式必须与实时对话**一模一样**：
+            // 格式必须与实时对话完全一致：
             //    `模型名 · N tokens · 参考价`。历史里存的是模型 **Id**，要反查成展示名。
             if (!string.IsNullOrWhiteSpace(session.Model))
             {
@@ -563,8 +561,7 @@ public sealed partial class HubAiPage : PageBase
     /// <summary>清掉对话气泡，**保留开头那两张卡**（本机概况 / 初步判断）。</summary>
     /// <summary>
     /// 清掉对话气泡，**保留欢迎屏**。
-    /// ⚠️ 2026-10-20 重做后：诊断卡已搬到右栏，消息流里只剩「欢迎屏（静态）+ 动态消息」，
-    /// 所以这里改成保留 1 个。以前保留 2 个是因为消息流里还压着两张卡片。
+    /// 诊断卡在右栏，消息流里只剩「欢迎屏（静态）+ 动态消息」，所以保留 1 个。
     /// </summary>
     private void ClearConversation()
     {
@@ -573,11 +570,11 @@ public sealed partial class HubAiPage : PageBase
     }
 
     /// <summary>
-    /// 回答结束后存档（2026-10-23 上游改对话树）：
+    /// 回答结束后存档：
     /// 只把本轮新增的轮次（<paramref name="before"/> 之后的）挂到发起时的叶子
     /// （<paramref name="forkParentId"/>）下面，而不是整篇覆盖 ——
     /// 「生成中切走、回头再切回来」这类多入口才不会把同一段存两遍。
-    /// ⛔ 没等到回答（比如刚发就取消）时快照里没有 assistant 轮次，自然不落盘。
+    /// 没等到回答（如刚发就取消）时快照里没有 assistant 轮次，不落盘。
     /// </summary>
     private void PersistSession(HubAiRuntime rt, string? sessionId, string? forkParentId, int before, AiUsage usage)
     {
@@ -693,8 +690,8 @@ public sealed partial class HubAiPage : PageBase
             RenderSnapshot(snap);
             RenderFindings(MachineDiagnosis.Analyze(snap));
 
-            // 把"准备发给模型的那段文字"记进调试日志 —— 接模型前唯一能离线核对格式与长度的地方。
-            // 用户报"AI 说的不像我的电脑"时，先看这行。
+            // 把"准备发给模型的那段文字"记进调试日志 —— 接模型前唯一能离线核对格式与长度的地方，
+            // 排查"回答与本机不符"时先核对这行日志。
             AppLog.Debug("hubai", "体检单内容：\n" + MachineDigest.ToPrompt(snap));
         }
         catch (Exception ex)
@@ -868,7 +865,7 @@ public sealed partial class HubAiPage : PageBase
             AiModelStore.EnsureMigrated();
             EnsureEffortItems();
 
-            // 只列**用户真的配过**的模型（2026-10-18：从"预设列表"改成"已配置列表"）
+            // 只列出用户配置过的模型
             ModelPicker.Items.Clear();
             foreach (var entry in AiModelStore.All)
                 ModelPicker.Items.Add(new ComboBoxItem { Content = entry.Name, Tag = entry.Id });
@@ -985,7 +982,7 @@ public sealed partial class HubAiPage : PageBase
     private void HubAiSend_Click(object? sender, RoutedEventArgs e)
     {
         // 生成过程中这个按钮就是"停止"。
-        // ⛔ 取消现在归运行时管：_streamCts 在换成会话运行时之后没有赋值点，点下去什么都不会发生。
+        // 取消归运行时管：_streamCts 在会话运行时方案下没有赋值点，点它无效，不要再用。
         if (_busy)
         {
             _runtime.Stop();
@@ -1056,11 +1053,11 @@ public sealed partial class HubAiPage : PageBase
     }
 
     // ══════════════════════════════════════════════════════
-    //  对话（真调用，2026-10-18）
+    //  对话（真实调用）
     // ══════════════════════════════════════════════════════
 
-    // 2026-10-23 上游改为「每会话一个运行时」：上下文与生成状态归 HubAiRuntime 持有，
-    // 切会话 / 切页都不会再覆盖正在生成的上下文（此前页面只有一个 _chat，切会话 Restore 就把生成中的对话腰斩了）。
+    // 「每会话一个运行时」：上下文与生成状态归 HubAiRuntime 持有，
+    // 切会话 / 切页都不会覆盖正在生成的上下文。
     private HubAiRuntime _runtime = HubAiRuntime.For(null);
 
     /// <summary>当前会话的对话上下文（= <see cref="_runtime"/>.Chat）。</summary>
@@ -1140,8 +1137,8 @@ public sealed partial class HubAiPage : PageBase
 
     /// <summary>
     /// 「下一次发送要分叉」的标记（编辑重发 / 重新生成用）。
-    /// ⛔ 以前是 Restore(snap.Take(idx)) 把上下文截断 —— 旧的回答就永久没了。
-    /// 现在改成"挂到某个父节点下再发"，旧的那一支原样留在存档里，界面上用 ‹1/2› 切回来。
+    /// 分叉方式是"挂到某个父节点下再发"而不是截断上下文：
+    /// 旧的那一支原样留在存档里，界面上用 ‹1/2› 切回来。
     /// </summary>
     private bool _forkPending;
 
@@ -1170,7 +1167,7 @@ public sealed partial class HubAiPage : PageBase
     /// 跑一轮问答。
     ///
     /// <para>
-    /// ⚠️ 三个细节都是踩出来的：
+    /// 三个关键细节：
     /// <list type="number">
     ///   <item><b>节流刷新</b>：SSE 一个 token 一个回调，每次都赋 <c>TextBlock.Text</c> 会卡死，
     ///         这里按 80ms 合批。</item>
@@ -1182,12 +1179,12 @@ public sealed partial class HubAiPage : PageBase
     /// </summary>
     /// <summary>欢迎屏的建议卡：点一下就等于替用户把这句话发出去。</summary>
     /// <summary>
-    /// 侧栏的滑入 / 滑出（2026-10-20 第二轮）。
+    /// 侧栏的滑入 / 滑出。
     ///
     /// <para>
-    /// ⛔ **布局由 IsVisible 决定，动画只负责位移与透明度**。
-    /// 第一版用「列宽 Auto + 动画面板 Width」，出过事：折叠后 Width 与 IsVisible 的状态会不一致，
-    /// Auto 列仍按残留宽度占位，结果两栏明明收起了，内容却被挤到偏右（Nick 截图为证）。
+    /// **布局由 IsVisible 决定，动画只负责位移与透明度**。
+    /// 不能用「列宽 Auto + 动画面板 Width」：折叠后 Width 与 IsVisible 的状态会不一致，
+    /// Auto 列仍按残留宽度占位，两栏明明收起了，内容却被挤到偏右。
     /// 现在：收起 = 播完淡出后设 <c>false</c>（列宽立刻归 0），展开 = 先 <c>true</c> 再滑进来。
     /// </para>
     /// <para>
@@ -1199,6 +1196,8 @@ public sealed partial class HubAiPage : PageBase
     /// <param name="exitX">收起时往哪边滑：左侧栏 -20、右侧栏 +20。</param>
     private static async void AnimateSidePanel(Control panel, bool collapse, double exitX)
     {
+        try
+        {
         if (panel.RenderTransform is not TranslateTransform translate)
         {
             translate = new TranslateTransform();
@@ -1257,10 +1256,15 @@ public sealed partial class HubAiPage : PageBase
             panel.Opacity = 1;
             translate.X = 0;
         }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Fail("hub-ai", ex, "侧栏动画失败");
+        }
     }
 
     /// <summary>输入框聚焦：整块输入容器描边变强调色，模拟网页那边 `:focus-within` 的效果。</summary>
-    /// <summary>联网开关：跟「思考」对等，只影响是否把搜索工具交给模型（2026-10-20）。</summary>
+    /// <summary>联网开关：跟「思考」对等，只影响是否把搜索工具交给模型。</summary>
     private void WebToggle_Click(object? sender, RoutedEventArgs e)
     {
         App.Settings.Current.HubAiWebEnabled = WebToggle.IsChecked ?? false;
@@ -1268,7 +1272,7 @@ public sealed partial class HubAiPage : PageBase
     }
 
     /// <summary>
-    /// 新消息入场（2026-10-20）：淡入 + 上浮 10px。
+    /// 新消息入场：淡入 + 上浮 10px。
     /// ⚠️ 移植：WinUI 里位移/透明度是**非合成动画**，必须开 `EnableDependentAnimation`；
     ///    Avalonia 的 <see cref="Transitions"/> 没有这个区分，照常改属性值即可。
     /// </summary>
@@ -1335,8 +1339,8 @@ public sealed partial class HubAiPage : PageBase
         var text = HubAiInput.Text?.Trim();
         if (string.IsNullOrEmpty(text)) return;
 
-        // ⚠️ 看历史时留下的那条「本次对话共 N tokens」页脚要清掉 ——
-        //    它属于上一段对话，留在顶部会跟新消息混在一起（2026-10-20 截图里就顶在最上面）。
+        // 看历史时留下的「本次对话共 N tokens」页脚要清掉 ——
+        // 它属于上一段对话，留在顶部会与新消息混淆。
         foreach (var stale in HubAiMessages.Children.OfType<TextBlock>()
                      .Where(t => t.Tag as string == HistoryFooterTag).ToList())
         {
@@ -1418,7 +1422,7 @@ public sealed partial class HubAiPage : PageBase
         // 重新生成时不补提问气泡 —— 那一条本来就在界面上
         if (appendUser) HubAiMessages.Children.Add(MakeBubble(text, alignRight: true));
 
-        // 一旦开始对话，欢迎屏收起来、本机状态露出来（2026-10-20：本机状况等聊过再显示）
+        // 一旦开始对话，欢迎屏收起、本机状态显示出来
         WelcomePanel.IsVisible = false;
         SidePanel.IsVisible = true;
 
@@ -1451,12 +1455,11 @@ public sealed partial class HubAiPage : PageBase
 
     /// <summary>
     /// 一轮问答收尾（成功 / 用户停止都走这里）。
-    /// ⚠️ 单独抽出来是因为 <see cref="HubAiRuntime.Start"/> 是**不等待**的：原来的 try/finally
-    ///    结构不再成立，收尾动作得由回调来触发。
+    /// 单独抽出来是因为 <see cref="HubAiRuntime.Start"/> 是**不等待**的：try/finally 结构
+    /// 不再成立，收尾动作由回调触发。
     /// <para>
-    /// ⚠️ rt / sessionId / bubble 都是**发起时**钉住的，⛔ 不能改成读页面字段：
-    ///    这一轮可能在后台跑完，那时用户早就切走了，读页面字段会把结果存进别的会话、
-    ///    还会往别人的气泡上写。
+    /// rt / sessionId / bubble 都是**发起时**钉住的，不能改成读页面字段：
+    /// 这一轮可能在后台跑完，那时用户早已切走，读页面字段会把结果写进别的会话。
     /// </para>
     /// </summary>
     private void FinishRun(HubAiRuntime rt, string? sessionId, string? forkParentId, int before,
@@ -1595,11 +1598,11 @@ public sealed partial class HubAiPage : PageBase
 
     /// <summary>一个 AI 气泡的三块内容：思考过程（可折叠）、正文、外框。</summary>
     /// <summary>
-    /// 一个 AI 回合（2026-10-19 改成 WorkBuddy 式纯文本流）。
+    /// 一个 AI 回合。
     ///
     /// <para>
-    /// ⚠️ AI 内容**不再用聊天气泡**（Nick：「AI 生成的信息，我们就不用那种聊天气泡的方式了」）——
-    /// 没有底色、没有边框，直接铺在页面上；用户消息仍然保留气泡（右对齐），两类信息一眼分得开。
+    /// AI 内容不用聊天气泡：没有底色、边框，直接铺在页面上；
+    /// 用户消息保留气泡（右对齐），两类信息易区分。
     /// </para>
     /// <para>
     /// 「已完成」= 一个回合的全程：第一段思考 → 调用工具 → 继续思考 → 出正文。
@@ -1704,8 +1707,7 @@ public sealed partial class HubAiPage : PageBase
         var body = new StackPanel();
 
         // ── 末尾元数据：模型 · token · 参考价 · 耗时，右側跟复制/重试图标 ──
-        // ⚠️ 2026-10-19 从"左侧独立栏"改成"正文末尾"：WorkBuddy 就是把这一排放在正文下方
-        //    （Nick 指出「人家是放在文本末尾的左边啊」）。
+        // 元数据一排放在正文末尾下方（与主流聊天界面一致）。
         var metaText = new TextBlock
         {
             FontSize = 14,
@@ -1721,8 +1723,7 @@ public sealed partial class HubAiPage : PageBase
             VerticalAlignment = VerticalAlignment.Center,
         };
 
-        // 2026-10-20：复制/重试**靠左**（跟 ChatGPT 那类一致，操作紧跟正文末尾），
-        // 模型与用量文字靠右；图标与字号都放大一档，太小了点不着。
+        // 复制/重试靠左（紧跟正文末尾），模型与用量文字靠右；图标与字号放大一档保证可点击。
         // ⚠️ 上游 Grid ColumnSpacing="12" → Avalonia 的 Grid 没有间距属性，用 metaText 的左边距模拟。
         var metaRow = new Grid { Margin = new Thickness(0, 10, 0, 0) };
         metaRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -1781,7 +1782,7 @@ public sealed partial class HubAiPage : PageBase
         var modelName = AiModelStore.Active?.Name ?? App.Settings.Current.HubAiModel;
         var cost = EstimateCost(usage);
 
-        // ⚠️ 不要把「已完成 Ns」再写一遍 —— 上面那行状态里已经有了（截图里两处重复，很啰嗦）
+        // 「已完成 Ns」状态行里已有，不重复写。
         bubble.MetaText.Text =
             $"{modelName} · {usage.TotalTokens:N0} tokens" + (cost.Length > 0 ? $" · {cost}" : "");
 
@@ -2030,7 +2031,7 @@ public sealed partial class HubAiPage : PageBase
 
     /// <summary>
     /// 回答下方的脚注：用的哪个模型、花了多少、以及复制 / 重试。
-    /// ⚠️ 模型名要显示出来 —— 用户切过模型后，光看回答分不出是谁答的。
+    /// 模型名要显示出来 —— 用户切过模型后，光看回答分不出是谁答的。
     /// </summary>
     /// <summary>复制到剪贴板。复制的是**原始 Markdown**，粘到别处还能保住格式。</summary>
     private void CopyText(string text)

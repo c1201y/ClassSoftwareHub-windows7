@@ -7,7 +7,7 @@ namespace ClassSoftwareHub.Desktop.Platform;
 /// <summary>
 /// 页面基类。对应 WinUI 的 <c>Microsoft.UI.Xaml.Controls.Page</c>。
 ///
-/// ⛔ 为什么要有它：Avalonia 没有 Page，页面一律是 <c>UserControl</c>；
+/// 为什么要有它：Avalonia 没有 Page，页面一律是 <c>UserControl</c>；
 ///    而原版每个页面都重写了 <c>OnNavigatedTo / OnNavigatedFrom</c>，
 ///    这套生命周期必须补回来（很多页面在 OnNavigatedTo 里读参数、起计时器、刷数据）。
 ///
@@ -18,12 +18,12 @@ public abstract class PageBase : UserControl
 {
     protected PageBase()
     {
-        // 滚轮接力（2026-10-18 自上游 1.2.0 移植）：页面两侧留白 / 标题行上的滚轮也带动主滚动区。
+        // 滚轮接力（自上游 1.2.0 移植）：页面两侧留白 / 标题行上的滚轮也带动主滚动区。
         // 上游是每个页面显式 Attach；移植版在基类统一「自动版」，免得每个页面都给滚动容器起名。
-        // ⚠️ 页面根 Grid 必须 Background="Transparent"（不画像素但参与命中测试），本仓库页面都已加。
+        // 页面根 Grid 必须 Background="Transparent"（不画像素但参与命中测试），本仓库页面都已加。
         Core.WheelRelay.AttachAuto(this);
 
-        // ⛔ 2026-10-22：摘掉滚动容器上的「滚动手势识别器」——它触发的
+        // 摘掉滚动容器上的「滚动手势识别器」——它触发的
         //    ScrollContentPresenter.OnScrollGesture 会让 Offset 双向绑定无限递归（0xC00000FD，
         //    dump 两次实锤）。详见 Platform/ScrollGestureFix 的注释。
         ScrollGestureFix.Install(this);
@@ -39,7 +39,7 @@ public abstract class PageBase : UserControl
 /// <summary>
 /// 导航助手：把 FA <see cref="Frame"/> 的事件桥接到 <see cref="PageBase"/> 的生命周期。
 ///
-/// ⛔ FA 的 <c>Frame</c> 与 WinUI 的 <c>Frame</c> 同签名
+/// FA 的 <c>Frame</c> 与 WinUI 的 <c>Frame</c> 同签名
 ///    （<c>Navigate(Type)</c> / <c>Navigate(Type, object)</c> / <c>BackStack</c> / <c>CanGoBack</c> / <c>GoBack()</c>），
 ///    所以**不要**自己发明导航控件，直接用 FA 的 Frame。
 /// </summary>
@@ -49,7 +49,7 @@ public static class Navigation
 
     /// <summary>
     /// 接管一个 Frame。幂等，可重复调用。
-    /// ⚠️ 必须在第一次 Navigate 之前调用，否则首页的 OnNavigatedTo 会漏掉。
+    /// 必须在第一次 Navigate 之前调用，否则首页的 OnNavigatedTo 会漏掉。
     /// </summary>
     public static void Attach(Frame frame)
     {

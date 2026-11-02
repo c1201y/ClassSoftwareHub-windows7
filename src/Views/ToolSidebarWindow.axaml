@@ -210,7 +210,7 @@
                                      换成四等分 * 列，按钮各自占满 1/4 宽，Margin 负责彼此分开一点 -->
                                 <Grid ColumnDefinitions="*,*,*,*">
                                     <!-- 内容跟参考图一致：图标在上、两字在下 -->
-                                    <!-- ⚠️ 四颗都必须显式 Grid.Column：缺省全落第 0 列，四颗叠成一坨（2026-10-12 用户截图实锤） -->
+                                    <!-- ⚠️ 四颗都必须显式 Grid.Column：缺省时全部落在第 0 列，四个按钮重叠 -->
                                     <Button x:Name="QuickShutdown" Grid.Column="0" Click="QuickShutdown_Click" MinWidth="0" MinHeight="46"
                                             Padding="2,4" Margin="2,0" Background="Transparent" BorderThickness="0"
                                             HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"

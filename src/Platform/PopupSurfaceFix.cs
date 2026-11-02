@@ -46,9 +46,9 @@ namespace ClassSoftwareHub.Desktop.Platform;
 /// </para>
 ///
 /// <para>
-/// ⚠️ 只在「弹窗做不了逐像素透明」的环境下动手（见 <see cref="PopupIsOpaque"/>）。
+/// 只在「弹窗做不了逐像素透明」的环境下动手（见 <see cref="PopupIsOpaque"/>）。
 /// Win8/10/11 上弹窗本来就是真透明，什么都不用做 —— 保持原样最好。
-/// <b>Win7 就算开了 Aero 也算"做不了"</b>（2026-10-08 实机：深色弹层四角露白，见该处注释）。
+/// <b>Win7 就算开了 Aero 也算"做不了"</b>（深色弹层四角露白，见该处注释）。
 /// </para>
 /// </summary>
 internal static class PopupSurfaceFix
@@ -82,10 +82,10 @@ internal static class PopupSurfaceFix
     /// 这个环境里弹窗能不能做逐像素透明。<c>true</c> 表示"不能" —— 也就是会露白眼的那种。
     /// </summary>
     /// <remarks>
-    /// ⚠️ <c>SimulateWin7</c> 时强制按"不能"处理：教室机是否关掉了 Aero 我们在开发机上
+    /// <c>SimulateWin7</c> 时强制按"不能"处理：教室机是否关掉了 Aero 我们在开发机上
     ///    判断不了，而这条兜底路径正是要在开发机上验证的东西。模拟模式下让它走一边，
-    ///    就能用 <c>--simulate-win7</c> 实测（见 PORTING 说明里的排障开关约定）。
-    /// ⚠️ 2026-10-08（Nick 截图）：<b>Win7 就算开了 Aero 也按"不能"处理</b>（<see cref="OsInfo.IsWindows7"/>
+    ///    就能用 <c>--simulate-win7</c> 验证（见 PORTING 说明里的排障开关约定）。
+    /// <b>Win7 就算开了 Aero 也按"不能"处理</b>（<see cref="OsInfo.IsWindows7"/>
     ///    已含模拟）。旧判定只看「DWM 合成开没开」，Win7+Aero 会被放行 —— 但 Avalonia 的
     ///    逐像素透明弹窗在 Win7 上并不成立（Transparent 提示落不到实处，PopupRoot 还是不透明白底），
     ///    于是深色弹层四角照样露白色四分之一圆；关了 Aero 反而会走进这条兜底、什么都能对上。
@@ -135,7 +135,7 @@ internal static class PopupSurfaceFix
             var radiusDip = ResolveCornerRadius(root);
 
             // ① 同色打底：把"露白"变成"露出同色"。必须是不透明纯色，半透明的顶不住。
-            //    ⚠️ 2026-10-15：回退底色（TransparencyBackgroundFallback）必须一起刷。
+            //    回退底色（TransparencyBackgroundFallback）必须一起刷：
             //    PopupRoot 也是 TopLevel，Win7 上它的实际 TransparencyLevel 同样是 None
             //    （Avalonia 在 Win7 上没有透明窗口能力，见 Platform/Backdrop.cs 类注释），
             //    此时窗口底由回退底色决定，而它默认是**白色** —— 只设 Background 兜不住月牙。
@@ -150,7 +150,7 @@ internal static class PopupSurfaceFix
             // ② 裁剪：按内容同样的圆角半径把窗口形状裁掉四角
             _ = RoundedCorners.Apply(hwnd, radiusDip, scale);
 
-            // 只记第一条：真机上"白边到底还在不在"就看这行 —— 底色/圆角/窗口都在这
+            // 只记第一条：排障时"白边到底还在不在"就看这行 —— 底色/圆角/窗口都在这
             if (!_loggedFirst)
             {
                 _loggedFirst = true;
@@ -187,12 +187,12 @@ internal static class PopupSurfaceFix
     /// 取「弹层底色」：优先抄 FluentAvalonia 自己在用的那个键，抄不到才用兜底色。
     ///
     /// <para>
-    /// ⚠️⚠️ <b>必须把 <c>ActualThemeVariant</c> 传给 <c>TryFindResource</c></b>（2026-10-02 实测定论）。
+    /// <b>必须把 <c>ActualThemeVariant</c> 传给 <c>TryFindResource</c></b>。
     ///    不带变体的那个重载走的是 <c>ThemeVariant.Default</c>，**不会去查 ThemeDictionaries** ——
-    ///    于是深色主题下它会取回**浅色那套**（实测：`ComboBoxDropDownBackground` → <c>#FFF9F9F9</c>，
+    ///    于是深色主题下它会取回**浅色那套**（如 `ComboBoxDropDownBackground` → <c>#FFF9F9F9</c>，
     ///    近白），然后被当成"弹层底色"刷到弹窗窗口上。
-    ///    本机 200% 缩放下面板正好盖满弹窗，看不出来；换个缩放/字体，弹窗比面板大出那一两个像素时，
-    ///    四周就会露出一圈**近白**的边 —— 这正是用户报的"深色下拉菜单还有白边"。
+    ///    本机 200% 缩放下面板正好盖满弹窗时看不出来；换个缩放/字体，弹窗比面板大出那一两个像素时，
+    ///    四周就会露出一圈**近白**的边。
     /// </para>
     /// </summary>
     private static Color? ResolveSurfaceColor(PopupRoot root)
@@ -224,7 +224,7 @@ internal static class PopupSurfaceFix
 
     /// <summary>
     /// 圆角半径：直接读 FluentAvalonia 模板里用的 <c>OverlayCornerRadius</c>。
-    /// ⚠️ 必须跟内容的半径**完全相同** —— 比它小会留一圈白，比它大会啃掉内容。
+    /// 必须跟内容的半径**完全相同** —— 比它小会留一圈白，比它大会啃掉内容。
     /// </summary>
     private static double ResolveCornerRadius(PopupRoot root)
     {
@@ -244,7 +244,7 @@ internal static class PopupSurfaceFix
 
     /// <summary>排障用：把当前环境判定 + 弹层两个配色键的实际取值写进日志。</summary>
     /// <remarks>
-    /// ⚠️ 为什么要连**取值**一起记：真机反馈「深色下菜单四周还有白边」时，能一眼分清是
+    /// 为什么要连**取值**一起记：出现「深色下菜单四周还有白边」时，能一眼分清是
     ///    「我们设的键没生效（取到的是 FluentAvalonia 的默认中灰）」还是「真的是窗口底色漏出来」。
     ///    这两个键在 <c>App.axaml</c> 的 ThemeDictionaries 里，深色应分别是 #242424 / #3A3A3A。
     /// </remarks>
@@ -270,9 +270,9 @@ internal static class PopupSurfaceFix
     }
 
     /// <summary>
-    /// ⚠️ 必须把 <paramref name="variant"/> 传进去：不带变体的那个重载用的是
+    /// 必须把 <paramref name="variant"/> 传进去：不带变体的那个重载用的是
     /// <c>ThemeVariant.Default</c>，**不会**去查 <c>ThemeDictionaries</c>，
-    /// 于是深色主题下也会把浅色那套取回来 —— 用它做判断会得出完全相反的结论（踩过）。
+    /// 于是深色主题下也会把浅色那套取回来 —— 用它做判断会得出完全相反的结论。
     /// </summary>
     private static string Describe(IResourceHost host, string key, ThemeVariant variant)
     {

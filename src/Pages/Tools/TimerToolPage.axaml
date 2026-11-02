@@ -47,7 +47,7 @@
                     Click="OpenPalette_Click" ToolTip.Tip="打开置顶小窗口，便于随时计时" />
         </Grid>
 
-        <!-- ═══ 2026-10-04（Nick）：这一行右边原版还有「自定义铃声」+「使用全屏时钟背景设置」开关 ═══
+        <!-- ═══ 铃声 / 全屏时钟背景开关 ═══
              原版把它们挂在**模式选择那一行**右侧（模式是两个 RadioButton 排成一行）。
              移植版把模式做成了两张卡、收进计时盘内部，已经没有一行"模式行"可挂，
              故在标题行与计时盘之间补一行、右对齐 —— 保持"计时盘上方、靠右"的相对位置。 -->
@@ -119,7 +119,7 @@
                     <Button x:Name="StartButton" Content="开始" Click="StartPause_Click" MinWidth="120" Height="40"
                             FontSize="15" Theme="{StaticResource AccentButtonStyle}" />  <!-- Style+DynamicResource 不支持，改 Theme+StaticResource -->
                     <Button Content="重置" Click="Reset_Click" MinWidth="120" Height="40" FontSize="15" />
-                    <!-- 全屏投影：倒计时开全屏倒计时、秒表开全屏秒表（2026-10-03 Nick：两端都要有） -->
+                    <!-- 全屏投影：倒计时开全屏倒计时、秒表开全屏秒表（两端都要有） -->
                     <Button x:Name="FullscreenButton" Content="全屏倒计时" Click="Fullscreen_Click" MinWidth="120" Height="40"
                             FontSize="15"
                             ToolTip.Tip="把计时铺满整块屏幕，适合投影" />
@@ -133,7 +133,7 @@
                 Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
             <StackPanel Spacing="10" MaxWidth="900" HorizontalAlignment="Left">
                 <TextBlock x:Name="SetupTitle" Text="设定时长" FontWeight="Bold" />
-                <!-- 2026-10-04（Nick）：这一整块与**网页版** `TimerTool.vue` 对齐 ——
+                <!-- 与网页版 `TimerTool.vue` 对齐：
                      网页版就是「分/秒输入框一行、预设另起一行」，桌面端原来挤成一行，
                      窗口一窄（≥700 的紧凑导航就是这个区间）左右两头都会被裁掉。
                      SetRow 现在是**竖排**容器（里面两行），所以 SetMode 里 SetRow.IsVisible 照旧管用。 -->

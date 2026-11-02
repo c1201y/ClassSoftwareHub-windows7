@@ -4,7 +4,7 @@ using System.Text.Json;
 namespace ClassSoftwareHub.Desktop.Services.HubAi;
 
 /// <summary>
-/// 客户端内置的工具定义（2026-10-21）。
+/// 客户端内置的工具定义。
 ///
 /// <para>
 /// 为什么联网工具不走站点 <c>toolpack.json</c>：联网是**用户自己拨的开关**，

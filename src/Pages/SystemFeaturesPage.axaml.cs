@@ -30,9 +30,9 @@ namespace ClassSoftwareHub.Desktop.Pages;
 /// </para>
 ///
 /// <para>
-/// ⛔ 状态<b>只从服务层读</b>，页面不缓存：这些值用户可能在系统设置或组策略里改过，
+/// 状态<b>只从服务层读</b>，页面不缓存：这些值用户可能在系统设置或组策略里改过，
 /// 每次进来重读一遍最省事（读注册表是微秒级）。回填必须压在 <c>_loading</c> 里，
-/// 否则 <c>IsCheckedChanged</c> / <c>SelectionChanged</c> 会把程序写入当成用户操作 —— 这个坑踩过多次。
+/// 否则 <c>IsCheckedChanged</c> / <c>SelectionChanged</c> 会把程序写入当成用户操作。
 /// </para>
 /// </summary>
 public sealed partial class SystemFeaturesPage : PageBase

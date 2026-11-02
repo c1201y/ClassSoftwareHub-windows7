@@ -84,8 +84,8 @@ public sealed partial class AnnounceWindow : Window
         }
         catch (Exception ex)
         {
-            // ⛔ 必须清掉 _current：Start() 抛异常时窗口根本没打开，但 _current 已经指过去；
-            //    留着它 IsShowing 恒为真、后续每条喊话都只会 Replace 到一个不存在的窗口上。
+            // 必须清掉 _current：Start() 抛异常时窗口未打开，但 _current 已指向它；
+            // 留着会使 IsShowing 恒为真，后续喊话都只会 Replace 到不存在的窗口上。
             _current = null;
             AppLog.Fail("announce", ex, "打开喊话窗失败");
         }
@@ -127,10 +127,9 @@ public sealed partial class AnnounceWindow : Window
 
         Root.SizeChanged += (_, _) =>
         {
-            // 尺寸变化要**连行块一起重排**：TryBegin 可能在窗口还是初始小尺寸时就被触发，
-            // 那时 FitText 只能给到最小字号，交错划入的行块也会按那个小字号建死；
-            // 等真正铺满屏幕后只重跑 FitText 的话，BodyText 长大了、看得见的 LinesPanel 却还是小字
-            // （2026-10-29「长文字开按行交错划入字号很小」即此）。
+            // 尺寸变化要连行块一起重排：TryBegin 可能在初始小尺寸时就触发，
+            // 那时 FitText 只能给到最小字号，交错划入的行块会按小字号建死；
+            // 铺满屏幕后若只重跑 FitText，BodyText 变大而 LinesPanel 仍是小字。
             if (_begun) Reflow();
             TryBegin();                // 首次量到真实尺寸后开场
         };
@@ -138,11 +137,9 @@ public sealed partial class AnnounceWindow : Window
         Closed += OnClosed;
         UpdateCountText();
 
-        // Esc 挂在**窗口**上（隧道级），不靠内部焦点：
-        // ⛔ 只留 XAML 里的 Root.KeyDown + Root.Focus() 不够 —— 2026-10-29 打包实测，
-        //    窗口已是前台（GetForegroundWindow 就是它）、真实按下 Esc，窗口毫无反应：
-        //    全屏窗里没有任何可聚焦元素时，按键不会路由到 Root 网格。
-        //    界面底部写着「按 Esc 可提前关闭」，这条承诺不能靠焦点碰运气。
+        // Esc 挂在窗口上（隧道级），不依赖内部焦点：全屏窗里没有可聚焦元素时，
+        // 按键不会路由到 Root 网格，仅靠 XAML 的 Root.KeyDown + Root.Focus() 收不到按键。
+        // 界面承诺「按 Esc 可提前关闭」，不能依赖焦点状态。
         AddHandler(KeyDownEvent, OnEscapeKeyDown, RoutingStrategies.Tunnel);
     }
 
@@ -165,8 +162,8 @@ public sealed partial class AnnounceWindow : Window
         }
         catch { /* 全屏失败也能当普通窗口用 */ }
 
-        // 必须等布局拿到真实尺寸再开场：FitText、按行切分、打字机预留高度全靠它，
-        // 早一步就会量到 0 宽 —— 长文本被截断、交错划入退化成整块滑入，根因都是这个（上游实测）。
+        // 必须等布局拿到真实尺寸再开场：FitText、按行切分、打字机预留高度都依赖它，
+        // 过早会量到 0 宽，导致长文本截断、交错划入退化为整块滑入。
         _ = ForceBeginAsync();
         Dispatcher.UIThread.Post(() => Root.Focus(), DispatcherPriority.Background);
     }
@@ -186,8 +183,7 @@ public sealed partial class AnnounceWindow : Window
         if (!_quiet)
         {
             AnnounceSound.Play();
-            // ⛔ 必须读 _fullText：打字机出场时 BodyText.Text 已被清成空串，读它等于什么都不读
-            //    （默认出场就是 typewriter，于是默认配置下「朗读」从来没响过）。
+            // 必须读 _fullText：打字机出场时 BodyText.Text 已被清空，读它读不到内容
             if (_speak) Tts.Speak(_fullText);
         }
         else
@@ -374,8 +370,8 @@ public sealed partial class AnnounceWindow : Window
     // ════════════════════════ 出场 ════════════════════════
 
     /// <summary>
-    /// 出场（上游 Nick 要求）：文字先退场 → 窗体再淡出 → 关窗。
-    /// 用「先动画再延时关」而不是直接 Close：直接关会硬切，看不出「慢慢变回去」。
+    /// 出场动画：文字先退场 → 窗体再淡出 → 关窗。
+    /// 用「先动画再延时关」而非直接 Close：直接关会硬切，无过渡效果。
     /// </summary>
     private async Task PlayOutroAsync()
     {
@@ -403,13 +399,11 @@ public sealed partial class AnnounceWindow : Window
 
     /// <summary>
     /// 字号自适应：从上限 <see cref="TextFit.MaxSize"/> 起算，放不下就逐档缩（96 → 30）。
-    /// ⛔ 起点必须是常量上限，不能读 <c>BodyText.FontSize</c>：XAML 没给正文设字号，
-    ///   它继承的是主题默认 14 —— 拿 14 当起点，PickFontSize 只会往下缩，
-    ///   全屏正文就永远停在 14 号（2026-10-29 真机验证：整屏大字变成一行小字）。
-    /// ⛔ 量的对象是 <see cref="_fullText"/>（全文）而不是 BodyText.Text —— 打字机过程中后者只剩半截，
-    ///   拿来量高度会让字号一路变大跳版。
-    /// ⛔ 高度取 max(真实测量, 保守估算)，规则全在 Core/TextFit（纯函数）里：
-    ///   长文本被裁的两次线上问题（上游 10-25、10-26）都是这里的条件写错，抽出去才测得到。
+    /// 起点必须是常量上限，不能读 <c>BodyText.FontSize</c>：XAML 未给正文设字号，
+    /// 它继承主题默认 14，拿 14 当起点 PickFontSize 只会往下缩，全屏正文将永远停在 14 号。
+    /// 度量对象是 <see cref="_fullText"/>（全文）而非 BodyText.Text —— 打字机过程中后者只剩半截，
+    /// 拿来量高度会让字号跳变。
+    /// 高度取 max(真实测量, 保守估算)，规则在 Core/TextFit（纯函数）中实现，便于独立测试。
     /// </summary>
     private void FitText()
     {
@@ -424,8 +418,8 @@ public sealed partial class AnnounceWindow : Window
             {
                 if (string.IsNullOrEmpty(text) || w <= 0) return 0;
 
-                // 离屏探针：新对象、每次真的按当前字号排一遍（不能对树内的 BodyText 调 Measure()，
-                // 布局干净时返回缓存值，改字号不重算 —— 上游实测长消息被上下裁掉）。
+                // 离屏探针：新对象、每次按当前字号真实排版。不能对树内的 BodyText 调 Measure()，
+                // 布局正常时它会返回缓存值，改字号后不重算，导致长消息被裁剪。
                 var probe = new TextBlock
                 {
                     Text = text,
@@ -445,7 +439,7 @@ public sealed partial class AnnounceWindow : Window
         BodyText.LineHeight = fit.LineHeight;
         _fittedHeight = fit.Height;
 
-        // 真机排障凭证：「字号很小」到底缩到了多少、按多大的可用区域算的，看这一行。
+        // 排版日志：记录最终字号与可用区域，便于排查字号异常。
         PortLog.Step($"喊话排版: 字号 {fit.FontSize:0}px／高 {fit.Height:0}／可用 {width:0}x{maxHeight:0}");
     }
 
@@ -556,8 +550,8 @@ public sealed partial class AnnounceWindow : Window
         var lines = new List<string>();
         var probe = new TextBlock
         {
-            // ⚠️ 必须带上正文的字体/字重：漏掉它们会用默认字体量宽度，
-            //    切出来的行数跟真实渲染对不上（行数偏多 → 白白把字号缩小）。
+            // 必须带上正文的字体/字重：漏掉会按默认字体量宽度，
+            // 切出的行数与真实渲染不一致（行数偏多会白白缩小字号）。
             FontFamily = BodyText.FontFamily,
             FontWeight = BodyText.FontWeight,
             FontSize = fontSize,

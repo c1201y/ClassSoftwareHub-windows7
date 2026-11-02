@@ -34,7 +34,7 @@ public sealed record FootprintNode(
     string ValueName = "");
 
 /// <summary>
-/// 某一时刻本机的「浅层痕迹快照」（2026-10-14 加，卸载残留清理的地基）。
+/// 某一时刻本机的「浅层痕迹快照」（卸载残留清理的地基）。
 ///
 /// ⛔ 为什么是**浅层**：只列一批"软件最爱拉屎的地方"的**一级**内容（目录名 / 键名），
 ///    不递归。理由有三：
@@ -135,7 +135,7 @@ public sealed class FootprintSnapshot
     //  体检点清单
     // ══════════════════════════════════════════════════════════════════════════
 
-    /// <summary>整份快照的时间预算。真机上这套浅层枚举实测在 100 ms 量级，2 秒是留给"注册表被安全软件挂钩"的极端情况。</summary>
+    /// <summary>整份快照的时间预算。这套浅层枚举通常在 100 ms 量级，2 秒是留给"注册表被安全软件挂钩"的极端情况。</summary>
     private const int BudgetMs = 2000;
 
     private enum ProbeKind { Directory, Registry }

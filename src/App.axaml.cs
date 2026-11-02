@@ -32,7 +32,7 @@ public partial class App : Application
     public static MainWindow? MainWindow { get; private set; }
 
     /// <summary>
-    /// 「应用正在退出」的全局标记（2026-10-04 修，对齐上游 dv1.1.0-insider1.7）。
+    /// 「应用正在退出」的全局标记（对齐上游 dv1.1.0-insider1.7）。
     ///
     /// ⛔ 为什么必须有：工具浮窗（<c>ToolPaletteWindow</c>）和 Q 群反馈窗（<c>QqFeedbackGuideWindow</c>）
     ///    都把窗口关闭拦下来当"收起来"用（<c>args.Cancel = true</c>），这是它们自己的正常语义。
@@ -44,7 +44,7 @@ public partial class App : Application
     public static bool IsExiting { get; set; }
 
     /// <summary>
-    /// 全应用**共享**的 WebView2 运行时服务（2026-10-23 上游加，本轮跟随移植）。
+    /// 全应用**共享**的 WebView2 运行时服务（自上游移植）。
     /// ⛔ 必须是同一个实例：同一个 UserDataFolder 建两个环境，WebView2 会互相打架。
     /// 主窗口的网页浮层、工具宿主页都从这里取环境。
     /// </summary>
@@ -154,7 +154,7 @@ public partial class App : Application
         //    见 OnUnhandledException 的移植说明。这里在构造里就挂上，尽早生效。
         Dispatcher.UIThread.UnhandledException += OnUnhandledException;
 
-        // ⛔ 另外三个全局钩子（对齐上游 2026-10-11 的打点采纳）：
+        // ⛔ 另外三个全局钩子（对齐上游的打点采纳）：
         //   只挂 UI 线程的 UnhandledException 有个巨大盲区 —— **非 UI 线程崩了连 crash.log 都不留**，
         //   而"应用突然自己消失了"恰恰是最需要日志的那类问题。
         //   三个各有各的盲区：AppDomain = 非 UI 线程的终止级异常；UnobservedTask = 后台 Task 静默失败；
@@ -180,18 +180,18 @@ public partial class App : Application
         // ═══════════════════════════════════════════════════════════════════════
         //  已经有一个实例在跑 —— 来的是"用户又点了一次图标"
         //
-        //  ⛔ 这条路径先后写错过两版，代价是用户整整一天用不了程序，必须记下来：
+        //  ⛔ 这条路径先后写错过两版，必须记下来：
         //
         //     第一版：一句 Environment.Exit(0)。界面、提示、日志全无。
         //     第二版：敲一下"叫醒"事件，然后**看互斥体还在不在**决定退不退。
         //             看似合理，实则致命 —— 互斥体只证明"对方进程活着"，
         //             **完全不证明"对方看得见界面"**。
         //
-        //             2026-10-01 实机日志里那个 PID=4040 就是这种僵尸：11:40 启动、
+        //             实机日志里那个 PID=4040 就是这种僵尸：启动后
         //             活了一整天、常驻内存只剩 4MB、主窗口从头到尾没露过面。它把之后
         //             **每一次**双击都吃掉了，每次都静默退出 3 秒 ——
         //             用户看到的就是「控制台几秒就没了 / 双击没反应 / 界面不出来」，
-        //             而真相是：昨晚那 8 次启动，界面一次都没有被真正启动过。
+        //             而真相是：当晚那 8 次启动，界面一次都没有被真正启动过。
         //
         //  现在改成：以「对方有没有一个看得见的主窗口」为唯一判据。
         //     看得见 → 正常唤醒，本实例退出（绝大多数情况，和以前一样）。
@@ -517,8 +517,8 @@ public partial class App : Application
         Core.AppLog.BootDiag(); // 旁路诊断（临时）：排「零日志」用的启动写入探针，排障完移除。
 
         // 初次配置（OOBE）到底该不该弹，**必须在 Load 之前**取这个事实。
-        // ⛔ 别改成 Load 之后再 File.Exists：Load 里的数据整备（新用户补侧边栏模块等）会 Save，
-        //    一 Save 文件就存在了，"这是新装"这个事实当场丢失，OOBE 永远弹不出来（2026-10-31）。
+        // ⛔ 不要改成 Load 之后再 File.Exists：Load 里的数据整备（新用户补侧边栏模块等）会 Save，
+        //    一 Save 文件就存在了，"这是新装"这个事实当场丢失，OOBE 永远弹不出来。
         var hadSettingsFile = System.IO.File.Exists(Settings.FilePath);
 
         // 对应原版 OnLaunched：先读设置，再建主窗口。
@@ -625,6 +625,8 @@ public partial class App : Application
             deferForOobe = _oobePending && !startupHidesWindow;
             ShellDeferredForOobe = deferForOobe;
             Platform.PortLog.Step("App: 开始构造主窗口");
+            // 提前触发构建身份判定：启动日志里留一行「官方 / 社区」，排障时不用猜用户装的是哪个包
+            _ = Core.BuildIdentity.BuildId;
             try
             {
                 MainWindow = new MainWindow();
@@ -657,7 +659,7 @@ public partial class App : Application
                 MainWindow = null;
                 desktop.MainWindow = BuildStartupFailureWindow(ex);
 
-                // 主窗口都没建出来，就别再压一扇向导上去了 —— 用户需要看到的是失败原因。
+                // 主窗口未建出时不再弹出向导 —— 用户需要看到的是失败原因。
                 deferForOobe = false;
                 ShellDeferredForOobe = false;
                 _oobePending = false;
@@ -710,8 +712,8 @@ public partial class App : Application
         }
 
         // 两个实验性功能的到点巡检。⚠️ 都靠本进程内的定时器 —— 本程序没在跑就不会查杀
-        //    （2026-09-28 Nick 确认按这个来，不往系统里装计划任务）。
-        //    「白板专杀」与「程序专杀」各跑各的定时器、各存各的配置，刻意不合并（Nick 明确要求白板独立）。
+        //    （设计约定：不往系统里装计划任务）。
+        //    「白板专杀」与「程序专杀」各跑各的定时器、各存各的配置，刻意不合并（白板要求独立）。
         Data.EasiNoteGuard.Start();
         Data.ProcessGuard.Start();
 
@@ -732,7 +734,7 @@ public partial class App : Application
         // 走后台线程，不沾首帧；新版本装完后的第一次启动正好把旧包收掉。
         Services.Updating.InstallerCleanup.Start();
 
-        // 文件快搜的索引（2026-10-29 insider1.4）：晚 5 秒再碰磁盘，别和首帧、内容包抢 I/O。
+        // 文件快搜的索引（insider1.4）：晚 5 秒再碰磁盘，避免与首帧、内容包抢 I/O。
         // 已有缓存时这 5 秒后几乎是空跑；缓存过期才真的全盘遍历（旧索引在重建完成前仍可用）。
         try
         {
@@ -1046,7 +1048,7 @@ public partial class App : Application
     private static long _lastUiAlertAt;
 
     /// <summary>
-    /// 发布版「不崩」不等于「静默」（2026-10-27）。
+    /// 发布版「不崩」不等于「静默」。
     ///
     /// <para>
     /// 以前 Release 下 UI 异常一律 <c>Handled=true</c> 且不提示：老师看到的是「按钮点了没反应 /

@@ -6,7 +6,7 @@ namespace ClassSoftwareHub.Desktop.Platform;
 /// <summary>
 /// <see cref="NativeMethods"/> 的**补充**：内存工作集回收（<c>Services.MemoryTrimmer</c> 专用）。
 ///
-/// ⚠️ 为什么另开文件：<see cref="NativeMethods"/> 不是 partial 且移植期要求不修改已就绪的
+/// 为什么另开文件：<see cref="NativeMethods"/> 不是 partial 且移植期要求不修改已就绪的
 ///    Platform 文件，所以按伴生类的惯例新开一个同命名空间的类。调用方一律走 <c>Platform.NativeMethods*</c>。
 ///
 /// 每个导出仍按 <see cref="NativeMethods"/> 的惯例，在注释里标**最低可用系统**。

@@ -89,7 +89,7 @@ public sealed partial class TimerToolPage : PageBase
     private void OpenPalette_Click(object? sender, RoutedEventArgs e)
         => Views.ToolPaletteWindow.ShowTool("timer");
 
-    // ══════════ 铃声 / 全屏时钟背景（2026-10-04 Nick 加在模式行右侧的那两个控件）══════════
+    // ══════════ 铃声 / 全屏时钟背景（模式行右侧的两个控件）══════════
 
     /// <summary>菜单里的「试听当前铃声」：到点响的是什么，先听一遍再说。</summary>
     private void AlarmTest_Click(object? sender, RoutedEventArgs e) => Services.TimerAlarm.Play();

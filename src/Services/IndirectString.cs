@@ -8,12 +8,12 @@ namespace ClassSoftwareHub.Desktop.Services;
 /// <summary>
 /// 解「间接字符串」（indirect string）—— 注册表里那种 <c>@{包全名?ms-resource://…}</c> 形式的名字。
 ///
-/// 为什么需要它（2026-10-13 加）：
+/// 为什么需要它：
 ///   Microsoft Store / MSIX 包在注册表里登记的 DisplayName 常常不是人话，而是
 ///   <c>@{Microsoft.Windows.FileExplorer_10.0.26100.2_neutral_neutral_cw5n1h2txyewy?ms-resource://FileExplorer/…}</c>
 ///   这样的引用 —— 必须交给系统用包自己的资源去展开。
-///   旧实现只认 <c>ms-resource:</c> 前缀，认不出这种 <c>@{…}</c> 形式，于是「应用卸载」页上
-///   整屏都是那串东西（Nick 2026-10-13 截图里「无关的太多了」的一大半就是它）。
+///   旧实现只认 <c>ms-resource:</c> 前缀，认不出这种 <c>@{…}</c> 形式，导致「应用卸载」页上
+///   整屏都是未展开的引用串。
 ///
 /// 走 shell 的 <c>SHLoadIndirectString</c>：它就是 Windows 自己解这类引用的那个函数，
 /// 「程序和功能」能显示出中文名靠的也是它。不需要管理员，不需要包身份，任意线程可调。

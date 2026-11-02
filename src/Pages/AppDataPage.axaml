@@ -7,16 +7,16 @@
     xmlns:fa="using:FluentAvalonia.UI.Controls">
 
     <!--
-      AppData 管理（2026-10-18 自上游 1.2.0 移植；WinUI → Avalonia）。
+      AppData 管理（WinUI → Avalonia 移植）。
 
-      ⛔⛔ 三层边界（界面上就是这么分的，改版式时别把它们揉回去）：
+      三层边界（界面上就是这么分的，改版式时别把它们揉回去）：
         第 1 层 **只读体检**（概览 · 本地 / 概览 · 漫游）—— 一级目录体积排行，**没有清理入口**
         第 2 层 **白名单清理**（可清理 · 系统临时 / 浏览器 / 商店应用 / 开发工具 / 图形）—— 永久删除
         第 3 层 **禁碰区** —— 一级目录整目录删除这条路上的按钮**压根不存在**
 
-      ⚠️ WinUI → Avalonia：x:Bind 行模板 → 行控件代码手建；InfoBar → fa:InfoBar；
+      WinUI → Avalonia：x:Bind 行模板 → 行控件代码手建；InfoBar → fa:InfoBar；
          ProgressRing → fa:ProgressRing；Visibility → IsVisible；MenuFlyout 同名可用。
-      ⚠️ Background="Transparent" 是给滚轮接力用的（Core/WheelRelay.cs）。
+      Background="Transparent" 是给滚轮接力用的（Core/WheelRelay.cs）。
     -->
     <Grid Background="Transparent">
         <Grid.ColumnDefinitions>

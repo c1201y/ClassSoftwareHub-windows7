@@ -11,9 +11,9 @@ namespace ClassSoftwareHub.Desktop.Core;
 ///   DWMWA_WINDOW_CORNER_PREFERENCE —— 圆角：浮窗要圆角(ROUND)，全屏时钟必须"不圆角"(DONOTROUND)，
 ///                                     否则 Win11 会把四个角削掉、露出底下的桌面，看着像屏幕外面套了一圈
 ///
-/// ⚠️ Win10 (<22000) 不认识这两个属性，调用会直接返回失败码 —— 忽略即可，不要当异常处理。
+/// Win10 (<22000) 不认识这两个属性，调用会直接返回失败码 —— 忽略即可，不要当异常处理。
 ///
-/// ⚠️ 移植说明：所有 P/Invoke 已按移植契约收进 <c>Platform.NativeMethods</c> /
+/// 移植说明：所有 P/Invoke 已按移植契约收进 <c>Platform.NativeMethods</c> /
 ///    <c>Platform.NativeMethodsEx</c>（原版是散在本文件里的 DllImport），逻辑一字未改。
 /// </summary>
 public static class WindowChrome
@@ -23,7 +23,7 @@ public static class WindowChrome
     private const int DwmwaWindowCornerPreference = 33;
     private const int DwmwaBorderColor = 34;
 
-    // DWMNCRENDERINGPOLICY：0 = USEWINDOWSTYLE，1 = DISABLED，2 = ENABLED（⚠️ 不是属性编号，别写成 2）
+    // DWMNCRENDERINGPOLICY：0 = USEWINDOWSTYLE，1 = DISABLED，2 = ENABLED（不是属性编号，别写成 2）
     private const int NcRenderingDisabled = 1;             // 关掉 DWM 给窗口画的非客户区（那条灯线的元凶）
 
     private const int CornerDefault = 0;
@@ -54,15 +54,15 @@ public static class WindowChrome
     private const uint SwpNoActivate = 0x0010;
     private const uint SwpFrameChanged = 0x0020;
 
-    // ── WM_NCCALCSIZE：干掉"幻影框架"的最后一刀（2026-10-01）──────────────
-    // 实测（2026-10-01，屏幕实拍 + FrameBounds 对账）：即便 WS_POPUP 化成功，
+    // ── WM_NCCALCSIZE：干掉"幻影框架"的最后一刀 ──────────────
+    // 即便 WS_POPUP 化成功，
     // DWM 仍给窗口保留 ~2px（左/右/下）非客户区 —— GetWindowRect 比 DWM 实际可视范围
     // 大出一圈，内容被迫往里缩，那一圈露出没压薄纱的裸亚克力/系统框，
     // 在壁纸上就是一圈"没填充完"的灰环。关 NC 渲染、设边框色都治不了它。
     // 标准解法：子类化窗口，WM_NCCALCSIZE(wParam=TRUE) 直接返回 0 —— 客户区=整个窗口，
     // 非客户区彻底归零，内容铺满到边。无边框 Win32 应用的通用做法。
     //
-    // ⚠️ 移植说明：主窗口/工具浮窗那几支走的是 <see cref="SelfDrawnFrame"/>（Avalonia 的
+    // 移植说明：主窗口/工具浮窗那几支走的是 <see cref="SelfDrawnFrame"/>（Avalonia 的
     //    WndProc 钩子版，能力更全，见其注释）；这里补的是**自绘浮窗**这条 WS_POPUP 路线
     //    —— 它们由 <see cref="RemoveBorder"/> 收尾，没有 SelfDrawnFrame，此前缺这一刀。
 
@@ -78,7 +78,7 @@ public static class WindowChrome
         ChromeLog($"subclass hwnd={hwnd} ok={ok}");
     }
 
-    // ⚠️ 必须留字段：委托一旦被 GC，原生回调就指向野指针，下一步直接崩。
+    // 必须留字段：委托一旦被 GC，原生回调就指向野指针，下一步直接崩。
     private static readonly NativeMethodsEx.SubclassProc NcCalcSizeProc = OnNcCalcSize;
 
     private static bool _ncProcLogged;
@@ -155,13 +155,13 @@ public static class WindowChrome
     /// <summary>
     /// 把这个窗口标成「工具窗口」（<c>WS_EX_TOOLWINDOW</c>）。
     ///
-    /// ⛔ <c>ShowInTaskbar=false</c> 在 Avalonia/Win32 上只是把窗口挂到一个隐藏父窗下
+    /// <c>ShowInTaskbar=false</c> 在 Avalonia/Win32 上只是把窗口挂到一个隐藏父窗下
     ///    （确实不进任务栏、不进 Alt+Tab），窗口本身仍是**普通顶级窗** ——
-    ///    任务管理器「应用」列表照旧按窗口标题单列一条（实测：「桌面留言」「工具侧边栏」）。
+    ///    任务管理器「应用」列表照旧按窗口标题单列一条。
     ///    只有 <c>WS_EX_TOOLWINDOW</c> 会被那套窗口枚举过滤掉（侧边栏那两条命中条一直靠它隐身）。
     ///
-    /// ⚠️ 必须在 <c>Show()</c> 之后调：Avalonia 每次显示都会重写自己的扩展样式，会把这一位清掉
-    ///    （实测收起→再显示后读回来又没了），所以每次显示收尾都要补一遍。
+    /// 必须在 <c>Show()</c> 之后调：Avalonia 每次显示都会重写自己的扩展样式，会把这一位清掉，
+    ///    所以每次显示收尾都要补一遍。
     /// </summary>
     public static void MarkToolWindow(IntPtr hwnd)
     {
@@ -213,7 +213,7 @@ public static class WindowChrome
 
             if (borderless)
             {
-                // ⚠️ **WS_POPUP 成功就别再关 NC 渲染了**（2026-10-01 修"没填充完的一圈边"）：
+                // **WS_POPUP 成功就别再关 NC 渲染了**：
                 //    关掉后窗口还留着 ~2px 的"幻影框架"——窗口矩形比 DWM 实际可视范围大出一圈，
                 //    内容被迫往里缩，那一圈露出的是没压薄纱的裸亚克力，在浅色壁纸上就是一圈灰环。
                 //    WS_POPUP + NCCALCSIZE 归零后已经没有非客户区可画，不再需要这个老兜底。
@@ -236,16 +236,16 @@ public static class WindowChrome
             var corner = rounded ? CornerRound : CornerDoNotRound;
             _ = NativeMethods.DwmSetWindowAttribute(hwnd, DwmwaWindowCornerPreference, ref corner, sizeof(int));
 
-            // ⚠️ 上面那个属性 **Win7/8/10 根本不认**（静默返回失败），圆角得靠窗口区域裁剪。
+            // 上面那个属性 **Win7/8/10 根本不认**（静默返回失败），圆角得靠窗口区域裁剪。
             //    这一步不能省 —— 教室里跑的就是这条兜底路径，用户看到的
             //    "悬浮窗展开没有圆角、贴边没有圆角"就是漏了它。
             //    具体实现和三个 GDI 坑都在 <see cref="RoundedCorners"/> 里；Win11 上它会自动让路。
             if (rounded) RoundedCorners.Apply(hwnd, RoundedCorners.DefaultRadiusDip);
             else RoundedCorners.Clear(hwnd);
 
-            // ⚠️ 移植说明：上游此处还调 SetBackgroundFallback(hwnd, dark)（把窗口类背景刷换成主题底色）。
+            // 移植说明：上游此处还调 SetBackgroundFallback(hwnd, dark)（把窗口类背景刷换成主题底色）。
             //    本仓库**故意不移植**：那个修复针对的是「WinUI 3 注册窗口类时用的是黑刷」这一根因
-            //    （点开侧边栏瞬间闪纯黑框）；而 Avalonia 注册的窗口类背景刷是 NULL（见 SelfDrawnFrame 实测注释），
+            //    （点开侧边栏瞬间闪纯黑框）；而 Avalonia 注册的窗口类背景刷是 NULL（见 SelfDrawnFrame 注释），
             //    根本不会闪黑。反过来把类背景刷设成不透明纯色，还会盖掉浮窗的亚克力/透明底 —— 是倒退。
             //    浮窗首帧的兜底色由 Views/FlyoutChrome.PrimeOpaqueBackdrop 负责，主窗口由 SelfDrawnFrame 的擦除负责。
 
@@ -260,13 +260,12 @@ public static class WindowChrome
     /// <summary>
     /// **只调"四角圆不圆"，其余一律不动** —— 主窗口专用。
     ///
-    /// ⚠️ 为什么不能拿 <see cref="RemoveBorder"/> 顶上：那一套是给**自绘浮窗**用的，
+    /// 为什么不能拿 <see cref="RemoveBorder"/> 顶上：那一套是给**自绘浮窗**用的，
     ///    它会把 WS_CAPTION / WS_THICKFRAME 整个拆掉换成 WS_POPUP，还把 DWMWA_NCRENDERING_POLICY 关掉。
     ///    主窗口的缩放边、吸附、Win + 方向键、系统阴影全靠那套非客户区，拆了就不是个正常窗口了。
     ///
-    /// ⚠️ 为什么必须显式设：WinUI 3 只要 <c>ExtendsContentIntoTitleBar = true</c>，
-    ///    窗口的圆角偏好就停在 Default(0)。2026-09-29 实测（同一台 Win11）：
-    ///    主窗口偏好 0 → 四角是**纯直角**；改成 2(ROUND) → 立刻变圆。
+    /// 为什么必须显式设：WinUI 3 只要 <c>ExtendsContentIntoTitleBar = true</c>，
+    ///    窗口的圆角偏好就停在 Default(0)，四角保持**纯直角**；改成 2(ROUND) 才会变圆。
     ///    Win11 原生圆角只有 8px，肉眼第一眼不一定注意得到，但没有它就是"不像原生应用"。
     /// </summary>
     public static void SetRounded(IntPtr hwnd, bool rounded)
@@ -280,20 +279,18 @@ public static class WindowChrome
         catch { }
     }
 
-    // ── Win10 的窗口圆角（2026-10-11；2026-10-18 自上游 1.2.0 移植）──────────────────────
+    // ── Win10 的窗口圆角（自上游 1.2.0 移植）──────────────────────
     //
-    // 起因（Nick 在 Win10 上截图）：侧边栏收起那条小抓手**四角是方的**。
-    //   根因：这条的圆角在 Win11 上是 **DWM 把整个窗口裁圆**（DWMWA_WINDOW_CORNER_PREFERENCE，
-    //   见 SetRounded），而那个属性 **Win10 根本不认**（返回失败码，静默无效）。
+    // Win10 不认 DWMWA_WINDOW_CORNER_PREFERENCE（返回失败码，静默无效），
     //   XAML 里 Panel 的 CornerRadius=8 只圆了内容那一层，圆角外面露的仍是窗口自身的背景 ——
     //   窗口是方的，就顶到方角，于是整条看着就是个方角块。
     //
     // Win10 上唯一能改窗口形状的就是 GDI 的**窗口区域**（SetWindowRgn）。
     //
-    // ⚠️ 四条，改前先看：
+    // 四条，改前先看：
     //   1) 默认**只在 Win10 用**。Win11 上 DWM 的圆角带抗锯齿、还跟着系统设置走，比 region 好 ——
-    //      ⛔ 别拿 region 去顶掉它（两边都设会叠一层锯齿边）。
-    //      **例外（2026-10-12）**：侧边栏**收起态**那条（12dip 宽）在 Win11 上必须改用 region ——
+    //      别拿 region 去顶掉它（两边都设会叠一层锯齿边）。
+    //      **例外**：侧边栏**收起态**那条（12dip 宽）在 Win11 上必须改用 region ——
     //      因为 DWM 给"圆角窗口"画的那圈投影在这个尺寸下会右偏约 6px，看着像条右边多了一圈边框。
     //      那时必须**先**把 DWM 圆角偏好设成 DONOTROUND（见 SetRounded(hwnd,false)）**再**设区域，
     //      两边都设才不叠锯齿；展开态记得 SetRounded(hwnd,true) + ClearRoundRegion 还原。
@@ -304,8 +301,8 @@ public static class WindowChrome
     //   4) 一旦设过区域，切回"DWM 管圆角"时必须 ClearRoundRegion 清一次，
     //      否则旧区域会继续按老尺寸裁着窗口。
     //
-    // ⛔ 别再走"透明窗口 + 自己画圆角"那条路：那要靠 DwmExtendFrameIntoClientArea 撑，
-    //    而它会让 DWM 给整窗画一道边 —— 就是 Nick 2026-10-11 报的"判定区阴影"，两个开关是同一个。
+    // 别再走"透明窗口 + 自己画圆角"那条路：那要靠 DwmExtendFrameIntoClientArea 撑，
+    //    而它会让 DWM 给整窗画一道边（两个开关是同一个）。
 
     [System.Runtime.InteropServices.DllImport("gdi32.dll")]
     private static extern IntPtr CreateRoundRectRgn(int x1, int y1, int x2, int y2, int w, int h);
@@ -316,7 +313,7 @@ public static class WindowChrome
     /// <summary>
     /// 把窗口裁成圆角矩形（物理像素）。
     /// </summary>
-    /// <param name="widthPx">窗口宽（物理像素）⚠️ 传**目标尺寸**，别传读回来的旧尺寸。</param>
+    /// <param name="widthPx">窗口宽（物理像素）。传**目标尺寸**，别传读回来的旧尺寸。</param>
     /// <param name="heightPx">窗口高（物理像素）。</param>
     /// <param name="radiusPx">圆角半径（物理像素）；会夹到不超过短边的一半。</param>
     public static void SetRoundRegion(IntPtr hwnd, int widthPx, int heightPx, int radiusPx)
@@ -331,7 +328,7 @@ public static class WindowChrome
             var rgn = CreateRoundRectRgn(0, 0, widthPx + 1, heightPx + 1, r, r);
             if (rgn == IntPtr.Zero) { ChromeLog("CreateRoundRectRgn 失败"); return; }
 
-            // ⚠️ SetWindowRgn 之后这个区域归**系统**所有（文档明确），⛔ 不要再 DeleteObject —— 二次释放会崩。
+            // SetWindowRgn 之后这个区域归**系统**所有（文档明确），不要再 DeleteObject —— 二次释放会崩。
             //    再设一次新区域时系统会自己换掉旧的。
             if (SetWindowRgn(hwnd, rgn, true) == 0) ChromeLog("SetWindowRgn 失败");
         }
@@ -345,7 +342,7 @@ public static class WindowChrome
     /// 撤掉窗口上自己裁的区域（恢复成完整的矩形窗口）。跟 <see cref="SetRoundRegion"/> 成对使用：
     /// 从"自己裁圆角"切回"DWM 管圆角"时必须清一次，否则旧区域会一直挂在窗口上，
     /// 把窗口按**当时那一版的尺寸**继续裁着（尺寸一变就露馅）。
-    /// ⚠️ 传 <c>IntPtr.Zero</c> 是文档认可的清空方式，系统会回收旧区域，⛔ 别自己 DeleteObject。
+    /// 传 <c>IntPtr.Zero</c> 是文档认可的清空方式，系统会回收旧区域，别自己 DeleteObject。
     /// </summary>
     public static void ClearRoundRegion(IntPtr hwnd)
     {

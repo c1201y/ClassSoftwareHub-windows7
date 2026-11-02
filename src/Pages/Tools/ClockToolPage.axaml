@@ -4,14 +4,11 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:platform="using:ClassSoftwareHub.Desktop.Platform">
 
-    <!-- ═══ 2026-09-29 二次重排（Nick：「五六组设置密密麻麻堆在一起，没有呼吸感」）═══
-         上一版把设置按「背景 / 文字 / 显示内容」分了组，但组标题只有 12px、组间只差 6px 边距，
-         视觉上还是一坨 —— 想调个字号得挨行读过去。
-         这一版做三件事：
-           ① **重分组、按使用频次排**：常用的「显示与字号」「配色与字体」在前，
-              低频的「背景与材质」在后；每组之间拉一条**真的分隔线**，边界一眼可见；
-           ② **组内一件事一行**，不再上下堆叠 —— 组标题 12.5 SemiBold、组内间距 10、组间 18；
-           ③ 左栏预览从"半屏"加宽成主角（1.15 : 1），时钟本身才是这一页要看的东西。
+    <!-- ═══ 设置分组 ═══
+         重分组、按使用频次排：常用的「显示与字号」「配色与字体」在前，
+         低频的「背景与材质」在后；每组之间拉一条真的分隔线，边界一眼可见；
+         组内一件事一行，不上下堆叠 —— 组标题 12.5 SemiBold、组内间距 10、组间 18；
+         左栏预览从"半屏"加宽成主角（1.15 : 1），时钟本身才是这一页要看的东西。
 
          ⚠️ 移植说明：
            · ThemeResource → DynamicResource；AccentButtonStyle → DynamicResource；
@@ -21,7 +18,7 @@
            · GridView → ItemsControl + WrapPanel（原版禁用了选择与滚动，本质就是个换行容器）；
            · HyperlinkButton 在 Avalonia/FA 里不存在 → 透明底、无描边、强调色前景的 Button 等价替代；
            · 拖放用 DragDrop.AllowDrop / DragDrop.* 附加事件。 -->
-    <!-- ⚠️ 2026-10-03：ScrollViewer 提到最外层（滚动条贴窗口右缘），边距改 Padding；
+    <!-- ScrollViewer 提到最外层（滚动条贴窗口右缘），边距改 Padding；
          原来套在中间内容上的那层 ScrollViewer 解开，内容直接铺在行里（外层统一管滚动） -->
     <ScrollViewer Padding="24,14,24,20" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
     <!-- 三列钉宽：内容钉在中间、两侧吸收余量（上游 2026-10-01 给工具页加的内容列，上游值 1008；
@@ -124,15 +121,9 @@
                 </Border>
 
                 <!-- ═══ 右：外观设置 ═══
-                     2026-09-29 三次重排（Nick：「卡片高度不一致；字体凭什么独占一行；字号大小到
-                     「配色与字体」中间空得能开一万家蜜雪冰城」）—— 三条一并解决：
-                       ① **不再 VerticalAlignment="Top"**：左右两卡都交给 Grid 拉满行高，
-                          底边永远对齐（哪张内容高就以哪张为准）；
-                       ② **两条"独占一整行"砍掉**：字号标签与滑块同行、时间字体与蒙版/材质并排
-                          —— 少掉的正是"一整行"的高度；
-                       ③ **分组线改成"标题 + 横线"同一行**（原来是"空带 + 一条横线 + 空带"）：
-                          分隔线本来就要独占一行，那就让它和组标题共用这一行 —— 组间因此只剩
-                          一次间距，"标题上面一大片空"从根上没有了。 -->
+                     左右两卡等高（都交给 Grid 拉满行高，哪张内容高就以哪张为准）；
+                     字号标签与滑块同行、时间字体与蒙版/材质并排，不留独占一整行的控件；
+                     分组线与组标题共用一行，消除标题上方的空带。 -->
                 <Border Grid.Column="1" Margin="14,0,0,0" CornerRadius="10" Padding="16" BorderThickness="1"
                         BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
                         Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">
@@ -273,8 +264,7 @@
             </Grid>
 
             <!-- ═══ 外观预设（通栏卡片列）═══
-                 2026-09-28（Nick）：光有名字看不出这套长什么样 —— 每套画成一张小卡，
-                 底下再放一排，一眼就能挑。 -->
+                 每套预设画成一张小卡，一眼能挑。 -->
             <Border Margin="0,14,0,0" CornerRadius="10" Padding="16" BorderThickness="1"
                     BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
                     Background="{DynamicResource CardBackgroundFillColorDefaultBrush}">

@@ -10,7 +10,7 @@ using System.Xml.Linq;
 namespace ClassSoftwareHub.Desktop.Data;
 
 /// <summary>
-/// 名单读取（2026-09-27 Nick 要的「导入名字」）。
+/// 名单读取。
 /// 支持 .txt / .csv / .tsv（纯文本一堆名字）与 .xlsx / .xlsm（Excel）。
 ///
 /// 为什么自己解 xlsx：项目一直不带第三方包（见 MEMORY「音频层手写 Core Audio」的先例），
@@ -54,8 +54,8 @@ public static class NameRoster
     }
 
     // ══════════════════════════════════════════════════════════════════════════
-    //  写出去（2026-09-29 Nick：名单要能导出成 Excel / txt）
-    //  ⚠️ 这个类刻意不引用任何 UI 类型（RosterEntry 放在工具页里），
+    //  写出去（名单可导出成 Excel / txt）
+    //  这个类刻意不引用任何 UI 类型（RosterEntry 放在工具页里），
     //     这样它还能被一个纯控制台工程直接链接起来做离线往返测试。
     // ══════════════════════════════════════════════════════════════════════════
 
@@ -108,7 +108,7 @@ public static class NameRoster
                         new XAttribute(relNs + "id", "rId1")))));
 
         // picker 已经替我们建了一个空文件 —— 不直接 Create（会因"文件已存在"抛异常）。
-        // ⚠️ 但也不能先删原文件再写：写到一半失败，用户原来那份就没了。
+        // 但也不能先删原文件再写：写到一半失败，用户原来那份就没了。
         //    先写同目录临时文件，全部写成功后再整体替换。
         var tmp = path + ".tmp";
         try
@@ -192,10 +192,8 @@ public static class NameRoster
         var result = new List<string>();
         try
         {
-            // ⚠️ 2026-10-06 实机反馈「抽号名单中文乱码」：Windows 记事本 / Excel 另存的 txt、csv
-            //    默认是 **ANSI（简体中文即 GBK）且不带 BOM**；原先直接按 UTF-8 读，
-            //    一个汉字会变成两三个 U+FFFD，界面就成了「已抽取 1 人：������」。
-            //    改成先嗅探编码再解码 —— 见 DecodeText。
+            // Windows 记事本 / Excel 另存的 txt、csv 默认是 **ANSI（简体中文即 GBK）且不带 BOM**；
+            //    直接按 UTF-8 读，一个汉字会变成两三个 U+FFFD。必须先嗅探编码再解码 —— 见 DecodeText。
             var text = DecodeText(ReadTextBytes(path));
             foreach (var line in text.Split('\n'))
             {
@@ -207,7 +205,7 @@ public static class NameRoster
                     if (name.Length > 0) result.Add(name);
                 }
 
-                // ⚠️ 名单上限远小于文件行数：误选一篇长文/日志时没必要把每一行都解析一遍
+                // 名单上限远小于文件行数：误选一篇长文/日志时没必要把每一行都解析一遍
                 if (result.Count >= MaxNames * 4) return result;
             }
         }
@@ -222,7 +220,7 @@ public static class NameRoster
     private const int MaxTextBytes = 8 * 1024 * 1024;
 
     /// <summary>
-    /// 按上限读文本文件。⚠️ 不再无脑 <see cref="File.ReadAllBytes"/>：用户手滑选中一个几百 MB 的
+    /// 按上限读文本文件。不能无脑 <see cref="File.ReadAllBytes"/>：用户手滑选中一个几百 MB 的
     /// 日志 / 镜像文件时，整份读进内存够 32 位进程喝一壶，而名单只用到开头那点内容。
     /// 截断后按 UTF-8 规则去掉不完整的尾巴，免得把多字节汉字切成半个、连带把编码判成 ANSI。
     /// </summary>
@@ -363,7 +361,7 @@ public static class NameRoster
             if (cells.Count == 0) return result;
 
             // 名单几乎总是一整列，但**不能只按"格子多"挑** ——
-            // 2026-09-29 实测（Nick 的「序号 | 姓名」示例表）：两列一样满，"取最左"直接选中了**序号列**，
+            // 「序号 | 姓名」两列一样满时"取最左"会选中**序号列**，
             // 抽出来是 1、2、3… 一个名字都没有。挑列的优先级改成：
             //   ① 表头写着「姓名 / 名字 / 学生…」的那一列 —— 用户已经把答案写在那儿了
             //   ② 非数字内容最多的列（序号列基本都是数字，天然被排到后面）
@@ -466,7 +464,7 @@ public static class NameRoster
             if (name.Length == 0 || name.Length > MaxNameLength) continue;
 
             // 连一个字母 / 数字都没有的条目（"…"、"---"、"——"）是"下面还有更多"的示意标记，不是名字。
-            // ⚠️ 只排除纯符号 —— **纯数字要留着**，有人就是拿一列学号当名单抽号的（2026-09-29）。
+            // 只排除纯符号 —— **纯数字要留着**，有人就是拿一列学号当名单抽号的。
             if (!name.Any(char.IsLetterOrDigit)) continue;
 
             // 只跳过第一个 —— 表格第一行是表头很常见，但班里真有个叫"名单"的同学也不该被吞掉

@@ -28,7 +28,7 @@ public sealed record AppUriTarget(AppUriKind Kind, string Target, string Raw);
 /// 应用链接（<c>csh://</c>）的解析与构造（纯函数，不碰注册表、不碰界面）。
 ///
 /// <para>
-/// 需求 1:18（2026-10-30）：文档库的文章里会写链接，可能是「跳到另一篇文章」「跳到某个设置项」，
+/// 文档库的文章里会写链接，可能是「跳到另一篇文章」「跳到某个设置项」，
 /// 也可能是「跳到 Windows 设置」。这些链接写在文章正文里（将来还有网页版），所以需要一个
 /// 稳定的地址格式，而不是靠命令行参数。
 /// </para>
@@ -45,7 +45,7 @@ public sealed record AppUriTarget(AppUriKind Kind, string Target, string Raw);
 /// </para>
 ///
 /// <para>
-/// ⚠️ 只认这几种。<c>Target</c> 不做白名单校验（「update 是不是真的存在」由落地的那一层判断，
+/// 只认这几种。<c>Target</c> 不做白名单校验（「update 是不是真的存在」由落地的那一层判断，
 ///    认不出就停在页面顶部）—— 白名单放这儿会让"加一个设置分组要改两处文件"。
 /// </para>
 /// </summary>

@@ -6,7 +6,7 @@ using System.Text;
 namespace ClassSoftwareHub.Desktop.Services.Diagnostics;
 
 /// <summary>
-/// 把 <see cref="MachineSnapshot"/> 压成**给模型看的那点字**（2026-10-18）。
+/// 把 <see cref="MachineSnapshot"/> 压成**给模型看的那点字**。
 ///
 /// <para>
 /// 为什么要有这一层：原始快照里 293 个进程、147 个软件、6 块盘，直接序列化出去是几万 token，
@@ -29,7 +29,7 @@ public static class MachineDigest
     /// 是否把**已装软件清单**发出去。<b>默认 false</b>，理由见方法注释。
     /// </param>
     /// <remarks>
-    /// ⚠️⚠️ <b>已装软件清单默认不发送</b>（2026-10-18 实测发现的问题）：
+    /// ⚠️⚠️ <b>已装软件清单默认不发送</b>：
     /// 清单里会出现游戏名、私人工具、公司内部软件，能直接推断出使用者身份和喜好，
     /// 而这份文本是发给**第三方模型服务商**的。只发数量（"已安装 147 款"）就够用了，
     /// 模型判断"装机是否臃肿"并不需要知道具体装了什么。

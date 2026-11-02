@@ -80,7 +80,7 @@ public sealed partial class WelcomePage : PageBase
         _ = Dispatcher.UIThread.InvokeAsync(RefreshUpdateCard);
     }
 
-    // ── 更新状态（2026-10-06 起，挂在快速开始区的「查看更新内容」主题色卡上） ──
+    // ── 更新状态（挂在快速开始区的「查看更新内容」主题色卡上） ──
 
     /// <summary>
     /// 「查看更新内容」卡的两种状态：
@@ -95,7 +95,6 @@ public sealed partial class WelcomePage : PageBase
     /// <summary>
     /// 有更新时把「查看更新内容」卡片换成**绿色横幅**（与 InfoBar Success 同套配色）；
     /// 无更新时恢复原来的强调色卡片 —— 它仍是「查看更新内容」的入口。
-    /// 2026-10-22 上游 1.4：Nick 说「立即更新的标志很不明显，有更新的话用这个横幅」。
     /// </summary>
     private void ApplyUpdateHighlight(bool highlight)
     {
@@ -169,7 +168,7 @@ public sealed partial class WelcomePage : PageBase
             return;
         }
 
-        // 只是**查到**了新版本、包还没下（2026-10-18 自上游 1.2.0 移植）：
+        // 只是查到了新版本、包还没下：
         // 首页给一颗「立即更新」，不用让用户自己去设置页找。待装态优先级更高（上面已 return）。
         var noticed = Services.Updating.UpdateNotice.Pending;
         if (noticed is not null)
@@ -226,10 +225,8 @@ public sealed partial class WelcomePage : PageBase
 
     private void Populate()
     {
-        // ⚠️ 首页大标题下面那行站点名副标题（原 HomeTitleText）已按 Nick 2026-10-06 要求整行删除，
-        //    连带 ui.AppTitle / title 取值一起清掉 —— 别再补回来。
-        // 只显示软件自己的版本（前缀 VersionPrefix + ShellVersion，如正式版 dv1.1.1 或预览版 dv1.1.1-insider1.0）。
-        // ⚠️ 别再往这里挂"网站版本"——软件是独立发布物，不摆成网站版本的附属品（2026-09-26 删）。
+        // 站点名副标题行已整行删除（连同 ui.AppTitle / title 取值），不要补回。
+        // 只显示软件自己的版本（前缀 VersionPrefix + ShellVersion）；软件是独立发布物，不显示"网站版本"。
         ShellVersionText.Text = ShellConfig.VersionPrefix + ShellConfig.ShellVersion;
 
         RefreshCollectedCount();
@@ -241,7 +238,7 @@ public sealed partial class WelcomePage : PageBase
     }
 
     // ══════════════════════════════════════════════════════════════════
-    //  推荐应用（2026-10-18 自上游 1.2.0 移植：Store「精选实用软件」样式）
+    //  推荐应用（Store「精选实用软件」样式）
     //
     //  · 一排整卡缓慢向左匀速滚动、**无缝循环**：铺两组首尾相接，位移一整组宽度后画面完全重合；
     //  · 鼠标悬停暂停、移开继续；「换一批」换个种子重挑；
@@ -357,7 +354,7 @@ public sealed partial class WelcomePage : PageBase
         if (_recommendDistance <= 0) return;
 
         // ⚠️ 这支定时器是**常驻 60fps 重画**（主窗可见时每 16ms 重画整窗）。两种情况必须让开：
-        //    ① 侧边栏/浮窗正在滑（<see cref="MotionGate"/>）—— 抢帧实测会把滑动顶到 30~130ms 一帧；
+        //    ① 侧边栏/浮窗正在滑（<see cref="MotionGate"/>）—— 与其争帧会明显拖慢滑动动画；
         //    ② 主窗不在前台（侧边栏展开、切到别的程序、最小化）—— 没人看，白烧 CPU。
         //    只是跳过这一帧的位移，定时器不重建，恢复时 last 已是当前时刻，不会一下窜一大段。
         var host = TopLevel.GetTopLevel(this) as Window;
@@ -400,7 +397,7 @@ public sealed partial class WelcomePage : PageBase
     /// <summary>
     /// 一张推荐卡（照 Store 的画法）：**整卡圆角**，上半部分图标放大铺底 + 着色罩 + 中央圆角清晰图标；
     /// 下半部分**加粗名称 + 一句短简介**。
-    /// ⛔ 不是把图标拉满整格。
+    /// 图标不满铺整格。
     /// </summary>
     private Control BuildRecommendCard(SoftwareApp app)
     {
@@ -488,9 +485,8 @@ public sealed partial class WelcomePage : PageBase
             };
             topGrid.Children.Add(letter);
 
-            // ⚠️ 图标是后台加载的（连随包内置的也要解码一次）：到货时就地补图。
-            //    以前这里只摆首字、指望"下次重铺装上"，结果整排卡片一直停在字母上，
-            //    看起来就是"图片永远加载不出来"（2026-10-30 用户反馈「加载好慢」）。
+            // 图标是后台加载的（连随包内置的也要解码一次）：到货时就地补图，
+            // 不能指望"下次重铺"装上 —— 那样整排卡片会一直停在字母占位上。
             void OnIconChanged(object? _, System.ComponentModel.PropertyChangedEventArgs e)
             {
                 if (e.PropertyName is not (nameof(SoftwareApp.IconImage) or null)) return;
@@ -562,7 +558,7 @@ public sealed partial class WelcomePage : PageBase
 
     /// <summary>
     /// 首页那条「收录情况」InfoBar（<see cref="CollectedBar"/>）：标题＝已收录 N 款软件，
-    /// 正文＝今日新增 N 款＋具体名字。2026-10-07 Nick 要求**两项合并**到这一条，放在设置卡片正下方。
+    /// 正文＝今日新增 N 款＋具体名字，两项合并到这一条显示。
     ///
     /// 数字来自**本机已同步的**软件清单（<c>App.Content.Apps</c>，源头是站点仓库的 软件数据/apps/）——
     /// 零网络请求、离线也准。
@@ -592,12 +588,11 @@ public sealed partial class WelcomePage : PageBase
     /// 数据得联网：软件 json 里没有任何日期字段，只能去问 GitHub 的提交历史
     /// （算法与代价见 <see cref="NewlyAddedService"/>）。
     /// **只增不补** —— 只有算出 &gt;0 才写正文；算不出来、或今天确实没新增，正文就保持空。
-    /// ⛔ 不摆「今日新增 0 款」，免得那条 InfoBar 里多一个会骗人的数字。
+    /// 不显示「今日新增 0 款」。
     /// </summary>
     private async Task RefreshTodayAddedAsync(int collected)
     {
-        // 口径改成「最近 48 小时」（2026-10-18 自上游 1.2.0 移植）：
-        // 原来按"今天 0 点"算，一到凌晨就清零，跨午夜看不到昨天下午刚上架的软件。
+        // 口径是「最近 48 小时」：按"今天 0 点"算会在跨午夜时清零，看不到昨天刚上架的软件。
         var added = await NewlyAddedService.GetRecentAsync(TimeSpan.FromHours(48));
         if (added is null || added.Count <= 0) return;
 
@@ -635,7 +630,7 @@ public sealed partial class WelcomePage : PageBase
         QuickGrid.ItemsSource = links;
         ApplyQuickLinkIcons(links);
 
-        // 主题切换后按新主题色重新染 SVG（2026-10-18 自上游 1.2.0 移植）；
+        // 主题切换后按新主题色重新染 SVG；
         // ⚠️ 只在页面活着的时候听，别让已离开的页面被事件勾住。
         ActualThemeVariantChanged -= WelcomePage_ThemeChanged;
         ActualThemeVariantChanged += WelcomePage_ThemeChanged;
@@ -649,7 +644,7 @@ public sealed partial class WelcomePage : PageBase
     private void QuickGrid_SizeChanged(object? sender, SizeChangedEventArgs e) => FitQuickRow(e.NewSize.Width);
 
     /// <summary>
-    /// 快捷入口**必须排在一行**（上游 2026-10-17 Nick：窗口变窄会折行，很难看）。
+    /// 快捷入口必须排在一行。
     /// 做法是按可用宽度重算 <see cref="WrapPanel.ItemWidth"/>：宽屏维持 192 不动，
     /// 窄了就把五颗平分一行；只有窄到 104×5 以下才允许折行（那时确实放不下了）。
     /// </summary>
@@ -660,8 +655,7 @@ public sealed partial class WelcomePage : PageBase
         var count = QuickGrid.ItemCount;
         if (count == 0 || width <= 0) return;
 
-        // ⛔ 不能正好用 width / count：格宽乘回来会因浮点/取整差出零点几像素，
-        //    第五颗就被挤到下一行（上游实测 900 宽的窗口仍然 4+1）。留 1px 余量。
+        // 不能正好用 width / count：浮点/取整误差会让最后一颗被挤到下一行，留 1px 余量。
         var itemWidth = Math.Clamp(Math.Floor(width / count) - 1d, 104d, 192d);
         if (Math.Abs(panel.ItemWidth - itemWidth) > 0.5) panel.ItemWidth = itemWidth;
     }
@@ -673,8 +667,8 @@ public sealed partial class WelcomePage : PageBase
 
     /// <summary>
     /// 把每颗入口的 SVG 染成当前主题的前景色调。
-    /// ⚠️ 颜色必须从**本页所在的树**里取（`ThemeBrush.Get(this, …)`）—— 从应用级资源取会在
-    ///    "浅色界面 + 深色系统"时染成白字色，看不见（Nick 撞过这个坑）。
+    /// 颜色必须从本页所在的树里取（`ThemeBrush.Get(this, …)`）：从应用级资源取会在
+    /// "浅色界面 + 深色系统"时染成不可见的字色。
     /// </summary>
     private void ApplyQuickLinkIcons(IEnumerable<QuickLink> links)
     {
@@ -843,7 +837,7 @@ public sealed partial class WelcomePage : PageBase
                 App.MainWindow?.Shell.NavigateTo("announce");
                 break;
             case "function-plot":
-                // ⛔ 别在这里直接 Navigate(typeof(FunctionPlotPage))：那样会绕过 ToolCarrier，
+                // 不要在这里直接 Navigate(typeof(FunctionPlotPage))：那样会绕过 ToolCarrier，
                 //    有 WebView2 运行时 + 本地工具包的机器上本该进网页版，硬跳原生页等于把新版本关在门外。
                 //    交给 NavigateTo：它先在 ToolCatalog 里按 Id 反查到这条工具，再走载体选择。
                 App.MainWindow?.Shell.NavigateTo("function-plot");

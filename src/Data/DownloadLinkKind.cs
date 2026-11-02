@@ -31,7 +31,7 @@ public enum DownloadKind
 /// 不带后缀（<c>/package/win-autoupdate</c>）、UU 远程是 <c>/api/v1/release/dl/1</c>，
 /// 光看 URL 推不出来，必须在 JSON 里写 <c>"kind": "file"</c>。
 ///
-/// ⚠️ 移植自上游 1.2.0。Win7 端原有 <see cref="Services.DownloadService"/> 里那套只看后缀的判据
+/// 移植自上游 1.2.0。Win7 端原有 <see cref="Services.DownloadService"/> 里那套只看后缀的判据
 /// 只会判「是不是文件」，分不出网盘 / 商店 / 官网页，详情页按钮文案与行为按这里的四分类走。
 /// </summary>
 public static class DownloadLinkKind
@@ -54,7 +54,7 @@ public static class DownloadLinkKind
     /// <summary>
     /// 「确定是安装包 / 压缩包」的后缀 —— 与站点 FILE_EXT_RE 逐字一致，扩充必须两边同时改。
     ///
-    /// ⚠️ 是**对整条 URL 匹配**，不是只看路径：希沃那批签名直链的路径是不带后缀的
+    /// 是**对整条 URL 匹配**，不是只看路径：希沃那批签名直链的路径是不带后缀的
     /// `/seewo-report_xxx`，文件名只出现在 query 的 <c>response-content-disposition</c> 里，
     /// 只看路径会漏判成「官网页面」。站点用的就是这个口径，桌面端必须跟齐。
     ///

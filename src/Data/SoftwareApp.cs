@@ -20,7 +20,7 @@ public sealed class DownloadItem
     public string Url { get; set; } = "";
     public string Hash { get; set; } = "";
 
-    /// <summary>维护者显式声明的落地方式（file / store / netdisk / page；2026-10-18 自上游 1.2.0 移植）。
+    /// <summary>维护者显式声明的落地方式（file / store / netdisk / page；自上游 1.2.0 移植）。
     /// 不写就由 <see cref="DownloadLinkKind"/> 按域名与后缀推断。</summary>
     public string DeclaredKind { get; set; } = "";
 
@@ -28,9 +28,9 @@ public sealed class DownloadItem
     public DownloadKind Kind => DownloadLinkKind.Of(Url, DeclaredKind);
 
     /// <summary>
-    /// 下载按钮上的文案 —— 与站点 <c>downloadLink.ts</c> 的 actionLabel 同一套（2026-10-18 自上游 1.2.0 移植）：
+    /// 下载按钮上的文案 —— 与站点 <c>downloadLink.ts</c> 的 actionLabel 同一套：
     /// 文件直链＝下载；网盘＝前往网盘；官网＝前往官网；商店＝打开商店。
-    /// ⛔ 过去这些一律写「下载」，用户按下去才发现被带进了浏览器。
+    /// 落地方式要与文案一致，不要一律写「下载」。
     /// </summary>
     public string ActionText => Kind switch
     {
@@ -41,7 +41,7 @@ public sealed class DownloadItem
     };
 
     /// <summary>
-    /// 跳转项的一句说明（2026-10-18 自上游 1.2.0 移植）；
+    /// 跳转项的一句说明；
     /// 能直接下载的返回空串，界面上整行收起，不占位。
     /// </summary>
     public string KindHint => Kind switch
@@ -89,7 +89,7 @@ public sealed class DownloadItem
     /// <summary>校验值那一行按钮上的字：算法 + 首尾 + 复制。</summary>
     public string HashChipText => HasHash ? $"{HashAlgorithmName} {HashShort}   复制" : "";
 
-    // ⚠️ Avalonia 没有 Visibility 枚举，控件显隐一律用 bool 绑 IsVisible —— 故下面两个由
+    // Avalonia 没有 Visibility 枚举，控件显隐一律用 bool 绑 IsVisible —— 故下面两个由
     //    Microsoft.UI.Xaml.Visibility 改为 bool（值 Visible/Collapsed → true/false）。
     public bool HashVisibility => HasHash;
 
@@ -98,7 +98,7 @@ public sealed class DownloadItem
 
     /// <summary>
     /// 能直链下载的用可拆分的按钮（右边那半是「下载到其他文件夹…」）；网盘 / 官网只能跳转，
-    /// 给一颗普通按钮 —— 跳转项底下挂一个"存到哪儿"的菜单是没有意义的（2026-11-01 自上游 insider1.8 移植）。
+    /// 给一颗普通按钮 —— 跳转项底下挂一个"存到哪儿"的菜单是没有意义的。
     /// </summary>
     public bool FileActionVisibility => Kind == DownloadKind.File;
 
@@ -122,9 +122,9 @@ public sealed class SoftwareApp : System.ComponentModel.INotifyPropertyChanged
     /// <summary>
     /// 适用的操作系统 key 列表（数据里 <c>platforms[]</c>，取值为 软件数据/platforms.json 的顶层 key：
     /// windows / macos / linux / android / ios / web）。
-    /// ⚠️ 和 <see cref="System"/> 是两回事，别合并：System 是给人看的自由文字（「Windows XP+」「Android 8.0+」），
+    /// 和 <see cref="System"/> 是两回事，别合并：System 是给人看的自由文字（「Windows XP+」「Android 8.0+」），
     /// platforms 是给筛选用的机器值。桌面版原来只读了 System，所以「按系统筛选」一直做不了
-    /// （2026-10-24 对齐网页版 HomePage.vue 的 platformItems 才补上）。
+    /// （对齐网页版 HomePage.vue 的 platformItems 才补上）。
     /// </summary>
     public List<string> Platforms { get; set; } = new();
 
@@ -141,9 +141,9 @@ public sealed class SoftwareApp : System.ComponentModel.INotifyPropertyChanged
     public string CardSubtitle => Version.Length > 0 ? "v" + Version : Tagline;
 
     /// <summary>
-    /// 短简介（详情页右栏「推荐应用」用；2026-10-18 自上游 1.2.0 移植）：
+    /// 短简介（详情页右栏「推荐应用」用）：
     /// 优先 Tagline，其次 Description，最后退分类名。
-    /// ⚠️ 数据里 Description 可能很长，界面要自己限行数（MaxLines）。
+    /// 数据里 Description 可能很长，界面要自己限行数（MaxLines）。
     /// </summary>
     public string IntroText =>
         !string.IsNullOrWhiteSpace(Tagline) ? Tagline.Trim()
@@ -169,7 +169,7 @@ public sealed class SoftwareApp : System.ComponentModel.INotifyPropertyChanged
     private static string Join(params string[] parts) =>
         string.Join(" · ", parts.Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => p.Trim()));
 
-    // ⚠️ 原版用 Microsoft.UI.Xaml.Media.ImageSource（WinUI 的抽象图像源）；
+    // 原版用 Microsoft.UI.Xaml.Media.ImageSource（WinUI 的抽象图像源）；
     //    Avalonia 的对应抽象类型是 Avalonia.Media.IImage（Bitmap 同时实现 IImage 与 IImageBrushSource，
     //    故界面既可绑 Image.Source 也可绑 ImageBrush.Source）。
     private IImage? _icon;
@@ -199,19 +199,18 @@ public sealed class SoftwareApp : System.ComponentModel.INotifyPropertyChanged
 
     /// <summary>
     /// 占位字形（购物袋）的显隐：**没图 / 正在下载 / 下载失败都显示**，只有图片真的加载成功才收掉。
-    /// ⚠️ 必须由属性 + 通知驱动（而不是光靠 Image 元素事件）：列表控件会回收容器，
+    /// 必须由属性 + 通知驱动（而不是光靠 Image 元素事件）：列表控件会回收容器，
     /// 复用到一个"没有图标"的软件时，之前被藏掉的字形不会自己回来 → 卡片就空一块。
-    /// ⚠️ Avalonia 没有 Visibility 枚举，这里返回 bool 绑 IsVisible。
+    /// Avalonia 没有 Visibility 枚举，这里返回 bool 绑 IsVisible。
     /// </summary>
     public bool IconPlaceholder => !_iconLoaded;
 
     /// <summary>
     /// 图标没能加载出来时的兜底头像：**应用名首字 + 一个稳定的底色**。
     ///
-    /// ⚠️ 为什么要有它（2026-10-02 实机反馈「下载应用界面应用没有图标」）：
-    ///    icon 字段是**网上下载**的图片（见 <see cref="IconImage"/>），而地址全是第三方 CDN ——
+    /// 为什么要有它：icon 字段是**网上下载**的图片（见 <see cref="IconImage"/>），而地址全是第三方 CDN ——
     ///    google.cn / github / bing / 各家小站。教室里这些域名大半连不上，图标就一张都出不来；
-    ///    原来的兜底只是个 35% 透明的灰购物袋字形，83 张卡片连成一片灰，
+    ///    原来的兜底只是个 35% 透明的灰购物袋字形，多张卡片连成一片灰，
     ///    看着就是"这个应用没图标"，还完全认不出是谁。
     ///    换成彩色方块 + 首字之后：网再差，界面也是彩色的、每个应用一眼认得出。
     /// </summary>
@@ -257,15 +256,15 @@ public sealed class SoftwareApp : System.ComponentModel.INotifyPropertyChanged
                 {
                     // 本地（随包内置 / 磁盘缓存）优先、网络走 AppIconCache 的镜像换线 + 落盘，
                     // 这套顺序全在 LoadIconAsync 里（含 AppIconCache 的 epoch 失效判定）——
-                    // ⛔ 别在这里再并行踢一次 EnsureCachedAsync：那会让同一张图下两遍。
+                    // 别在这里再并行踢一次 EnsureCachedAsync：那会让同一张图下两遍。
                     var uri = new Uri(Icon);
                     // SVG 图标（chrome 等）：原版用 SvgImageSource 解（矢量，缩放不糊）。
-                    // ⚠️ Avalonia 核心不含 SVG 解码器（需第三方包 Avalonia.Svg.Skia）——本移植版不引新包，
+                    // Avalonia 核心不含 SVG 解码器（需第三方包 Avalonia.Svg.Skia）——本移植版不引新包，
                     //    于是与"解不出来就一直等着"等价：占位字形自然留在那儿。
                     // TODO(win7): 日后若引入 Avalonia.Svg.Skia，这里换成 SvgImageSource 的等价物。
                     if (!uri.AbsolutePath.EndsWith(".svg", StringComparison.OrdinalIgnoreCase))
                     {
-                        // ⚠️ 必须丢到线程池：LoadIconAsync 的**第一个 await 在很后面**，
+                        // 必须丢到线程池：LoadIconAsync 的**第一个 await 在很后面**，
                         //    前面"内置图标 / 本地缓存"两条路径是 File.OpenRead + Bitmap.DecodeToWidth
                         //    **同步**跑完的。而本 getter 是绑定在 UI 线程上调的，
                         //    直接 `_ = LoadIconAsync(uri)` 就等于把整页几十个图标的解码
@@ -281,9 +280,9 @@ public sealed class SoftwareApp : System.ComponentModel.INotifyPropertyChanged
     }
 
     /// <summary>
-    /// 图标当画刷用（详情页顶栏、推荐列表的圆角小图标；2026-10-18 自上游 1.2.0 移植）。
-    /// ⛔ 圆角 Border 靠 Background 画最稳（子元素 Image 要靠 ClipToBounds 才裁得干净）。
-    /// ⚠️ Avalonia 的对应物是 <see cref="ImageBrush"/>（Bitmap 实现 IImageBrushSource）。
+    /// 图标当画刷用（详情页顶栏、推荐列表的圆角小图标）。
+    /// 圆角 Border 靠 Background 画最稳（子元素 Image 要靠 ClipToBounds 才裁得干净）。
+    /// Avalonia 的对应物是 <see cref="ImageBrush"/>（Bitmap 实现 IImageBrushSource）。
     /// </summary>
     public IBrush? IconBrush
     {
@@ -317,7 +316,7 @@ public sealed class SoftwareApp : System.ComponentModel.INotifyPropertyChanged
     ///   ① 老版本留下的本目录缓存（<c>%LOCALAPPDATA%\ClassSoftwareHub\icons</c>，兼容已装机器）
     ///   ② AppIconCache 的统一磁盘缓存（<c>content\icons</c>，站点数据更新后按 epoch 判陈旧）
     ///   ③ 网络：**一律经 <see cref="AppIconCache"/>** —— GitHub 地址按用户在设置里选的线路
-    ///      换镜像、并发去重、成功后落盘（2026-10-30：首页图标加载慢，改为走镜像并缓存本地）。
+    ///      换镜像、并发去重、成功后落盘。
     ///
     /// 解码仍限宽 128：卡片上图标最大也就 72px（详情页），按原图（256/512）解码纯属浪费 ——
     /// 教学机 8G 内存，一页 50 多个图标就是几十 MB。
@@ -327,7 +326,7 @@ public sealed class SoftwareApp : System.ComponentModel.INotifyPropertyChanged
     /// </summary>
     private async Task LoadIconAsync(Uri uri)
     {
-        // ⓪ **随安装包内置的图标**（2026-10-02 实机反馈「图标加载太慢，本地化」）：
+        // ⓪ **随安装包内置的图标**：
         //    构建期把内容包里所有应用的图标抓下来、压到 128px、放进安装目录 ContentIcons\。
         //    命中就**完全不碰网络** —— 教室机上那些第三方 CDN（google.cn / bing / 各家小站）
         //    大半连不上，靠"下载成功一次才有缓存"救不了第一次开机。

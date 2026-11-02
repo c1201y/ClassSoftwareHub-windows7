@@ -10,16 +10,17 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
 using ClassSoftwareHub.Desktop.Core;
+using ClassSoftwareHub.Desktop.Platform;
 using ClassSoftwareHub.Desktop.Services;
 using FluentAvalonia.UI.Controls;
 
 namespace ClassSoftwareHub.Desktop.Pages.Tools;
 
 /// <summary>
-/// 方程求解页（第二版；2026-10-18 自上游 1.2.0 移植，WinUI → Avalonia）。
+/// 方程求解页（第二版；WinUI → Avalonia 移植）。
 ///
 /// <para>
-/// 与化学配平页同一套交互（Nick 2026-10-17）：**一条方程一张卡片**，
+/// 与化学配平页同一套交互：**一条方程一张卡片**，
 /// 点开是按键式编辑器（数字 / 未知数 / 运算 / 函数 / 常用式子），
 /// 化学式那样"点出来"而不是"敲出来"；改完自动求解，不需要再按一次求解。
 /// </para>
@@ -194,7 +195,7 @@ public partial class EquationPage : Platform.PageBase
             Child = grid,
         };
 
-        card.PointerPressed += (_, _) => _ = EditEquationAtAsync(index);
+        TapActivate.Bind(card, () => _ = EditEquationAtAsync(index));
         ToolTip.SetTip(card, "单击可修改这条方程");
         return card;
     }

@@ -18,10 +18,6 @@ public enum LogLevel
 /// <summary>
 /// 统一日志入口。
 ///
-/// 历史（Nick 2026-10-02）：旧做法是十几个模块各自 <c>File.AppendAllText</c>，
-/// 格式只有时间没有级别。当时把入口收敛到这里，但**出口仍是「一个模块一个 .log」**。
-///
-/// 现状（Nick 2026-10-11 重构）：出口也统一了 ——
 ///   · 目录：<c>%LOCALAPPDATA%\ClassSoftwareHub\logs\{本次启动时间}\</c>（见 <see cref="Services.LogHome"/>），
 ///     一次运行一个目录，目录名就是启动时间；
 ///   · 文件：**只有两个** ——
@@ -29,15 +25,12 @@ public enum LogLevel
 ///       <c>crash.log</c>  崩溃与页面加载失败（模块名传 <c>crash</c> 的走这里）。
 ///     为什么崩溃单独一个文件：它要在「应用还没启动完」和「崩溃那一瞬间」都写得进去，
 ///     跟主日志合流反而更脆；而且用户出问题时只被要求发这一个文件。
-///   · 行格式：<c>[时间] [级别] [模块] 消息</c>。模块名（tray / sidebar / ui …）从"文件名"
-///     挪到了"行内标签"，信息一点没丢，但二十几个文件塌缩成两个。
+///   · 行格式：<c>[时间] [级别] [模块] 消息</c>。
 ///
-/// 迁移路径：调用点**零改动** —— <c>AppLog.Info("tray", "…")</c> 照旧写。
-///
-/// ⚠️ 模块名要实事求是：缓存自己（<see cref="Services.CacheHome"/>）、日志自己
+/// 模块名要实事求是：缓存自己（<see cref="Services.CacheHome"/>）、日志自己
 /// （<see cref="Services.LogHome"/>）、旧结构清理（<see cref="Services.LegacyCleanup"/>）
 /// 都直接写 <c>AppLog.Info("cache"/"logs"/"legacy", …)</c>，
-/// ⛔ 不要图省事走 <c>ScreenCapture.Log</c> —— 那个会把模块名标成 <c>snip</c>（截屏模块），
+/// 不要图省事走 <c>ScreenCapture.Log</c> —— 那个会把模块名标成 <c>snip</c>（截屏模块），
 /// 于是在日志页的「模块」列里，一条缓存清理记录看起来像是截屏写的。
 /// </summary>
 public static class AppLog
@@ -137,7 +130,7 @@ public static class AppLog
     /// <summary>日志根目录：<c>%LOCALAPPDATA%\ClassSoftwareHub\logs</c>。下面按「启动一次一个目录」分层。</summary>
     public static string Root => Services.LogHome.Root;
 
-    /// <summary>本次运行的会话目录（日志就写在它里面）。⚠️ 不再是「一堆模块文件的平铺目录」。</summary>
+    /// <summary>本次运行的会话目录（日志就写在它里面）。</summary>
     public static string Dir => Services.LogHome.SessionDir;
 
     public static void Debug(string module, string message) => Write(module, LogLevel.Debug, message);
@@ -145,28 +138,24 @@ public static class AppLog
     public static void Warning(string module, string message) => Write(module, LogLevel.Warning, message);
     public static void Error(string module, string message) => Write(module, LogLevel.Error, message);
 
-    // ══════════════════ 异常与「操作链路」（2026-10-11 补）══════════════════
+    // ══════════════════ 异常与「操作链路」══════════════════
     //
-    // 起因：Nick 问「这些日志够吗」—— 当时的审计结果是 **17 个会话里警告 0 条、错误 0 条**。
-    // 那会儿全仓库 724 个 catch、269 个是空的 `catch {}`，而记日志的调用点只有 15 个
-    // （2026-10-26 复核：1064 / 293 / 415 —— 这些数字会继续漂，别当常量用）。
-    // 也就是**约 98% 的异常路径是静默的**：某个功能坏了，日志里一个字都没有。
-    //
-    // 所以补两样东西：
+    // 设计背景：早期版本绝大多数异常路径是静默的（大量空 catch、记日志调用点极少），
+    // 功能坏了时日志里没有任何痕迹。因此补两样东西：
     //   ① <see cref="Exception(string, Exception, string?)"/> —— 所有 catch 块的**统一出口**，
     //      一次调用带全「类型 / HResult / 消息 / 堆栈 / 内部异常 / 当时页面」；
     //   ② <see cref="Begin"/> / <see cref="Step"/> / <see cref="Done"/> / <see cref="Fail"/> ——
     //      「操作链路」记账（下载、更新、同步、提交走的就是这套），让日志从
     //      "发生了某件事" 变成 "某件事走到了哪一步、结果如何、花了多久"。
     //
-    // ⚠️ 级别分工（这是"既要全、又别吵"的折中，别随手改）：
+    // 级别分工（"既要全、又别吵"的折中，别随手改）：
     //    · 主干步骤 → <c>信息</c>（默认就看得见）
     //    · 高频读数（内存回收之类）→ <c>调试</c>（日志页点掉「调试」就没它）
     //    · 真的出岔子 → <c>警告</c> / <c>错误</c>（**全量记，不节流**）
 
     /// <summary>
     /// 由 <c>App</c> 在启动时注入：返回"当时在哪一页、窗口多大"这类现场描述。
-    /// ⛔ 做成委托而不是直接调 <c>Pages.ShellPage</c> —— Core 层不该反向依赖 Pages 层。
+    /// 做成委托而不是直接调 <c>Pages.ShellPage</c> —— Core 层不该反向依赖 Pages 层。
     /// </summary>
     public static Func<string>? ContextProvider { get; set; }
 

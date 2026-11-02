@@ -4,7 +4,7 @@ using System.Collections.Generic;
 namespace ClassSoftwareHub.Desktop.Services.Diagnostics;
 
 /// <summary>
-/// 一次「体检」的**只读**快照（2026-10-18）。
+/// 一次「体检」的**只读**快照。
 ///
 /// <para>
 /// 这是 Hub AI 的数据地基：采集层填它，摘要层把它压成给模型看的那点字，界面原样显示它。

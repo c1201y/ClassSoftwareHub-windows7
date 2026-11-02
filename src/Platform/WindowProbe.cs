@@ -10,14 +10,14 @@ namespace ClassSoftwareHub.Desktop.Platform;
 ///
 /// 为什么专门做这个东西（这是本移植版吃过的最大的一个亏）：
 ///   单实例判定以前问的是「互斥体还在不在」—— 那只证明**进程还活着**，
-///   完全不证明**界面看得见**。目标机（Win7）上真出现过这样的实例：
-///   进程从早上 11:40 一直活到晚上，常驻内存只剩 4 MB，主窗口从头到尾没有露过面；
-///   而用户点 × 只是把它收进了托盘，托盘图标又不显示 —— 于是用户被**永久锁在门外**：
+///   完全不证明**界面看得见**。目标机（Win7）上出现过僵尸实例：
+///   进程长期存活、主窗口从未露面；用户点 × 只是把它收进了托盘，托盘图标又不显示 ——
+///   于是用户被**永久锁在门外**：
 ///   双击多少次都被这个僵尸吃掉，每次都静默退出 3 秒，看起来就是"程序坏了"。
 ///
 /// 唯一能回答"界面到底有没有出来"的，只有去问系统：EnumWindows 数一数。
 ///
-/// ⚠️ 全部走 P/Invoke，不依赖 Avalonia —— 单实例判定发生在 Avalonia 初始化**之前**，
+/// 全部走 P/Invoke，不依赖 Avalonia —— 单实例判定发生在 Avalonia 初始化**之前**，
 ///    那个时候没有任何托管 UI API 可用。
 /// </summary>
 internal static class WindowProbe
@@ -44,7 +44,7 @@ internal static class WindowProbe
         ///
         /// 为什么要卡尺寸：主窗口和工具侧边栏是**同一个进程**的两个顶层窗口，
         /// 侧边栏只有 40~184 像素宽。如果不卡尺寸，僵尸实例只要把侧边栏显示出来
-        /// 就会被误判成"界面是好的"，那就又回到了原点上（实测侧边栏 184x1088）。
+        /// 就会被误判成"界面是好的"。
         /// </summary>
         public bool LooksLikeMainWindow => Visible && !Owned && Width >= 300 && Height >= 200;
 
@@ -109,7 +109,7 @@ internal static class WindowProbe
 
     /// <summary>
     /// 按进程名找出同名进程。
-    /// ⚠️ 返回 <c>false</c> 表示**枚举本身失败**（权限 / WMI 异常），此时 <paramref name="pids"/> 为空
+    /// 返回 <c>false</c> 表示**枚举本身失败**（权限 / WMI 异常），此时 <paramref name="pids"/> 为空
     ///    但**不能**当成"没有兄弟进程"：单实例判定若把它当"对方已退出"，就会在僵尸还在时静默退出，
     ///    正是「双击没反应」要修的那个毛病。
     /// </summary>
@@ -156,7 +156,7 @@ internal static class WindowProbe
     /// <summary>
     /// 这个窗口在系统侧现在是不是可见的？
     ///
-    /// ⚠️ 不能拿 Avalonia 的 <c>Window.IsVisible</c> 代替 —— 外部直接
+    /// 不能拿 Avalonia 的 <c>Window.IsVisible</c> 代替 —— 外部直接
     /// <c>ShowWindow(SW_HIDE)</c> 时 Avalonia 根本不知道，它的 IsVisible 仍然是 true。
     /// 只有问 Win32 才是权威答案。
     ///

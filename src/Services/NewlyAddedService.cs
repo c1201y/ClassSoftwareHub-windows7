@@ -29,10 +29,10 @@ public sealed record NewlyAddedResult(IReadOnlyList<string> Ids)
 ///   ③ 拿本机 content/apps 的清单（＝同步链路拉下来的 head 那一版，不必再问 GitHub）减掉 ②。
 ///   ④ 结果按「日期 + 仓库 sha」缓存到内容目录的 <c>.newlyadded.json</c>，同一天同一版本只算一次。
 ///
-/// ⛔⛔ 走过的两条弯路，别再回去：
+/// ⛔⛔ 历史上走过的两条弯路，不得回退：
 ///   · <c>commits?since=…&amp;path=…</c> 再逐个取 commit 详情收 <c>status=="added"</c> ——
-///     请求数是 <c>1 + 当天提交数</c>（实测一天 12 个提交＝13 次），而且**结果还是错的**：
-///     merge commit 的 <c>files</c> 常常列不全，实测 10-06 明明净增 3 款只算出 2 款。
+///     请求数是 <c>1 + 当天提交数</c>，而且**结果还是错的**：
+///     merge commit 的 <c>files</c> 常常列不全，会漏算净增软件。
 ///   · <c>compare</c> 的净差异 —— 只要 2 次请求，但它按"两点之间的净变化"算：昨天加的软件
 ///     今天被改一下，同样报 <c>added</c>，会算成"今天新增"。
 ///   ⇒ tree 差集既省（固定 2 次）又准（比的是"那一刻存在不存在"）。
@@ -63,8 +63,8 @@ public static class NewlyAddedService
     /// <summary>
     /// 取「窗口内新收录的软件」（调用方传 <c>TimeSpan.FromHours(48)</c> 即「过去 48 小时」）。
     /// 算不出来返回 <c>null</c>。
-    /// ⚠️ 2026-10-18 自上游 1.2.0 移植：口径由「今天 0 点」改成「滚动窗口」——
-    ///    原来一到凌晨就清零，教室里跨午夜的值班场景看不到昨天下午刚上架的软件。
+    /// ⚠️ 自上游 1.2.0 移植：口径由「今天 0 点」改成「滚动窗口」——
+    ///    按"今天 0 点"算的话一到凌晨就清零，跨午夜的值班场景看不到昨天下午刚上架的软件。
     /// </summary>
     public static async Task<NewlyAddedResult?> GetRecentAsync(TimeSpan window, CancellationToken ct = default)
     {
@@ -226,7 +226,7 @@ public static class NewlyAddedService
             using var doc = JsonDocument.Parse(File.ReadAllText(CacheFile));
             var root = doc.RootElement;
 
-            // ⚠️ 缓存格式升级（2026-10-18）：date（yyyy-MM-dd）→ anchor（UTC 时间戳）。
+            // ⚠️ 缓存格式升级：date（yyyy-MM-dd）→ anchor（UTC 时间戳）。
             //    旧格式读不出来就当没有缓存 —— 只是多两次请求，不会算错。
             if (!root.TryGetProperty("anchor", out var a) || a.GetString() is not { } anchorText) return null;
             if (!DateTime.TryParse(anchorText, System.Globalization.CultureInfo.InvariantCulture,

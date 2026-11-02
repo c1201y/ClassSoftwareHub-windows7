@@ -24,7 +24,7 @@ public sealed record ToolHostRequest(
     string WebToolId, string EntryFile, string Folder, Type NativePage, object? NativeParameter);
 
 /// <summary>
-/// 工具载体选择（2026-10-23 上游）。
+/// 工具载体选择（上游）。
 ///
 /// <para>
 /// 策略：<b>Web 优先，原生兜底，而且用户无感</b> ——

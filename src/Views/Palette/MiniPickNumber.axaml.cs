@@ -56,8 +56,8 @@ public sealed partial class MiniPickNumber : UserControl
         // ⚠️ 移植说明：原版是 SelectorBar 的 SelectionChanged（还要等 Loaded 后排队拨档，防它自动选第一项）；
         //    本仓库用一排同 GroupName 的 RadioButton（见 LogViewerPage 的既有约定），不存在"自动选第一项"，
         //    Checked 直接回调即可，不需要排队拨档。
-        ModeRangeRadio.Checked += (_, _) => OnPoolModeChanged();
-        ModeRosterRadio.Checked += (_, _) => OnPoolModeChanged();
+        ModeRangeRadio.Checked += (s, _) => OnPoolModeChanged(s);
+        ModeRosterRadio.Checked += (s, _) => OnPoolModeChanged(s);
 
         ToNumberBox.ValueChanged += (_, _) => OnSettingChanged();
         CountNumberBox.ValueChanged += (_, _) => OnSettingChanged();
@@ -114,9 +114,19 @@ public sealed partial class MiniPickNumber : UserControl
         RefreshHints();
     }
 
-    private void OnPoolModeChanged()
+    private void OnPoolModeChanged(object? sender)
     {
         if (!_ready) return;
+
+        // ⚠️ Avalonia 的 RadioButton 是**先**触发新选中那一支的 Checked、**后**才取消同组的另一支，
+        //    所以此刻 UseRoster 读到的还是旧模式 —— 不在这里手动取消另一支的话，
+        //    「名单 → 座号」切回去以后名单那一排还留在界面上（真机反馈，与工具页同一处坑）。
+        if (sender is RadioButton changed && changed.IsChecked == true)
+        {
+            if (ReferenceEquals(changed, ModeRosterRadio)) ModeRangeRadio.IsChecked = false;
+            else ModeRosterRadio.IsChecked = false;
+        }
+
         SyncPoolMode();
         RefreshHints();   // 先按模式把「抽取个数」的上限夹好（超了会顺手把 Value 夹进去），再存
         Save();

@@ -9,7 +9,7 @@ using ClassSoftwareHub.Desktop.Platform;
 namespace ClassSoftwareHub.Desktop.Data;
 
 /// <summary>
-/// 希沃白板5「后台空跑」进程的到点查杀（实验性功能，2026-09-28 Nick 提）。
+/// 希沃白板5「后台空跑」进程的到点查杀（实验性功能）。
 ///
 /// 背景：白板5 点了「退出」有时进程并不真退，留在任务管理器的「后台进程」里
 ///       （它本意是让下次启动更快）。残留进程占着单实例互斥量，
@@ -18,13 +18,13 @@ namespace ClassSoftwareHub.Desktop.Data;
 /// 做法：到用户设定的时间点扫一遍，**只杀「没有任何可见窗口」的那些**；
 ///       还有窗口的（= 老师正在用）一律放过。
 ///
-/// ⛔ 两条硬边界，改之前先想清楚：
+/// 两条硬边界，改之前先想清楚：
 ///   ① **只匹配白板5 家族**（进程名去扩展名后以 <see cref="NamePrefix"/> 开头）。
 ///      不碰 `EasiAgent`（学校集控端）和 `EasiUpdate*`（更新组件）—— 杀它们会影响集控管理。
 ///   ② **有可见窗口就不杀**。这是整个功能唯一的安全闸：判定「在不在用」只看有没有可见顶层窗口。
 ///
-/// ⚠️ 定时靠本进程内的 <see cref="DispatcherTimer"/> —— **本程序没在跑就不会查杀**
-///    （2026-09-28 Nick 确认「跟随本程序」即可）。**没有**注册 Windows 计划任务，不去动系统里任何东西。
+/// 定时靠本进程内的 <see cref="DispatcherTimer"/> —— **本程序没在跑就不会查杀**。
+/// **没有**注册 Windows 计划任务，不去动系统里任何东西。
 /// </summary>
 public static class EasiNoteGuard
 {
@@ -179,7 +179,7 @@ public static class EasiNoteGuard
 
     // ── 定时巡检 ─────────────────────────────────────────────
 
-    // ⚠️ 原版用 Microsoft.UI.Dispatching.DispatcherQueueTimer；Avalonia 的等价物是
+    // 原版用 Microsoft.UI.Dispatching.DispatcherQueueTimer；Avalonia 的等价物是
     //    Avalonia.Threading.DispatcherTimer —— IsEnabled 期间按 Interval 反复触发，
     //    等价于原版的 IsRepeating = true（没有单独的 IsRepeating 属性）。
     private static DispatcherTimer? _timer;
@@ -247,14 +247,14 @@ public static class EasiNoteGuard
     }
 
     // ── P/Invoke ─────────────────────────────────────────────
-    // ⚠️ 原版在本文件里直接 [DllImport]；按 PORTING.md §5「业务代码禁止另写 DllImport」，
+    // 原版在本文件里直接 [DllImport]；按 PORTING.md §5「业务代码禁止另写 DllImport」，
     //    已统一改用 Platform.NativeMethods 里现成的 EnumWindows / IsWindowVisible / GetWindowThreadProcessId。
 }
 
 /// <summary>
 /// 白板查杀的本地存档（%LOCALAPPDATA%\ClassSoftwareHub\easinote-guard.json）。
 ///
-/// ⚠️ 实验性功能单独用一个文件，就是图将来真不要了可以直接删干净 ——
+/// 实验性功能单独用一个文件，就是图将来真不要了可以直接删干净 ——
 ///    千万别把字段塞进 AppSettings（那条线是要长期背着的）。
 /// </summary>
 public sealed class EasiNoteGuardConfig

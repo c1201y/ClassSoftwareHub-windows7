@@ -22,10 +22,8 @@ public sealed partial class DownloadsPage : PageBase
         InitializeComponent();
         TaskList.ItemsSource = DownloadManager.Current.Tasks;
 
-        // ⚠️ 原版 1.3 在页面底部放了两颗「完成后自动删除 / 解压后自动打开」开关。
-        //    本移植版的 DownloadsPage.axaml 还没加这两颗控件（axaml 不在本任务的写入范围）——
-        //    这里用 FindControl 取：取到就回填 + 接线，取不到就跳过（设置页已有同名的两颗开关，
-        //    功能本身不会丢）。Lead 把 axaml 补成 1.3 形态后这段自动生效。
+        // 底部「完成后自动删除 / 解压后自动打开」开关由 axaml 提供；取不到就跳过
+        // （设置页已有同名开关，功能不丢，控件补上后此段自动生效）。
         _loadingSettings = true;
         var autoDelete = this.FindControl<CheckBox>("AutoDeleteBox");
         if (autoDelete is not null)
@@ -98,9 +96,8 @@ public sealed partial class DownloadsPage : PageBase
     /// <summary>
     /// 行尾「⋯」：这条任务能干的两件事。
     ///
-    /// ⛔ 顺序固定 —— **不删东西的放前面**（从列表移除），不可逆的「删除文件」放最后、且要确认。
-    /// 之所以补上「删除文件」：以前这里只有"从列表移除"，文件留在硬盘上，用户想删得自己摸到下载
-    /// 文件夹里找（Nick 2026-10-16：「删除已下载安装程序（即使未安装）」）。
+    /// 顺序固定 —— 不删东西的放前面（从列表移除），不可逆的「删除文件」放最后、且要确认。
+    /// 「删除文件」用于把留在硬盘上的安装包一并删掉，不必再到下载文件夹里手动找。
     ///
     /// ⚠️ 菜单**手建**、闭包直接捕获这一条任务 —— 跟 AppData 管理页同一套做法
     ///    （MenuFlyout 写进 DataTemplate 时绑定求值上下文很脆）。
@@ -133,10 +130,8 @@ public sealed partial class DownloadsPage : PageBase
     /// <summary>
     /// 弹出删除确认框。返回 true = 用户确认要删。
     ///
-    /// ⚠️ 为什么单独包一层 try/catch：同一时刻**只允许开一个** ContentDialog，
-    ///    若此刻还有别的弹窗（典型是「下载完成」那张）没关，ShowAsync() 会直接抛。
-    ///    正常操作遇不到 —— 模态弹窗会把卡片上的点击挡住；但这一步是不可逆动作，
-    ///    ⛔ 不能让它静默失败，所以至少留一条日志。
+    /// 单独包 try/catch：同一时刻只允许开一个 ContentDialog，若此刻还有别的弹窗未关，
+    /// ShowAsync() 会直接抛。此步不可逆，不允许静默失败，必须留日志。
     /// </summary>
     private async Task<bool> ConfirmDeleteAsync(DownloadTask task, string path)
     {
@@ -153,7 +148,7 @@ public sealed partial class DownloadsPage : PageBase
             },
             PrimaryButtonText = "删除",
             CloseButtonText = "取消",
-            // ⚠️ 不可逆操作，默认落在「取消」上，别让一个回车就删掉
+            // 不可逆操作，默认按钮落在「取消」
             DefaultButton = FluentAvalonia.UI.Controls.ContentDialogButton.Close,
         };
 
@@ -227,12 +222,10 @@ public sealed partial class DownloadsPage : PageBase
     /// <summary>
     /// 更新包下完之后的「安装」。
     ///
-    /// ⚠️ 必须走「先退应用、后起安装程序」那条路 ——
-    ///    直接双击/Open 那个安装包会被 Inno 的 AppMutex 拦下并静默取消，
-    ///    用户端只表现为"点了没反应、版本没变"（2026-10-01 踩过）。
-    /// ⚠️ 上游 1.3 这里用的是 <c>UpdateFlow.InstallLocalAsync(path)</c>；
-    ///    本移植版沿用 1.2.0 已移植的 <see cref="Services.Updating.UpdateFlow.InstallPendingFromTaskPageAsync"/> ——
-    ///    它同样"先拉起安装器、成功后退应用"，且多一层"拉不起来就弹提示"的容错，语义等价。
+    /// 必须走「先退应用、后起安装程序」：直接启动安装包会被 Inno 的 AppMutex 拦下并静默取消，
+    /// 表现为点击无效果、版本未变。
+    /// 本移植版沿用 <see cref="Services.Updating.UpdateFlow.InstallPendingFromTaskPageAsync"/>，
+    /// 语义与上游 <c>UpdateFlow.InstallLocalAsync(path)</c> 等价，且多一层启动失败的容错。
     /// </summary>
     private async void Install_Click(object? sender, RoutedEventArgs e)
     {

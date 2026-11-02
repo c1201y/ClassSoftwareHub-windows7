@@ -40,8 +40,8 @@ public partial class OobeAppearancePage : UserControl
 
     /// <summary>
     /// 预览图跟着 exe 走（内嵌资源），释放到缓存目录后再交给 Image —— 单文件发布也没有散落文件。
-    /// ⚠️ 用 Image 而不是 Border.Background 的 ImageBrush：主题一换（本页选浅色/深色就是换主题），
-    ///    挂在 Background 上的 ImageBrush 不保证重新绘制（实测切浅色后三张图整块空白）。
+    /// ⚠️ 用 Image 而不是 Border.Background 的 ImageBrush：主题切换时，
+    ///    挂在 Background 上的 ImageBrush 不保证重新绘制（切浅色后图片区域会整块空白）。
     /// </summary>
     private static void LoadPreview(Image target, string assetName)
     {

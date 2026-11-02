@@ -6,8 +6,8 @@ using Avalonia.Data.Converters;
 namespace ClassSoftwareHub.Desktop.Core;
 
 /// <summary>
-/// 值转换器（2026-10-18 自上游 1.2.0 移植）。
-/// ⚠️ WinUI 的 <c>IValueConverter</c>（<c>Convert(value, targetType, parameter, language)</c>）
+/// 值转换器。
+/// WinUI 的 <c>IValueConverter</c>（<c>Convert(value, targetType, parameter, language)</c>）
 ///    在 Avalonia 里是 <see cref="IValueConverter"/>（<c>Convert(value, targetType, parameter, culture)</c>），
 ///    而且 Avalonia **没有 Visibility 枚举** —— 控件显隐一律用 <c>bool IsVisible</c>，
 ///    所以这两个转换器返回 <c>bool</c> 而不是可见性值（绑定目标就是 IsVisible）。

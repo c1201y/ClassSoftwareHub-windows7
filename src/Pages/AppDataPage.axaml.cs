@@ -153,7 +153,7 @@ public sealed class AppDataRow : INotifyPropertyChanged
 }
 
 /// <summary>
-/// AppData 管理（2026-10-18 自上游 1.2.0 移植到 Avalonia）。
+/// AppData 管理。
 ///
 /// 三层边界的定义全在 <see cref="AppDataScan"/> 的类注释里，
 /// 这一层只负责：**把体积一个个问出来、按分类摆好、把删除动作交给服务层**。
@@ -795,7 +795,7 @@ public partial class AppDataPage : Platform.PageBase
 
     /// <summary>
     /// 用**系统默认浏览器**去 Bing 搜这个目录。
-    /// ⛔⛔ 查询词就是**完整路径本身，一个字都不加**（Nick 2026-10-15 定案）。
+    /// 查询词必须是完整路径本身，不做任何加工。
     /// </summary>
     private static bool SearchOnline(string fullPath)
     {
@@ -858,7 +858,7 @@ public partial class AppDataPage : Platform.PageBase
         UpdateActionBar();                       // 让三颗按钮一起变灰
 
         var okCount = 0;
-        var partialCount = 0;   // 删掉了一部分、但有文件被占用跳过（2026-10-29 拆出来，见下面判定）
+        var partialCount = 0;   // 删掉了一部分、但有文件被占用跳过（见下面判定）
         var failCount = 0;
         var skipped = 0;
         var freed = 0L;
@@ -918,8 +918,7 @@ public partial class AppDataPage : Platform.PageBase
                 }
                 else if (outcome.Cleaned > 0)
                 {
-                    // 「删掉了一部分，剩下几个正被占用」——这不是失败（2026-10-29 上游 1.8 修）。
-                    // ⚠️ 以前一律算 failCount，于是一个清掉了 99% 的目录会把整条任务标成「未完成」。
+                    // 「删掉一部分、剩下被占用」不算失败：只要清理有实际产出，任务就不标记为未完成。
                     partialCount++;
                     skipped += outcome.Skipped;
                     freed += before - bytes;
@@ -1153,13 +1152,13 @@ public partial class AppDataPage : Platform.PageBase
     // ── Hub AI ───────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Hub AI 入口（上游 2026-10-30）：弹出提问浮层。
+    /// Hub AI 入口：弹出提问浮层。
     /// 浮层是公共控件（Controls/HubAiFlyout），与「软件下载」页同一份 —— 别在页面里再写一套。
     /// </summary>
     private void HubAiEntry_Click(object? sender, RoutedEventArgs e) => AiFlyout.Toggle();
 
     /// <summary>
-    /// 给浮层准备这一页的现场数据（上游 2026-10-30 二版）。
+    /// 给浮层准备这一页的现场数据。
     /// <para>
     /// 每次发消息时现采：清单里的体积是后台一个个填进来的、勾选会变、分类会切，
     /// 提前算好存着的必然是旧数。这里只做内存里的投影，不碰磁盘，开销可以忽略。
@@ -1201,7 +1200,7 @@ public partial class AppDataPage : Platform.PageBase
             },
         });
 
-        // 清单给 40 条：本机实测可清理 245 项，全塞把上下文顶爆；40 条已覆盖九成体积
+        // 清单限 40 条：全量列出会超出上下文预算，40 条已覆盖绝大部分体积
         const int take = 40;
         doc.Add("可清理项（按体积降序）", _clean.Take(take).Select(r => new
         {

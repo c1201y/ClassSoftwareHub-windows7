@@ -10,7 +10,7 @@ using Avalonia.VisualTree;
 namespace ClassSoftwareHub.Desktop.Platform;
 
 /// <summary>
-/// 触屏「单指平移 + 惯性」实现（2026-10-23 第四版：每帧写 Offset，滚动条同步连贯）。
+/// 触屏「单指平移 + 惯性」实现（每帧写 Offset，滚动条同步连贯）。
 ///
 /// <para>
 /// 演进过程（不要再走回头路）：
@@ -41,7 +41,7 @@ namespace ClassSoftwareHub.Desktop.Platform;
 /// </summary>
 internal static class TouchPanScroll
 {
-    private const double StartThreshold = 6;
+    internal const double StartThreshold = 6;
     private const double FlingThreshold = 0.12;   // dip/ms
     private const double FrictionPer16Ms = 0.92;
     private const int TickMs = 15;
@@ -154,7 +154,7 @@ internal static class TouchPanScroll
 
                 if (wasDragging)
                 {
-                    // ⛔ 用户反馈「触摸屏滑动时有时会识别为点击」：滑完手指抬起，
+                    // 滑完手指抬起时若不拦截，
                     //    底下那张卡片/按钮照样收到一次 Click/Tapped —— 等于滑一下顺手点进了某个软件。
                     //    这里做两道：①抬手事件当场吞掉（拦住 Button 的 Click）；
                     //    ②留一个短窗口，把随后冒出来的 Tapped 也吞掉

@@ -4,7 +4,7 @@ namespace ClassSoftwareHub.Desktop.Services;
 
 /// <summary>
 /// 标准函数的**解析结论**（通式）。<para/>
-/// Nick 定：sin 这类函数的单调区间要给「(-π/2 + 2kπ, π/2 + 2kπ)」这种数学通式，
+/// 约定：sin 这类函数的单调区间要给「(-π/2 + 2kπ, π/2 + 2kπ)」这种数学通式，
 /// 而不是把当前视口内的坐标值算出来 —— 前者是数学事实，后者只是采样观察。
 /// </summary>
 /// <param name="Fields">字段列表（标签, 值）。</param>
@@ -15,7 +15,7 @@ public sealed record ClosedForm(IReadOnlyList<(string Label, string Value)> Fiel
 /// 把编译后的表达式树**匹配**到一组已知的标准形式，给出通式结论。<para/>
 /// ⛔ 匹配范围＝「线性包裹的标准形式」：<c>a·f(x) + c</c>，其中 f 是参数恰好为 x 的标准函数
 /// （sin/cos/tan/exp/ln/√/|x|/x²/x³/x）。加减常数、乘除系数都算线性包裹 ——
-/// Nick 点名过：sin(x)−6 这么简单的式子必须给通式（单调区间与 sin(x) 完全一致，
+/// 要求覆盖基本情形：sin(x)−6 这么简单的式子必须给通式（单调区间与 sin(x) 完全一致，
 /// 值域/极值平移，零点无解）。<para/>
 /// ⛔ 仍然不给的：复合（sin(2x)、sin(x²)）、非线性运算（sin(x)+x）、三角的相位平移
 /// （sin(x+π/3)，需要重推整个区间通式，等有真实需求再做）。给不出就落回数值观察 ——

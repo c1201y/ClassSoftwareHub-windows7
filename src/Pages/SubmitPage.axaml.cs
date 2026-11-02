@@ -34,7 +34,7 @@ public sealed partial class SubmitPage : PageBase
     /// <summary>合法校验值位数：32=MD5 / 40=SHA-1 / 56=SHA-224 / 64=SHA-256 / 96=SHA-384 / 128=SHA-512</summary>
     private static readonly int[] HashLengths = { 32, 40, 56, 64, 96, 128 };
 
-    private static readonly HttpClient Http = new();
+    private static readonly HttpClient Http = Core.OfficialApi.Create();
 
     private static string DraftFile => System.IO.Path.Combine(Core.AppPaths.DataDir, "submit-draft.json");
 
@@ -231,8 +231,8 @@ public sealed partial class SubmitPage : PageBase
                 urlBox.Text = url;
                 // 键是服务端生成的，手改一个字符就失效 ⇒ 锁住（跟网页版一样）
                 urlBox.IsReadOnly = true;
-                // ⛔ 必须显式标「文件直链」：`oss://` 键推断不出类型，停在「自动识别」会被
-                //    当成网页跳转，详情页点一下就把人带走 —— 正是用户报的「上传了还要管直链」。
+                // 必须显式标「文件直链」：`oss://` 键推断不出类型，停在「自动识别」会被
+                //    当成网页跳转，详情页点一下就把人带走。
                 //    网页端同一处也是这么做的（SubmitPage.vue：kindIndex = 1）。
                 draft.Kind = "file";
                 kindCombo.SelectedIndex = 1;

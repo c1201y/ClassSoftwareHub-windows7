@@ -9,7 +9,7 @@ using ClassSoftwareHub.Desktop.Core;
 namespace ClassSoftwareHub.Desktop.Services;
 
 /// <summary>
-/// 残留清理链路的**无人值守体检**（2026-10-14 加，诊断用）。
+/// 残留清理链路的无人值守体检（诊断用）。
 ///
 /// ⛔ 为什么非要这么一个东西：这条链路的每一环都要在**真机上**才跑得动
 ///    （要真的卸载一个软件、真的看注册表和几个数据目录变成了什么样）。

@@ -75,9 +75,8 @@ public sealed class RosterEntry : System.ComponentModel.INotifyPropertyChanged
 }
 
 /// <summary>
-/// 「查看 / 编辑名单」弹窗（2026-09-29 Nick 提）：
+/// 「查看 / 编辑名单」弹窗：
 /// 把导进来的名字列出来，逐个改名、逐个删除、随时补人，改完还能导出回 Excel / txt。
-/// 一条"导入 → 核对 → 修正 → 带走"的闭环。
 ///
 /// 语义：**改动当场生效**（改名、删行、加行都直接反映到 <see cref="Result"/>），
 /// 所以底部只有一个「关闭」，不做"确定 / 取消"—— 免得用户改了五十个名字点取消全丢。
@@ -93,34 +92,28 @@ public sealed class RosterEntry : System.ComponentModel.INotifyPropertyChanged
 public sealed partial class RosterEditorDialog : ContentDialog
 {
     /// <summary>
-    /// ⛔ 千万别删（2026-10-07，Nick 实机报「抽号 → 查看 / 编辑名单」点了没反应、
-    /// 而且**整页变空白**）：
-    /// Avalonia 的样式查找用的键是 <see cref="IStyleable.StyleKey"/>，它默认 = **本类的类型**。
-    /// 我们继承自 <c>ContentDialog</c>，默认键就成了 <c>RosterEditorDialog</c> ——
-    /// FluentAvalonia 主题里根本没有这个键的样式，于是**模板不会被应用**。
+    /// 必须保留（与 <see cref="RosterSampleDialog"/> 同一个坑）：
+    /// Avalonia 的样式查找键 <see cref="IStyleable.StyleKey"/> 默认 = 本类类型（<c>RosterEditorDialog</c>），
+    /// FluentAvalonia 主题里没有该键的样式，模板不会被应用。
     ///
-    /// 后果是连锁的：模板没应用 → <c>ContentDialog.OnApplyTemplate</c> 里那句
-    /// <c>NameScope.Get("PrimaryButton")</c>（FA 2.4.1 是**无条件**取的，找不到就抛）
-    /// 抛 <see cref="System.Collections.Generic.KeyNotFoundException"/> → 异常发生在
-    /// <c>MeasureCore</c> 里 → Avalonia 只能中断整棵视觉树的布局 → **页面一片空白**。
-    /// 紧接着 Loaded 又调 <c>SetupDialog()</c>，再抛一条
-    /// "Attempted to setup ContentDialog but the template has not been applied yet"。
-    /// 两条都在 %LOCALAPPDATA%\ClassSoftwareHub\logs\crash.log 里（page=pick-number）。
+    /// 后果是连锁的：模板未应用 → <c>ContentDialog.OnApplyTemplate</c> 中
+    /// <c>NameScope.Get("PrimaryButton")</c>（FA 2.4.1 无条件获取）抛
+    /// <see cref="System.Collections.Generic.KeyNotFoundException"/> → 异常发生在
+    /// <c>MeasureCore</c> 里 → 布局中断、整页空白。
     ///
-    /// 修法就是这里：把 StyleKey 显式指回 <see cref="ContentDialog"/>，
-    /// 让主题能按 ContentDialog 找到模板（FA 上游 issue #24 记的就是这个坑）。
+    /// 修法：把 StyleKey 显式指回 <see cref="ContentDialog"/>，
+    /// 让主题按 ContentDialog 找到模板（FA 上游 issue #24）。
     ///
-    /// ⚠️ 2026-10-07 改法二选一，这里用的是 Avalonia 11 推荐的 <c>StyleKeyOverride</c>
-    ///    （旧的 <c>IStyleable.StyleKey</c> 已过时：编译器 CS0618 提示"12.0 可能移除"）。
-    ///    语义完全相同，只是换了个不用显式实现接口的写法。
+    /// 使用 Avalonia 11 推荐的 <c>StyleKeyOverride</c>（旧的 <c>IStyleable.StyleKey</c> 已过时，CS0618），
+    /// 语义相同。
     /// </summary>
     protected override Type StyleKeyOverride => typeof(ContentDialog);
 
     /// <summary>
     /// 界面上的行 —— **唯一真相**。
     ///
-    /// ⚠️ 为什么它（而不是 <see cref="Result"/>）才是真相：用户随时能「添加姓名」多出一行，
-    /// 那一行在填上名字之前不属于名单。两个集合各管一段（界面 / 有效姓名）就不会互相打脸。
+    /// 它（而非 <see cref="Result"/>）才是真相：用户随时可「添加姓名」多出一行，
+    /// 该行在填上名字之前不属于名单。两个集合各管一段（界面 / 有效姓名），职责清晰。
     /// </summary>
     private readonly ObservableCollection<RosterEntry> _rows = new();
 
@@ -147,15 +140,14 @@ public sealed partial class RosterEditorDialog : ContentDialog
 
     // ══════════ 高度自适应 ══════════
     //
-    // ⚠️ 为什么要有这一段（2026-10-07 实测发现；Nick 也反馈过"编辑名单窗口有问题"）：
-    //    上游 WinUI 版把名单高度写死 380 DIP（一屏核对十几个人）。在 WinUI 里 ContentDialog
-    //    自己带一层兜底，超出窗口的部分会被压回去、按钮始终可见；
-    //    **FluentAvalonia 的 ContentDialog 没有这层兜底** —— 内容多高就铺多高，
-    //    整块溢到窗口外面（弹窗浮在覆盖层上，不会被窗口裁掉）。
-    //    实测：窗口只有 ~567 DIP 高时，底部的「关闭」被挤到窗口下方、鼠标点不到
-    //    （UIA 里能查到它，但 rect.bottom 已经超出窗口 rect.bottom）。
+    // 为什么要有这一段：
+    //    上游 WinUI 版把名单高度写死 380 DIP。WinUI 的 ContentDialog 自带兜底，
+    //    超出窗口的部分会被压回、按钮始终可见；
+    //    FluentAvalonia 的 ContentDialog 没有这层兜底 —— 内容多高就铺多高，
+    //    整块溢出窗口之外。
+    //    后果：窗口高度不足时，底部「关闭」按钮被挤出窗口、无法点击。
     //    修法：量出"列表以外"的固定开销，把列表高度收进可用高度里（上限仍是上游的 380）。
-    //    ⚠️ 量不准（Bounds 还没算出来 / 数值离谱）就退回上游的固定 380 —— 兜底逻辑绝不能反过来把界面搞坏。
+    //    量不准（Bounds 未算出 / 数值离谱）就退回上游的固定 380 —— 兜底不得反向破坏布局。
 
     /// <summary>上游写死的列表高度，同时也是我们的上限。</summary>
     private const double MaxListHeight = 380;
@@ -205,8 +197,8 @@ public sealed partial class RosterEditorDialog : ContentDialog
     /// <summary>
     /// 原版 ListView 用 <c>SelectionMode="None"</c> 关掉选择；<b>Avalonia 没有这一档</b>
     /// （<c>SelectionMode</c> 是 [Flags] 枚举，<c>Single = 0</c> 就是默认值，"None" 编译不过）。
-    /// 名字那一格本身就是输入框，点它只为改名，不该在背后再选出一行强调色高亮 ——
-    /// 于是选中就当场清掉。⚠️ 在同一次输入处理里同步清掉，渲染还没轮到，看不到闪烁。
+    /// 名字那一格本身是输入框，点它只为改名，不应再选出行并高亮 ——
+    /// 因此选中后当场清掉。在同一次输入处理里同步清掉，渲染前完成，不会闪烁。
     /// </summary>
     private void RosterList_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
@@ -214,8 +206,7 @@ public sealed partial class RosterEditorDialog : ContentDialog
     }
 
     /// <summary>
-    /// 在末尾加一行，并把键盘焦点直接送进新行的输入框 —— 点完就能打字，不用再找一次该点哪儿。
-    /// （2026-09-29 Nick：「明明有删除，却不点增加是何意味，只删不增是吧？」）
+    /// 在末尾加一行，并把键盘焦点直接送进新行的输入框。
     /// </summary>
     private void Add_Click(object? sender, RoutedEventArgs e)
     {
@@ -223,7 +214,7 @@ public sealed partial class RosterEditorDialog : ContentDialog
         _rows.Add(entry);
         SyncResult();                 // 空行不算人数，但"另有 N 行未填"的提示要跟着变
 
-        // ⚠️ 虚拟化列表：容器是滚进可视区才生成的，所以必须先布局、再滚动、再取容器。
+        // 虚拟化列表：容器滚进可视区才生成，必须先布局、再滚动、再取容器。
         RosterList.UpdateLayout();
         RosterList.ScrollIntoView(entry);
         RosterList.UpdateLayout();
@@ -234,8 +225,8 @@ public sealed partial class RosterEditorDialog : ContentDialog
 
     private void FocusName(RosterEntry entry)
     {
-        // ⚠️ Avalonia 的 ItemContainerGenerator 只有 ContainerFromIndex（没有 ContainerFromItem），
-        //    先用 Items.IndexOf 换下标再取容器。
+        // Avalonia 的 ItemContainerGenerator 只有 ContainerFromIndex（没有 ContainerFromItem），
+        // 先用 Items.IndexOf 换下标再取容器。
         var index = RosterList.Items.IndexOf(entry);
         if (index < 0) return;
         if (RosterList.ItemContainerGenerator.ContainerFromIndex(index) is not Visual container) return;
@@ -253,8 +244,8 @@ public sealed partial class RosterEditorDialog : ContentDialog
     /// <summary>
     /// 按界面上的当前内容重建 <see cref="Result"/>。
     ///
-    /// ⚠️ 为什么是"整份重建"而不是"按下标改一格"：用户可以加出空行，空行随时会被丢掉 ——
-    /// 只要有任何一行可能被跳过，下标就不再对齐，逐格维护迟早会改错人。整份重建永远对。
+    /// 为什么是"整份重建"而不是"按下标改一格"：用户可以加出空行，空行随时会被丢掉 ——
+    /// 只要有任何一行可能被跳过，下标就不再对齐，逐格维护容易改错行。整份重建始终正确。
     /// </summary>
     private void SyncResult()
     {

@@ -15,7 +15,7 @@ namespace ClassSoftwareHub.Desktop.Views;
 /// 截屏的**框选层**，照抄 Windows 自带「截图工具」的套路：
 ///   点「截屏」→ 整屏冻住压暗 + **顶上弹一条工具栏**（矩形 / 窗口 / 全屏 / 取消）→ 选一块 → 进剪贴板 + 出贴图。
 ///
-/// 套路（重要，别再改成"透明窗口盖在屏幕上实时抓"）：
+/// 实现方案（重要，不得改为"透明窗口盖在屏幕上实时抓"）：
 ///   ① 打开时**先把整屏抓成 ScreenFrame 冻住**，用这张图当窗口背景 → 用户看到的是"暂停住的画面"；
 ///   ② 框选只是在这张**已经抓好的图**上裁 —— 不用 live BitBlt，也就完全绕开
 ///      "覆盖层会不会把自己照进图里 / 要不要 WDA_EXCLUDEFROMCAPTURE"那一堆坑；
@@ -198,11 +198,11 @@ public sealed partial class SnipOverlayWindow : Window
         Highlight(ModeWindow, mode == SnipMode.Window);
         Highlight(ModeFull, mode == SnipMode.Full);
 
-        // 2026-09-27（Nick）：工具栏挪到屏幕正中之后，选完方式还不收就会正好压住要框的那块。
-        // 只在"还没选方式"时留着；收起来后 Esc / 右键仍可取消（见 Root_KeyDown / 右键取消）。
+        // 工具栏居中显示时会遮住待框选区域，仅在未选择方式时显示；
+        // 收起后 Esc / 右键仍可取消（见 Root_KeyDown）。
         Toolbar.IsVisible = mode == SnipMode.None;
 
-        Reset();                                           // 换方式就清掉上一坨框
+        Reset();                                           // 切换方式时清除上一选区
     }
 
     private static void Highlight(Button b, bool on)

@@ -16,13 +16,12 @@ using FluentAvalonia.UI.Controls;
 namespace ClassSoftwareHub.Desktop.Views;
 
 /// <summary>
-/// 托盘图标的右键菜单（自绘，2026-10-31）。
+/// 托盘图标的右键菜单（自绘）。
 ///
 /// <para>
-/// 替代 <c>TrayIcon.ShowMenu</c> 里原来的原生 <c>TrackPopupMenu</c>：那张灰底 3D 菜单跟全站 Fluent 卡片
-/// 不是一套东西（用户原话「系统托盘右键菜单好难看」）。现在弹的是一张圆角卡片：
-/// 卡片底 + 1px 描边 + 34dip 行高 + 圆角悬停淡底，首项文字加粗，行为跟原生菜单对齐
-/// （点外面 / Esc 收起，上下键移动，回车执行）。
+/// 替代 <c>TrayIcon.ShowMenu</c> 里的原生 <c>TrackPopupMenu</c>：原生菜单与全站 Fluent 卡片
+/// 风格不一致。弹出的为圆角卡片：卡片底 + 1px 描边 + 34dip 行高 + 圆角悬停淡底，首项文字加粗，
+/// 行为与原生菜单对齐（点外面 / Esc 收起，上下键移动，回车执行）。
 /// </para>
 ///
 /// <para>
@@ -211,8 +210,8 @@ public sealed partial class TrayMenuWindow : Window
         Show();
         ApplyChrome();
 
-        // 偶尔窗口的实际像素尺寸跟上面按屏幕缩放预算的不一样（实测：从便携版启动器拉起时，
-        // 窗口按 100% 渲染而 Screens 仍报 200%，菜单会离鼠标差一整块）→ 用真实尺寸再摆一次。
+        // 窗口实际像素尺寸可能与按屏幕缩放预算的不一致（如便携版启动器拉起时，
+        // 窗口按 100% 渲染而 Screens 仍报 200%，菜单会偏离鼠标）→ 用真实尺寸再摆一次。
         var hwnd = Backdrop.TryGetHwnd(this);
         if (hwnd != IntPtr.Zero && NativeMethods.GetWindowRect(hwnd, out var actual) &&
             (actual.Width != w || actual.Height != h))
@@ -312,8 +311,8 @@ public sealed partial class TrayMenuWindow : Window
     }
 
     /// <summary>
-    /// 卡片配色。⚠️ 不用半透明的 CardBackgroundFillColorDefaultBrush：Win7 上没有逐像素透明，
-    /// 半透明底会透出窗口自己的底色，看着发灰。直接给成品色，口径跟 FlyoutChrome 一致。
+    /// 卡片配色。不用半透明的 CardBackgroundFillColorDefaultBrush：Win7 上没有逐像素透明，
+    /// 半透明底会透出窗口自己的底色而发灰。直接给成品色，口径跟 FlyoutChrome 一致。
     /// </summary>
     private void ApplyThemeColors()
     {
@@ -339,7 +338,7 @@ public sealed partial class TrayMenuWindow : Window
 
     private void OnDeactivated(object? sender, EventArgs e)
     {
-        // ⚠️ 假失焦：前台其实还是自己（Win7 上 Topmost 小窗偶尔会收到这种），别收
+        // 假失焦：前台其实还是自己（Win7 上 Topmost 小窗偶尔会收到这种），不收起
         if (ForegroundIsMe()) return;
         Dismiss();
     }

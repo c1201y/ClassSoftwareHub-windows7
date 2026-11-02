@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading.Tasks;
 using ClassSoftwareHub.Desktop.Core;
 
 namespace ClassSoftwareHub.Desktop.Services;
@@ -9,11 +10,10 @@ namespace ClassSoftwareHub.Desktop.Services;
 /// <summary>
 /// 倒计时到点的铃声。
 ///
-/// 换它之前是 <c>kernel32!Beep(880, 250)</c> 响三下 —— 主板蜂鸣器那种又尖又干的音色，
-/// 音量还挂在"系统声音"那个通道上，投影到教室后排基本听不见。
-/// 2026-10-04（Nick）：改成用一段真录音当默认铃声，并且允许再挑一个自己的文件。
+/// 默认铃声是一段真录音（<c>kernel32!Beep</c> 蜂鸣器音色又尖又干、音量挂在"系统声音"
+/// 通道上投影听不见），并且允许用户再挑一个自己的文件。
 ///
-/// 三条规矩（别顺手改）：
+/// 三条固定规则（均为验证过的约束，不得更改）：
 ///  ① **只有一个播放器实例**。闹铃语义是"到点响一次"，页面版和浮窗版各持一个播放器
 ///     只会互相打断、把上一次的声音掐掉。所以这里全局单例，<see cref="Play"/> 前先停。
 ///  ② **默认铃声是内嵌资源**，运行时释放到 <c>cache\</c> 再把路径交给播放器 ——
@@ -30,11 +30,10 @@ namespace ClassSoftwareHub.Desktop.Services;
 ///   · 文件扩展名不在 wav/mp3 内时（.m4a/.wma/... 这些 Win7 版 MCI 不保证有解码器），
 ///     MCI 打开多半会失败 —— 这里是"尽力打开 + 记日志"，不会崩。
 ///
-/// ⚠️ 2026-10-31（用户实机反馈：进程崩溃过一次之后倒计时/喊话提示音都不响了）：
-///   默认铃声是 wav —— 这类文件改走 <c>winmm!PlaySoundW</c>（SND_FILENAME | SND_ASYNC），
+/// ⚠️ wav 类文件改走 <c>winmm!PlaySoundW</c>（SND_FILENAME | SND_ASYNC），
 ///   MCI 只在非 wav 或 PlaySound 失败时兜底。PlaySound 是 winmm 里最小的一条路，
 ///   不占设备句柄、不依赖 MCI 的 waveaudio 设备映射，Win7 上更不容易哑火；
-///   先前的 MCI 实现保留，作为 mp3 和异常环境的退路。
+///   MCI 实现保留，作为 mp3 和异常环境的退路。
 ///
 /// TODO(win7): 按移植契约「所有 P/Invoke 集中到 Platform/」的规矩，本文件的 <c>mciSendStringW</c>
 ///   与 <c>PlaySoundW</c> 本应放进 Platform.NativeMethods；但本轮任务**禁止改动 Platform/**，
@@ -67,6 +66,15 @@ public static class TimerAlarm
     [DllImport("winmm.dll", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = false)]
     private static extern bool PlaySoundW(string? pszSound, IntPtr hMod, uint fdwSound);
 
+    // MCI 的命令解析器对含空格 / 中文的长路径不稳（PlaySound 没这个问题），
+    // 喂给 MCI 前先转 8.3 短路径；卷未启用 8.3 名时转不出，退回原路径。
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+    private static extern int GetShortPathNameW(string longPath, StringBuilder? buffer, int length);
+
+    // MCI 错误码 → 可读文本（open / play 失败时写日志用，只有数字码无法定位）。
+    [DllImport("winmm.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+    private static extern bool mciGetErrorStringW(int errorCode, StringBuilder buffer, int capacity);
+
     private const uint SndAsync = 0x0001;
     private const uint SndNoDefault = 0x1000;
     private const uint SndFileName = 0x00020000;
@@ -74,6 +82,7 @@ public static class TimerAlarm
     private static bool _opened;                // 当前 alias 是否已 open（Stop 时用）
     private static bool _usingPlaySound;        // 本次是否走的 PlaySound（Stop 时用）
     private static string? _defaultPath;        // 内嵌那份释放出来的路径（缓存一次）
+    private static int _playSeq;                // 播放代数：静音检测只认自己这一代
 
     /// <summary>用户自定义铃声的完整路径；空 = 用默认。直接读写 settings.json。</summary>
     public static string CustomPath
@@ -154,7 +163,7 @@ public static class TimerAlarm
                 return false;
             }
             _usingPlaySound = true;
-            // 成功路径也记一行：实机「没声音」时能直接看出是播放器没接住还是音量/设备的问题
+            // 成功路径也记一行：排查「没声音」问题时可直接区分是播放器未接住还是音量/设备问题
             AppLog.Info("ring", "铃声已交给 PlaySound 播放：" + path);
             return true;
         }
@@ -168,6 +177,8 @@ public static class TimerAlarm
     /// <summary>MCI 路径：先 close 再从头 open+play（= 原版「先 Pause 再换 Source 再 Play」）。成功返回 true。</summary>
     private static bool PlayViaMci(string path, string ext)
     {
+        var seq = ++_playSeq;
+
         if (_usingPlaySound)
         {
             try { PlaySoundW(null, IntPtr.Zero, 0); } catch { }
@@ -183,20 +194,22 @@ public static class TimerAlarm
         MciClose();
 
         // mp3 显式走 mpegvideo 设备；wav 让 MCI 自己选（一般是 waveaudio）。
+        // 路径先转 8.3 短路径：MCI 解析含空格 / 中文的长路径经常 open 失败。
+        var mciPath = ToMciPath(path);
         var command = ext == ".mp3"
-            ? $"open \"{path}\" type mpegvideo alias {Alias}"
-            : $"open \"{path}\" alias {Alias}";
+            ? $"open \"{mciPath}\" type mpegvideo alias {Alias}"
+            : $"open \"{mciPath}\" alias {Alias}";
 
         var open = Mci(command);
         if (open != 0)
         {
             // 兜一次：不带 type 再试（少数机器上设备枚举不同）
-            open = Mci($"open \"{path}\" alias {Alias}");
+            open = Mci($"open \"{mciPath}\" alias {Alias}");
         }
 
         if (open != 0)
         {
-            AppLog.Info("ring", $"铃声播放失败：MCI open 返回 {open}（文件：{path}）");
+            AppLog.Info("ring", $"铃声播放失败：MCI open 返回 {MciErrorText(open)}（文件：{path}）");
             return false;
         }
 
@@ -205,12 +218,61 @@ public static class TimerAlarm
         var play = Mci("play " + Alias);
         if (play != 0)
         {
-            AppLog.Info("ring", $"铃声播放失败：MCI play 返回 {play}");
+            AppLog.Info("ring", $"铃声播放失败：MCI play 返回 {MciErrorText(play)}");
             return false;
         }
 
+        // MCI 的 play 返回 0 只代表命令被接受，不代表真的在出声。后台对比 position，
+        // 不前进记警告，便于区分「解码器缺失但 open 成功」的机器与音量/设备问题。
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(400);
+                var p1 = MciPosition();
+                await Task.Delay(400);
+                if (_playSeq != seq || !_opened || p1 < 0) return;
+                var p2 = MciPosition();
+                if (p2 >= 0 && p2 == p1)
+                    AppLog.Info("ring", "MCI play 后 position 未前进，疑似静音播放（解码器/设备异常）：" + path);
+            }
+            catch { }
+        });
+
         AppLog.Info("ring", "铃声已交给 MCI 播放：" + path);
         return true;
+    }
+
+    /// <summary>MCI 命令用的路径：转 8.3 短路径（MCI 对长路径解析不稳）；失败退回原路径。</summary>
+    private static string ToMciPath(string path)
+    {
+        try
+        {
+            var sb = new StringBuilder(520);
+            var len = GetShortPathNameW(path, sb, sb.Capacity);
+            return len > 0 && len < sb.Capacity ? sb.ToString() : path;
+        }
+        catch { return path; }
+    }
+
+    /// <summary>MCI 错误码转可读文本。</summary>
+    private static string MciErrorText(int code)
+    {
+        try
+        {
+            if (code <= 0) return code.ToString();
+            var sb = new StringBuilder(256);
+            return mciGetErrorStringW(code, sb, sb.Capacity) ? sb.ToString() : "0x" + code.ToString("X8");
+        }
+        catch { return code.ToString(); }
+    }
+
+    /// <summary>查 MCI alias 当前播放位置（毫秒）；查不到返回 -1。</summary>
+    private static int MciPosition()
+    {
+        var sb = new StringBuilder(32);
+        return mciSendStringW("status " + Alias + " position", sb, sb.Capacity, IntPtr.Zero) == 0
+               && int.TryParse(sb.ToString(), out var v) ? v : -1;
     }
 
     /// <summary>关掉 MCI 的 alias（把上一次的声音一起停掉）。</summary>

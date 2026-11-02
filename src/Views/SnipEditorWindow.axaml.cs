@@ -23,7 +23,7 @@ namespace ClassSoftwareHub.Desktop.Views;
 /// <summary>
 /// 截图编辑窗：截完一块就弹这个，简单编辑 + 三个动作（复制 / 保存 / 钉图）。
 ///
-/// 规矩（踩过的坑）：
+/// 固定规则（均为验证过的技术约束）：
 ///   · 图片**一律 1:1**（原始像素），窗口装不下就让 ScrollViewer 滚，绝不缩放、绝不铺满；
 ///   · 导出统一走 PNG（RenderTargetBitmap）：剪贴板 / 保存 / 钉图都用它，
 ///     省得自己折腾 BMP 和预乘 alpha；
@@ -223,11 +223,10 @@ public sealed partial class SnipEditorWindow : Window
             }
             else
             {
-                // ⚠️ 2026-10-03（用户第 12 轮「截图编辑有原生窗口边框」）：Win7 也不再留系统标题栏。
-                //    原来这里 ExtendClientArea=false 之后什么都不挂 → 整条 Win7 原生蓝边框全须全尾。
-                //    改成跟主窗 / 常用工具窗（ToolPaletteWindow）同一套 SelfDrawnFrame：
-                //    原生边框一个像素不画、32dip 标题栏归拖动区、系统缩放/吸附保留；
-                //    关闭按钮用自绘的 CaptionCloseButton（axaml 里默认藏着，只在这条路线露出）。
+                // Win7 下同样不保留系统标题栏：ExtendClientArea=false 且不挂任何边框时，
+                // 会完整留下 Win7 原生边框。此处与主窗 / ToolPaletteWindow 使用同一套 SelfDrawnFrame：
+                // 不绘制原生边框、32dip 标题栏归拖动区、保留系统缩放/吸附；
+                // 关闭按钮用自绘 CaptionCloseButton（axaml 中默认隐藏，仅此路线显示）。
                 ExtendClientAreaToDecorationsHint = false;
                 AttachSelfDrawnFrame();
                 CaptionCloseButton.IsVisible = true;
@@ -241,8 +240,8 @@ public sealed partial class SnipEditorWindow : Window
 
             TitleText.Text = $"截图编辑　{_pxW} × {_pxH}";
 
-            // ⚠️ 扩展客户区会把窗口圆角偏好按回 Default —— 2026-09-29 实测在 Win11 上渲染出来就是**直角**。
-            //    必须显式要一次 ROUND；这个窗口可以最大化，最大化时再退回直角（贴边窗口不该削角）。
+            // 扩展客户区会把窗口圆角偏好重置为 Default（Win11 上渲染为直角）。
+            // 必须显式指定 ROUND；窗口最大化时退回直角（贴边窗口不削角）。
             ApplyRounded();
             PropertyChanged += (_, e) =>
             {

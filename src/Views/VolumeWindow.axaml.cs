@@ -20,9 +20,9 @@ namespace ClassSoftwareHub.Desktop.Views;
 /// <summary>
 /// 单滑块浮窗：点侧边栏「音量」/「屏幕亮度」模块弹出，**挨着边条**长出来一栏（边条不收起，见 VolumeFlyoutGroup）。
 ///
-/// ⚠️ 类名是历史遗留（一开始只伺候音量）—— 现在**音量 + 屏幕亮度共用这一个窗口**，
+/// 类名为历史遗留：现在**音量 + 屏幕亮度共用这一个窗口**，
 ///    靠 <see cref="Target"/> 区分：文案、数值来源、下面那颗键的含义都不一样。
-///    两个模块共用一个窗口还有个好处：同一时刻只可能开一栏，不会两块都贴在边条上。
+///    两个模块共用一个窗口还保证同一时刻只开一栏，不会两块都贴在边条上。
 ///
 /// 从上到下（贴左/右时）= 数值 + 垂直滑块 + 第一颗键（音量：静音 / 亮度：自动亮度）+ 第二颗键（仅音量：展开合成器）；
 /// 贴上/下时自动换成**横版**（从左到右一排），见 <see cref="ApplyOrientation"/>。
@@ -30,12 +30,12 @@ namespace ClassSoftwareHub.Desktop.Views;
 /// 窗口外壳 / 材质（跟边条同一套）/ 贴边几何都在 <see cref="FlyoutChrome"/> + <see cref="EdgeGeometry"/> 里，
 /// 本文件只管「长什么样、报什么数」。
 ///
-/// ⚠️ **音量那一路和亮度那一路的读取代价差了三个数量级**（2026-09-27 修）：
+/// **音量与亮度的读取代价差三个数量级**：
 ///    音量 = 内存里的 Core Audio 调用（微秒级），1.5 秒轮一次没问题；
-///    亮度 = WMI 查一次十几到几十毫秒，**自动亮度还要起一个 powercfg 进程**（WaitForExit 最长 4 秒）。
-///    两条路都按 1.5 秒压在 UI 线程上 → 浮窗开着就周期性卡顿、白烧 CPU 和 IO。
-///    现在：亮度改 3 秒 + **后台线程读**（见 <see cref="KickBrightnessRead"/>），
-///    自动亮度状态只在**开窗那次**和**自己改过之后**读（那状态不会自己变）。
+///    亮度 = WMI 查一次十几到几十毫秒，自动亮度还要起一个 powercfg 进程（WaitForExit 最长 4 秒）。
+///    两条路都按 1.5 秒压在 UI 线程上会导致浮窗周期性卡顿。
+///    因此亮度改 3 秒 + 后台线程读（见 <see cref="KickBrightnessRead"/>），
+///    自动亮度状态只在开窗时和自身修改后读取（该状态不会自行变化）。
 ///
 /// ⚠️ 移植说明：DispatcherQueueTimer → Avalonia <see cref="DispatcherTimer"/>；
 ///    AppWindow（Title/Size/Position）→ FlyoutChrome 的对应封装；WorkArea → Screens.Primary.WorkingArea。
@@ -109,8 +109,7 @@ public sealed partial class VolumeWindow : Window
         }
         catch (Exception ex)
         {
-            // ⚠️ 这里原来是个空 catch —— 整段异常全吞掉，"点了没反应"就完全查不出来。
-            //    项目其他地方一律走 ScreenCapture.Log，这里跟着统一。
+            // 异常必须记录而非静默吞掉，否则"点击无反应"无法排查；统一走 ScreenCapture.Log。
             ScreenCapture.Log("浮窗开关失败: " + ex.Message);
         }
     }
@@ -133,11 +132,9 @@ public sealed partial class VolumeWindow : Window
     /// <summary>
     /// 浮窗贴屏幕的哪条边。滑入方向、合成器排哪儿全靠它。
     ///
-    /// ⚠️⚠️ 2026-10-02 改（用户反馈「在左侧打开音量调节会在右侧显示」）：
-    ///    以前这里**只从设置里读**，而且把「左右两边同时显示 = both」强行归到 <c>right</c> ——
-    ///    于是"点左边那条边条的音量 → 浮窗跑到屏幕右边"。
-    ///    现在优先取**刚被点击的那条边条实际贴的边**（<see cref="ToolSidebarWindow.AnchorEdge"/>），
-    ///    取不到（边条没显示）才退回读设置。上下边（自由模式）也一并支持。
+    /// 优先取刚被点击的那条边条实际贴的边（<see cref="ToolSidebarWindow.AnchorEdge"/>），
+    ///    取不到（边条未显示）才退回读设置；仅从设置读取会导致浮窗与所点边条不在同侧。
+    /// 上下边（自由模式）一并支持。
     /// </summary>
     public static string Edge => ToolSidebarWindow.AnchorEdge
         ?? (App.Settings.Current.SidebarEdge is "left" or "top" or "bottom"
@@ -148,8 +145,8 @@ public sealed partial class VolumeWindow : Window
     public static PixelRect? CurrentRect => _instance?._chrome.CurrentRect;
 
     /// <summary>主音量浮窗本次落定的**最终**矩形（滑入动画的目标位置，不是半路上的实时位置）。
-    /// ⚠️ 合成器必须锚这里：锚实时位置的话，主音量还在滑入时点「展开」，
-    ///    合成器就按半路位置落座，主音量随后滑到位正好压进合成器（2026-10-01 修「三个窗叠一起」）。</summary>
+    /// 合成器必须锚这里：锚实时位置的话，主音量滑入途中点「展开」，
+    ///    合成器会按半路位置落座，主音量随后滑到位正好压进合成器。</summary>
     public static PixelRect? AnchorRect => _instance?._finalRect ?? CurrentRect;
 
     /// <summary>ShowSelf/Reposition 里算出的最终落点（滑入动画的目标）。</summary>
@@ -159,14 +156,14 @@ public sealed partial class VolumeWindow : Window
     {
         try
         {
-            // ⚠️ 2026-10-29（上游 1.8）再改口径：分体外观收窄到只作用「常用工具」浮窗与侧边栏，
-            //    音量 / 亮度浮窗改回**跟应用主题**——否则主界面浅色 + 分体深色时这里会整片发黑。
+            // 分体外观只作用「常用工具」浮窗与侧边栏，音量 / 亮度浮窗跟应用主题 ——
+            // 否则主界面浅色 + 分体深色时这里会整片发黑。
             ThemeCompat.Apply(Root);
             VolumeFlyoutGroup.MainHwnd = _chrome.Hwnd;
 
-            // ⚠️ handledEventsToo: true —— Slider 内部会把 PointerPressed 标成 handled，
-            //    普通 += 订阅收不到，"_dragging" 就永远是 false，
-            //    轮询一到就把滑块值按真实值写回去（拖到一半被"拽回去"就是这个）。
+            // handledEventsToo: true —— Slider 内部会把 PointerPressed 标成 handled，
+            // 普通 += 订阅收不到，"_dragging" 永远为 false，
+            // 轮询会把滑块值按真实值写回（表现为拖到一半被"拽回去"）。
             //（WinUI 的 UIElement 路由事件 → Avalonia 挂在 InputElement 上，与 SidebarLayoutPage 同一套写法）
             MasterSlider.AddHandler(InputElement.PointerPressedEvent,
                 new EventHandler<PointerPressedEventArgs>((_, _) => _dragging = true),
@@ -178,20 +175,15 @@ public sealed partial class VolumeWindow : Window
                 new EventHandler<PointerCaptureLostEventArgs>((_, _) => EndDrag()),
                 RoutingStrategies.Bubble, true);
 
-            // ── 拖动：**已全部撤掉**（2026-10-03，用户第 16 轮原话：
-            //    「悬浮窗还是无法点击展开，去掉拖动调整位置吧」）──────────────────────────
-            // 历史三阶段：① Avalonia 层 EnableDrag —— 真机的假抬起/捕获丢失让它时灵时不灵；
-            //             ② 第 14 轮换 GripDragFrame 系统级 HTCAPTION —— 拖动本身好使了，
-            //                但把手行成了**非客户区**，鼠标从把手进浮窗不再触发激活，
-            //                滑块/按钮的第一下就被吃掉（用户感受＝"还是无法点击展开"）；
-            //             ③ 本轮按用户取舍收尾：**要能点，不要拖**。
-            // 浮窗位置一律由 Reposition() 贴回侧边条旁，不再由用户摆放；
-            // 顺带把「鼠标监视会不会误判拖动」这个不确定性也一并去掉。
+            // ── 拖动：已全部撤掉 ──────────────────────────────────────────────
+            // 取舍：要能点，不要拖 —— 拖动把手会成为非客户区，鼠标从把手进浮窗
+            // 不再触发激活，滑块/按钮的第一下点击会被吃掉。
+            // 浮窗位置一律由 Reposition() 贴回侧边条旁，不再由用户摆放。
 
             Deactivated += (_, _) =>
             {
-                // ⚠️ 这里**不再**用失焦判据收窗（那正是"弹出 1 秒就自己没了"的根因）。
-                //    收窗统一走 VolumeFlyoutGroup 的鼠标监视；失焦时重新确保它在跑即可。
+                // 不用失焦判据收窗（会导致"弹出 1 秒就自己没了"）：
+                // 收窗统一走 VolumeFlyoutGroup 的鼠标监视；失焦时确保它在运行即可。
                 VolumeFlyoutGroup.EnsureMouseWatch();
             };
 
@@ -227,10 +219,8 @@ public sealed partial class VolumeWindow : Window
     /// <summary>
     /// 卡片尺寸 = **宽固定 300 + 高按内容实测**。
     ///
-    /// ⚠️ 2026-10-02 重做：旧版按「贴左/右 = 竖版 / 贴上/下 = 横版」两套布局切来切去，
-    ///    竖版那套是 72×300 的窄条 —— 屏幕边上一根又细又长的东西，观感差、拖拽行程也短。
-    ///    现在**只有横版这一种**（滑块 272 dip，拖拽行程是原来的近两倍），
-    ///    所以方向那套逻辑整段删掉了，尺寸只剩一个变量：高度。
+    /// 只保留横版一种布局（滑块 272 dip），不再按贴边方向切换竖版/横版；
+    /// 因此尺寸只剩一个变量：高度。
     /// </summary>
     private Point SizeDip()
     {
@@ -283,7 +273,7 @@ public sealed partial class VolumeWindow : Window
             _chrome.Present(start, w, h);
             _visible = true;
 
-            _chrome.Finish(Root.ActualThemeVariant == ThemeVariant.Dark);   // ⚠️ 必须在显示之后调
+            _chrome.Finish(Root.ActualThemeVariant == ThemeVariant.Dark);   // 必须在显示之后调
 
             FlyoutFade.In(ContentHost, 160);
             _slide.Run(this, start, final, FlyoutSlider.SlideInMs);
@@ -342,7 +332,7 @@ public sealed partial class VolumeWindow : Window
             var h = (int)Math.Round(dip.Y * scale);
 
             // 锚点 = 边条（挨着它长）；边条拿不到就当成贴屏幕边。
-            // ⚠️ 钉住机制已删（2026-10-03）：换目标时一律贴回边条旁边。
+            // 换目标时一律贴回边条旁边（钉住机制已删）。
             var anchor = ToolSidebarWindow.CurrentRect ?? EdgeGeometry.EdgeBar(Edge, work);
             var (_, final) = EdgeGeometry.BesideAnchor(Edge, anchor, work, w, h, scale);
             _finalRect = new PixelRect(final.X, final.Y, w, h);
@@ -370,8 +360,7 @@ public sealed partial class VolumeWindow : Window
             _chrome.Title = volume ? "音量" : "屏幕亮度";
             _adaptiveOn = null;                          // 换了目标：自动亮度状态重新读一遍
 
-            // 图标 / 文字都跟着目标换（2026-10-02 重做：按钮里现在是「图标 + 文字」并排，
-            // 不再是过去那种只有一个字形、看不出含义的方块）
+            // 图标 / 文字都跟着目标换：按钮里是「图标 + 文字」并排
             MasterIcon.Glyph = volume ? "\uE767" : "\uE706";
             ActionIcon.Glyph = volume ? "\uE74F" : "\uE706";
             ActionText.Text = volume ? "静音" : "自动亮度";
@@ -381,15 +370,12 @@ public sealed partial class VolumeWindow : Window
             ExpandToggle.IsVisible = volume;
             ApplyPollInterval();
 
-            // ⚠️ 亮度**没有**二级浮窗：切到亮度时要把已经开着的合成器收掉。
-            //    不然面板显示亮度、旁边还挂着一个列各应用音量的窗，
-            //    而且那个窗的位置是按旧尺寸算的（2026-09-27 修）。
+            // 亮度没有二级浮窗：切到亮度时把已开着的合成器收掉，
+            // 否则面板显示亮度、旁边还挂着按旧尺寸算位置的音量列表窗。
             if (!volume) VolumeMixerWindow.CloseIfOpen();
 
-            // ⚠️ 切目标后**立刻**把数值刷成新目标的（2026-10-02 实机截图发现）：
-            //    ApplyTarget 只改了图标和按钮，标题/百分比还留在上一个目标上，
-            //    要等下一次轮询才纠正 —— 亮度那条轮询是 3 秒一次，用户会看到
-            //    "点的是亮度、面板上写着主音量 100%"整整三秒。开着窗切目标时补刷一次。
+            // 切目标后立刻把数值刷成新目标的：ApplyTarget 只改图标和按钮，
+            // 标题/百分比要等下一次轮询才纠正（亮度轮询间隔 3 秒），开着窗切目标时补刷一次。
             if (_started) Refresh();
         }
         catch (Exception ex)
@@ -435,8 +421,8 @@ public sealed partial class VolumeWindow : Window
     }
 
     /// <summary>
-    /// ⚠️ 两条路的节奏必须分开（2026-09-27）：音量是 Core Audio 内存调用，1.5 秒轮一次很便宜；
-    ///    亮度要过 WMI、自动亮度还要起 powercfg 进程，按 1.5 秒压在 UI 线程上就是周期性卡顿。
+    /// 两条路的轮询节奏必须分开：音量是 Core Audio 内存调用，1.5 秒轮询开销很小；
+    ///    亮度要过 WMI、自动亮度还要起 powercfg 进程，按 1.5 秒压在 UI 线程上会造成周期性卡顿。
     /// </summary>
     private void ApplyPollInterval()
     {
@@ -516,9 +502,8 @@ public sealed partial class VolumeWindow : Window
         MasterSlider.IsEnabled = true;
         ActionToggle.IsEnabled = BrightnessService.AdaptiveSupported;
 
-        // ⚠️ 物理接口读不到、走的是软件 gamma 时如实说明（2026-10-02）：
-        //    用户按着滑块看到画面变暗了，得知道那是"软件压暗"而不是背光真的降了，
-        //    否则换台机器发现效果不一样会更困惑。
+        // 物理接口读不到、走软件 gamma 时如实说明：
+        // 让用户知道画面变暗是"软件压暗"而非背光调节，避免在不同机器上效果不一致造成困惑。
         var software = !BrightnessService.PhysicalAvailable;
         MasterCaptionText.Text = software ? "屏幕亮度（软件调节）" : "屏幕亮度";
         ToolTip.SetTip(MasterCaptionText, software
@@ -549,7 +534,7 @@ public sealed partial class VolumeWindow : Window
             var ok = BrightnessService.TryGet(out var percent);
             var adaptive = needAdaptive && BrightnessService.TryGetAdaptive(out var on) ? (bool?)on : null;
 
-            // ⚠️ 原版 DispatcherQueue.TryEnqueue → Avalonia 的 Post 没有“投递失败”返回值，语义等价
+            // 原版 DispatcherQueue.TryEnqueue → Avalonia 的 Post 没有“投递失败”返回值，语义等价
             Dispatcher.UIThread.Post(() =>
             {
                 _brightnessReading = false;
@@ -586,8 +571,8 @@ public sealed partial class VolumeWindow : Window
             return;
         }
 
-        // ⚠️ 亮度写下去是异步的（50ms 合并窗口 + WMI 延迟），下一次后台读还可能读回旧值；
-        //    所以先把缓存改成用户刚设的值，界面就不会"自己弹回去"。
+        // 亮度写入是异步的（50ms 合并窗口 + WMI 延迟），下一次后台读可能读回旧值；
+        // 先把缓存改成用户刚设的值，界面就不会"自己弹回去"。
         _brightnessPercent = percent;
         BrightnessService.SetPercent(percent);
     }
@@ -616,7 +601,7 @@ public sealed partial class VolumeWindow : Window
         if (BrightnessService.SetAdaptive(want))
         {
             _adaptiveOn = want;                  // SetAdaptive 内部已经复核过，直接记住
-            UpdateActionTooltip();               // ⚠️ 把上次失败留下的那条提示清掉，否则会一直挂着
+            UpdateActionTooltip();               // 清掉上次失败留下的提示，否则会一直挂着
         }
         else
         {

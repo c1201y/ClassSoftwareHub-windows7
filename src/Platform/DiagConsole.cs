@@ -26,7 +26,7 @@ namespace ClassSoftwareHub.Desktop.Platform;
 /// 设计取向：**零侵入**。不修改任何现有 <c>Log()</c> 实现，改为从文件层面 tail ——
 /// 这样既不会漏掉任何一条日志，也不会因为改日志代码把正式版带出新 bug。
 ///
-/// ⚠️ 别把这个版本发给老师 —— 黑窗口会吓到人。它只用来排障。
+/// 该版本仅用于排障，不随正式版分发给最终用户。
 /// </summary>
 internal static class DiagConsole
 {
@@ -74,12 +74,12 @@ internal static class DiagConsole
     {
         try { Console.Title = "ClassSoftwareHub 诊断控制台 · 关闭本窗口＝结束程序"; } catch { }
 
-        // ⚠️⚠️ 中文能不能正常显示，Win7 和 Win10 必须分开处理 —— 这是实机踩出来的（2026-10-01）：
+        // 中文能否正常显示，Win7 和 Win10 必须分开处理：
         //
         //   · Win10/11 的 conhost 支持 UTF-8：.NET 侧设 UTF-8、控制台代码页切 65001，
         //     两边对上即可，最省事。
-        //   · Win7 的 conhost 是**点阵字体的老实现**，代码页切到 65001 之后中文会整片变乱码
-        //     （用户实机反馈原话：「控制台乱码」）。它必须沿用系统本地代码页（简体中文 = 936）。
+        //   · Win7 的 conhost 是**点阵字体的老实现**，代码页切到 65001 之后中文会整片变乱码。
+        //     它必须沿用系统本地代码页（简体中文 = 936）。
         //   · 但 .NET Core 默认**不带** 936 编码器：不先注册 CodePages 提供程序的话，
         //     Encoding.GetEncoding(936) 会抛，静默回退成 UTF-8 → 又乱码。所以顺序不能反。
         //
@@ -121,7 +121,7 @@ internal static class DiagConsole
         }
         catch { _mirrorPath = null; }
 
-        // ⚠️ 换窄字体放在副本通道就绪之后：默认字体在 200% 缩放的屏幕上 60 来列就填满窗口，
+        // 换窄字体放在副本通道就绪之后：默认字体在 200% 缩放的屏幕上 60 来列就填满窗口，
         //    招牌（115 列）会被右边裁掉；Consolas 14px 同样宽度能排 130+ 列。
         //    换完再调一次窗口宽度（字体变了，同一块屏幕能多排不少列）。
         var fontOk = TryUseNarrowFont();
@@ -156,8 +156,8 @@ internal static class DiagConsole
     /// 诊断控制台最上边的 ASCII 招牌 —— 用 <c>/ | \ _ ( )</c> 这类**笔画字符**拼的经典字体
     /// （比用 # 拼的像素字清楚得多，一眼就能读出 classsoftwarehub）。
     ///
-    /// ⛔ 只用 ASCII 字符：Win7 控制台是 cp936，块字符（█▀▄）和制表符都会变成乱码。
-    /// ⚠️ 整块宽 115 列 —— 控制台窗口最小宽度是 120（见 PrepareConsole），刚好放得下；
+    /// 只用 ASCII 字符：Win7 控制台是 cp936，块字符（█▀▄）和制表符都会变成乱码。
+    /// 整块宽 115 列 —— 控制台窗口最小宽度是 120（见 PrepareConsole），刚好放得下；
     ///    改这几行时别把宽度撑过 120。
     /// </summary>
     private static readonly string[] Logo =
@@ -171,7 +171,7 @@ internal static class DiagConsole
 
     /// <summary>
     /// 打招牌：ASCII 字样的 classsoftwarehub，下面紧跟一句标语。
-    /// ⚠️ 必须在 Banner() 的最前面、Rule('=') 之前调用 —— 用户要的就是「最上边」。
+    /// 必须在 Banner() 的最前面、Rule('=') 之前调用 —— 招牌固定在最上边。
     /// </summary>
     private static void PrintLogo()
     {
@@ -320,9 +320,8 @@ internal static class DiagConsole
 
                 Line($"             · PID={p.Id}  {extra}", Kind.Error);
 
-                // ⭐ 这一行才是「界面到底出没出来」的唯一硬证据。
-                //    以前只报 PID 和内存，看日志的人分不清「进程活着」和「界面看得见」，
-                //    于是被一个"活着但没界面"的僵尸实例坑了整整一天（2026-10-01 PID=4040）。
+                // 这一行才是「界面到底出没出来」的唯一硬证据：
+                //    只报 PID 和内存时，看日志的人分不清「进程活着」和「界面看得见」。
                 var wins = WindowProbe.ForPids(new[] { p.Id });
                 if (wins.Count == 0)
                 {
@@ -432,7 +431,7 @@ internal static class DiagConsole
 
         try
         {
-            // ⚠️ 必须带 FileShare.ReadWrite|Delete：日志写入方（我们的 Log()）持有的句柄
+            // 必须带 FileShare.ReadWrite|Delete：日志写入方（我们的 Log()）持有的句柄
             //    允许并发读，但如果我们自己用独占方式打开就会撞车，把对方的写入顶失败。
             using var fs = new FileStream(path, FileMode.Open, FileAccess.Read,
                 FileShare.ReadWrite | FileShare.Delete);
@@ -501,7 +500,7 @@ internal static class DiagConsole
         };
 
         // 4) 进程退出兜底。
-        //    ⚠️ 单实例那条路径走的是 Environment.Exit()，它**不会**执行 try/finally 里的收尾，
+        //    单实例那条路径走的是 Environment.Exit()，它**不会**执行 try/finally 里的收尾，
         //       所以退出原因必须靠这条事件补记（同时保证 console.log 里留下痕迹）。
         AppDomain.CurrentDomain.ProcessExit += (_, _) =>
         {
@@ -629,7 +628,7 @@ internal static class DiagConsole
     /// <summary>
     /// 把 Avalonia 内部 Trace 日志接到控制台。
     ///
-    /// ⚠️ 必须过滤：<c>LogToTrace</c> 一开详细级别，<c>[Layout]</c> 就每帧刷好几条，
+    /// 必须过滤：<c>LogToTrace</c> 一开详细级别，<c>[Layout]</c> 就每帧刷好几条，
     ///    十几秒就能把真正有用的诊断行顶出屏幕。排障要的是「平台/字体/绑定哪儿不对」，
     ///    不是布局管理器的心跳。
     /// </summary>
@@ -673,10 +672,10 @@ internal static class DiagConsole
 
     // ── 控制台字号（只为让最上边那块 115 列的 ASCII 招牌能整块显示） ──
     //
-    // ⚠️ 为什么单独改字号：win-x64 的默认控制台字体在 200% 缩放的屏幕上一个字要占 16px，
+    // 为什么单独改字号：win-x64 的默认控制台字体在 200% 缩放的屏幕上一个字要占 16px，
     //    990px 宽的黑窗只能排 60 来列 —— 招牌会被右边裁掉、只能看到半截。
     //    换成「Consolas 14px」之后同样宽度能排 130+ 列，招牌完整、日志也一行能多看 30 个字。
-    // ⛔ 取不到就算了（老系统 / 非经典控制台会直接失败）—— 绝不能因为它挂掉整个诊断台。
+    // 取不到就算了（老系统 / 非经典控制台会直接失败）—— 绝不能因为它挂掉整个诊断台。
 
     [StructLayout(LayoutKind.Sequential)]
     private struct Coord { public short X; public short Y; }
@@ -704,10 +703,10 @@ internal static class DiagConsole
     /// <summary>
     /// 把控制台字体换成窄一点的等宽字体，保证 115 列招牌与长日志行都排得下。
     ///
-    /// ⚠️ 字号必须**自适应**：同一句 SetCurrentConsoleFontEx 在不同 DPI 下换算不一样
-    ///    （本机 200% 缩放时请求 14 实际渲染成 30px 高，一行只排 78 列，115 列的招牌照样被裁）。
+    /// 字号必须**自适应**：同一句 SetCurrentConsoleFontEx 在不同 DPI 下换算不一样
+    ///    （200% 缩放时请求 14 实际渲染成 30px 高，一行只排 78 列，115 列的招牌照样被裁）。
     ///    做法：逐档试字号 → 用 GetConsoleFontSize 量出**真实字形像素宽** → 算「屏幕宽度能排几列」，
-    ///    够 118 列才收工。⛔ 不能拿 Console.WindowWidth 当判据：刚把它设成 130，它当然报 130，
+    ///    够 118 列才收工。不能拿 Console.WindowWidth 当判据：刚把它设成 130，它当然报 130，
     ///    但窗口可能比屏幕还宽 —— 那样只是把右边顶到屏幕外，等于还是看不全。
     /// </summary>
     private static bool TryUseNarrowFont()
@@ -731,9 +730,9 @@ internal static class DiagConsole
 
                 if (!SetCurrentConsoleFontEx(hOut, false, ref info)) continue;
 
-                // 把窗口开到 130 列，然后**实测**「一列占多少像素」 = 窗口像素宽 / 实际列数。
-                // ⛔ 不能拿 GetConsoleFontSize 的字形宽当准：进程 DPI 不感知时它返回的是**逻辑**像素
-                //    （本机 200% 缩放下报 8px、实际渲染 16px），照它算会得出"排得下"的错误结论。
+                // 把窗口开到 130 列，然后量「一列占多少像素」 = 窗口像素宽 / 实际列数。
+                // 不能拿 GetConsoleFontSize 的字形宽当准：进程 DPI 不感知时它返回的是**逻辑**像素
+                //    （200% 缩放下报 8px、实际渲染 16px），照它算会得出"排得下"的错误结论。
                 try
                 {
                     if (Console.BufferWidth < 140) Console.BufferWidth = 140;
@@ -743,9 +742,9 @@ internal static class DiagConsole
 
                 // 判据：**只按招牌需要的列数（118）开窗口**，然后量窗口像素宽。
                 //   · 排得下 ⇒ 窗口宽 ≈ 118×字宽，明显小于屏幕宽；
-                //   · 排不下 ⇒ conhost 把窗口顶满屏幕（实测正好卡在 1280-16），
+                //   · 排不下 ⇒ conhost 把窗口顶满屏幕，
                 //     而 Console.WindowWidth 照样报 118 —— 所以只能看像素宽，不能看列数。
-                //   ⚠️ 门限要比"顶满屏幕"更严（screenW-40），否则会被那条"卡满"的边界骗过去。
+                //   门限要比"顶满屏幕"更严（screenW-40），否则会被那条"卡满"的边界骗过去。
                 try { Console.WindowWidth = 118; } catch { continue; }
 
                 var winPx = ConsoleWindowWidthPx();

@@ -145,7 +145,7 @@ public static class FunctionAnalyzer
         //    必须先认出来，否则零点检测会把这种"符号变化"当成根，单调整段也会被它污染。
         //
         // ⛔⛔ 标尺不能用"跨度(max−min)"：1/x 这类函数的跨度**本身**就是被极端值撑大的
-        //     （x 越靠近 0，|y| 越大），拿它当标尺，判据永远不成立 —— 实测就是这样漏掉了 1/x 的渐近线。
+        //     （x 越靠近 0，|y| 越大），拿它当标尺，判据永远不成立 —— 1/x 的渐近线就是这样漏掉的。
         //     改用 |y| 的 95 分位数：它对少数极端值不敏感，能反映"典型量级"。
         var scale = RobustAbsScale(ys);
         var breakIndex = new bool[Samples];
@@ -483,7 +483,7 @@ public static class FunctionAnalyzer
     ///
     /// <para>
     /// ⛔⛔ 区间边界必须是**精化后的极值点**，不能拿采样点凑 —— 采样步长 0.005 会让区间端点
-    /// 整体偏移一小格（实测 sin 的递增区间端点偏了 0.0045），列在界面上很难看。
+    /// 整体偏移一小格（实测 sin 的递增区间端点偏了 0.0045），列在界面上观感差。
     /// </para>
     /// </summary>
     private static void FindMonotonicity(

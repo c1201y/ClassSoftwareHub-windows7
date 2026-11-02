@@ -29,7 +29,7 @@ namespace ClassSoftwareHub.Desktop.Platform;
 /// </para>
 ///
 /// <para>
-/// ⚠️ <c>alphaCorners</c> 只给**内容自带圆角面板**的浮窗传 true（音量 / 合成器 / 侧边栏 / 留言）。
+/// <c>alphaCorners</c> 只给**内容自带圆角面板**的浮窗传 true（音量 / 合成器 / 侧边栏 / 留言）。
 ///    主窗口、工具面板这类有系统框架或方形根底的窗口不能传 —— 底色一透就会露出桌面。
 /// </para>
 /// </summary>
@@ -81,8 +81,7 @@ public static class BackdropTheme
             };
             try { win.ActualThemeVariantChanged += state.Handler; } catch { }
 
-            // ⚠️ 2026-10-25（用户实机复现：Win11 改缩放/分辨率后悬浮窗丢圆角，Win7 不受影响）：
-            //    WM_DPICHANGED 会让系统重置窗口的 accent / 逐像素 alpha 状态，
+            // WM_DPICHANGED 会让系统重置窗口的 accent / 逐像素 alpha 状态，
             //    Avalonia 也可能把 ActualTransparencyLevel 退回 None —— 「内容 alpha 抠角」
             //    随之失效变方角，而调用方只在 Present() 显示时 Apply 一次，没人补。
             //    Win7 走 SetWindowRgn 区域裁剪，不受系统重置影响，所以只有 Win10/11 出问题。
@@ -149,8 +148,7 @@ public static class BackdropTheme
         string kind;
         if (alphaPath)
         {
-            // ⚠️ 2026-10-25（用户 Win11 26200 实锤：缩放/分辨率一变，悬浮窗就丢圆角）：
-            //    alpha 抠角窗口**绝不能让 DWM 上任何系统材质**。此前走 Backdrop.Apply("acrylic")：
+            // alpha 抠角窗口**绝不能让 DWM 上任何系统材质**。此前走 Backdrop.Apply("acrylic")：
             //    亚克力成功 → 紧接着 EnablePerPixelCorners 关 accent，净效果无材质、一切正常；
             //    可亚克力一旦失败（Win11 新版本上 SetWindowCompositionAttribute 很不稳，DWM
             //    抖动期尤其容易挂），Backdrop.Apply 会**自作主张退到 Mica**，把

@@ -9,7 +9,7 @@ namespace ClassSoftwareHub.Desktop.Pages;
 
 /// <summary>
 /// 实验性功能总览页：把「还不成熟、先放着试」的功能列一遍。
-/// 版式跟内置工具页一致（内容列 960、两列卡片、页脚说明卡），Nick 2026-09-26 要求。
+/// 版式跟内置工具页一致（内容列 960、两列卡片、页脚说明卡）。
 ///
 /// ⚠️ 往这儿加功能要动三处：① 下面 <see cref="All"/> 加一条；② <c>ShellPage.axaml</c> 的
 ///    「实验性功能」分组里加一个子项（带同一个 tag）；③ <c>ShellPage.NavigateTagCore</c> 加一个 case。
@@ -51,7 +51,7 @@ public sealed partial class ExperimentalPage : PageBase
             Desc = "按星期设定关机时间点，到点自动关机（可直接关，也可用系统的滑动关机）",
             Glyph = "\uE787", Tag = "autoshutdown"
         },
-        // 日志查看已不算实验功能（Nick 2026-10-02）：入口挪到 设置 → 诊断。
+        // 日志查看已不算实验功能：入口挪到 设置 → 诊断。
 
         // ── 上游 1.1.3-insider1.3 ~ 1.2.0-insider1.1 新增（2026-10-18 移植） ──
         // 上游 1.8 起 AppData 管理 / 系统修复 已转正进系统工具，这里只剩应用卸载 / 开机启动项。

@@ -86,15 +86,11 @@ public class SettingsCard : ContentControl
     /// <summary>
     /// 模板里那颗 Chevron 的实际可见性（= IsClickEnabled &amp;&amp; IsActionIconVisible）。
     ///
-    /// ⛔⛔ <b>字段必须是 public</b>：<c>SettingsCard.axaml</c> 的模板用
-    ///    <c>IsVisible="{TemplateBinding ShowActionIcon}"</c> 引用它，而 Avalonia 的**编译 XAML**
-    ///    会把 TemplateBinding 直接编译成对 <c>ShowActionIconProperty</c> **字段**的 IL 访问。
-    ///    写成 private 时编译期不报错，**运行期**才抛 <c>FieldAccessException</c>：
-    ///     <c>Attempt by method 'CompiledAvaloniaXaml...Build_2' to access field
-    ///     'SettingsCard.ShowActionIconProperty' failed</c> —— 而且它发生在模板构建时，
-    ///     <c>SettingsCard</c> 出现在任何页面都会让**整个进程**被未处理异常带走
-    ///     （2026-10-06 实测：进「实验性功能 → 虚拟键盘」直接闪退，crash.log 还是空的）。
-    ///    这份程序集里**只有 DirectProperty 这一个**曾写成 private，其余 StyledProperty 都是 public。
+    /// ⛔ <b>字段必须是 public</b>：<c>SettingsCard.axaml</c> 的模板用
+    ///    <c>IsVisible="{TemplateBinding ShowActionIcon}"</c> 引用它，而 Avalonia 的编译 XAML
+    ///    会把 TemplateBinding 编译为对 <c>ShowActionIconProperty</c> 字段的 IL 访问。
+    ///    写成 private 时编译期不报错，运行期模板构建时抛 <c>FieldAccessException</c>，
+    ///    <c>SettingsCard</c> 出现在任何页面都会导致整个进程因未处理异常崩溃。
     /// </summary>
     public static readonly DirectProperty<SettingsCard, bool> ShowActionIconProperty =
         AvaloniaProperty.RegisterDirect<SettingsCard, bool>(
@@ -136,11 +132,9 @@ public class SettingsCard : ContentControl
         Cursor = IsClickEnabled ? new Cursor(StandardCursorType.Hand) : Cursor.Default;
     }
 
-    // ⛔ 2026-10-29（用户反馈「设置页滑动时经常误点进法律条款」）：
-    //    原来在 OnPointerPressed 里直接触发 Click —— 手指一落下页面就跳走了，
-    //    等触摸滚动逻辑判定出「这是滑动不是点击」时已经晚了。
-    //    改成：按下只记起点，**抬手才判定**；位移超过容差、或已经不在卡上，一律不触发。
-    //    触摸滚动（TouchPanScroll）在隧道阶段还会把拖动后的抬手 Handled 掉，这里再挡一道。
+    // 触发 Click 不能在 OnPointerPressed 直接进行：触摸滚动判定为滑动时页面已跳转。
+    // 改为按下只记起点，抬手才判定；位移超过容差或已不在卡上一律不触发。
+    // 触摸滚动（TouchPanScroll）在隧道阶段会把拖动后的抬手标记 Handled，此处需再拦截一次。
     private const double ClickMoveTolerance = 8;
 
     private Point _pressPoint;

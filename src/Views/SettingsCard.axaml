@@ -6,11 +6,11 @@
     <!--
       SettingsCard 的默认模板（对应 WinUI CommunityToolkit 的 SettingsCard 外观）。
 
-      ⚠️ 颜色一律走 {DynamicResource}（≈ 原版的 ThemeResource）：它认「元素所在那棵树」的主题、
+      颜色一律走 {DynamicResource}（≈ 原版的 ThemeResource）：它认「元素所在那棵树」的主题、
          深浅色会自己变；而且**键不存在时不会抛异常**（StaticResource 会）。
 
-      ⚠️ 字体样式（Header=BodyStrong、Description=Caption+次要色）**直接写死在模板上**，
-         不引用 BodyStrongTextBlockStyle / CaptionTextBlockStyle —— 原版那句注释说得对：
+      字体样式（Header=BodyStrong、Description=Caption+次要色）**直接写死在模板上**，
+         不引用 BodyStrongTextBlockStyle / CaptionTextBlockStyle ——
          卡片模板对 Header / Description 的字体样式是写死在控件模板里的，别再手工指定。
     -->
     <ControlTheme x:Key="{x:Type views:SettingsCard}" TargetType="views:SettingsCard">

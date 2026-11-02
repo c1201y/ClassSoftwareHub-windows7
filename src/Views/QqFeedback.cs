@@ -8,7 +8,7 @@ namespace ClassSoftwareHub.Desktop.Views;
 ///
 /// ⚠️ 群地址必须与首页 / 设置页快捷入口的「加入Q群」**同源**（同一个 <c>text/ui.json</c> 的 key，
 ///    见 <see cref="Core.QuickLinks"/>）—— 站点换了群链接，这两处一起变。
-///    别再各写一份字面量，否则会出现"首页点进去是新群、反馈页点进去是旧群"。
+///    不得重复定义字面量，否则首页与反馈页会出现群号不一致。
 ///
 /// ⚠️ 移植说明：原版走 WinRT 的 <c>Clipboard.SetContent(DataPackage)</c>；
 ///    Avalonia 的 <c>IClipboard</c> 没有「写文本」的同步入口（只有 <c>SetTextAsync</c>），
@@ -22,7 +22,7 @@ internal static class QqFeedback
 
     /// <summary>
     /// 把反馈信息写进剪贴板。成功返回 true。
-    /// ⚠️ 失败**不抛**，由调用方决定怎么提示 —— 剪贴板被别的进程占着是常事（历史上真踩过）。
+    /// ⚠️ 失败不抛异常，由调用方决定提示方式 —— 剪贴板经常被其他进程占用。
     /// </summary>
     public static bool Copy(string text)
     {

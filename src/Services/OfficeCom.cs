@@ -7,7 +7,7 @@ using ClassSoftwareHub.Desktop.Core;
 namespace ClassSoftwareHub.Desktop.Services;
 
 /// <summary>
-/// 与 PowerPoint / WPS 演示的 COM 对接（2026-10-31 PPT 续播）。
+/// 与 PowerPoint / WPS 演示的 COM 对接（供 PPT 续播使用）。
 ///
 /// <para>
 /// ⚠️ 为什么不用 Microsoft.Office.Interop.PowerPoint：那套 PIA 只随完整 Office 安装，

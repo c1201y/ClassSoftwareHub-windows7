@@ -21,7 +21,7 @@ public sealed class DiskScanResult
     public int SkippedDirectories { get; init; }
 
     /// <summary>
-    /// 扫描到了时间预算就停止，**结果是不完整的**（2026-10-18 加）。
+    /// 扫描到了时间预算就停止，**结果是不完整的**。
     /// ⚠️ 用它的地方必须把这件事告诉用户/模型 —— 不标注的话，"总占用"看着像个准确数。
     /// </summary>
     public bool Truncated { get; init; }
@@ -54,7 +54,7 @@ public static class DiskUsage
     /// </summary>
     /// <param name="onProgress">扫描进度（当前目录路径、已累计字节、已数文件数）。</param>
     /// <param name="budget">
-    /// 时间预算（2026-10-18）。到点就停止递归，返回**已统计到的部分**并置 <see cref="DiskScanResult.Truncated"/>。
+    /// 时间预算。到点就停止递归，返回**已统计到的部分**并置 <see cref="DiskScanResult.Truncated"/>。
     /// ⚠️ 整盘扫描动辄上百万文件，靠"超时就整条失败"体验极差 —— 让用户/模型先拿到部分结果，
     /// 比等一分半然后什么也没有强。传 <c>null</c> 表示不设限（老行为）。
     /// </param>

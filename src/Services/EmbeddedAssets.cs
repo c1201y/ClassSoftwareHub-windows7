@@ -61,7 +61,7 @@ public static class EmbeddedAssets
             if (name is null) return null;
 
             // ⚠️ 缓存统一进「按版本分的子目录」：cache\dv{版本}-{yyyyMMddHHmm}\（见 CacheHome）。
-            //    以前全堆在 cache\ 根下、靠文件名区分版本，越攒越乱、也没法按版本回收。
+            //    若全堆在 cache\ 根下、靠文件名区分版本，会越攒越乱、也没法按版本回收。
             var cacheDir = CacheHome.InstanceDir;
             Directory.CreateDirectory(cacheDir);
             var outPath = Path.Combine(cacheDir, outFileName);

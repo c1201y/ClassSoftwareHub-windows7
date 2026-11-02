@@ -6,12 +6,11 @@ using Avalonia;
 namespace ClassSoftwareHub.Desktop.Platform;
 
 /// <summary>
-/// 侧边栏收起条的**隐形点击/滑动热区**（2026-10-17）。
+/// 侧边栏收起条的**隐形点击/滑动热区**。
 ///
 /// <para>
-/// ── 为什么需要（用户原话）────────────────────────────────────────────
-/// 「优化一下竖线点击，用鼠标点必须对准，差一点点都不行，优化触控向屏幕内滑动展开」
-/// 收起条本身就是一条 8dip（细线样式 6dip）宽的线，离屏幕边还留了 5dip 空隙：
+/// ── 为什么需要 ────────────────────────────────────────────
+/// 收起条本身就是一条 8dip（细线样式 6dip）宽的线，离屏幕边还留了 5dip 空隙，命中难度过高：
 ///   · 鼠标：习惯把指针怼到屏幕边再点 —— 正好落在空隙里，点空；
 ///   · 触控：手指落点误差 10px 起步，8dip 的线基本点不着，更别说在它上面起滑。
 /// </para>
@@ -27,7 +26,7 @@ namespace ClassSoftwareHub.Desktop.Platform;
 /// ── 做法 ──────────────────────────────────────────────────────────
 /// 单独开一扇 **分层窗口（WS_EX_LAYERED）+ alpha = 1/255** 的原生弹窗，盖在
 /// 「竖线 + 到屏幕边的空隙 + 竖线内侧一条带」上：
-///   · 肉眼完全看不出来（alpha=1 在深/浅底色上的变化 ≤1/255，实测截图逐像素比对无差异）；
+///   · 肉眼完全看不出来（alpha=1 在深/浅底色上的变化 ≤1/255）；
 ///   · 但它是实打实的窗口，鼠标和触摸（Win7 触摸会转成鼠标消息）都落在它身上；
 ///   · z 序压在收起条窗口**下面**（见 <see cref="Place"/> 的 hWndInsertAfter），
 ///     竖线自己那块照旧走 Avalonia 的点击/滑动，两条路互不打架。
@@ -38,7 +37,7 @@ namespace ClassSoftwareHub.Desktop.Platform;
 /// </para>
 ///
 /// <para>
-/// ⚠️ 生命周期：只在**收起且可见**时摆出来；展开 / 隐藏 / 关窗立刻 <see cref="Hide"/>，
+/// 生命周期：只在**收起且可见**时摆出来；展开 / 隐藏 / 关窗立刻 <see cref="Hide"/>，
 ///    关窗时 <see cref="Dispose"/> 销毁原生窗口。创建失败只是没有容错区，点击照旧走 Avalonia。
 /// </para>
 /// </summary>
@@ -48,7 +47,7 @@ internal sealed class SidebarHitPad : IDisposable
 
     private const string ClassName = "ClassSoftwareHub.SidebarHitPad";
 
-    /// <summary>⚠️ 委托必须用静态字段托住，否则被 GC 回收后窗口过程就野了（Avalonia 里同样的坑）。</summary>
+    /// <summary>委托必须用静态字段托住，否则被 GC 回收后窗口过程就野了（Avalonia 里同样的坑）。</summary>
     private static NativeMethods.WNDPROC? _wndProc;
 
     private static ushort _classAtom;

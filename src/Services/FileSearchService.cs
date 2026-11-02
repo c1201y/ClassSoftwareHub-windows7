@@ -25,7 +25,7 @@ public sealed class FileSearchItem
 }
 
 /// <summary>
-/// 「文件快搜」的索引与查询（2026-10-29，insider1.4 新增）。
+/// 「文件快搜」的索引与查询（insider1.4 新增）。
 ///
 /// <para>
 /// 设计取舍：不引入 Everything 的 SDK，也不调用需要管理员权限的 NTFS USN/MFT 接口 ——
@@ -533,8 +533,7 @@ public sealed class FileSearchService
                     if (drive.DriveType != DriveType.Fixed && drive.DriveType != DriveType.Removable) continue;
 
                     // ⛔ 结尾的反斜杠必须留着："C:" 是**盘符相对路径**（相对于该盘当前目录），
-                    //    .NET 6 下枚举它得不到任何东西 —— 2026-10-30 实测索引 0 项、界面报
-                    //    「没有读取到任何文件」，就是这里 TrimEnd('\\') 造成的。
+                    //    .NET 6 下枚举它得不到任何东西，会导致索引 0 项。
                     var root = drive.RootDirectory.FullName;
                     if (root.Length < 3) continue;
 

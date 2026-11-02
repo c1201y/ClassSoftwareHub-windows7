@@ -75,7 +75,7 @@
         </Style>
 
         <!-- 常态透明：把 Button 自带的底色/描边压掉，否则窗口按钮会像个普通按钮 -->
-        <!-- ⚠️ 2026-10-03 补 Transitions（用户：「返回小箭头没有动画」）：WinUI 原版三大金刚
+        <!-- ⚠️ 补 Transitions：WinUI 原版三大金刚
              和返回键的悬停/按下都有 ~100ms 的底色淡入淡出，缺了这层就是「生切」。
              写在基样式上，pointerover / pressed 的变色、关闭键的红底白叉淡入全都吃到。 -->
         <Style Selector="Button.caption /template/ ContentPresenter#PART_ContentPresenter">
@@ -209,7 +209,7 @@
             <!-- ⛔ Win7 关键：图标字体。绝不能删。 -->
             <FontFamily x:Key="SymbolThemeFontFamily">avares://ClassSoftwareHub/Assets/Fonts/CshSymbols.ttf#CshSymbols</FontFamily>
 
-            <!-- 值转换器（2026-10-18 自上游 1.2.0 移植）：
+            <!-- 值转换器（自上游 1.2.0 移植）：
                  快捷入口模板用 —— SVG 图标与 FontIcon 二选一显示。
                  ⚠️ Avalonia 没有 Visibility 枚举，两个转换器返回 bool（绑 IsVisible）。 -->
             <core:NullToCollapsed x:Key="NullToCollapsed" />
@@ -227,7 +227,7 @@
                     <SolidColorBrush x:Key="CshCaptionGlyphBrush" Color="#1B1B1B" />
                     <SolidColorBrush x:Key="CshCaptionHoverBrush" Color="#14000000" />
                     <SolidColorBrush x:Key="CshCaptionPressedBrush" Color="#24000000" />
-                    <!-- ════════════ Hub AI 品牌资源（2026-10-18 上游新增；2026-10-22 移植）════════════
+                    <!-- ════════════ Hub AI 品牌资源（自上游移植）════════════
                          为什么集中在这里：AI 的品牌色**不跟随系统强调色**（用户把强调色改成绿色，
                          AI 图标也跟着变绿会很怪）。这里是全项目唯一允许写死色值的地方，页面只引用键名。
                          配色口径：借鉴「极淡多色过渡」—— 彩色当空气铺在背景里，图标保持中性。 -->
@@ -378,8 +378,7 @@
                     </ControlTemplate>
                 </Setter>
 
-                <!-- ⚠️ 2026-10-04（用户第 17 轮「应用有些地方没有动画，适当加一点」）：
-                     卡片上那两层的显隐原来是**硬切换**（Opacity 直接 0 → 0.7），鼠标划过很生硬。
+                <!-- ⚠️ 卡片上那两层的显隐原来是**硬切换**（Opacity 直接 0 → 0.7），鼠标划过很生硬。
                      给 Hover（悬停浅灰底）和 Tint（选中强调色淡底）各补一条 Opacity 过渡：
                      划过时淡上来、移开时淡下去、选中时也是渐渐染色 —— 观感立刻不一样，
                      而且只动透明度，老机器（无 DWM 合成）也不掉帧。

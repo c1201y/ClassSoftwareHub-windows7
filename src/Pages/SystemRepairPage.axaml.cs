@@ -10,6 +10,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
 using ClassSoftwareHub.Desktop.Core;
+using ClassSoftwareHub.Desktop.Platform;
 using ClassSoftwareHub.Desktop.Services;
 using FluentAvalonia.UI.Controls;
 
@@ -117,7 +118,8 @@ public partial class SystemRepairPage : Platform.PageBase
         // 悬停反馈（容器 chrome 已关掉）
         border.PointerEntered += (_, _) => border.Opacity = 0.88;
         border.PointerExited += (_, _) => border.Opacity = 1.0;
-        border.PointerPressed += (_, _) => _ = StartTaskAsync(task);
+        // ⛔ 不能用 PointerPressed：触屏滑列表时手指先落在卡片上，按下就会把任务启动起来
+        TapActivate.Bind(border, () => _ = StartTaskAsync(task));
 
         ToolTip.SetTip(border, task.Meta);
         return border;
@@ -353,13 +355,27 @@ public partial class SystemRepairPage : Platform.PageBase
         StopButton.IsEnabled = false;
         BackButton.IsEnabled = true;
 
-        var elapsed = DateTime.Now - session.StartedAt;
+        // ⚠️ 用时以**助手自己记录的起止时刻**为准（老版本助手没写就退回会话时间）。
+        //    界面和日志用同一个数，另外把墙上时间（时:分:秒–时:分:秒）也摆出来，
+        //    方便用户拿系统日志 / CBS.log 里的一行对账 —— 这就是"时间和日志对不上"的解法。
+        var started = outcome.StartedAtTicks > 0
+            ? new DateTime(outcome.StartedAtTicks, DateTimeKind.Utc).ToLocalTime()
+            : session.StartedAt;
+        var ended = outcome.EndedAtTicks > 0
+            ? new DateTime(outcome.EndedAtTicks, DateTimeKind.Utc).ToLocalTime()
+            : DateTime.Now;
+        var elapsed = ended - started;
+        var span = $"{started:HH:mm:ss}–{ended:HH:mm:ss}";
+
         RunProgress.IsIndeterminate = false;
         if (!outcome.Cancelled) RunProgress.Value = 100;
 
-        RunStatus.Text = outcome.Cancelled
-            ? $"已中止　·　共运行 {Format(elapsed)}"
-            : $"已完成　·　用时 {Format(elapsed)}";
+        // ⛔ 退出码非 0 就别写"已完成" —— 真机上 chkdsk 秒退返回 3，界面却写着「已完成·用时 00:01」，
+        //    用户只会觉得功能是坏的。
+        var headline = outcome.Cancelled
+            ? "已中止"
+            : outcome.ExitCode == 0 ? "已完成" : $"已结束（返回代码 {outcome.ExitCode}）";
+        RunStatus.Text = $"{headline}　·　用时 {Format(elapsed)}　·　{span}";
 
         if (outcome.Cancelled)
         {
@@ -374,6 +390,15 @@ public partial class SystemRepairPage : Platform.PageBase
             ResultBar.Title = "命令正常结束";
             ResultBar.Message = "返回代码 0，过程中没有报错。具体结论见上面的输出。";
         }
+        else if (outcome.ExitCode == 3 && session.Task.Id == "chkdsk-scan")
+        {
+            // chkdsk 的退出码 3 = 「未能检查该卷」。系统盘正在使用、拿不到独占访问时就会这样，
+            // Win7 的只读检查尤其容易撞上；这不等于磁盘有错误，别让用户误以为磁盘坏了。
+            ResultBar.Severity = InfoBarSeverity.Warning;
+            ResultBar.Title = "磁盘检查未能完成（返回代码 3）";
+            ResultBar.Message = "chkdsk 报告「未能检查该卷」。系统盘正在使用、拿不到独占访问时就会出现这个结果，"
+                                + "本身不代表磁盘有错误。如果上面没有任何输出，说明 chkdsk 在开始扫描前就退出了。";
+        }
         else
         {
             ResultBar.Severity = InfoBarSeverity.Error;
@@ -384,7 +409,8 @@ public partial class SystemRepairPage : Platform.PageBase
 
         ResultBar.IsOpen = true;
         AppLog.Info("repair",
-            $"「{session.Task.Name}」收尾：中止={outcome.Cancelled} 退出码={outcome.ExitCode} 用时={Format(elapsed)}");
+            $"「{session.Task.Name}」收尾：中止={outcome.Cancelled} 退出码={outcome.ExitCode} "
+            + $"用时={Format(elapsed)}（{span}）");
     }
 
     private void Stop_Click(object? sender, RoutedEventArgs e)

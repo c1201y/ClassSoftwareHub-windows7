@@ -36,8 +36,7 @@ namespace ClassSoftwareHub.Desktop.Views;
 ///
 /// <para>
 /// 收值时机：点「完成」和点窗口的 × 都要落定，按草稿写进设置。
-/// 不提供「跳过」（2026-10-31 Nick 定）：初次配置是必选的，跳过会静默丢掉用户
-/// 前面选好的主题等项 —— "OOBE 选了浅色、进主界面还是深色"就是这么来的。
+/// 不提供「跳过」：初次配置为必选流程，跳过会静默丢弃已选项（如主题）。
 /// </para>
 ///
 /// <para>
@@ -172,8 +171,8 @@ public sealed partial class WelcomeWindow : Window
     /// <summary>
     /// 强制预览一次向导，**不读写 OobeState、不应用设置**。
     /// 用法：<c>ClassSoftwareHub.exe --oobe-preview</c>（见 App）。
-    /// ⚠️ 原版只在 DEBUG 构建里有；移植版 Release 也留着 —— 教室机现场核对向导外观时，
-    ///    总不能再装一个调试构建（该开关不写任何设置，跑完即退，无副作用）。
+    /// 原版仅在 DEBUG 构建提供；移植版 Release 保留，供现场核对向导外观
+    /// （该开关不写任何设置，跑完即退，无副作用）。
     /// </summary>
     public static void ShowPreview(Action onDone)
     {
@@ -211,8 +210,8 @@ public sealed partial class WelcomeWindow : Window
         {
             AppLog.Exception("oobe", ex, "初次配置窗口创建失败");
 
-            // ⛔ 建不出来不能就这么挂着：不改状态的话，之后**每次**启动都会再试一遍、
-            //    每次都失败、每次都在日志里留一坨异常。直接按"已处理"记账，让用户进主界面。
+            // 创建失败时按"已处理"记账：否则之后每次启动都会重复尝试失败并留下异常日志。
+            // 记账后用户仍可正常进入主界面。
             if (!_preview)
             {
                 App.Settings.Current.OobeState = OobeStates.Done;
@@ -290,8 +289,8 @@ public sealed partial class WelcomeWindow : Window
         if (_started || _closed) return;
         _started = true;
 
-        // ⚠️ 放到 Loaded 之后一拍再播：页面是在窗口显示后才真正挂上视觉树，
-        //    欢迎页要在这时才能订阅到 session.Started。早一拍发通知，动画就整个错过。
+        // 延后到窗口显示、页面挂上视觉树之后再播：欢迎页此时才能订阅 session.Started，
+        // 过早发通知会错过开场动画。
         Dispatcher.UIThread.Post(() =>
         {
             if (_closed) return;
@@ -392,9 +391,9 @@ public sealed partial class WelcomeWindow : Window
 
         OobeSession.Detach();
 
-        // 主窗口就是在这里才出现的（新装首启时它一直没显示过）。
-        // ⚠️ 顺序与上游相反：先亮主界面、再收向导 —— Avalonia 按「最后一个窗口关闭」退出，
-        //    先 Close 会把整条退出流程触发掉（见类注释）。同一个调用栈内完成，观感一致。
+        // 主窗口在此处才首次显示（新装首启时它一直没显示过）。
+        // 顺序与上游相反（先亮主界面、再收向导）：Avalonia 按「最后一个窗口关闭」退出，
+        // 先 Close 会触发整条退出流程（见类注释）；两步在同一调用栈内完成，观感一致。
         try { _onDone?.Invoke(); }
         catch (Exception ex) { AppLog.Warn("oobe", "收尾回调失败：" + ex.Message); }
 
@@ -403,7 +402,7 @@ public sealed partial class WelcomeWindow : Window
 
     /// <summary>
     /// 完成页的入口：先收尾（写设置 + 亮主窗口），再跳页。
-    /// ⚠️ 顺序不能反 —— 主窗口还没显示时 Shell 的导航还没准备好，先跳会被吞掉。
+    /// 顺序不能反：主窗口未显示时 Shell 导航未就绪，先跳转会被丢弃。
     /// </summary>
     internal void FinishAndNavigate(string tag)
     {
@@ -425,9 +424,8 @@ public sealed partial class WelcomeWindow : Window
         s.ExternalTheme = NormalizeChoice(draft.ExternalTheme, "system", "system", "light", "dark");
 
         // 外观走主窗口的 SetTheme：它内部会 Save、重算背景材质、通知侧边栏与浮窗跟着换。
-        // ⛔ 别在这儿直接写 s.Theme —— 少那两步，用户会看到"主窗口换了、侧边栏还是旧的"。
-        // ⚠️ 主窗口这时已经建好（只是还没显示）。万一它没建出来，也要把存档写对：
-        //    否则用户选浅色、进主界面还是深色，下次启动也纠正不回来（2026-10-31 反馈）。
+        // 不可在此直接写 s.Theme，否则会跳过材质重算与联动通知。
+        // 主窗口此时已创建（未显示）；即使创建失败也要把存档写对，否则下次启动主题仍不正确。
         var theme = string.IsNullOrWhiteSpace(draft.Theme) ? "system" : draft.Theme.Trim().ToLowerInvariant();
         if (shell is not null)
         {
@@ -479,8 +477,8 @@ public sealed partial class WelcomeWindow : Window
         App.Settings.Save();
 
         // 侧边栏开关切换后要立刻生效（平时只有侧边栏布局页做这一步）。
-        // ⚠️ 主窗口这时还没显示，ApplySetting 会照常把侧边栏摆出来 —— 所以放在 Save 之后、
-        //    回调（Activate 主窗口）之前，用户第一次看见桌面时它已经在正确的位置上。
+        // 主窗口此时未显示，ApplySetting 会照常摆出侧边栏；放在 Save 之后、回调之前，
+        // 保证用户首次见到桌面时侧边栏已在正确位置。
         try { ToolSidebarWindow.ApplySetting(); }
         catch (Exception ex) { AppLog.Warn("oobe", "侧边栏开关应用失败：" + ex.Message); }
     }

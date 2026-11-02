@@ -14,9 +14,9 @@ namespace ClassSoftwareHub.Desktop.Platform;
 /// </para>
 ///
 /// <para>
-/// ⚠️ 别用 <c>TopLevel.RequestAnimationFrame</c> 替代它：Avalonia 11.2.8 的帧回调
+/// 别用 <c>TopLevel.RequestAnimationFrame</c> 替代它：Avalonia 11.2.8 的帧回调
 /// 跟着“这一次渲染”走，窗口只是被 SetWindowPos 挪动、内容没有脏区时合成器不一定刷帧，
-/// 实测 220ms 的滑动只落了 6 帧（总时长被拖到 350ms）。按时间驱动的计时器才稳。
+/// 短滑动可能只落几帧。按时间驱动的计时器才稳。
 /// </para>
 /// </summary>
 internal readonly struct TimerResolutionScope : IDisposable

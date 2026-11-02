@@ -13,8 +13,8 @@ namespace ClassSoftwareHub.Desktop.Pages;
 /// <summary>
 /// 「实验性功能 → 虚拟键盘」。
 ///
-/// ⚠️ 它归在实验性功能分组里，**不占设置页**（Nick 2026-09-30 定）。
-/// ⛔ 所有项一律用系统 <c>SettingsCard</c>，不自行绘制卡片。
+/// 它归在实验性功能分组里，不占设置页。
+/// 所有项一律用系统 <c>SettingsCard</c>，不自行绘制卡片。
 ///
 /// ⚠️ 移植说明（WinUI → Avalonia）：
 ///   · Page → <see cref="PageBase"/>；DispatcherQueueTimer → Avalonia 的 DispatcherTimer。

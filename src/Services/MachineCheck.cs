@@ -61,9 +61,9 @@ public static class MachineCheck
         IReadOnlyList<InstalledApp>? storePackages = null)
     {
         // 预处理：归一化一次，别在双重循环里反复算。
-        // ⚠️ 这里**不按长度过滤**。踩过的坑：一开始写成 `Norm.Length >= 3` 才收进索引，
-        //    结果「钉钉」「微信」这类两字中文名归一化后正好 2 个字，被整条滤掉 ——
-        //    于是本机明明装着，界面却永远显示"没查到"。老师一眼就能看出不对。
+        // ⚠️ 这里**不按长度过滤**：「钉钉」「微信」这类两字中文名归一化后正好 2 个字，
+        //    若 `Norm.Length >= 3` 才收进索引，会把它们整条滤掉，
+        //    于是本机明明装着，界面却永远显示"没查到"。
         //    长度只用来限制**包含式**匹配，精确相等不看长度。
         var index = installed
             .Where(a => InstalledApps.Normalize(a.Name).Length > 0)
@@ -88,7 +88,7 @@ public static class MachineCheck
             // 整串没认出来时，再拿「空格切出来的每一段」单独试一次精确匹配。
             // 清单里很多名字是「产品名 + 品类词」（ToDesk 远程控制 / PeaZip 解压缩工具 /
             // Firefox 火狐浏览器），而注册表只写产品名 —— 整串比重合度会被品类词拉低到阈值以下，
-            // 于是本机明明装着也判"没装"（2026-09-27 实测：ToDesk 就是这么漏的）。
+            // 于是本机明明装着也判"没装"（ToDesk 这类纯英文短名就是这样漏的）。
             if (hit is null && norm.Length > 0)
                 hit = BestAliasMatch(app.Name, norm, index);
 

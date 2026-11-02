@@ -22,14 +22,13 @@ namespace ClassSoftwareHub.Desktop.Views;
 /// <summary>
 /// 音量合成器浮窗（横向）：主音量浮窗上点「展开」弹出，**贴着主音量浮窗往屏幕里侧排**。
 ///
-/// 每个应用**一行** = 软件图标 + 软件名称 + 横滑块（不管边条贴哪条边都是这个搭法 ——
-/// 贴着上/下时把它改成"一列一个应用"会很怪，2026-09-26 Nick 定）。
+/// 每个应用**一行** = 软件图标 + 软件名称 + 横滑块（不管边条贴哪条边都是这个搭法）。
 ///
 /// 刷新策略：1.5s 轮询，但**只增删、绝不重建、绝不重排**：
 ///   · 重建（Clear + 重加）会把正在拖的滑块从可视树里摘下来 → 指针捕获当场断掉，
-///     表现就是"滑一半不滑了"（2026-09-26 修）；
-///   · 重排同理，所以新冒出来的应用**追加在最后**，不做排序。
-/// 拖动判定的按下/松手要用 <c>handledEventsToo: true</c> 才收得到 ——
+///     表现为"滑到一半滑不动"；
+///   · 重排同理，所以新出现的应用**追加在最后**，不做排序。
+/// 拖动判定的按下/松手需使用 <c>handledEventsToo: true</c> 订阅 ——
 /// Slider 内部会把 PointerPressed 标成 handled，普通订阅收不到（也是这个 bug 的一半原因）。
 ///
 /// ⚠️ 移植说明：行 Grid 的 ColumnSpacing="12" → 名称/滑块 Margin 模拟（Avalonia Grid 没有列间距）；
@@ -113,15 +112,14 @@ public sealed partial class VolumeMixerWindow : Window
     {
         try
         {
-            // ⚠️ 2026-10-29（上游 1.8）：分体外观只管「常用工具」浮窗与侧边栏，
-            //    合成器浮窗改回**跟应用主题**（与主音量浮窗同一口径）。
+            // 分体外观只作用「常用工具」浮窗与侧边栏，
+            //    合成器浮窗跟应用主题（与主音量浮窗同一口径）。
             ThemeCompat.Apply(Root);
             VolumeFlyoutGroup.MixerHwnd = _chrome.Hwnd;
 
             Deactivated += (_, _) => VolumeFlyoutGroup.EnsureMouseWatch();   // 收窗判据是鼠标不是焦点，见 VolumeFlyoutGroup
 
-            // ── 拖动：**已全部撤掉**（2026-10-03，用户第 16 轮「悬浮窗还是无法点击展开，
-            //    去掉拖动调整位置吧」）—— 与主音量浮窗同一口径，理由见 VolumeWindow.Configure。
+            // ── 拖动：已全部撤掉 —— 与主音量浮窗同一口径，理由见 VolumeWindow.Configure。
 
             Root.KeyDown += (_, e) =>
             {
@@ -163,8 +161,8 @@ public sealed partial class VolumeMixerWindow : Window
             var h = (int)Math.Round(dip.Y * scale);
             var work = WorkArea();
 
-            // 锚点 = 主音量浮窗的**最终落点**（不是半路上的实时位置 —— 主音量还在滑入时
-            //    点「展开」，锚实时位置会让主音量随后滑进来正好压住合成器，2026-10-01 修）。
+            // 锚点 = 主音量浮窗的**最终落点**（不是实时位置 —— 锚实时位置时，
+            //    主音量滑入途中点「展开」，合成器会按半路位置落座、随后被主音量压住）。
             //    沿边方向与主音量**顶对齐**（左右边）/左对齐（上下边）：两个高矮不一的窗排成一列整齐的块。
             var anchor = VolumeWindow.AnchorRect ?? EdgeGeometry.EdgeBar(VolumeWindow.Edge, work);
             var (start, final) = EdgeGeometry.BesideAnchor(VolumeWindow.Edge, anchor, work, w, h, scale, alignStart: true);
@@ -261,7 +259,7 @@ public sealed partial class VolumeMixerWindow : Window
     private int CurrentSessionCount() => AudioService.GetActiveSessions().Count;
 
     /// <summary>
-    /// ⚠️ 只增删、不重建、不重排 —— 见类注释（重建会把正在拖的滑块摘出可视树，拖动当场断）。
+    /// 只增删、不重建、不重排 —— 见类注释（重建会把正在拖的滑块摘出可视树，拖动当场断）。
     /// </summary>
     private void Refresh()
     {
@@ -335,7 +333,7 @@ public sealed partial class VolumeMixerWindow : Window
     /// <summary>
     /// 建一行：图标（24）｜名称（定宽 118，超了省略号）｜滑块（吃掉剩下的宽度）。
     /// 名称定宽是为了**行行对齐**；滑块要拖，所以按下/松手判定挂 handledEventsToo。
-    /// ⚠️ 原版 Grid 的 ColumnSpacing="12" 用「名称/滑块左 Margin 12」模拟。
+    /// 原版 Grid 的 ColumnSpacing="12" 用「名称/滑块左 Margin 12」模拟。
     /// </summary>
     private SessionRow BuildSessionRow(AudioSessionItem session)
     {
@@ -403,8 +401,8 @@ public sealed partial class VolumeMixerWindow : Window
             AudioService.SetSessionPercent(row.Item, (int)Math.Round(e.NewValue));
         };
 
-        // ⚠️ handledEventsToo: true —— Slider 内部会把 PointerPressed 标成 handled，
-        //    普通 += 订阅收不到，"_anyDragging" 就永远是 false，轮询照样来拆行（滑一半就断）。
+        // handledEventsToo: true —— Slider 内部会把 PointerPressed 标成 handled，
+        //    普通 += 订阅收不到，"_anyDragging" 永远为 false，轮询会照常拆行（拖动中断）。
         //（WinUI 的 UIElement 路由事件 → Avalonia 挂在 InputElement 上，与 SidebarLayoutPage 同一套写法）
         slider.AddHandler(InputElement.PointerPressedEvent,
             new EventHandler<PointerPressedEventArgs>((_, _) => { row.Dragging = true; _anyDragging = true; }),

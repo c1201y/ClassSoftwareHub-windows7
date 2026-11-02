@@ -139,7 +139,7 @@ public sealed partial class MainWindow : Window
 
         Closed += OnWindowClosed;
 
-        // ⛔ 2026-10-22：主窗口壳层里的 ScrollViewer 同样要摘手势识别器（崩溃根因见 ScrollGestureFix）
+        // ⛔ 主窗口壳层里的 ScrollViewer 同样要摘手势识别器（崩溃根因见 ScrollGestureFix）
         Platform.ScrollGestureFix.Install(this);
 
         // 托盘图标：关窗口收托盘、开机最小化收托盘、托盘菜单（工具浮窗 / 退出）都靠它
@@ -157,7 +157,7 @@ public sealed partial class MainWindow : Window
         Platform.PortLog.Step("MainWindow: 内容包已加载");
 
         // ⛔ 初次配置期间不建 Shell 首页：主窗口这会儿是隐形的，首页那一帧照样要占掉
-        //    一整个渲染周期 —— 实测把刚弹出来的向导窗口压成 1 秒多的空白窗（2026-10-31）。
+        //    一整个渲染周期 —— 实测会把刚弹出来的向导窗口压成 1 秒多的空白窗。
         //    等向导收尾（App.EndOobeAndShowMainWindow）再补 StartShell()。
         if (App.ShellDeferredForOobe)
         {
@@ -228,7 +228,7 @@ public sealed partial class MainWindow : Window
 #endif
 
         // 窗口真正显示之后再兜一次圆角：框架在首帧还会碰一次标题栏，
-        // 早于显示设的值有可能被它按回去（图标那边也踩过同样的重置）。
+        // 早于显示设的值有可能被它按回去（图标那边也发生过同样的重置）。
         ApplyWindowRounding();
 
         // 首帧会按系统主题重刷一次非客户区，深色标题栏也得在这之后补一次。
@@ -312,7 +312,7 @@ public sealed partial class MainWindow : Window
                 return;
             }
 
-            // ⚠️ 2026-10-07：窗口"露得够多"≠"整扇都够得着"。
+            // ⚠️ 窗口"露得够多"≠"整扇都够得着"。
             //    Windows 给「没自己指定位置」的窗口用的是**级联默认位置** —— 每开一次就往下、往右挪一点；
             //    窗口高度又和屏幕差不多时，右下角（往往正是"开始抽号"这类主操作按钮）会压到任务栏底下，
             //    用户看到的现象和"按钮点了没反应"一模一样。
@@ -357,7 +357,7 @@ public sealed partial class MainWindow : Window
             var result = await service.CheckAsync(channel, ShellConfig.ShellVersion);
             if (result is not { HasUpdate: true, Release: { } release }) return;
 
-            // 记下"有新版本"：首页那颗「立即更新」靠它（2026-10-18 自上游 1.2.0 移植）。
+            // 记下"有新版本"：首页那颗「立即更新」靠它（自上游 1.2.0 移植）。
             // ⛔ 只存结果，不发起检查 —— 首页绝不能自己联网。
             Services.Updating.UpdateNotice.Set(release);
 
@@ -418,10 +418,10 @@ public sealed partial class MainWindow : Window
     /// <summary>下载跑完的提示：完成报一声「好了」，失败也报一声（别让人以为还在下）。</summary>
     private void OnDownloadFinished(DownloadTask task)
     {
-        // 进度弹窗正开着它 → 弹窗自己会弹「下载完成 / 下载失败」，别再叠一条系统通知
+        // 进度弹窗正开着它 → 弹窗自己会弹「下载完成 / 下载失败」，不再叠加系统通知
         if (_dialogDownloadTaskIds.ContainsKey(task.Id)) return;
 
-        // 更新包不走"下载完成"这条通知（2026-10-18 自上游 1.2.0 移植）：
+        // 更新包不走"下载完成"这条通知（自上游 1.2.0 移植）：
         // 它已经有一条「更新 x.y.z」任务卡片在那儿，点卡片的「安装」才是用户要做的事 ——
         // 再叠一条"下载完成，已保存到下载文件夹"只会把用户带偏。
         if (task.Kind == DownloadTaskKind.Update) return;
@@ -429,7 +429,7 @@ public sealed partial class MainWindow : Window
         if (task.State == DownloadState.Completed)
         {
             // 落点以**实际写入的路径**为准：用户可能这一条点了「下载到其他文件夹…」，
-            // 也可能默认目录换了地方，写成固定值会报错地方（2026-11-01 自上游 insider1.8 移植）。
+            // 也可能默认目录换了地方，写成固定值会指错位置（自上游 insider1.8 移植）。
             var folder = Path.GetDirectoryName(task.Path ?? "");
             if (string.IsNullOrEmpty(folder)) folder = DownloadService.SaveDir;
             ShowBalloon("下载完成", $"{task.FileName}\n已保存到：{folder}",
@@ -535,6 +535,10 @@ public sealed partial class MainWindow : Window
     /// 打窗口图标。除了 Avalonia 的 <c>Icon</c> 之外再补一发老式的 WM_SETICON ——
     /// 有的环境下只设 Avalonia 图标不生效，任务栏 / Alt-Tab 就一直是系统默认图标。
     /// </summary>
+    /// <summary>WM_SETICON 挂上的原生图标句柄；窗口不接管所有权，替换与关窗时须 DestroyIcon。</summary>
+    private IntPtr _hIconBig;
+    private IntPtr _hIconSmall;
+
     private void ApplyWindowIcon(IntPtr hwnd)
     {
         var icon = IconPath();
@@ -552,6 +556,10 @@ public sealed partial class MainWindow : Window
             var small = NativeMethods.LoadImage(IntPtr.Zero, icon, NativeMethods.IMAGE_ICON, 16, 16, NativeMethods.LR_LOADFROMFILE);
             if (big != IntPtr.Zero) NativeMethods.SendMessage(hwnd, NativeMethods.WM_SETICON, NativeMethods.ICON_BIG, big);
             if (small != IntPtr.Zero) NativeMethods.SendMessage(hwnd, NativeMethods.WM_SETICON, NativeMethods.ICON_SMALL, small);
+            NativeMethods.DestroyIcon(_hIconBig);
+            NativeMethods.DestroyIcon(_hIconSmall);
+            _hIconBig = big;
+            _hIconSmall = small;
         }
         catch { }
     }
@@ -589,7 +597,7 @@ public sealed partial class MainWindow : Window
 
             // ⚠️ 存档尺寸必须**按当前屏幕夹一次**：存档里那对 1280×655 是上一台机器/上一个分辨率
             //    留下的，换台机器（或换了缩放）之后可能比现在的屏幕还大，窗口就会长到屏幕外面去，
-            //    用户看到的现象正是"程序在跑，主界面不显示"（2026-10-01 实测反馈）。
+            //    用户看到的现象正是"程序在跑，主界面不显示"（实测反馈）。
             //    上下限都按屏幕算：屏幕本身就矮（老投影机 1024×768）时，下限要让步，否则窗口永远装不下。
             var primary = Screens.Primary;
             var work = primary?.WorkingArea ?? new PixelRect(0, 0, 1920, 1080);
@@ -643,7 +651,7 @@ public sealed partial class MainWindow : Window
             // 这一支是"真的要走"（托盘退出 / 用户关掉了「收进托盘」）。
             // ⚠️ 必须打上全局退出标记：工具浮窗与 Q 群反馈窗的 Closing 会把关闭拦成"收起来"，
             //    而 desktop.Shutdown() 撞上被取消的关闭就会中止整条退出流程 ——
-            //    结果就是"窗口都关了、托盘也摘了、进程却一直不走"（2026-10-04 实测）。
+            //    结果就是"窗口都关了、托盘也摘了、进程却一直不走"（实测确认）。
             if (_exitRequested || !_settings.Current.CloseToTray)
             {
                 App.IsExiting = true;
@@ -654,7 +662,7 @@ public sealed partial class MainWindow : Window
             if (_tray?.IsReady != true)
             {
                 // 用户要的是「收进托盘」，但托盘根本没挂上 —— 直接退出等于把程序弄没了，
-                // 用户只会觉得"点一下 × 程序就崩了"（2026-10-28 实机反馈）。
+                // 用户只会觉得"点一下 × 程序就崩了"（实机反馈）。
                 // 托盘挂不上最常见的原因是 UIPI：explorer.exe 以管理员身份运行（High），
                 // 本进程是普通权限（Medium），NIM_ADD 直接被拒（err=5），与程序代码无关。
                 //   · 第一次点 × ：最小化 + 说明一次（窗口还在，点桌面图标也能唤回）
@@ -698,7 +706,7 @@ public sealed partial class MainWindow : Window
         //   看得见            → 走"水位 + 停手"那条路（见 Services/MemoryTrimmer.cs）。
         Services.MemoryTrimmer.IsIdle = () => !IsWindowVisible() || IsMinimized();
 
-        // 可见时也得能收 —— 后台巡检线程就是那条路唯一的触发点（2026-10-02，
+        // 可见时也得能收 —— 后台巡检线程就是那条路唯一的触发点（
         // 起因：用户一直可见地乱点也能把占用顶到半个 G，而原来只在最小化时收）。
         // ⚠️ 必须**注完 IsIdle 再起**，否则头几轮巡检会按"看得见"判、空转。
         Services.MemoryTrimmer.StartWatch();
@@ -706,7 +714,7 @@ public sealed partial class MainWindow : Window
 
     /// <summary>窗口大小 / 位置 / 最大化状态变了：重算网页落点、圆角、标题栏几何。</summary>
     /// <remarks>
-    /// ⚠️ 2026-10-02 性能：拖拽改大小时系统每动一像素就改一次尺寸，<c>Resized</c> 与
+    /// ⚠️ 性能：拖拽改大小时系统每动一像素就改一次尺寸，<c>Resized</c> 与
     ///    <c>PositionChanged</c> 会**各**触发一次，这个方法原来每次都要发一遍网页脚本
     ///    （<c>ExecuteScriptAsync</c> 是跨进程往返，最贵的一项），于是拖起来一顿一顿的。
     ///    现在分两级：
@@ -783,7 +791,7 @@ public sealed partial class MainWindow : Window
     ///       做法：**一个字节的窗口样式都不改**（WS_CAPTION / WS_THICKFRAME 全留着），
     ///       只在消息层 WM_NCCALCSIZE 声明「非客户区 0 像素」、WM_NCHITTEST 自己报边缘与标题栏命中。
     ///       于是原生边框消失、48px 的应用内标题栏真正顶到窗口上沿，而
-    ///       **拖拽缩放、Aero 吸附、双击最大化、任务栏右键菜单仍然由系统执行**（2026-10-02 落地）。
+    ///       **拖拽缩放、Aero 吸附、双击最大化、任务栏右键菜单仍然由系统执行**。
     ///   ⚠️ 无论哪条路，应用内 48px 的 <c>TitleBarArea</c> 结构都保持与原版一致；拖动统一走
     ///      <see cref="BeginWindowDrag"/>（ReleaseCapture + WM_NCLBUTTONDOWN/HTCAPTION，原版同款，
     ///      Win7 完整可用），双击走 <see cref="ToggleWindowMaximize"/>。
@@ -829,7 +837,7 @@ public sealed partial class MainWindow : Window
     /// Windows 10/11（扩展客户区路线）的标题栏命中测试。
     ///
     /// <para>
-    /// ⚠️ 2026-10-30（用户：「Win10 以上拖不动窗口，Win7 可以」）：两条路线的拖动能力原来并不一致。
+    /// ⚠️（用户报告「Win10 以上拖不动窗口，Win7 可以」）两条路线的拖动能力原来并不一致。
     ///    Win7 的 <see cref="Core.SelfDrawnFrame"/> 会把标题栏报成 <c>HTCAPTION</c>，系统自己去跑移动循环；
     ///    Win10/11 走 Avalonia 的扩展客户区，而 Avalonia 不处理 <c>WM_NCHITTEST</c>
     ///    （实测整条标题栏一律 <c>HTCLIENT=1</c>，只有四周缩放带是 HTLEFT/…），
@@ -1229,7 +1237,7 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 记住窗口大小 / 位置 / 是否最大化（2026-10-18 自上游 1.2.0 移植）。
+    /// 记住窗口大小 / 位置 / 是否最大化（自上游 1.2.0 移植）。
     /// ⚠️ 最大化时不写尺寸与位置 —— 那会把"最大化时的窗口框"存成下一次的普通尺寸。
     /// </summary>
     private void SaveWindowState()
@@ -1279,7 +1287,7 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 恢复上次的窗口位置/大小/最大化，并按**当前屏幕**夹一趟（2026-10-18 自上游 1.2.0 移植）。
+    /// 恢复上次的窗口位置/大小/最大化，并按**当前屏幕**夹一趟（自上游 1.2.0 移植）。
     /// ⛔ 不夹的话，换回一台更小的机器时窗口会落到屏幕外 —— 用户看到的就是"程序在跑，主界面不显示"。
     /// </summary>
     private void LoadWindowBounds()
@@ -1337,10 +1345,15 @@ public sealed partial class MainWindow : Window
         try { _trayTools?.Dispose(); } catch { }
         _trayTools = null;
 
+        NativeMethods.DestroyIcon(_hIconBig);
+        NativeMethods.DestroyIcon(_hIconSmall);
+        _hIconBig = IntPtr.Zero;
+        _hIconSmall = IntPtr.Zero;
+
         // 走到这儿说明主窗口是**真的关掉了**（"收进托盘"那条路在 Closing 里被 cancel，压根到不了 Closed）
         // → 应用就该退出了。
         // ⛔ Avalonia 也是"主窗关了不等于进程退"：侧边栏 / 工具浮窗还活着，消息循环就被撑住，
-        //    进程会一直挂在任务管理器里。2026-10-04 实测：把「关闭时收进托盘」关掉后点 ×
+        //    进程会一直挂在任务管理器里。实测：把「关闭时收进托盘」关掉后点 ×
         //    （= 任务栏右键「关闭窗口」）必现残留。所以这里自己把剩下的窗口收掉并请应用退出。
         //    已经由 ExitApp 发起时（_exitRequested 已是 true）不重复走 —— 那条路自己会收尾。
         if (!_exitRequested)
@@ -1429,9 +1442,9 @@ public sealed partial class MainWindow : Window
 
         // ⚠️ 实测核验：RequestedThemeVariant 不在 StyledElement 上，只在 Application / TopLevel / ThemeVariantScope。
         //    本窗口自己是 TopLevel（Window），直接设它即可；再 Notify 一次让登记过的外部组件（侧栏/浮窗/截图窗）一起换。
-        //    ⚠️ 本窗口的根必须登记成 **main 作用域**（2026-10-03 修）：以前所有根共用一个"当前设置"，
+        //    ⚠️ 本窗口的根必须登记成 **main 作用域**：以前所有根共用一个"当前设置"，
         //    开了「外部组件单独外观」后 Notify 会把外部组件的外观也算给主窗口 —— 浅色主界面上
-        //    全是深色那套的白字，整个设置页白底白字看不清（用户截图实锤）。
+        //    全是深色那套的白字，整个设置页白底白字看不清（用户截图证实）。
         RequestedThemeVariant = ThemeCompat.Map(theme);
         ThemeCompat.Apply(RootGrid);   // 登记本窗口根（幂等），后续 Notify 才会把它算进去
         ThemeCompat.Notify();
@@ -1683,7 +1696,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        // 没登记动作的（老路子）：把界面叫出来 + 顺手查一次更新
+        // 没登记动作的（老路子）：把界面调出来 + 同时查一次更新
         ShowFromTray();
         _ = CheckUpdateManualAsync();
     }
@@ -1734,7 +1747,7 @@ public sealed partial class MainWindow : Window
     /// <summary>
     /// 窗口可见性看门狗：主窗口"本该看得见、系统侧却是隐藏状态"时，把它拉回来。
     ///
-    /// 为什么需要（2026-10-01 实机日志给的证据）：
+    /// 为什么需要（实机日志证实）：
     ///   出问题的那个实例，枚举它的顶层窗口是这样的 ——
     ///       · 可见 40x220   标题=「工具侧边栏」
     ///       · 隐藏 2480x1135 标题=「ClassSoftwareHub」   ← 主窗口是"隐藏"的
@@ -1791,7 +1804,7 @@ public sealed partial class MainWindow : Window
     /// <summary>
     /// 第一次「点 × 收进托盘」时提示一次（只提示一次，之后不再打扰）。
     ///
-    /// 用户反馈（2026-09-30）：关掉窗口后以为程序退了，去点桌面图标毫无反应，
+    /// 用户场景：关掉窗口后以为程序退了，去点桌面图标毫无反应，
     /// 托盘图标又不一定在看得见的地方 —— 只能去任务管理器。这条提示把"程序还在后台"
     /// 与"两条回来的路"一次讲清，点气泡本身也直接叫回窗口。
     /// </summary>
@@ -1811,7 +1824,7 @@ public sealed partial class MainWindow : Window
     /// 托盘挂不上时，第一次点关闭说明一次（每次运行只弹一次）。
     ///
     /// 不说清楚，用户看到的就是"点了 × 程序直接没了"，反复重装也找不到原因 ——
-    /// 2026-10-28 实机（explorer 是管理员权限、本程序是普通权限）就卡在这里。
+    /// 实机环境（explorer 是管理员权限、本程序是普通权限）就卡在这里。
     /// </summary>
     private static bool _trayUnavailableHintShown;
 
@@ -1849,7 +1862,7 @@ public sealed partial class MainWindow : Window
                 //     Avalonia 自己以为窗口已经显示，于是 Show() 变成空操作，系统侧那道
                 //     「隐藏」状态就永远是隐藏的。
                 //
-                //     2026-10-01 实机就是这个状态：用户双击 → 旧实例确实收到了唤醒请求 →
+                //     实机就是这个状态：用户双击 → 旧实例确实收到了唤醒请求 →
                 //     也确实调了 ShowFromTray → 界面照样不出现。本机也复现出同样结果：
                 //     看门狗每 5 秒都检测到"隐藏"，调 ShowFromTray 却拉不回来。
                 //
@@ -1895,7 +1908,7 @@ public sealed partial class MainWindow : Window
 
             if (result is { HasUpdate: true, Release: { } release })
             {
-                // 记下"有新版本"：首页那颗「立即更新」靠它（2026-10-18 自上游 1.2.0 移植）
+                // 记下"有新版本"：首页那颗「立即更新」靠它（自上游 1.2.0 移植）
                 Services.Updating.UpdateNotice.Set(release);
 
                 // 一样先问，绝不替用户做主（返回值是三态：Later / Now / Background）
@@ -2583,7 +2596,7 @@ public sealed partial class MainWindow : Window
     /// <summary>
     /// 真的要退出应用（不是"收进托盘"）。
     ///
-    /// ⚠️ public（2026-10-04）：<c>Services/Updating/UpdateFlow.ExitAppNow()</c> 走静默安装**必须**从
+    /// ⚠️ public：<c>Services/Updating/UpdateFlow.ExitAppNow()</c> 走静默安装**必须**从
     ///    更新流程里调到它 —— 直接 <c>desktop.Shutdown()</c> 会被本窗的关闭逻辑当成"用户点了 ×"、
     ///    只把窗口藏起来，进程不退 → 安装程序查到 Mutex 占用 → 静默模式自动取消（这就是
     ///    「1.2 无法更新到 1.3」的根因）。
@@ -2593,7 +2606,7 @@ public sealed partial class MainWindow : Window
         Core.AppLog.Info("exit", "ExitApp() 被调用");
         _exitRequested = true;
         // 让工具浮窗 / Q 群反馈窗的 Closing 放行（它们默认是"关掉 = 收起来"）。
-        // ⚠️ 实测（2026-10-04）：程序化的 Window.Close() 与 desktop.Shutdown() **都不保证**触发
+        // ⚠️ 实测：程序化的 Window.Close() 与 desktop.Shutdown() **都不保证**触发
         //    Avalonia 的 Closing（取决于关闭路径），所以真正保证退干净的是 FinishExit() 里的显式关窗；
         //    这个标记是防御性的 —— 万一某条路径让程序化关闭也走 Closing，它保证那两个窗不会被自己的 args.Cancel 拦下。
         App.IsExiting = true;
@@ -2623,7 +2636,7 @@ public sealed partial class MainWindow : Window
         try { Services.VirtualKeyboard.VirtualKeyboardService.Stop(); } catch { }
 
         // ② 显式关掉我们自己建的每一个窗口，再请应用退出。
-        //    ⛔ 不能只依赖 desktop.Shutdown()，2026-10-04 实测它会漏窗口：
+        //    ⛔ 不能只依赖 desktop.Shutdown()，实测它会漏窗口：
         //       没关掉的窗口把消息循环撑住，结果就是「主界面没了、托盘图标也没了，
         //       进程却一直挂在任务管理器里」—— 正是用户反馈的"点了退出，任务管理器里还有残留"。
         Core.AppLog.Info("exit", "开始显式关闭所有窗口");

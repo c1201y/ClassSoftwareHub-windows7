@@ -18,7 +18,7 @@ namespace ClassSoftwareHub.Desktop.Core;
 /// 轻量性能探针：把「切页到底花多久」写成数字，落到
 /// <c>%LOCALAPPDATA%\ClassSoftwareHub\perf.log</c>。
 ///
-/// 为什么要它：2026-10-01 Nick 反馈"部分页面跳转有卡卡的感觉"。手感没法当验收依据 ——
+/// 为什么要它：页面跳转的卡顿感无法作为验收依据 ——
 /// 改之前先拿到每页的真实耗时，改完才有东西可比。探针本身不影响功能：
 /// 只在 **Debug 编译** 或设了环境变量 <c>CSH_PERF=1</c> 时才写，正式版默认整个关掉。
 ///
@@ -64,9 +64,9 @@ public static class PerfLog
     {
         if (!Enabled || _nav is null) return;
 
-        // ⚠️ 本次导航的计时器**立刻抓成局部变量**，静态字段同时清空 ——
+        // 本次导航的计时器**立刻抓成局部变量**，静态字段同时清空 ——
         //    首帧回调是挂在全局帧通知上的，连着切两次页时两个回调会撞进同一帧：
-        //    若继续用静态字段，第一个回调把它清掉，第二个读到的就是 null（2026-10-01 实测崩过一次）。
+        //    若继续用静态字段，第一个回调把它清掉，第二个读到的就是 null。
         var sw = _nav;
         var tag = _navTag;
         var pageName = page?.GetType().Name ?? "?";

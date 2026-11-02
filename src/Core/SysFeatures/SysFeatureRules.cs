@@ -5,7 +5,7 @@ using System.Text;
 namespace ClassSoftwareHub.Desktop.Core;
 
 /// <summary>
-/// 系统功能的命令生成与结果核对（自上游 2026-10-31 移植）。
+/// 系统功能的命令生成与结果核对（自上游移植）。
 ///
 /// <para>
 /// 抽在这里的原因和 <c>TweakRules</c> 一样：这一段<b>不碰注册表、不碰进程</b>，
@@ -22,7 +22,7 @@ public static class SysFeatureRules
     /// <summary>
     /// 改电源设置的两条命令。
     /// <para>
-    /// ⚠️ <c>setacvalueindex</c> 只把值写进注册表，<b>新值不会应用到当前方案</b> ——
+    /// <c>setacvalueindex</c> 只把值写进注册表，<b>新值不会应用到当前方案</b> ——
     /// 必须再跑一次 <c>setactive</c> 才真正生效。这两条永远成对出现。
     /// </para>
     /// </summary>
@@ -36,11 +36,11 @@ public static class SysFeatureRules
     /// 把一批改动拼成一次性执行的 cmd 脚本。
     ///
     /// <para>
-    /// ⚠️ 内容<b>必须全是 ASCII</b>：cmd 的代码页跟系统语言走，脚本里写中文会让 GBK/UTF-8 打架。
+    /// 内容<b>必须全是 ASCII</b>：cmd 的代码页跟系统语言走，脚本里写中文会让 GBK/UTF-8 打架。
     /// 实际的命令只含盘符、GUID、数字与注册表路径（英文），不会踩到 —— 这条约束是给以后加项的人看的。
     /// </para>
     /// <para>
-    /// ⛔ 不在脚本里打"成功"字样：成败由调用方<b>重读注册表</b>判定，
+    /// 不在脚本里打"成功"字样：成败由调用方<b>重读注册表</b>判定，
     /// 黑窗上闪过的 echo 既看不见也不可信。
     /// </para>
     /// </summary>

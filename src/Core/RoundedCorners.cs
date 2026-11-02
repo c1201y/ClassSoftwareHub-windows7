@@ -23,7 +23,7 @@ namespace ClassSoftwareHub.Desktop.Core;
 /// </para>
 ///
 /// <para>
-/// ⚠️ 三个必须记牢的坑（都写进代码了，改前先看清楚）：
+/// 三个必须记牢的坑（都写进代码了，改前先看清楚）：
 /// <list type="number">
 ///   <item><b>right / bottom 是坐标不是宽高</b>，想要 w×h 就传 <c>(0, 0, w, h)</c>；</item>
 ///   <item><b>ellipseWidth / ellipseHeight 是圆角椭圆的直径</b>，也就是 <c>2 × 半径</c>；</item>
@@ -33,11 +33,11 @@ namespace ClassSoftwareHub.Desktop.Core;
 /// </para>
 ///
 /// <para>
-/// ⚠️ <b>为什么 Win11 上要躲开</b>（<see cref="Enabled"/>）：
+/// <b>为什么 Win11 上要躲开</b>（<see cref="Enabled"/>）：
 /// Win11 的 DWM 圆角带抗锯齿，并且和系统阴影、Aero 吸附是配套的；
 /// 到了 Win11 还去抢着设区域，等于把系统那套换成硬边，是**倒退**。
 ///
-/// ⚠️ 但 2026-10-14 实测（Win11 26200 + 用户实测）：**无边框浮窗在 Win11 上 DWM 根本不给圆** ——
+/// 但**无边框浮窗在 Win11 上 DWM 根本不给圆** ——
 /// 这类窗口（WS_POPUP + WS_EX_NOREDIRECTIONBITMAP + 每像素 alpha 内容）撞进微软文档
 /// 「即使调用选择加入 API 也永远无法圆角」的排除项（每像素 alpha 分层 / 窗口区域）：
 /// DWMWA_WINDOW_CORNER_PREFERENCE 设成 ROUND 也纹丝不动。所以浮窗家族
@@ -47,7 +47,7 @@ namespace ClassSoftwareHub.Desktop.Core;
 /// </para>
 ///
 /// <para>
-/// ⚠️ 两种用法（都给了）：
+/// 两种用法（都给了）：
 /// <list type="bullet">
 ///   <item><b>一次性</b>：<see cref="Apply"/> / <see cref="Clear"/> —— 调用方自己知道什么时候尺寸变了；</item>
 ///   <item><b>托管</b>：<see cref="Attach"/> 拿一个实例挂到窗口上，<c>Resized</c> 自动重算
@@ -80,7 +80,7 @@ public sealed class RoundedCorners
     private static readonly Dictionary<IntPtr, Entry> Applied = new();
 
     /// <summary>
-    /// 已经记过日志的窗口。真机上排查时最想知道"到底裁上没裁上"，
+    /// 已经记过日志的窗口。排查时最想知道"到底裁上没裁上"，
     /// 但拖拽缩放期间尺寸每帧都在变，逐次记会把 port.log 刷爆 → 每个窗口只记第一条。
     /// </summary>
     private static readonly HashSet<IntPtr> Logged = new();
@@ -152,7 +152,7 @@ public sealed class RoundedCorners
             var hwnd = Backdrop.TryGetHwnd(_window);
             if (hwnd == IntPtr.Zero) return;
 
-            // ⚠️ 最大化必须清掉区域：贴边窗口不该削角，否则屏幕四角会露出底下的桌面。
+            // 最大化必须清掉区域：贴边窗口不该削角，否则屏幕四角会露出底下的桌面。
             //    而且区域不随窗口尺寸自适应 —— 不清的话会停在"最大化之前"那个尺寸上，
             //    窗口变成一块被裁小的怪东西（双击标题栏最大化时很容易撞上）。
             if (_window.WindowState == WindowState.Maximized)
@@ -206,7 +206,7 @@ public sealed class RoundedCorners
         {
             if (!NativeMethods.GetWindowRect(hwnd, out var wr)) return false;
 
-            // ⚠️ 无边框窗口的外框 == 客户区，所以整窗矩形拿来当区域矩形正是我们要的
+            // 无边框窗口的外框 == 客户区，所以整窗矩形拿来当区域矩形正是我们要的
             var width = wr.Width;
             var height = wr.Height;
             if (width <= 0 || height <= 0) return false;
@@ -235,7 +235,7 @@ public sealed class RoundedCorners
             // 成功 → **绝不能** DeleteObject（区域已经归系统了）
             Applied[hwnd] = new Entry(radius, width, height);
 
-            // ⚠️ 句柄会在窗口销毁后被系统回收再用：表只增不减的话既吃内存，
+            // 句柄会在窗口销毁后被系统回收再用：表只增不减的话既吃内存，
             //    又可能让新窗口"命中"旧句柄的旧尺寸而跳过裁剪。超过阈值整表重来（最多多裁一轮，肉眼看不见）。
             if (Applied.Count > 128)
             {
@@ -265,7 +265,7 @@ public sealed class RoundedCorners
 
         Applied.Remove(hwnd);
 
-        // ⚠️ 不能用 Enabled 当闸门：那句提前返回会让"表里已删、窗口上的 region 还在"
+        // 不能用 Enabled 当闸门：那句提前返回会让"表里已删、窗口上的 region 还在"
         //    —— 下次 Apply 看到表里没记录就以为是新窗口，实际却带着旧区域。
         //    SetWindowRgn(hwnd, 0) 对从未裁过的窗口是无害的（本来就是个矩形）。
         try

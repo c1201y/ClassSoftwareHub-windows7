@@ -3,7 +3,7 @@ namespace ClassSoftwareHub.Desktop.Data;
 /// <summary>
 /// 一条「实验性功能」的定义（实验性功能总览页用）。
 ///
-/// ⚠️ 为什么是 <see cref="Tag"/> 而不是 <c>Type Page</c>（对比 <see cref="ToolDef"/>）：
+/// 为什么是 <see cref="Tag"/> 而不是 <c>Type Page</c>（对比 <see cref="ToolDef"/>）：
 ///    实验性功能挂在左侧导航的「实验性功能」分组下，点卡片必须走
 ///    <c>ShellPage.NavigateTo(tag)</c> 才能把左侧高亮一起带走；直接 <c>Frame.Navigate</c> 会跳页但高亮留在原地。
 /// </summary>

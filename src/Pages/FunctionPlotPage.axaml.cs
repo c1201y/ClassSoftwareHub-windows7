@@ -177,7 +177,7 @@ public partial class FunctionPlotPage : Platform.PageBase
         // ⚠️ 键盘的目标跟踪：记「最后在编辑哪条」。
         box.GotFocus += (_, _) => _keypadTarget = box;
 
-        // 「y =」前缀（Nick 定）：数学惯例长这样，也明示了"不用输入 y ="—— 解析器只吃等号右边。
+        // 「y =」前缀：数学惯例，也明示了"不用输入 y ="—— 解析器只吃等号右边。
         var prefix = new TextBlock
         {
             Text = "y =",
@@ -418,7 +418,7 @@ public partial class FunctionPlotPage : Platform.PageBase
     private void PlotArea_SizeChanged(object? sender, SizeChangedEventArgs e) => Redraw();
 
     /// <summary>
-    /// 窗口较窄时**先压缩分析栏**（Nick 定）：图和输入优先。缩放/拖窗口时自动跟着变。
+    /// 窗口较窄时**先压缩分析栏**：图和输入优先。缩放/拖窗口时自动跟着变。
     /// ⚠️ 收起必须连 IsVisible 一起收 —— 只把列宽压成 0 的话内容还在测量/挂在树里。
     /// ⚠️ 阈值 900：实测 1018 逻辑宽的三列布局分析栏放得下，1020 会把它误杀。
     /// </summary>
@@ -752,9 +752,9 @@ public partial class FunctionPlotPage : Platform.PageBase
             return;
         }
 
-        // ⛔⛔ 只给**函数本身的性质**：标准形式、线性包裹、商式走闭式匹配；其余只在能严格确证时给。
-        //    **绝不按当前视口采样后当结论** —— 老师上课把视图拖一下数字就变，
-        //    那不是函数性质，是采样窗口的坐标（Nick 点名）。整条数值观察链路已删除。
+        // 只给**函数本身的性质**：标准形式、线性包裹、商式走闭式匹配；其余只在能严格确证时给。
+        //    绝不按当前视口采样后当结论 —— 视口一变数字就变，那是采样窗口的坐标而非函数性质。
+        //    整条数值观察链路已删除。
         ClosedForm? closed = null;
         if (ExpressionParser.TryParseTree(curve.Box.Text ?? "", Mode, out var lambda, out _)
             && lambda is not null)
@@ -830,7 +830,7 @@ public partial class FunctionPlotPage : Platform.PageBase
     /// <see cref="CaretBack"/> 是插入后光标从文本末尾往回退几格（函数名那类键要留在括号里）。<para/>
     /// <see cref="WrapSelection"/> 非空时，若用户此刻**选中了文本**，则改为套用这个模板
     /// （<c>{0}</c> 代表选区）——"选中 x+1 再按 x² 得到 (x+1)²"。
-    /// ⛔ 后缀型键的包裹模板**必须带 {0}**，否则会把选区整个吞掉（实测踩过）。
+    /// 后缀型键的包裹模板**必须带 {0}**，否则会把选区整个吞掉。
     /// </summary>
     private sealed record KeyCap(
         string Label,
@@ -843,7 +843,7 @@ public partial class FunctionPlotPage : Platform.PageBase
     /// <summary>
     /// 键位表：**6 列 × 6 行 = 36 格，恰好 36 颗键，一格不空**。<para/>
     /// 左 3 列数学（三角/反三角/对数根/幂/常数/括号），右 3 列数字区（照计算器）。
-    /// ⛔⛔ 键数必须凑满 36 —— 双栏行数不齐时矮的那栏下方会空一大片（Nick 点名过）。
+    /// 键数必须凑满 36 —— 双栏行数不齐时矮的那栏下方会空一大片。
     /// </summary>
     private static readonly KeyCap[] Caps =
     {
@@ -893,7 +893,7 @@ public partial class FunctionPlotPage : Platform.PageBase
     private TextBox? _keypadTarget;
 
     /// <summary>
-    /// 键盘**常驻**右栏（Nick 定：照 Windows 计算器），页面首帧后建一次。
+    /// 键盘**常驻**右栏（照 Windows 计算器），页面首帧后建一次。
     /// </summary>
     private void BuildKeypadIfReady()
     {

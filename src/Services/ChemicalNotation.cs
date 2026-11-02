@@ -106,7 +106,7 @@ public static class ChemicalNotation
     ///
     /// <para>
     /// 用在**不能排版**的地方：按钮提示、复制到剪贴板、日志。
-    /// ⛔ 这些地方直接出 <c>^</c> 是计算机写法（Nick 2026-10-17 点名离子根上的 ^）。
+    /// ⛔ 这些地方直接出 <c>^</c> 是计算机写法，不属正规化学记法。
     /// </para>
     /// </summary>
     public static string Plain(string formula)
@@ -196,8 +196,7 @@ public static class ChemicalNotation
             Foreground = brush,
             TextWrapping = TextWrapping.Wrap,
             // ⚠️ 行高必须留够：箭头那一格是「条件小字 + 箭头」两行叠出来的行内对象（按底边贴基线摆），
-            //    比正文高不少。原来写 fontSize*1.5（≈39）时它上半截被 TextBlock 的行框裁掉 ——
-            //    实机上就是方程最上面一行"被削掉半个字"（2026-10-18 修）。
+            //    比正文高不少。行高不足时上半截会被 TextBlock 的行框裁掉。
             LineHeight = fontSize * 2.2,
         };
 

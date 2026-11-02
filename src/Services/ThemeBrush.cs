@@ -15,7 +15,7 @@ namespace ClassSoftwareHub.Desktop.Services;
 /// ⚠️ 为什么不用 `Application.Current.Resources["TextFillColorPrimaryBrush"]`：
 ///    那个查的是**应用级**主题（开机时跟着**系统**定死的那个），跟"这个窗口自己 RequestedTheme 设的"
 ///    **压根不是一回事**。用户把应用切成浅色、而系统还是深色时，代码里这么查拿到的仍是**深色**那套
-///    —— 于是浅色面板上顶着白字（Nick：'悬浮窗口的字是白的，这不适配浅色模式'）就来了。
+///    —— 浅色面板上会顶着白字。
 ///    结论：**XAML 里一律用 `{DynamicResource ...}`**（它认识树）；**代码里一律走这里**。
 ///
 /// 颜色值抄自 WinUI generic.xaml（WASDK 2.5.1）的 Light / Default(=深色) 两个主题字典，
@@ -24,7 +24,7 @@ namespace ClassSoftwareHub.Desktop.Services;
 /// ⚠️ Win7/Avalonia 移植说明：
 ///   · 原版的 <c>FrameworkElement.ActualTheme</c> / <c>ElementTheme</c> 在 Avalonia 里对应
 ///     <see cref="StyledElement.ActualThemeVariant"/> 与 <see cref="ThemeVariant"/>
-///     （实测核验：`ActualThemeVariant` 在 `StyledElement` 上；没有 `FrameworkElement` 这个类型）。
+///     （`ActualThemeVariant` 在 `StyledElement` 上；Avalonia 没有 `FrameworkElement` 这个类型）。
 ///     所以本文件所有入参由 `FrameworkElement?` 改成 `StyledElement?` —— 调用方传的都是页面/控件，兼容。
 ///   · <c>Application.Current.Resources.TryGetValue</c> → Avalonia 的
 ///     <see cref="StyledElement.TryGetResource"/> / <c>Application.TryGetResource</c>（按 ThemeVariant 查）。
@@ -68,8 +68,8 @@ public static class ThemeBrush
         }
 
         // ⚠️ 元素**还没挂到树上**时 ActualThemeVariant 就是 Default（页面在构造里就把元素建好、颜色也算好了，
-        //    这时候它还没进树）——以前这里直接落回 Application.RequestedTheme（跟系统走），
-        //    于是"应用浅色 + 系统深色"时，构造期算出来的颜色全是深色那套 → 页面看着没做浅色适配。
+        //    这时候它还没进树）——若直接落回 Application.RequestedTheme（跟系统走），
+        //    "应用浅色 + 系统深色"时，构造期算出来的颜色全是深色那套 → 页面看着没做浅色适配。
         //    正确的兜底顺序：主窗口那棵（已经挂好、主题是确定的）→ 设置里那个。
         try
         {
@@ -101,7 +101,7 @@ public static class ThemeBrush
         return false;
     }
 
-    /// <summary>诊断用：把一次取色的全部依据写进 theme.log（Nick 反馈白字问题时用，定位完可留）。</summary>
+    /// <summary>诊断用：把一次取色的全部依据写进 theme.log。</summary>
     public static void Probe(StyledElement? el, string tag)
     {
         try
@@ -138,10 +138,9 @@ public static class ThemeBrush
     /// <summary>按树主题取笔刷；传的 key 跟 XAML 里那个名字一样（如 "TextFillColorPrimaryBrush"）。</summary>
     public static Brush Get(StyledElement? el, string key)
     {
-        // ⚠️ 这里必须砍掉 **5 个字符**的 "Brush"。以前写的是 key[..^1]（只砍一个字符），
+        // ⚠️ 这里必须砍掉 **5 个字符**的 "Brush"。只砍一个字符的话，
         //    "TextFillColorPrimaryBrush" -> "TextFillColorPrimaryBrus" 在表里查不到 ->
         //    静默掉进下面"应用级查找"的兜底，而应用级主题跟**系统**走 → 浅色界面上全是白字。
-        //    所有代码画的颜色都栽在这一行上（XAML 里用 {DynamicResource} 的地方不受影响）。
         var k = key.EndsWith("Brush", StringComparison.Ordinal) ? key[..^"Brush".Length] : key;
         switch (k)
         {

@@ -68,7 +68,7 @@ public static class AppLinks
             using var key = Registry.CurrentUser.CreateSubKey(ProtocolKeyPath, writable: true);
             if (key is null) return false;
 
-            // 已经指对了就别再写：每次启动都改注册表会让安全软件频繁报警
+            // 已指向正确值时不重复写入：每次启动都改注册表会让安全软件频繁报警
             if (key.GetValue(null) is string existing && existing.Equals(command, StringComparison.OrdinalIgnoreCase))
             {
                 using var icon = key.OpenSubKey("DefaultIcon", writable: false);

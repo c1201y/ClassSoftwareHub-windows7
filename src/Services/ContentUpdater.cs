@@ -47,8 +47,8 @@ public static class ContentUpdater
     {
         var handler = Core.HttpTls.Handler();
         var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(60) };
-        // ⚠️ 版本别写死：这里原来是 "ClassSoftwareHub/1.2"，而 ShellConfig.ShellVersion 早就是 1.1.0 ——
-        //    同步客户端向内容服务器自报了一个**不存在的版本**，排查服务端日志时会误导人。
+        // ⚠️ User-Agent 的版本必须取自 ShellConfig.ShellVersion，
+        //    写死固定值会向服务端自报一个不存在的版本，排查日志时会误导人。
         client.DefaultRequestHeaders.UserAgent.ParseAdd(
             $"ClassSoftwareHub/{ShellConfig.ShellVersion} content-sync");
         return client;
@@ -146,7 +146,7 @@ public static class ContentUpdater
                 catch (Exception ex)
                 {
                     // 网络断在半路：走这条兜底通道（站点网盘）时往往正是 GitHub 被墙、网络最不稳的时候。
-                    // 原来这里**没有任何 catch** —— CopyToAsync 一抛，part 残片就永久留在
+                    // 这里必须有 catch —— 否则 CopyToAsync 一抛，part 残片就永久留在
                     // %LOCALAPPDATA%\ClassSoftwareHub\content 里，没有任何回收路径。
                     DeletePart(part);
                     failed.Add($"{file.Path}（下载失败：{ex.Message}）");
@@ -154,7 +154,7 @@ public static class ContentUpdater
                 }
 
                 // 读不出刚写完的 .part（被杀软锁住 → I/O 失败）与"哈希真的不符"必须能分开：
-                // 原来的 Sha256Of 吞掉所有异常返回 ""，两种情况都走同一条"校验失败"，
+                // 若哈希函数吞掉所有异常返回 ""，两种情况都走同一条"校验失败"，
                 // 排查时完全看不出到底是哪一种。
                 if (!TrySha256(part, out var actual))
                 {

@@ -202,7 +202,7 @@ public sealed partial class AnnouncePage : PageBase
             AnnounceLanService.Stop();
         }
 
-        // 只刷新卡片，**不自动弹对话框**（2026-10-27 Nick：「它又要弹这个反复弹」）。
+        // 只刷新卡片，**不自动弹对话框**：
         // 被拦的原因写在卡片上，用户想修自己点「修复」—— 弹窗只在用户点了按钮之后出现。
         await RefreshFirewallAsync(force: true);
         RefreshPeerList();

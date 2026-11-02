@@ -19,7 +19,7 @@ namespace ClassSoftwareHub.Desktop.Services.Dictionary;
 /// 查词是高频、短平快的动作，先问本地能立刻出结果；而且教室里网络时好时坏，先本地最稳。
 /// </para>
 /// <para>
-/// ⚠️ 离线优先时，如果在线查到了本地没有的词，会顺手补进用户词库（<see cref="LocalLexicon.Remember"/>）。
+/// ⚠️ 离线优先时，如果在线查到了本地没有的词，会同时补进用户词库（<see cref="LocalLexicon.Remember"/>）。
 ///    这样"离线"这一档不是死词表，用户查过的词会沉淀下来。
 /// </para>
 /// <para>

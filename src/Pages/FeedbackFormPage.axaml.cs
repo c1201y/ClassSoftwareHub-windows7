@@ -53,7 +53,7 @@ public sealed partial class FeedbackFormPage : PageBase
     /// <summary>
     /// 本页「这次要填的类型」，用来在草稿被清空后还能把页头（图标 + 类型名 + 子类型框）撑住。
     /// 提交成功后草稿会被丢弃，<see cref="Feedback.Draft.Kind"/> 变成空串 —— 没有这个兜底，
-    /// 页头会当场变成一片空白，看着像页面坏了。
+    /// 页头会变成一片空白，看着像页面坏了。
     /// </summary>
     private string _pageKind = "";
 
@@ -436,7 +436,7 @@ public sealed partial class FeedbackFormPage : PageBase
     // ════════════════════════════════════════════════════════════════
 
     /// <summary>
-    /// 随反馈附上的本机信息（**2026-09-30 Nick 定的六项，顺序就是下面这个顺序**）：
+    /// 随反馈附上的本机信息（固定六项，顺序如下）：
     /// 客户端版本 / 系统版本 / OS 内部版本号 / CPU 型号 / 更新通道 / 主题颜色。
     ///
     /// ⚠️ 内部版本号要带 UBR（<c>26220.1234</c> 而不是 <c>26220</c>）—— 见 <see cref="SystemInfo.OsBuildEx"/>。

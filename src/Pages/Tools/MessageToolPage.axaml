@@ -227,7 +227,7 @@
                             <StackPanel Spacing="2" VerticalAlignment="Center">
                                 <TextBlock Text="悬浮窗无底色（透明）" FontSize="12.5" />
                                 <TextBlock FontSize="11.5" Opacity="0.65" TextWrapping="Wrap"
-                                           Text="只对桌面悬浮窗生效；系统不支持真正的透明时会自动改用上面的底色。" />
+                                           Text="只对桌面悬浮窗生效。系统不支持真正的透明时，改为整窗半透明（文字也会跟着变淡）。" />
                             </StackPanel>
                             <ToggleSwitch x:Name="TransparentBox" Grid.Column="1" Margin="12,0,0,0"
                                           OnContent="开" OffContent="关" MinWidth="0"
@@ -235,7 +235,7 @@
                         </Grid>
 
                         <TextBlock Margin="0,10,0,0" FontSize="11.5" Opacity="0.55" TextWrapping="Wrap"
-                                   Text="提示：真正的「透明」需要系统合成支持（Win7 关了 Aero / 经典主题时并不成立），此时悬浮窗会自动改用上面的底色。" />
+                                   Text="提示：真正的「透明」需要系统合成支持。Win7 等系统上会退化为整窗半透明——桌面能透出来，但文字与底色一起变淡。" />
                     </StackPanel>
                 </Border>
 

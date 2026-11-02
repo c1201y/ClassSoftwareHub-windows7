@@ -17,7 +17,7 @@ public sealed record FilePickResult(IReadOnlyList<string> Files, string? Error =
 /// 文件/文件夹选择兼容层。
 ///
 /// <para>
-/// ── 为什么 Win7 不能直接用 Avalonia 的 StorageProvider（2026-10-15，用户实机报障）──────
+/// ── 为什么 Win7 不能直接用 Avalonia 的 StorageProvider ──────
 /// Avalonia 11.2.8 的 Win32 选择器把对话框结果按 <b>桌面绝对解析名</b>（SIGDN_DESKTOPABSOLUTEPARSING）
 /// 转成本地路径再 <c>new FileInfo(...)</c>。Win7 的对话框默认落在「库」（图片/文档库）里，
 /// 库内条目的解析名是 <c>::{CLSID}...</c> 壳命名空间路径 —— FileInfo 直接抛
@@ -25,8 +25,7 @@ public sealed record FilePickResult(IReadOnlyList<string> Files, string? Error =
 /// 从不触发；拖拽不经 Shell，所以拖入一直正常（同源历史问题：Avalonia #1700/#3272）。
 /// </para>
 ///
-/// <para>⚠️ 2026-10-31（用户实机报障「MD5 校验页用窗口选文件报 0x0000005，进程全崩」）：
-/// 上一版（2026-10-15 ~ 10-30）走的是**手写 IFileDialog COM 互操作**。那条路在 Win7 上有一处
+/// <para>补充：本层曾短暂走过**手写 IFileDialog COM 互操作**，但那条路在 Win7 上有一处
 /// 致命的封送隐患：<c>IShellItem::GetDisplayName</c> 声明成 <c>[MarshalAs(LPWStr)] out string</c> +
 /// <c>PreserveSig</c>，而 Win7 在「库 / 特殊壳条目 / 套间不对」时返回失败 HRESULT，**出参指针此时是
 /// 未初始化/无效值**（SDK 不保证失败时置 NULL）。封送器却仍会把这个指针当字符串读 —— 读进野指针
@@ -39,7 +38,7 @@ public sealed record FilePickResult(IReadOnlyList<string> Files, string? Error =
 /// （Win32 模态框自带消息泵），不再跨线程。代价是 Win7 上的样式是系统经典「打开」框（本来就该长这样）。
 /// Win8/10/11 仍然走 Avalonia 原路径，别改。</para>
 ///
-/// <para>⛔ 改这条路径时注意：<c>GetOpenFileNameW</c> 必须在 STA 线程上调用（Avalonia 的 UI 线程
+/// <para>改这条路径时注意：<c>GetOpenFileNameW</c> 必须在 STA 线程上调用（Avalonia 的 UI 线程
 /// 就是 STA，<see cref="Program"/> 标了 <c>[STAThread]</c>）。<c>OFN_ALLOWMULTISELECT</c> 时缓冲区
 /// 是「目录\0文件1\0文件2\0\0」的多字符串，单选时才是完整路径 —— 两种都要按 NUL 拆。</para>
 /// </summary>
@@ -55,7 +54,7 @@ public static class FilePickerCompat
         if (!OsInfo.IsWindows7)
             return PickFilesWithAvaloniaAsync(top, title, allowMultiple, filters);
 
-        // ⚠️ 同步调用、跑在 UI 线程上：Win32 模态对话框自己泵消息，Avalonia 不会卡死。
+        // 同步调用、跑在 UI 线程上：Win32 模态对话框自己泵消息，Avalonia 不会卡死。
         return Task.FromResult(Win7Picker.PickFiles(GetHwnd(top), title, allowMultiple, filters));
     }
 
@@ -100,9 +99,8 @@ public static class FilePickerCompat
 /// <summary>
 /// Win7 的文件/文件夹选择：comdlg32 经典对话框。
 ///
-/// 历史：2026-10-15 起这里曾是手写 IFileDialog COM（为了拿 SIGDN_FILESYSPATH 避开「库」路径问题），
-/// 2026-10-31 因实机访问冲突（0xC0000005）整段换掉 —— 原因见 <see cref="FilePickerCompat"/> 的类注释。
-/// <b>不要</b>再把手写的 IShellItem 出参封送加回来。
+/// 注意：<b>不要</b>再把手写的 IFileDialog / IShellItem 出参封送加回来 ——
+/// 失败 HRESULT 下的出参指针未初始化，封送器读野指针会直接访问冲突（见 <see cref="FilePickerCompat"/> 类注释）。
 /// </summary>
 internal static class Win7Picker
 {

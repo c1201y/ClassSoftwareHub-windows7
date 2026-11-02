@@ -29,7 +29,7 @@ public sealed class ToolSession
 }
 
 /// <summary>
-/// 工具执行器（2026-10-18）。
+/// 工具执行器。
 ///
 /// <para>
 /// ⛔⛔ <b>白名单就在这里</b>：只有 <see cref="ExecuteAsync"/> 的 switch 里写着的 id 能执行，
@@ -43,7 +43,7 @@ public sealed class ToolSession
 public static class ToolRunner
 {
     /// <summary>
-    /// 磁盘扫描的时间预算（2026-10-18）。
+    /// 磁盘扫描的时间预算。
     ///
     /// <para>
     /// ⚠️ 这不是"超时失败"，是**软截止**：到点就停止递归，把已经统计到的部分交出去并标注不完整。
@@ -56,7 +56,7 @@ public static class ToolRunner
     /// <summary>
     /// 工具本身最多跑多久（兜底）。正常路径靠 <see cref="DiskBudget"/> 提前收工，
     /// 这里只防"某个工具彻底卡死"。
-    /// ⚠️ 2026-10-30 起一轮对话不再限 5 次往返，改由 <see cref="Core.AiTimeBudget"/> 限 8 分钟总时长，
+    /// ⚠️ 一轮对话不按往返次数限制，改由 <see cref="Core.AiTimeBudget"/> 限 8 分钟总时长，
     /// 所以真正决定"最多等多久"的是那个预算；本超时只管单个工具别把预算全吃掉。
     /// </summary>
     private static readonly TimeSpan ToolTimeout = TimeSpan.FromSeconds(90);
@@ -114,7 +114,7 @@ public static class ToolRunner
                 "list_installed_apps" => await ListInstalledAsync(argumentsJson, timeout.Token),
                 "list_startup_items" => await ListStartupAsync(timeout.Token),
 
-                // 联网（2026-10-21）：自建实现，不依赖第三方 key
+                // 联网：自建实现，不依赖第三方 key
                 "web_search" => await WebTools.SearchAsync(argumentsJson, timeout.Token),
                 "fetch_url" => await WebTools.FetchAsync(argumentsJson, timeout.Token),
                 _ => $"未知工具：{id}。只能使用工具清单中列出的工具。",

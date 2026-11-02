@@ -11,14 +11,12 @@ namespace ClassSoftwareHub.Desktop.Views;
 
 /// <summary>
 /// 把「全屏时钟」的外观铺到全屏倒计时 / 全屏秒表上。
-/// 由课堂计时器页顶那个「使用全屏时钟背景设置」开关控制（2026-10-04 Nick 要的）。
+/// 由课堂计时器页顶部的「使用全屏时钟背景设置」开关控制。
 ///
 /// 只搬**背景那一套**：背景图、蒙版、底色、字色（外加进度条，否则白条压在浅底上等于没有）。
-/// 字体、12/24 小时制、秒针那些是时钟自己的事，计时盘不该被改 —— 搬过来的话投影出来的
-/// 数字会跟计时器页面上看到的对不上，反而怪。
+/// 字体、12/24 小时制、秒针等属于时钟自身外观，不在此范围内，以免投影结果与计时器页显示不一致。
 ///
-/// ⚠️ 开关关着、或者时钟外观压根没存过，就**什么都不做**：全屏窗口保持原来那个深底。
-///    所以调用方先把开关判掉，这里不再重复判一次。
+/// 开关关闭或未保存过时钟外观时不做任何处理，全屏窗口保持默认深底；调用方负责先判定开关。
 ///
 /// ⚠️ 移植说明（WinUI → Avalonia）：
 ///   · <c>Application.Current.RequestedTheme == ApplicationTheme.Dark</c>
@@ -49,9 +47,11 @@ internal static class ClockBackdrop
 
             if (hasPhoto)
             {
-                // ⚠️ 原版直接给 UriSource：本机文件走这条最省事；
-                //    Avalonia 没有 UriSource，直接 new Bitmap(路径) 即可。
-                bg.Source = new Bitmap(s.BackgroundImagePath);
+                // Avalonia 无 UriSource，本机文件直接 new Bitmap(路径)。
+                // 旧位图先解码新图再释放，避免渲染期拿到已释放的位图。
+                var next = new Bitmap(s.BackgroundImagePath);
+                (bg.Source as Bitmap)?.Dispose();
+                bg.Source = next;
                 bg.IsVisible = true;
             }
             else

@@ -157,7 +157,20 @@ public sealed partial class PickNumberToolPage : PageBase
     // ══════════ 抽取对象：号码范围 / 名单 ══════════
     private bool UseRoster => ModeRosterRadio.IsChecked == true;
 
-    private void PoolMode_Changed(object? sender, RoutedEventArgs e) => OnPoolModeChanged();
+    private void PoolMode_Changed(object? sender, RoutedEventArgs e)
+    {
+        // ⚠️ Avalonia 的 RadioButton 是**先**触发新选中那一支的 Checked、**后**才取消同组的另一支。
+        //    所以在 Checked 里读 UseRoster 拿到的还是上一次的状态 —— 表现出来就是
+        //    「使用名单 → 抽取座号」切回来之后，名单那一排按钮还留在界面上（真机反馈）。
+        //    这里先把同组另一支明确取消掉，再统一走 SyncPoolMode。
+        if (_ready && sender is RadioButton changed && changed.IsChecked == true)
+        {
+            if (ReferenceEquals(changed, ModeRosterRadio)) ModeRangeRadio.IsChecked = false;
+            else ModeRosterRadio.IsChecked = false;
+        }
+
+        OnPoolModeChanged();
+    }
 
     private void OnPoolModeChanged()
     {

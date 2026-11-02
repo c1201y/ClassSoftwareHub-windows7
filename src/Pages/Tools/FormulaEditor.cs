@@ -12,10 +12,10 @@ using ClassSoftwareHub.Desktop.Services;
 namespace ClassSoftwareHub.Desktop.Pages.Tools;
 
 /// <summary>
-/// 化学式编辑器（2026-10-18 自上游 1.2.0 移植；WinUI → Avalonia）。
+/// 化学式编辑器（自上游 1.2.0 移植；WinUI → Avalonia）。
 ///
 /// <para>
-/// 站在**学生 / 老师**的角度排的（Nick 2026-10-17）：
+/// 排版面向**学生 / 老师**的使用习惯：
 /// 左边先用**常用元素**的大按钮（带中文名，一眼能找到"铁、氧、钠"），
 /// 需要别的元素再展开完整周期表；右边是括号/数字与常用物质、离子根。
 /// </para>
@@ -115,7 +115,7 @@ internal sealed class FormulaEditor
         stack.Children.Add(_preview);
         stack.Children.Add(_error);
 
-        // ⛔ 删除键必须贴在输入内容旁边：放到下面的小键盘里，用户得满处找（Nick 点名）
+        // 删除键必须贴在输入内容旁边：放到下面的小键盘里，用户得满处找
         var backspace = new Button
         {
             Content = new FluentAvalonia.UI.Controls.FontIcon { Glyph = "\uE750", FontSize = 15 },
@@ -235,8 +235,8 @@ internal sealed class FormulaEditor
         panel.Children.Add(grid);
 
         // 完整周期表：默认收起，需要时再展开。
-        // ⛔ 展开时把「常用元素」整块收起来：两块都摆着，左栏一定比可视区高，
-        //    周期表得滚半天才看得见（Nick 2026-10-17）。
+        // 展开时把「常用元素」整块收起来：两块都摆着，左栏一定比可视区高，
+        //    周期表得滚半天才看得见。
         ScrollViewer? scroller = null;
 
         var toggle = new Button
@@ -276,8 +276,8 @@ internal sealed class FormulaEditor
         panel.Children.Add(toggle);
         panel.Children.Add(_fullTableWrap);
 
-        // ⛔ 整条左栏也要能滚：展开完整周期表后，内容一定比可视区高，
-        //    没有滚动区就只能被裁掉（Nick 2026-10-17：滑到底还是被截断）。
+        // 整条左栏也要能滚：展开完整周期表后，内容一定比可视区高，
+        //    没有滚动区就只能被裁掉。
         scroller = new ScrollViewer
         {
             Content = panel,
@@ -345,8 +345,8 @@ internal sealed class FormulaEditor
     /// </summary>
     private Control BuildPeriodicTable(double availableWidth)
     {
-        // 18 列 + 17 个 2px 间隙。⛔ 上限别贴着算：展开表格后纵向滚动条会占掉十几像素，
-        // 按满宽算会让第 18 族（He/Ne/Ar…）正好被裁掉一截（Nick 2026-10-17 实测）。
+        // 18 列 + 17 个 2px 间隙。上限别贴着算：展开表格后纵向滚动条会占掉十几像素，
+        // 按满宽算会让第 18 族（He/Ne/Ar…）正好被裁掉一截。
         var cellWidth = Math.Clamp((availableWidth - 48) / 18, 30, 42);
         var cellHeight = Math.Round(cellWidth * 1.19);
 
@@ -467,8 +467,8 @@ internal sealed class FormulaEditor
     // ── 右：括号 / 数字 + 常用物质 / 离子根 ──
     private Control BuildRightPanel()
     {
-        // ⛔ 整条右栏都进滚动区：窗口矮的时候 数字键 / 常用物质 / 离子根 必须都够得着，
-        //    固定住键盘只让下面滚，离子根必然被截断（Nick 两次点名）。
+        // 整条右栏都进滚动区：窗口矮的时候 数字键 / 常用物质 / 离子根 必须都够得着，
+        //    固定住键盘只让下面滚，离子根必然被截断。
         var content = new StackPanel();
         content.Children.Add(BuildKeypad());
         content.Children.Add(BuildFavoriteSection("常用物质", false));
@@ -615,7 +615,7 @@ internal sealed class FormulaEditor
             {
                 var text = items[i + c];
 
-                // ⛔ 按钮上不能出 "SO4^2-" 这种计算机写法：照化学式排成 SO₄²⁻（Nick 2026-10-17）
+                // 按钮上不能出 "SO4^2-" 这种计算机写法：照化学式排成 SO₄²⁻
                 var chip = new Button
                 {
                     Content = ChemicalNotation.Formula(text, 14, _brush),

@@ -10,16 +10,17 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
 using ClassSoftwareHub.Desktop.Core;
+using ClassSoftwareHub.Desktop.Platform;
 using ClassSoftwareHub.Desktop.Services;
 using FluentAvalonia.UI.Controls;
 
 namespace ClassSoftwareHub.Desktop.Pages.Tools;
 
 /// <summary>
-/// 化学方程式配平（第二版；2026-10-18 自上游 1.2.0 移植，WinUI → Avalonia）。
+/// 化学方程式配平（第二版；WinUI → Avalonia 移植）。
 ///
 /// <para>
-/// ⛔ 交互原则（Nick 2026-10-17）：**不让用户手打整条方程式**。
+/// 交互原则：**不让用户手打整条方程式**。
 /// 左边一行行加反应物、右边一行行加生成物，化学式从元素周期表点出来，
 /// 反应条件从下拉多选 —— 用户只需要知道"有哪些物质"，不用关心
 /// 哪里要打括号、下标怎么敲、箭头怎么画。
@@ -104,9 +105,9 @@ public partial class ChemistryPage : Platform.PageBase
         EditorShell.Width = Math.Min(1200, Math.Max(680, width - 48));
         EditorShell.Height = Math.Min(760, Math.Max(440, height - 56));
 
-        // ⛔ 别给 View 写死宽高：它比外壳的可用高度高一点点时，
-        //    内层滚动区的视口就比看得见的地方高，滚到底也有一截永远露不出来
-        //    （Nick 2026-10-17：离子根滑到下面还是被截断）。交给布局自己撑满。
+        // 别给 View 写死宽高：它比外壳的可用高度高一点点时，
+        //    内层滚动区的视口就比看得见的地方高，滚到底也有一截永远露不出来。
+        //    交给布局自己撑满。
 
         EditorOverlay.IsVisible = true;
 
@@ -163,7 +164,7 @@ public partial class ChemistryPage : Platform.PageBase
             VerticalAlignment = VerticalAlignment.Center,
             Child = ChemicalNotation.Formula(formula, 17, Ink),
         };
-        host.PointerPressed += (_, _) => _ = EditSpeciesAsync(isReactant, index);
+        TapActivate.Bind(host, () => _ = EditSpeciesAsync(isReactant, index));
 
         var remove = new Button
         {

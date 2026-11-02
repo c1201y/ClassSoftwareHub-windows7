@@ -419,7 +419,7 @@ public static class EquationSolver
 
                     // ⛔ 必须是**谷底**：两侧都不比它小。只判"有一侧更大"会把单调坡上的
                     //    点也当成候选，黄金分割随后滑到区间端点，把 f = x² + 1e-9 的
-                    //    浅坑端点误判成根（2026-10-27 冒烟测试抓到）。
+                    //    浅坑端点误判成根（冒烟测试曾抓到此问题）。
                     if (!(ay <= a0 && ay <= a2 && (ay < a0 || ay < a2))) continue;
 
                     var valley = MinimizeAbs(f, prevX - step, x);

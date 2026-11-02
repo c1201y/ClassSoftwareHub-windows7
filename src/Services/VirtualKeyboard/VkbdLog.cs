@@ -9,7 +9,7 @@ namespace ClassSoftwareHub.Desktop.Services.VirtualKeyboard;
 /// ⚠️ 这份日志**只追加、不轮转**（跟项目里其它日志一致）。所以：
 ///   · 平时只记"状态变化"和"出错了"；
 ///   · **按键级**的记录全部收在 <see cref="Verbose"/> 后面（环境变量 <c>CSH_KBD_DEBUG=1</c> 打开）。
-/// 2026-09-30 那次事故就是因为日志里没有节流意识、加上功能本身在疯狂空转，一分钟刷了几百行。
+/// 不节流的话日志会被功能空转刷到一分钟几百行。
 /// </summary>
 internal static class VkbdLog
 {

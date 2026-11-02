@@ -16,7 +16,7 @@ namespace ClassSoftwareHub.Desktop.Services;
 /// </param>
 /// <param name="Message">人话说明。</param>
 /// <param name="Finished">
-/// 卸载程序是不是**真的退出了**（2026-10-14 加，残留扫描的前提）。
+/// 卸载程序是不是**真的退出了**（残留扫描的前提）。
 /// ⛔ 只有它为 true 才允许复扫：超时那一条分支里，卸载程序**还在跑**（<c>StartAndWaitAsync</c>
 ///    放弃等待 ≠ 它停了），这时候抓快照会把"正在删"的过程拍成"还在"，
 ///    差集里就全是假残留。
@@ -24,7 +24,7 @@ namespace ClassSoftwareHub.Desktop.Services;
 public sealed record UninstallOutcome(bool Started, string Message, bool Finished = false);
 
 /// <summary>
-/// 一次「卸载 + 残留体检」的完整结果（2026-10-14 加）。
+/// 一次「卸载 + 残留体检」的完整结果。
 /// <paramref name="Scanned"/> = 有没有真的做过前后快照（卸载没起来 / 商店包 / 超时 都是 false，
 /// 那时 <paramref name="Leftovers"/> 是空表 —— 界面要能分清"没有残留"和"没查"）。
 /// </summary>
@@ -35,7 +35,7 @@ public sealed record UninstallRun(
 
 
 /// <summary>
-/// 跑一次卸载（2026-10-12 加，「应用卸载」页的后端）。
+/// 跑一次卸载（「应用卸载」页的后端）。
 ///
 /// 两条路：
 ///   ① 注册表条目（「程序和功能」里的软件）→ 跑它**自己**的卸载命令，提权启动（UAC 一次）。
@@ -58,12 +58,11 @@ public static class AppUninstaller
         => InstalledApps.Normalize(app.Name).Contains("classsoftwarehub", StringComparison.Ordinal);
 
     /// <summary>
-    /// ⛔⛔ 这条记录是不是**不许动**的 Windows 自带组件（2026-10-14 加）。
+    /// ⛔⛔ 这条记录是不是**不许动**的 Windows 自带组件。
     ///
     /// 为什么必须挡：这类包 <see cref="InstalledApp.IsStore"/> 是 true、<c>PackageFullName</c> 也齐，
-    /// 于是 <see cref="CanUninstall"/> 的旧判据会对它们返回 true —— 界面上「文件资源管理器」「开始」
-    /// 「设置」「讲述人」这些**全都带着可点的卸载按钮**（Nick 2026-10-14 截图实拍报的
-    /// 「这些东西是能卸载的吗？？？」）。更糟的是 <see cref="RemoveStorePackageAsync"/> 在 API 失败后
+    /// <see cref="CanUninstall"/> 的判据会对它们返回 true —— 「文件资源管理器」「开始」「设置」
+    /// 「讲述人」这些全都带着可点的卸载按钮。更糟的是 <see cref="RemoveStorePackageAsync"/> 在 API 失败后
     /// 还会**提权回落**到 <c>Remove-AppxPackage</c>，而管理员身份下那是真能把系统组件拆掉的
     /// —— 轻则开始菜单/资源管理器报废，重得要重装系统组件。
     ///
@@ -125,7 +124,7 @@ public static class AppUninstaller
         return await StartAndWaitAsync(exe, args, app.Name, ct, elevate);
     }
 
-    // ── 卸载 + 残留体检（2026-10-14 加） ───────────────────────────────────────
+    // ── 卸载 + 残留体检 ───────────────────────────────────────────────────────
 
     /// <summary>卸载程序退出之后，等这么久再复扫。</summary>
     /// <remarks>
@@ -138,7 +137,7 @@ public static class AppUninstaller
     private const int RescanDelayMs = 2000;
 
     /// <summary>
-    /// 「卸载 + 残留体检」的完整链路（2026-10-14 加）。
+    /// 「卸载 + 残留体检」的完整链路。
     ///
     /// 六步：
     ///   ① 抓「卸载前」浅层快照 → ② 跑厂商自己的卸载器（含 UAC） → ③ 退出后等 2 秒

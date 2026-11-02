@@ -49,12 +49,12 @@ public sealed class CleanupReport
 }
 
 /// <summary>
-/// 残留清理器（2026-10-14 加，卸载流程的最后一步）。
+/// 残留清理器（卸载流程的最后一步）。
 ///
 /// ⛔⛔ 三条设计铁律（每一条都是"绝对安全干净"这个承诺的一部分）：
 ///
-///  ① **先备份，再删**。这不是我们自己想出来的讲究 —— 业界那几个卸载工具都是这么干的
-///     （HiBit 的注册表清理器原话：<c>automatically stores all deleted registry items, on a
+///  ① **先备份，再删**。业界同类卸载工具均如此
+///     （HiBit 注册表清理器的说明：<c>automatically stores all deleted registry items, on a
 ///     per session basis, and includes a Restore feature for each</c>）。所以：
 ///       · 注册表 → 序列化成**标准 <c>.reg</c> 文本**（双击就能导回来，不依赖本程序）；
 ///       · 文件   → **移动**到隔离区（同盘符的移动是改目录项，几乎不花时间、不多占空间）。

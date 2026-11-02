@@ -18,12 +18,11 @@ using FluentAvalonia.UI.Controls;
 namespace ClassSoftwareHub.Desktop.Pages;
 
 /// <summary>
-/// Hub AI 的二级设置页（2026-10-18；2026-10-22 WinUI → Avalonia 移植）。
+/// Hub AI 的二级设置页。
 ///
 /// <para>
 /// 版式原则：**页面上只放"有哪些模型"，配置细节全部收进对话框**。
-/// 上一版把服务商/地址/模型名/密钥/思考/上下文六项平铺在页面上，用户分不清哪块属于哪个模型，
-/// 配一个已知厂商的模型要填五项（Nick：「恶心，不如人家一步搞定」）。
+/// 六项平铺在页面上时，用户分不清哪块属于哪个模型，配一个已知厂商的模型要填五项。
 /// </para>
 /// <para>
 /// ⛔ 密钥只在对话框里输入，保存后立刻清空；列表上只显示「未配置密钥」这种状态。
@@ -100,11 +99,11 @@ public sealed partial class HubAiSettingsPage : PageBase
         App.Settings.Save();
         AppLog.Step("hubai", enabled ? "总闸打开" : "总闸关闭");
 
-        // 打开与关闭都给一个「立即重启」的出口（上游 2026-10-28 Nick：关掉之后前台功能还能用）。
-        // ⚠️ 说清楚哪些是即时生效的、哪些要重新进入页面才刷新 —— 别一句"请重启"糊过去：
+        // 打开与关闭都给一个「立即重启」的出口。
+        // 说清楚哪些是即时生效的、哪些要重新进入页面才刷新 —— 别一句"请重启"糊过去：
         //    软件下载页的入口卡片、对话页的状态都是"进入页面时重算"，
         //    加上 HubAiPage 是 NavigationCacheMode=Enabled，停在原地确实看不到变化。
-        // ⛔ 导航栏的 Hub AI 项**不受总闸影响**，永远在那儿（Nick 要留作宣传位），文案里别把它算进去。
+        // 导航栏的 Hub AI 项**不受总闸影响**，永远在那儿（留作宣传位），文案里别把它算进去。
         var dialog = new ContentDialog
         {
             Title = enabled ? "Hub AI 已启用" : "Hub AI 已停用",

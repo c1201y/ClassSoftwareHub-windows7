@@ -16,7 +16,7 @@ namespace ClassSoftwareHub.Desktop.Views;
 /// 外壳走 <see cref="FlyoutChrome"/>（无边框 + 亚克力 + 圆角 + **置顶** + 不进 Alt+Tab），
 /// 跟侧边栏那几个浮窗同一套材质 —— 摆在一起才像一个整体。
 ///
-/// ⚠️ 规矩（踩过的，别改）：
+/// ⚠️ 固定规则（均为验证过的行为，不得更改）：
 ///   1. **不因失焦自己收起**。音量浮窗会（见 VolumeFlyoutGroup），这个**绝不能**：
 ///      用户恰恰要切到浏览器 / QQ 去加群，提醒收了就等于没提醒。
 ///      退出只有三条路：复制 / 取消 / Esc。
@@ -212,8 +212,8 @@ public sealed partial class QqFeedbackFlyoutWindow : Window
         QqFeedback.Copy(_copyText);
         HideSelf();
 
-        // 复制完顺势把图文流程摊开 —— 用户下一步就是"去群相册粘贴"，
-        // 这时候他需要的是"怎么建相册"，不是再点一次按钮。
+        // 复制后随即打开图文流程 —— 用户下一步是"去群相册粘贴"，
+        // 此时需要的是"怎么建相册"的指引，而非再次点击按钮。
         QqFeedbackGuideWindow.Show(_copyText);
     }
 

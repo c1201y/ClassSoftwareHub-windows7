@@ -20,7 +20,7 @@ using FluentAvalonia.UI.Controls;
 namespace ClassSoftwareHub.Desktop.Controls;
 
 /// <summary>
-/// Hub AI 提问浮层（2026-10-30 上游抽出公共控件；2026-11-01 移植）。
+/// Hub AI 提问浮层（自上游抽出的公共控件，已移植）。
 ///
 /// <para>
 /// 用法：页面根 Grid 里放一行 <c>&lt;controls:HubAiFlyout x:Name="AiFlyout" /&gt;</c>，
@@ -34,7 +34,7 @@ namespace ClassSoftwareHub.Desktop.Controls;
 /// </para>
 ///
 /// <para>
-/// ⭐ **每次展开都另起一段对话**（Nick：「新开一个窗口 = 新开一个对话」）：
+/// ⭐ **每次展开都另起一段对话**（约定：新开一个浮层 = 新开一段对话）：
 /// 展开时拿一份新的草稿运行时，不带上一次的消息；这一段里的追问仍接在同一条上。
 /// </para>
 /// </summary>
@@ -49,13 +49,13 @@ public sealed partial class HubAiFlyout : UserControl
     private string _answerRendered = "";
     private bool _busy;
 
-    // ── 出场/收起动画（2026-10-30：轻微放大 + 8px 归位 + 淡入） ──────────
+    // ── 出场/收起动画（轻微放大 + 8px 归位 + 淡入） ──────────
     private readonly ScaleTransform _scale = new(1, 1);
     private readonly TranslateTransform _translate = new();
     private int _appearVersion;
 
     /// <summary>
-    /// 「正在思考」那个占位气泡（2026-10-31 Nick：长时间思考时卡片里毫无反应）。
+    /// 「正在思考」占位气泡：长时间思考时避免卡片毫无反应。
     /// 放在助手气泡**下面**、正文一到就撤掉 —— 独立控件而不是塞进气泡内部，
     /// 因为正文是 <see cref="MarkdownText.Apply"/> 每次整块重绘的，塞进去会被一起清掉。
     /// </summary>
@@ -207,7 +207,7 @@ public sealed partial class HubAiFlyout : UserControl
     /// <summary>
     /// 把运行时的正文画进气泡。
     /// <para>
-    /// 2026-10-31：① 正文一到就撤掉「正在思考」气泡；
+    /// ① 正文一到就撤掉「正在思考」气泡；
     /// ② 有正文但又在等工具时，阶段说明改到底部那行小字上（两处不会同时出现）。
     /// </para>
     /// </summary>
@@ -613,7 +613,7 @@ public sealed partial class HubAiFlyout : UserControl
 
     /// <summary>
     /// 深色下的表面处理：背景用原生窗口底色，外面描一圈**主题色**边框。
-    /// ⚠️ 浅色**不动** —— Nick 原话是"浅色模式的那个界面很好看"。
+    /// ⚠️ 浅色**不动** —— 浅色观感已确认，无需处理。
     /// </summary>
     private void ApplySurface()
     {

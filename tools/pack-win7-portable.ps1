@@ -26,7 +26,18 @@ param(
     [Parameter(Mandatory = $true)][string]$LauncherDir,
     [Parameter(Mandatory = $true)][string]$Version,
     [string]$OutRoot = 'dist',
-    [switch]$Zip
+    [switch]$Zip,
+
+    # 官方构建签名（见 tools\make-build-stamp.ps1）。⚠️ 签名是在 publish 阶段编进程序集的，
+    # 这里只做**校验**：拿它的 base64 去 ClassSoftwareHub.dll 里找，找不到就报错。
+    #
+    # -BuildStampB64 直接给 base64（CI 用，不必落盘明文签名）；
+    # -BuildStamp    给签名文件路径（本地用）。
+    # 两者都没给时依次找 dist\build-stamp.txt、.secrets\build-stamp.txt；都没有则报错
+    # —— 免得把「社区版」当成正式包发出去。
+    [string]$BuildStamp,
+    [string]$BuildStampB64,
+    [switch]$SkipLicenseStamp
 )
 
 $ErrorActionPreference = 'Stop'
@@ -76,7 +87,81 @@ $appFiles = Get-ChildItem -LiteralPath $appDest -Recurse -File
 $appMb = [math]::Round((($appFiles | Measure-Object -Property Length -Sum).Sum / 1MB), 1)
 Say "✓ 应用本体 → app\ （$($appFiles.Count) 个文件，$appMb MB）"
 
-# ── 3. 使用说明 ───────────────────────────────────────────────────────
+# ── 3. 校验官方构建签名确实编进了 DLL ────────────────────────────────
+# 签名在 **publish 阶段**由 csproj 的 AssemblyMetadata 写进程序集，这里只做校验 ——
+# 打包脚本跑在 publish 之后，改不了二进制，能做的就是别让没签名的包溜出去。
+
+function Get-StampBase64([string]$path) {
+    $line = (Get-Content -LiteralPath $path -Raw).Trim()
+    if (-not $line) { throw "签名文件是空的：$path" }
+    return [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($line))
+}
+
+$stampB64 = $BuildStampB64
+$stampSource = '-BuildStampB64'
+
+if (-not $stampB64) {
+    $stampPath = $BuildStamp
+    if (-not $stampPath) {
+        foreach ($candidate in @(
+                (Join-Path $outRootFull 'build-stamp.txt'),
+                (Join-Path (Split-Path -Parent $PSScriptRoot) '.secrets\build-stamp.txt'))) {
+            if (Test-Path -LiteralPath $candidate) { $stampPath = $candidate; break }
+        }
+    }
+    if ($stampPath -and (Test-Path -LiteralPath $stampPath)) {
+        $stampB64 = Get-StampBase64 $stampPath
+        $stampSource = Split-Path -Leaf $stampPath
+    }
+}
+
+# AssemblyMetadata 的字符串参数在元数据里是 UTF-8（SerString），字符串常量才走 UTF-16 的 #US 堆。
+# 两种都试一遍，免得哪天换了注入方式就静默失效。
+function Test-EmbeddedStamp([string]$dllPath, [string]$b64) {
+    if (-not (Test-Path -LiteralPath $dllPath)) { return $false }
+    $bytes = [System.IO.File]::ReadAllBytes($dllPath)
+    if ($bytes.Length % 2 -ne 0) {
+        $bytes = $bytes[0..($bytes.Length - 2)]
+    }
+    return ([System.Text.Encoding]::UTF8.GetString($bytes).Contains($b64) -or
+            [System.Text.Encoding]::Unicode.GetString($bytes).Contains($b64))
+}
+
+if ($SkipLicenseStamp) {
+    Say '⚠ 跳过签名校验（产物将被判定为社区版，需要激活）'
+}
+elseif ($stampB64) {
+    $dll = Join-Path $appDirFull 'ClassSoftwareHub.dll'
+    if (-not (Test-EmbeddedStamp $dll $stampB64)) {
+        throw @"
+构建签名没有编进程序集：$(Split-Path -Leaf $dll) 里找不到对应签名（来源：$stampSource）。
+
+   签名是在 publish 阶段注入的，打包脚本改不了二进制。正确顺序：
+
+     pwsh tools\make-build-stamp.ps1 -Version $Version
+     # 用它输出的 base64 去 publish：
+     dotnet publish src\ClassSoftwareHub.Win7.csproj -c Release -r win-x64 --self-contained true ``
+         -p:PublishTrimmed=false -p:PublishReadyToRun=true ``
+         -p:CshBuildStampB64=<base64> -o dist\win7\app
+
+   然后再跑本脚本。确实要打不带签名的包（内部自测）时，加 -SkipLicenseStamp。
+"@
+    }
+    Say "✓ 构建签名已编入程序集（来源：$stampSource）"
+}
+else {
+    throw @"
+缺少构建签名（-BuildStampB64 / -BuildStamp 都没给，也没找到 build-stamp.txt）。
+
+官方包必须带签名，否则用户装上是「社区版」，在线服务会要求激活。
+先生成：
+  pwsh tools\make-build-stamp.ps1 -Version $Version
+
+确实要打一个不带签名的包（内部自测）时，加 -SkipLicenseStamp。
+"@
+}
+
+# ── 4. 使用说明 ───────────────────────────────────────────────────────
 $readme = @"
 ClassSoftwareHub · Windows 7 便携版  dv$Version
 ────────────────────────────────────────────────
@@ -107,7 +192,7 @@ $readmePath = Join-Path $portableDir '使用说明.txt'
 [System.IO.File]::WriteAllText($readmePath, $readme, (New-Object System.Text.UTF8Encoding($true)))
 Say '✓ 使用说明.txt'
 
-# ── 4. 打 zip ─────────────────────────────────────────────────────────
+# ── 5. 打 zip ─────────────────────────────────────────────────────────
 if ($Zip) {
     $zipName = "ClassSoftwareHub-Portable-win7-dv$Version.zip"
     $zipPath = Join-Path $outRootFull $zipName

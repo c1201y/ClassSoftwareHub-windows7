@@ -17,7 +17,7 @@ namespace ClassSoftwareHub.Desktop.Pages;
 /// <summary>
 /// 「程序专杀」页（实验性功能，tag = <c>procguard</c>）。
 ///
-/// 与「白板专杀」是**两个独立功能**（Nick 2026-09-28 明确要求不合并）：
+/// 与「白板专杀」是**两个独立功能**（不合并）：
 /// 白板专杀盯死白板5 家族，本页盯用户在页面上自行指定的任意进程。
 ///
 /// 逻辑全在 <see cref="ProcessGuard"/>（扫进程 / 判窗口 / 结束 / 定时），

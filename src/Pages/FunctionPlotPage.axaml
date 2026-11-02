@@ -5,16 +5,16 @@
     xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
     xmlns:fa="using:FluentAvalonia.UI.Controls">
 
-    <!-- ⛔⛔ 整页照 Windows 计算器绘图模式重排（Nick 定）：**全屏三列**，
+    <!-- 整页照 Windows 计算器绘图模式重排：**全屏三列**，
          [函数分析][画布][输入+键盘]，没有标题、没有说明文字、没有页面边距、不锁 960 ——
          这一页的主角就是图，其余一切信息都塞进两侧的栏里。
-         ⚠️ Background="Transparent" 是给滚轮接力用的（见 Core/WheelRelay.cs），
+         Background="Transparent" 是给滚轮接力用的（见 Core/WheelRelay.cs），
          本页真正的滚轮交互在画布上（缩放），见 Plot_Wheel。
          ⚠️ WinUI → Avalonia：ThemeResource → DynamicResource；Visibility → IsVisible；
             FontIcon → fa:FontIcon；ToolTipService → ToolTip。 -->
     <Grid Background="Transparent">
         <Grid.ColumnDefinitions>
-            <!-- 窗口较窄时先压缩分析栏（Nick 定），SizeChanged 里收窄到 0。
+            <!-- 窗口较窄时先压缩分析栏，SizeChanged 里收窄到 0。
                  ⚠️ Avalonia 不支持给 ColumnDefinition 写 x:Name，代码里按索引取（root.ColumnDefinitions[0]）。 -->
             <ColumnDefinition Width="272" MinWidth="0" />
             <ColumnDefinition Width="*" MinWidth="300" />
@@ -42,7 +42,7 @@
                     <TextBlock Text="函数分析" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" />
                     <Button Grid.Column="1" Content="依据" Click="Basis_Click" Padding="10,4" Margin="8,0,0,0"
                             ToolTip.Tip="这些结论怎么来的、精度边界在哪" />
-                    <!-- 讲课时把整栏收起来（Nick 定）：投屏场景不希望学生看到分析结论 -->
+                    <!-- 讲课时把整栏收起来：投屏场景不希望学生看到分析结论 -->
                     <Button Grid.Column="2" Click="AnalysisToggle_Click" Padding="6,4" Margin="4,0,0,0"
                             ToolTip.Tip="收起函数分析">
                         <fa:FontIcon Glyph="&#xE76B;" FontSize="12" />
@@ -143,9 +143,8 @@
                     </Button>
                 </Grid>
 
-                <!-- ⛔⛔ 曲线列表铺满键盘上方的**全部剩余高度**（Nick 定）：
-                     曾经写死 MaxHeight="150"，那么高的一列只能露出四条就被截断。
-                     行高给 * 让它在格子内自己滚，别再用固定上限把它框死。 -->
+                <!-- 曲线列表铺满键盘上方的**全部剩余高度**：
+                     行高给 * 让它在格子内自己滚，不要用固定上限（如 MaxHeight）把它框死截断。 -->
                 <ScrollViewer Grid.Row="1" Margin="12,0,12,0" Padding="0,0,4,0"
                               VerticalAlignment="Stretch"
                               VerticalScrollBarVisibility="Auto">
@@ -153,7 +152,7 @@
                 </ScrollViewer>
 
                 <!-- ═══ 数学键盘 ═══ -->
-                <!-- ⛔⛔ 是右栏的**一部分**，不是浮在面板上的小卡片（Nick：浮卡有喜感）——
+                <!-- 键盘是右栏的**一部分**，不是浮在面板上的小卡片：
                      无圆角、无边框，底色铺满右栏整宽直到窗口底边，按键拉伸占满可用宽度。 -->
                 <Border Grid.Row="2" Padding="10,10,10,12"
                         Background="{DynamicResource CardBackgroundFillColorSecondaryBrush}">

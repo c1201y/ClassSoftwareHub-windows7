@@ -17,7 +17,7 @@ namespace ClassSoftwareHub.Desktop.Services;
 /// <c>__C__</c> 占位符替换成主题文字色（跟同页 FontIcon 用的 <c>TextFillColorPrimaryBrush</c>
 /// 同一套），浅色/深色各自一套，结果按「资源名 + 颜色」缓存，主题切换时换一张即可。
 ///
-/// <para>⚠️ Win7 移植说明（2026-10-18 自上游 1.2.0 移植）：Avalonia 核心没有 SVG 解码器
+/// <para>⚠️ Win7 移植说明：Avalonia 核心没有 SVG 解码器
 /// （SvgImageSource 是 WinUI 的；SkiaSharp 的 SKSvg 在扩展包里，本移植版不引第三方包）。
 /// 所以渲染端改成两条路：**首选**把替换过颜色的 SVG 文本用内嵌 SkiaSharp 路径解析
 /// （若运行时有 SkiaSharp.Svg 扩展则用之，反射探测），**兜底**画一个首字色块位图，
@@ -66,8 +66,8 @@ public static class QuickLinkIconLoader
 
             // ⚠️ Win7 端没有 SkiaSharp.Svg 扩展时 Render 返回 null —— 这里**直接放弃**，
             //    让调用方退回模板里的 FontIcon（系统字体的正经图标）。不用"首字兜底"：
-            //    那会把「项目仓库」的仓库图标换成一个字母 G，比 FontIcon 难看且认不出来。
-            //    （2026-10-18 移植时的取舍，与上游 WinUI 的 SvgImageSource 情形不同。）
+            //    那会把「项目仓库」的仓库图标换成一个字母 G，观感差且难以辨识。
+            //    （移植时的取舍，与上游 WinUI 的 SvgImageSource 情形不同。）
             var rendered = Render(svg);
             if (rendered is null) return null;
             lock (Gate) Cache[key] = rendered;
@@ -131,38 +131,6 @@ public static class QuickLinkIconLoader
             using var encoded = skImage.Encode(SkiaSharp.SKEncodedImageFormat.Png, 100);
             using var png = encoded.AsStream();
             return new Bitmap(png);
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    /// <summary>兜底：资源名首字（去掉扩展名）画成主题色色块位图。</summary>
-    private static IImage? FallbackLetter(string assetName, Color color)
-    {
-        try
-        {
-            var letter = Path.GetFileNameWithoutExtension(assetName);
-            letter = letter.Length > 0 ? letter.Substring(0, 1).ToUpperInvariant() : "?";
-
-            var rtb = new RenderTargetBitmap(new PixelSize((int)Side, (int)Side), new Vector(96, 96));
-            using (var ctx = rtb.CreateDrawingContext())
-            {
-                var bg = new SolidColorBrush(Color.FromArgb(0x22, color.R, color.G, color.B));
-                ctx.FillRectangle(bg, new Rect(0, 0, Side, Side), (float)(Side / 6));
-                var typeface = new Typeface(FontFamily.Default, FontStyle.Normal, FontWeight.Bold);
-                var ft = new FormattedText(
-                    letter,
-                    System.Globalization.CultureInfo.CurrentCulture,
-                    FlowDirection.LeftToRight,
-                    typeface,
-                    Side * 0.62,
-                    new SolidColorBrush(color));
-                var size = new Size(ft.Width, ft.Height);
-                ctx.DrawText(ft, new Point((Side - size.Width) / 2, (Side - size.Height) / 2));
-            }
-            return rtb;
         }
         catch
         {

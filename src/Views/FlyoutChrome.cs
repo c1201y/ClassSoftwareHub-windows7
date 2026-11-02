@@ -19,13 +19,13 @@ namespace ClassSoftwareHub.Desktop.Views;
 ///   · 材质：亚克力打底（<see cref="Platform.Backdrop"/>）+ <see cref="ApplyMaterial"/> 压一层纯色薄纱
 ///     （深色压深、浅色压白）。跟边条**一模一样**，两个东西摆在一起才像一个整体。
 ///   · 无边框 + 不进任务栏 + 圆角 8 + 去白边，走 <see cref="Core.WindowChrome"/>。
-///     ⚠️ 2026-10-02：圆角不能再只靠 <c>WindowChrome.RemoveBorder</c> —— 那里面写的是
-///     <c>DWMWA_WINDOW_CORNER_PREFERENCE</c>，**Win11 才认**，Win7 上静默失败（用户看到的
-///     "悬浮窗没有圆角"就是它）。现在由 <see cref="Core.RoundedCorners"/> 兜底：
+///     圆角不能只靠 <c>WindowChrome.RemoveBorder</c> —— 那里面写的是
+///     <c>DWMWA_WINDOW_CORNER_PREFERENCE</c>，**Win11 才认**，Win7 上静默失败。
+///     由 <see cref="Core.RoundedCorners"/> 兜底：
 ///     Win11 走 DWM，Win7/10 用 <c>SetWindowRgn</c> 把窗口形状裁成圆角矩形。
 ///   · <see cref="Core.ThemeCompat"/> 管深浅色跟着设置走。
 ///
-/// ⚠️ 规矩（都是踩出来的，别改）：
+/// 硬性规矩：
 ///   1. <see cref="Finish"/> 必须在窗口**显示之后**再调 —— 显示前改窗口样式会让窗口显示不出来；
 ///   2. 材质随主题变：<c>ActualThemeVariantChanged</c> 里重压一次薄纱 + 重画一次窗口边框；
 ///   3. 别在这儿自己写无边框那套，去用 WindowChrome。
@@ -78,12 +78,10 @@ public sealed class FlyoutChrome
 
         ApplyMaterial();
 
-        // ⚠️ 2026-10-03（第 11 轮）：鼠标一进浮窗就把它的激活态补上（Activate 幂等，重复调没副作用）。
+        // 鼠标一进浮窗就把它的激活态补上（Activate 幂等，重复调没副作用）。
         //    背景：浮窗弹出时前台常常还在边条/别的进程上，Windows 对"点击未激活窗口"的处理是
         //    先发 WM_MOUSEACTIVATE 走激活流程 —— 大多数情况按下照常送达，但工具窗口（WS_EX_TOOLWINDOW）
         //    在某些路径下第一次按下会被激活流程搅掉。悬停时先把激活补好，就绕开了这条路径。
-        //    （注：开发机上实测的"SendInput 按下 100% 被吞"后来查明是**自动化宿主**拦截注入式按下 ——
-        //    光标被拽回 (0,0)、前台被宿主抢走，与本应用无关；真机无此拦截层。这个兜底保留，无害。）
         root.PointerEntered += (_, _) =>
         {
             try { _window.Activate(); } catch { }
@@ -105,10 +103,10 @@ public sealed class FlyoutChrome
     }
 
     /// <summary>
-    /// 侧边栏同款薄纱：⚠️ 2026-10-03（用户第 12 轮）改**全不透明强制色**：
+    /// 侧边栏同款薄纱：**全不透明强制色** ——
     /// 深色就是黑面板（#202020）、浅色就是白面板（#FCFCFC），不再留"一丝透"。
-    /// 背景：Win7 的 Aero 毛玻璃本身颜色偏灰蓝，之前深色只压 95α、浅色压 205α，
-    /// 底下的毛玻璃永远透出一层灰 —— 用户要的是明确的黑/白，那就直接给死色。
+    /// Win7 的 Aero 毛玻璃本身颜色偏灰蓝，半透明压色永远透出一层灰，
+    /// 所以直接给死色。
     /// 色值跟 <see cref="ToolSidebarWindow"/> 里的 ApplyPanelBrush **逐字一致**，改就一起改。
     /// </summary>
     public void ApplyMaterial()
@@ -175,22 +173,17 @@ public sealed class FlyoutChrome
     {
         EnsureHwnd();
 
-        // ⚠️⚠️ 首次显示**必须**走 Avalonia 自己的 Show()（2026-10-02 实机修的坑，别改回去）
+        // 首次显示**必须**走 Avalonia 自己的 Show()
         //
-        //   原来这里只调 Win32 的 ShowWindow(SW_SHOW)，结果实机截图里浮窗是一块**纯白**的方块：
-        //   外框尺寸对（600×272 物理 = 300×136 dip），里面图标、文字、滑块一个都没有。
+        //   只调 Win32 的 ShowWindow(SW_SHOW) 时，浮窗会显示成一块**纯白**的方块：
+        //   外框尺寸对，里面图标、文字、滑块一个都没有。
         //   原因：Avalonia 的 Window 在没走过 Show() 之前，TopLevel 侧一直是"不可见"，
         //   **整棵视觉树一个像素都不画**，屏幕上剩下的只是 Win32 那个默认白底窗口。
-        //
-        //   同一个仓库里能正常显示的窗口全都调了 Show()：
-        //       ToolSidebarWindow:439 / ToolPaletteWindow:148 / ClockFullscreenWindow:93 / StickerWindow:103
-        //   只有 FlyoutChrome（音量 + 合成器这两个浮窗）漏了 —— 用户说的"太难看了还不能用"就是它。
         //
         //   先把位置尺寸按 DIP 摆好再 Show，避免用默认尺寸闪一帧；物理尺寸随后由 MoveResize 对齐。
         if (!_window.IsVisible)
         {
-            // 再往前一步：把底色也先定下来，否则这一帧是"不透明的默认白" —— 就是用户说的
-            // 「显示和隐藏时闪一下白色」。见 PrimeOpaqueBackdrop。
+            // 再往前一步：把底色也先定下来，否则这一帧是"不透明的默认白"（白闪）。见 PrimeOpaqueBackdrop。
             PrimeOpaqueBackdrop();
 
             var scale = Scale;
@@ -203,8 +196,7 @@ public sealed class FlyoutChrome
             catch { }
             _window.Show();
 
-            // ⚠️ 2026-10-06（用户「首次启动悬浮窗白底白字，切一下深浅色就好了」）：
-            //    构造函数里那次 ApplyMaterial 读到的还是尚未传播的默认浅色变体 → 白面板，
+            // 构造函数里那次 ApplyMaterial 读到的还是尚未传播的默认浅色变体 → 白面板，
             //    而窗口里的文字/图标资源却按深色渲染（白底白字）。窗口进了视觉树之后
             //    主题才真正传播到位 —— 这里立刻补刷材质 + 窗口框，再 Dispatcher 补一拍兜底。
             ApplyMaterial();
@@ -225,17 +217,17 @@ public sealed class FlyoutChrome
         if (!_backdropApplied)
         {
             _backdropApplied = true;
-            // ⚠️ alphaCorners: Win10 默认 GPU 渲染的浮窗带 WS_EX_NOREDIRECTIONBITMAP，
+            // alphaCorners: Win10 默认 GPU 渲染的浮窗带 WS_EX_NOREDIRECTIONBITMAP，
             //    区域裁剪无效 —— 圆角改由面板自身的 alpha 抠（见 Platform.BackdropTheme）。
             try { BackdropTheme.Apply(_window, null, "acrylic", alphaCorners: true); } catch { }
         }
     }
 
     /// <summary>
-    /// 把浮窗推到前台。⚠️ 裸 <c>SetForegroundWindow</c> 会被系统的**前台锁**静默拒绝
+    /// 把浮窗推到前台。裸 <c>SetForegroundWindow</c> 会被系统的**前台锁**静默拒绝
     /// （浮窗弹出时前台往往是别的进程；被拒绝的浮窗处于非激活态，**点它的第一下会被吃掉**
-    /// —— 2026-10-03 本机实测：非前台的浮窗 SendInput 按下不产生任何 Avalonia 事件，
-    /// 用户看到的就是"点了没反应/识别不出拖动还是点击"）。
+    /// —— 非前台的浮窗上注入式按下不产生任何 Avalonia 事件，
+    /// 表现为"点了没反应/识别不出拖动还是点击"）。
     /// 这里用 <c>AttachThreadInput</c> 跟当前前台线程搭桥后再抢 —— 经典可靠的做法。
     /// </summary>
     private void EnsureForeground()
@@ -326,7 +318,6 @@ public sealed class FlyoutChrome
     /// 显示之前先把窗口底色定成"成品色"（跟面板同色系的不透明纯色）。
     ///
     /// <para>
-    /// ── 为什么必须做（用户 2026-10-02：「显示和隐藏时会闪一下白色」）──────
     /// Avalonia 的窗口在 <c>Show()</c> 那一刻只做了一件事：让 Win32 窗口可见。
     /// 视效树的第一帧要等下一轮渲染才画上去 —— 中间那一帧，窗口是**不透明但空白**的，
     /// 而系统的默认窗口底色是**白的**。于是每次显示都会白闪一下。
@@ -334,9 +325,9 @@ public sealed class FlyoutChrome
     /// </para>
     ///
     /// <para>
-    /// ⚠️ 只在**没有模糊/透明支持**的环境下做（<see cref="OsInfo.SupportsAcrylicBlur"/> 为假）。
+    /// 只在**没有模糊/透明支持**的环境下做（<see cref="OsInfo.SupportsAcrylicBlur"/> 为假）。
     ///    能透明时窗口本来就能透出桌面、也不会白闪，这时候设成不透明是倒退
-    ///    （还会把亚克力盖掉）。这正是"关了 Aero 的教室机"才有的毛病。
+    ///    （还会把亚克力盖掉）。
     /// </para>
     /// </summary>
     private void PrimeOpaqueBackdrop()
@@ -365,7 +356,7 @@ public sealed class FlyoutChrome
     /// </summary>
     public bool IsDragging { get; private set; }
 
-    /// <summary>开始拖 / 拖完（调用方用来停滑动动画、记日志等；⚠️ 拖过不再"钉住"，2026-10-03 删）。</summary>
+    /// <summary>开始拖 / 拖完（调用方用来停滑动动画、记日志等）。</summary>
     public event EventHandler? DragStarted;
     public event EventHandler? DragEnded;
 
@@ -373,7 +364,7 @@ public sealed class FlyoutChrome
     private Func<object?, bool>? _dragBlocked;
 
     /// <summary>
-    /// 让浮窗可以被拖着移动（用户 2026-10-02：「悬浮窗无法移动位置」）。
+    /// 让浮窗可以被拖着移动。
     ///
     /// <para>
     /// 浮窗是 <see cref="SystemDecorations.None"/> 的无边框窗口，**没有标题栏**，
@@ -381,11 +372,10 @@ public sealed class FlyoutChrome
     /// </para>
     ///
     /// <para>
-    /// ⚠️ 位移用**屏幕光标坐标**算，不用 Avalonia 的事件坐标：
-    ///    事件坐标是相对窗口的，窗口跟着鼠标一动，它又变回原值 → 阻尼成 0，窗口纹丝不动
-    ///    （这个坑 <c>ToolSidebarWindow</c> 的收起拖拽也踩过，注释里写着"屏幕坐标算"）。
-    /// ⚠️ 挂在 <c>Tunnel</c> 阶段：先看一眼，是滑块/按钮就**不接管**，让控件自己处理，
-    ///    否则点滑块会被当成"拖窗口"，音量就调不了了。
+    /// 位移用**屏幕光标坐标**算，不用 Avalonia 的事件坐标：
+    ///    事件坐标是相对窗口的，窗口跟着鼠标一动，它又变回原值 → 阻尼成 0，窗口纹丝不动。
+    /// 挂在 Bubble + handledEventsToo：Avalonia 的 PointerPressed 是**冒泡事件**（没有隧道路由），
+    ///    按 Tunnel 过滤的 handler 一次都不会被调。滑块/按钮的按下也会冒到这 —— 用 IsDragBlocked 挡回去。
     /// </summary>
     /// <param name="grip">拖动把手（整个窗口根就行）。</param>
     /// <param name="isInteractive">判断"按下的这个东西是不是该自己处理"（滑块、按钮）。</param>
@@ -396,13 +386,6 @@ public sealed class FlyoutChrome
 
         ScreenCapture.Log($"浮窗拖动把手已挂上（grip={grip.GetType().Name}, Bubble+handledEventsToo）");
 
-        // ⚠️ 2026-10-03 真机反馈「悬浮窗识别不出来是拖动还是点击，全按点击处理了」的**真根因**：
-        //    这里原来写的是 RoutingStrategies.Tunnel —— 但 Avalonia 的 PointerPressed 是
-        //    **冒泡（Bubble）事件**（没有 WPF 那套 Preview 隧道路由），按 Tunnel 过滤的
-        //    handler **一次都不会被调** → 拖动从没启动过，按下全落回滑块/按钮 = 全是"点击"。
-        //    （console8 发出去的版本就是这个，真机必现；本机 --simulate-win7 现场复现：
-        //    snip.log 里连"浮窗按下"都不打。）本仓库其余拖拽（SidebarLayoutPage 等）全是
-        //    Bubble + handledEventsToo，跟齐。滑块/按钮的按下也会冒到这 —— 用 IsDragBlocked 挡回去。
         grip.AddHandler(InputElement.PointerPressedEvent, OnDragPressed, RoutingStrategies.Bubble, handledEventsToo: true);
     }
 
@@ -413,17 +396,13 @@ public sealed class FlyoutChrome
         {
             if (!e.GetCurrentPoint(_root).Properties.IsLeftButtonPressed) return;
             var blocked = _dragBlocked?.Invoke(e.Source) == true;
-            // ⚠️ 每次按下都记一笔（用户真机上"拖不动/全按点击"时，snip.log 里直接能看到
-            //    按在了什么控件上、有没有被判定成交给控件 —— 不用再靠猜）。
+            // 每次按下都记一笔（排查"拖不动/全按点击"时，snip.log 里能直接看到
+            //    按在了什么控件上、有没有被判定成交给控件）。
             ScreenCapture.Log($"浮窗按下: source={e.Source?.GetType().Name ?? "null"} blocked={blocked}");
             if (blocked) return;      // 滑块 / 按钮 → 交给它自己
 
-            // ⚠️ 2026-10-02 真机反馈「还是无法拖动」（第 8 轮那套自己算位移的实现在真机上不工作）：
-            //    旧实现靠 Avalonia 指针捕获（e.Pointer.Capture）+ PointerMoved 里 SetWindowPos ——
-            //    本机（Win11）SendInput 能拖，但真机 Win7 上大概率一按下就 PointerCaptureLost
-            //    （侧边栏那套自算拖拽当时也报过"捕获丢失"，同一类坑）。
-            //    改用**系统的模态移动循环**：与主窗 / 常用工具窗标题栏（HTCAPTION）同一机制，
-            //    真机上拖主窗是正常的 → 这条路在真机上是验证过可用的。
+            // 拖动走**系统的模态移动循环**：自算位移的实现在真机上不可靠（指针捕获容易丢）。
+            //    与主窗 / 常用工具窗标题栏（HTCAPTION）同一机制。
             //    BeginMoveDrag 在 Windows 上就是 ReleaseCapture + WM_NCLBUTTONDOWN(HTCAPTION)，
             //    阻塞到用户松手为止；期间消息循环照常转（监视器 / 动画不受影响）。
             IsDragging = true;
@@ -477,7 +456,7 @@ public static class EdgeGeometry
     /// 进退方向贴住锚点的内侧；沿边方向默认跟锚点**对齐居中**，
     /// <paramref name="alignStart"/> 为 true 时改**顶对齐**（左右边）/**左对齐**（上下边）——
     /// 链上两个高矮不一的浮窗（主音量 + 合成器）顶对齐排出来才像一个整齐的块，
-    /// 居中会让高窗口两头都冒出来，看着像叠在一起（2026-10-01）。
+    /// 居中会让高窗口两头都冒出来，看着像叠在一起。
     /// 最后夹进工作区别跑出屏幕。返回（滑入起点 = 往边外退半块，最终位置）。
     /// </summary>
     public static (PixelPoint Start, PixelPoint Final) BesideAnchor(
@@ -501,8 +480,8 @@ public static class EdgeGeometry
 
         final = ClampToWork(final, work, w, h);
 
-        // ⚠️ 起点只往屏幕外退**半块**：整块挪到屏幕外的窗口 DWM 常常不给它刷帧，
-        //    滑进来的第一帧会发虚/卡顿（侧边栏当初就是踩了这个才改的）。
+        // 起点只往屏幕外退**半块**：整块挪到屏幕外的窗口 DWM 常常不给它刷帧，
+        //    滑进来的第一帧会发虚/卡顿。
         var start = Outward(final, edge, Thickness(edge, w, h) / 2);
         return (start, final);
     }

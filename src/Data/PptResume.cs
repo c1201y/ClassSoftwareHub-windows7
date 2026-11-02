@@ -9,14 +9,14 @@ using System.Text.Json.Serialization;
 namespace ClassSoftwareHub.Desktop.Data;
 
 // ═══════════════════════════════════════════════════════════════════════
-//  PPT 续播的数据层（2026-10-31）
+//  PPT 续播的数据层
 //
 //  三件事：
 //    ① 解析 CSES 课表（Course Schedule Exchange Schema v1，JSON）；
 //    ② 按「今天 / 单双周 / 当前时间」找出正在（或临近）上的课；
 //    ③ 把每个科目的课件路径与看到第几页落到本机文件。
 //
-//  ⚠️ CSES 是课表**交换**格式，不是 ClassIsland 的完整档案：只有 subjects +
+//  CSES 是课表**交换**格式，不是 ClassIsland 的完整档案：只有 subjects +
 //     schedules（enable_day 1-7 / weeks all|odd|even / classes[start,end]），
 //     没有学期开始日期 —— 单双周靠用户填的「第一周周一」推算，没填时
 //     odd/even 的课表都当作可用（宁可多显示，也不要漏掉一节课）。

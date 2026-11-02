@@ -28,24 +28,22 @@ public sealed record AppDataFolder(string Name, string FullPath, AppDataZone Zon
 public sealed record CleanOutcome(bool Ok, int Cleaned, int Skipped, string Message);
 
 /// <summary>
-/// AppData 扫描 + 白名单清理（2026-10-13 二版功能，Nick：「实验性功能就是 AppData 文件夹管理」）。
+/// AppData 扫描 + 白名单清理（实验性功能）。
 ///
 /// ⛔⛔ 三层边界（这是本文件存在的全部意义，改动前先读懂）：
 ///
 ///  **第 1 层 · 只读体检** —— <see cref="TopFolders"/> 扫 <c>%LOCALAPPDATA%</c> 与
 ///     <c>%APPDATA%</c> 的一级目录，只出体积排行，**不提供任何删除入口**。
-///     实测本机：Local 70 个 / 11.51 GB，Roaming 44 个 / 7.47 GB。
 ///
 ///  **第 2 层 · 白名单清理** —— 只有 <see cref="Rules"/> 里列出的**缓存目录**可清。
-///     ⚠️ Nick 2026-10-14 定案：**不进回收站，直接永久删除**（见 <see cref="Clean"/>）。
+///     ⚠️ **不进回收站，直接永久删除**（见 <see cref="Clean"/>）。
 ///     之所以敢这么删，是因为这一层清的全是**缓存**（临时文件、浏览器 Cache、着色器缓存、包管理器缓存），
 ///     删掉程序会自己重建；而"删了会丢东西"的那些（<c>Local State</c>、聊天记录、存档、账号数据）
-///     **压根不在白名单里**。回收站那版实现（Services/RecycleBin.cs）已按此定案移除。
+///     **压根不在白名单里**。
 ///
 ///  **第 3 层 · 禁碰区** —— 一级目录**整目录删除这条路根本不开放**（见 <see cref="IsCleanable"/>
-///     里的"段数必须 ≥ 2"）。原因有实据：<c>%LOCALAPPDATA%\Programs</c>（1.3 GB）是**程序安装本体**
-///     （VS Code、Chrome 都装在里面），<c>%APPDATA%\Tencent</c>（2.85 GB，却只有 2956 个文件 —— 典型大文件）
-///     大概率是**聊天记录**。按一级目录下手＝迟早把人家机器删废。
+///     里的"段数必须 ≥ 2"）：<c>%LOCALAPPDATA%\Programs</c> 是**程序安装本体**，
+///     <c>%APPDATA%\Tencent</c> 这类大文件目录大概率是**聊天记录**。按一级目录下手＝迟早把人家机器删废。
 ///     同样禁碰：<c>*\Settings</c>、<c>*.db</c>、<c>Local State</c> 这类配置/账号数据。
 ///
 /// ⛔ 一条极易踩的坑，已经在代码里挡掉了：
@@ -65,11 +63,11 @@ public static class AppDataScan
         MatchType = MatchType.Simple,
     };
 
-    /// <summary><c>%LOCALAPPDATA%</c>（本机实测 11.51 GB 的那半边）。</summary>
+    /// <summary><c>%LOCALAPPDATA%</c>（本地）。</summary>
     public static string LocalRoot =>
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
 
-    /// <summary><c>%APPDATA%</c>（漫游，本机实测 7.47 GB 的那半边）。</summary>
+    /// <summary><c>%APPDATA%</c>（漫游）。</summary>
     public static string RoamingRoot =>
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
 
@@ -207,10 +205,8 @@ public static class AppDataScan
             .Select(g => g.First())
             .ToList();
 
-        // ⛔⛔ **列出来的必须真能清**。这里再问一遍 <see cref="Clean"/> 用的那道闸（IsCleanable）。
-        //    它俩原本各判各的，于是白名单里凡是"一级目录"的规则（Temp / npm-cache / D3DSCache）
-        //    都变成"界面上有、一点就弹『这个路径不在白名单内』" —— 2026-10-15 实拍。
-        //    多问一遍不影响判断，但以后再出现同类不一致，界面就不会撒谎了。
+        // ⛔⛔ **列出来的必须真能清**。这里再问一遍 <see cref="Clean"/> 用的那道闸（IsCleanable），
+        //    保证白名单规则与清理判据一致，界面不会列出清不掉的项。
         var cleanable = dedup.Where(e => IsCleanable(e.FullPath)).ToList();
         if (cleanable.Count != dedup.Count)
         {
@@ -304,8 +300,7 @@ public static class AppDataScan
     ///  ③ 不是 reparse point（不能顺着联接点删到别的地方去）；
     ///  ④ 命中白名单模式（逐段比对）。
     ///
-    /// ⛔⛔ ② 有一条**白名单显式点名**的例外，见下方注释 —— 2026-10-15 就是因为这条闸把
-    ///     <c>Temp</c> 拦死，界面上列得出来、一点就弹「不在白名单内」。
+    /// ⛔⛔ ② 有一条**白名单显式点名**的例外，见下方注释。
     /// </summary>
     public static bool IsCleanable(string fullPath)
     {
@@ -366,7 +361,7 @@ public static class AppDataScan
     /// <summary>
     /// 清掉一个白名单目录的**内容**（永久删除，目录本身保留）。
     ///
-    /// ⚠️ **不进回收站**（Nick 2026-10-14 定案）。白名单里全是缓存，删了程序自己重建；
+    /// ⚠️ **不进回收站**。白名单里全是缓存，删了程序自己重建；
     ///    会丢东西的一律没进白名单，所以这里敢直接删。
     ///
     /// 被程序占用的文件删不掉 —— **跳过并计数**，把数量如实回报给界面，而不是假报成功。

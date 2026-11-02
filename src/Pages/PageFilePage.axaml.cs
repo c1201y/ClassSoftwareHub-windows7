@@ -394,7 +394,7 @@ public sealed partial class PageFilePage : PageBase
         var error = PageFileRules.Validate(plan, drive.UsableMb);
         if (error is not null)
         {
-            // ⚠️ 校验不过**不排队**，但要把原因当场显示出来 —— 否则用户以为设好了，
+            // 校验不过**不排队**，但要把原因立即显示出来 —— 否则用户以为设好了，
             //    等重启之后才发现还是原来的配置。
             ShowShapeHint(error, isError: true);
             return;

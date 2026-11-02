@@ -17,7 +17,7 @@ public enum SysFeatureKind
 public sealed record SysChoice(string Label, int Value);
 
 /// <summary>
-/// 一条系统功能定义（自上游 2026-10-31 移植，需求清单第 20 条重做）。
+/// 一条系统功能定义（自上游移植）。
 ///
 /// <para>
 /// 与「系统优化」页的 <c>TweakDef</c> 是两套东西，别混：
@@ -28,12 +28,12 @@ public sealed record SysChoice(string Label, int Value);
 /// </para>
 ///
 /// <para>
-/// ⛔ 三项都做成委托而不是 switch，是为了让「命令怎么生成」「值怎么解释」这两段
+/// 三项都做成委托而不是 switch，是为了让「命令怎么生成」「值怎么解释」这两段
 /// 能脱离注册表被单元测试钉住 —— 写命令错一个字，用户点完 UAC 才发现没生效，最难查。
 /// </para>
 ///
 /// <para>
-/// ⛔ 这里<b>不收 HKCU 的项</b>：提权批次跑在管理员令牌下，写 HKCU 会写到管理员账户去，
+/// 这里<b>不收 HKCU 的项</b>：提权批次跑在管理员令牌下，写 HKCU 会写到管理员账户去，
 /// 而不是当前用户（标准账户 + 输入管理员密码时尤其明显）。HKCU 的项一律放「系统优化」页。
 /// </para>
 /// </summary>
@@ -61,13 +61,13 @@ public sealed class SysFeatureDef
 
     /// <summary>
     /// 读当前值；读不到返回 <c>null</c>（无权 / 键不存在 / 系统不支持）。
-    /// ⛔ 别把 null 当 0 —— 「读不到」与「值为 0」在界面上是两件事。
+    /// 别把 null 当 0 —— 「读不到」与「值为 0」在界面上是两件事。
     /// </summary>
     public Func<int?> Read { get; init; } = null!;
 
     /// <summary>
     /// 生成写入命令（**可多条**，按顺序执行）。
-    /// ⚠️ powercfg 的 <c>setacvalueindex</c> 之后必须再跑一次 <c>setactive</c>，否则不生效。
+    /// powercfg 的 <c>setacvalueindex</c> 之后必须再跑一次 <c>setactive</c>，否则不生效。
     /// </summary>
     public Func<int, IReadOnlyList<string>> Command { get; init; } = null!;
 

@@ -18,7 +18,7 @@ namespace ClassSoftwareHub.Desktop.Services;
 /// </summary>
 public static class SubmitEndpoint
 {
-    /// <summary>入口清单唯一出处见 <see cref="Core.ServiceEndpoints.All"/>（2026-10-27 三入口重排）。</summary>
+    /// <summary>入口清单唯一出处见 <see cref="Core.ServiceEndpoints.All"/>。</summary>
     public static readonly string[] All = Core.ServiceEndpoints.All;
 
     /// <summary>

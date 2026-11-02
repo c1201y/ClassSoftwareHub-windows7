@@ -29,8 +29,8 @@ namespace ClassSoftwareHub.Desktop.Controls;
 /// SettingsCard 里，见 Pages/SettingsPage.xaml）；「投稿」按钮也在那边，点了调
 /// <see cref="OpenSubmitPage"/> —— 投稿地址归本控件管，设置页不必知道。
 /// ⛔ 卡面除了字条本身不许有任何文字：条数、取数状态、报错、投稿回执全都不在这里显示
-/// （2026-10-03 Nick：「这一片永远不要显示文字，要最纯粹的回声洞」）。
-/// 取数期间例外地摆一枚 <c>ProgressRing</c>（图形，不是文字，他要的"正在加载"提示）。
+/// （设计约定：这一片保持最纯粹的回声洞）。
+/// 取数期间例外地摆一枚 <c>ProgressRing</c>（图形，不是文字，即"正在加载"提示）。
 ///
 /// ⚠️ 移植说明（WinUI → Avalonia）：
 ///   · <c>Microsoft.UI.Xaml.Controls.UserControl</c> → <c>Avalonia.Controls.UserControl</c>；
@@ -50,8 +50,8 @@ public sealed partial class EchoCaveCard : UserControl
     private const int BlinkEvery = 10;
 
     /// <summary>
-    /// 卡片上的常驻默认文字（Nick 2026-10-03 指定）：还没取到字条、或者洞里空着时就显示这句。
-    /// ⛔ 别改文案 —— 这是他要的原文。
+    /// 卡片上的常驻默认文字：还没取到字条、或者洞里空着时就显示这句。
+    /// ⛔ 不要修改文案 —— 此为设计定稿。
     /// </summary>
     private const string Placeholder = "点击此处可以查看 ClassSoftwareHub 群友逆天发言";
 
@@ -98,7 +98,7 @@ public sealed partial class EchoCaveCard : UserControl
         _typeGeneration++;
         _isTyping = false;
 
-        SetLoading(false);                 // 离屏就别再转圈了（占着合成线程）
+        SetLoading(false);                 // 离屏时停止转圈（占着合成线程）
         try { _cts?.Cancel(); } catch { /* 已经结束 */ }
         _cts = null;
     }
@@ -133,7 +133,7 @@ public sealed partial class EchoCaveCard : UserControl
                 _isTyping = false;
 
                 // 没字条就回到默认文字。"链路通、只是没人说话"和"网络不通"是两句不同的话，
-                // 判据在 EchoCaveService —— 但那是给日志看的，界面上一个字都不说（Nick 2026-10-03）。
+                // 判据在 EchoCaveService —— 但那是给日志看的，界面上一个字都不说（设计约定）。
                 // （点不点都没反应，外层卡片那边由 ShowNext 里的空数据判断挡住。）
                 MessageText.Text = Placeholder;
             }
@@ -155,7 +155,7 @@ public sealed partial class EchoCaveCard : UserControl
     }
 
     /// <summary>
-    /// 取数期间那枚转圈（Nick 2026-10-03：要有个"正在加载"的提示）。
+    /// 取数期间显示的"正在加载"提示（转圈）。
     /// ⛔ 它是**图形不是文字** —— 卡面依然一个字都不写（见 XAML 头注释）。
     /// </summary>
     private void SetLoading(bool loading)

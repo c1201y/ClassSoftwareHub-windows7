@@ -5,7 +5,7 @@ using System.Linq;
 namespace ClassSoftwareHub.Desktop.Services.HubAi;
 
 /// <summary>
-/// 思考开关在线上格式里的写法（2026-10-18 按各家官方文档核对）。
+/// 思考开关在线上格式里的写法（已按各家官方文档核对）。
 ///
 /// <para>
 /// 同一个"开启思考"，四家四种写法：DeepSeek / Kimi / GLM 是嵌套对象 <c>thinking.type</c>，
@@ -44,7 +44,7 @@ public sealed record ThinkingProfile(
     /// <summary>强制开启思考、不能关闭（如 glm-5.3、kimi-k2.7-code）。</summary>
     bool ForcedThinking = false);
 
-/// <summary>一个模型服务商的预设（2026-10-18）。</summary>
+/// <summary>一个模型服务商的预设。</summary>
 public sealed record AiProvider(
     string Id,
     string Name,
@@ -111,12 +111,11 @@ public static class AiProviders
         => All.FirstOrDefault(p => p.Id == id) ?? All[^1];
 
     /// <summary>
-    /// 模型 ID → 给人看的显示名（2026-10-18）。
+    /// 模型 ID → 给人看的显示名。
     ///
     /// <para>
     /// ⚠️ **两者不一样**：接口里的 ID 是 <c>deepseek-flash</c>，但它实际对应的模型版本叫
-    /// <b>DeepSeek-V4.1-Flash</b>。界面上直接把 ID 摊给用户会显得很原始（Nick 就问了
-    /// 「不是 V4.1 flash 吗，为什么写的是 V4」）。
+    /// <b>DeepSeek-V4.1-Flash</b>，界面上直接显示 ID 会造成误解。
     /// </para>
     /// <para>
     /// 认不出的 ID 原样返回 —— 用户手填的模型名不该被改写。

@@ -52,7 +52,7 @@ public sealed partial class SettingsPage : PageBase
 
     /// <summary>
     /// 打开设置页后把滚动位置拉回顶部的定时器。
-    /// ⚠️ 必须存字段 —— DispatcherTimer 被 GC 收走就不会触发（本项目踩过）。
+    /// 必须存字段 —— DispatcherTimer 被 GC 收走就不会触发。
     /// </summary>
     private DispatcherTimer? _settleTimer;
 
@@ -123,10 +123,16 @@ public sealed partial class SettingsPage : PageBase
             "solid" => 2,
             _ => 0
         };
+
+        // Win7 没有系统材质可上，实际效果一律是壁纸模糊（磨砂），说明写清楚免得误解。
+        BackdropCard.Description = OsInfo.IsWindows7
+            ? "Win7 不支持系统背景材质（云母/亚克力），主界面固定使用壁纸模糊的磨砂底色。"
+            : "主界面、常用工具浮窗与截图编辑窗都随此项；截图框选层与钉图不参与。";
         TopMostSwitch.IsChecked = s.AlwaysOnTop;
         AutoStartSwitch.IsChecked = s.AutoStart;
         MinimizeSwitch.IsChecked = s.MinimizeOnStart;
         TraySwitch.IsChecked = s.CloseToTray;
+        RefreshLicenseCard();
 
         // 2026-10-07（对齐上游 dv1.1.0）：原「常用工具窗口 / 侧边栏」与「截图自动保存」两组设置项，
         // 上游 2026-10-01 搬去了「侧边布局」页 —— 这里的初始化与处理函数一并删干净（见 SidebarLayoutPage）。
@@ -216,7 +222,7 @@ public sealed partial class SettingsPage : PageBase
 
     // ══════════════════════════ 诊断 ══════════════════════════
 
-    /// <summary>设置 → 诊断 → 日志查看（Nick 2026-10-02：正式入口，不再放实验性分组）。
+    /// <summary>设置 → 诊断 → 日志查看（正式入口，不放实验性分组）。
     /// 走 ShellPage 的导航（左侧「设置」保持高亮），返回键能回到设置页。</summary>
     private void OpenLogViewer_Click(object? sender, RoutedEventArgs e)
     {
@@ -235,10 +241,10 @@ public sealed partial class SettingsPage : PageBase
     private void EchoCave_Click(object? sender, RoutedEventArgs e) => EchoCave.ShowNext();
 
     /// <summary>
-    /// 把回声洞折叠区收起来（设置页一打开必须是折叠的样子，2026-10-03 Nick 指定）。
-    /// ⚠️ 外层 SettingsExpander.IsExpanded 与模板里那个内层 Expander 都要压 ——
-    ///    内层才是真身（模板里绑的是 TwoWay，它起手展开会把 true 反推回外层），只压外层会被顶回来。
-    /// ⛔ 别删。实测口径：收起后外层/内层 ActualHeight 都是 70（只剩表头行），摊开 125~165（随内容长短）。
+    /// 把回声洞折叠区收起来（设置页一打开必须是折叠的样子）。
+    /// 外层 SettingsExpander.IsExpanded 与模板里那个内层 Expander 都要压 ——
+    /// 内层才是真身（模板里绑的是 TwoWay，它起手展开会把 true 反推回外层），只压外层会被顶回来。
+    /// 收起后外层/内层 ActualHeight 都是 70（只剩表头行），摊开 125~165（随内容长短）。
     /// </summary>
     private void CollapseEchoCave()
     {
@@ -1545,5 +1551,68 @@ public sealed partial class SettingsPage : PageBase
     {
         if (sender is not SettingsCard card || card.Tag is not string key) return;
         App.MainWindow?.Shell.NavigateToLegal(key);
+    }
+
+    /// <summary>「正版授权」卡片的状态文案：官方构建、已激活、未激活三态。</summary>
+    private void RefreshLicenseCard()
+    {
+        if (Core.BuildIdentity.IsOfficial)
+        {
+            LicenseCard.Description = "官方发布版：在线服务已启用。";
+            return;
+        }
+
+        if (Services.License.LicenseStore.IsActivated)
+        {
+            var expiry = Services.License.LicenseStore.ExpiryText;
+            LicenseCard.Description = expiry is null
+                ? $"已激活（长期有效）；设备码 {Services.License.LicenseStore.DeviceCode}"
+                : $"已激活，有效期至 {expiry}；设备码 {Services.License.LicenseStore.DeviceCode}";
+            return;
+        }
+
+        LicenseCard.Description =
+            "当前不是官方发布版：在线服务（投稿、反馈、回声洞、教室喊话、下载加速）需激活后使用。" +
+            "点此输入激活码，或到官网下载官方版（无需激活）。";
+    }
+
+    private async void License_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (Services.License.LicenseStore.IsActivated)
+            {
+                await new ContentDialog
+                {
+                    Title = "已激活",
+                    Content = new TextBlock
+                    {
+                        Text = RefreshLicenseCardText(),
+                        TextWrapping = TextWrapping.Wrap,
+                    },
+                    CloseButtonText = "确定",
+                }.ShowAsync();
+                return;
+            }
+
+            // 用户主动点进来 → 解除「本次运行不再提示」的标记
+            Services.License.LicenseGate.ClearDismissed();
+
+            if (await Services.License.ActivationDialog.ShowAsync())
+                RefreshLicenseCard();
+        }
+        catch (Exception ex)
+        {
+            Core.AppLog.Fail("license", ex, "打开激活对话框失败");
+        }
+    }
+
+    private string RefreshLicenseCardText()
+    {
+        var expiry = Services.License.LicenseStore.ExpiryText;
+        var text = expiry is null
+            ? "本机已激活正版授权，在线服务可用（长期有效）。"
+            : $"本机已激活正版授权，在线服务可用，有效期至 {expiry}。";
+        return text + "\n\n设备码 " + Services.License.LicenseStore.DeviceCode + "（更换硬件后需要重新激活）";
     }
 }

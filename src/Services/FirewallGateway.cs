@@ -27,7 +27,7 @@ public enum FirewallState
 }
 
 /// <summary>
-/// Windows 防火墙的查询与修复（对齐上游 2026-10-27 第二次重写 / 10-28 修正）。
+/// Windows 防火墙的查询与修复（对齐上游第二次重写）。
 ///
 /// <para>
 /// **查询只读注册表，不起任何子进程**。上一版用 <c>Get-NetFirewallRule</c> 查询，

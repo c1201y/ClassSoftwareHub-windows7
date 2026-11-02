@@ -12,7 +12,7 @@ namespace ClassSoftwareHub.Desktop.Services;
 /// 一条残留的「归属证据强度」。
 ///
 /// 为什么要有这个：卸载前后求差集，只能说明"这条是这次卸载过程中新出现的"，
-/// **不等于**"它就是被卸载的那个软件留下的"（卸载器可能顺手写了别的东西，
+/// **不等于**"它就是被卸载的那个软件留下的"（卸载器可能写入了其他内容，
 /// 甚至别的程序恰好在同一时间启动了）。所以还要过一遍名字/路径比对，
 /// 按证据强弱分三档 —— 强/中默认勾上，弱默认**不勾**（宁可少清，不可错清）。
 /// </summary>
@@ -189,20 +189,19 @@ public sealed class LeftoverItem
 }
 
 /// <summary>
-/// 从"卸载后的现场"里拎出待确认的残留（2026-10-14 加）。
+/// 从"卸载后的现场"里拎出待确认的残留。
 ///
 /// ⛔⛔ <b>先说清一个反直觉的地方（这是设计上最容易做错的一步）</b>：
 ///    残留的正确定义是「**卸载前就在、卸载后还在、本该被删掉**」。这种东西在前后两份快照里
-///    <b>都存在</b> —— 所以"求差集"是抓不到它的！一开始我把它写成"只取差集"，
-///    那样能抓到的东西全是卸载器**新写**的（日志、<c>unins000.dat</c>、重启后继续删的 RunOnce 项），
+///    <b>都存在</b> —— 所以"只求差集"是抓不到它的，能抓到的全是卸载器**新写**的东西，
 ///    而真正的重头戏「软件自己那个 AppData 文件夹没被删掉」会一条都抓不到。
 ///
 ///    ⇒ 所以判据是**两路并行**，各管一段：
 ///      ① **名字/位置吻合**（主路）：扫完卸载后的现场，凡是名字跟这个软件对得上、
 ///         或者位置就在它安装目录里的，就是候选 —— 不管它在卸载前存不存在。
 ///         这也正是 Geek / HiBit 那类工具干的事（它们没有安装前的基线，只有这条路）。
-///      ② **卸载过程中新冒出来的**（辅路）：差集里那些名字对不上的，归到"不确定"档。
-///         它们确实跟这次卸载有关（以前没有），但没法确定归属，所以默认**不勾**。
+    ///      ② **卸载过程中新冒出来的**（辅路）：差集里那些名字对不上的，归到"不确定"档。
+    ///         它们确实跟这次卸载有关，但没法确定归属，所以默认**不勾**。
 ///
 ///   ⛔ 名字对不上、而且卸载前就在的，一律**扔掉** —— 那是别的软件的东西，
 ///      （本机 <c>%LOCALAPPDATA%</c> 底下几百个目录，全摆出来只会淹掉真东西）。
@@ -299,14 +298,12 @@ public static class LeftoverResolver
 
         // 去掉扩展名再来一次：「LeftoverLab.exe」应当和软件名 `LeftoverLab` 算**一致**，
         // 而不是"包含"。少了这一步，路径登记 / 程序关联那一类残留永远只能拿到"很可能"
-        // —— 那太松了，它们的名字其实完全吻合。（2026-10-15 实测踩过）
+        // —— 那太松了，它们的名字其实完全吻合。
         var nStem = InstalledApps.Normalize(Path.GetFileNameWithoutExtension(leaf));
 
         // ── 强证据（默认勾选）：名字**完全一致** ──
-        //  ⛔⛔ 只认"完全一致"，不认"包含"。曾经的写法是"一方包含另一方、
-        //     被包含的那截占容器 60% 以上"，结果把一个 90 MB 的用户目录
-        //     （`%USERPROFILE%\ClassSoftwareHub-Mobile`）判成了某款软件的残留并**默认勾上**
-        //     —— 名字看着挺像，可那是人家自己的工程目录。2026-10-15 实拍。
+        //  ⛔⛔ 只认"完全一致"，不认"包含"。宽松的包含判据会把名字相似的用户目录
+        //     （如 `%USERPROFILE%\ClassSoftwareHub-Mobile`）误判成残留并**默认勾上**。
         if (Exact(n, profile.NameKey, 4) || Exact(nStem, profile.NameKey, 4))
         {
             Set(item, LeftoverEvidence.Strong, "名称与软件名一致");
@@ -323,7 +320,7 @@ public static class LeftoverResolver
         // ── 关联键：名字看不出归属，但它的**默认值**会写明指向谁 ──
         //    文件关联（`.扩展名`）和 ProgID 这两类键，键名本身一点归属信息都没有：
         //    `.labtest` 这个词里根本没有 `LeftoverLab` 的影子，光比名字永远是"名字对不上"
-        //    ⇒ 这类残留会**整类漏掉**。（2026-10-15 实测：测试软件卸载后 `.labtest` 一直留着。）
+        //    ⇒ 这类残留会**整类漏掉**。
         //    但它们有个共同点 —— 默认值写着自己指向谁（`.labtest` ▸ 默认值 = `LeftoverLab.Document`）。
         //    ⛔ 只认"归一化后**完全等于**软件名"，所以 `.txt` ▸ `txtfile` 这种系统关联
         //       绝不会被误判成任何软件的残留。
@@ -536,7 +533,7 @@ public static class LeftoverResolver
     /// <summary>
     /// 名字"**像**"（一方包含另一方，且被包含的那截占容器 <paramref name="ratio"/> 以上）。
     /// ⛔ 这一档只用于 <see cref="LeftoverEvidence.Medium"/>（摆出来给人看、**默认不勾**），
-    ///    绝不可以拿去自动勾选 —— 名字像不等于就是它。2026-10-15 那次误删就是这么来的。
+    ///    绝不可以拿去自动勾选 —— 名字像不等于就是它。
     /// </summary>
     private static bool Contains(string candidate, string key, double ratio, int require)
     {
@@ -576,7 +573,6 @@ public static class LeftoverResolver
     /// ⛔⛔ 只有"确定"（<see cref="LeftoverEvidence.Strong"/>）才默认勾上。
     ///    「很可能」和「不确定」都摆出来给人看，但**不勾** ——
     ///    它们是"名字像"和"新出现"这两种推测，勾上就等于替用户做了他没做的判断。
-    ///    2026-10-15 那次误删（把一个 90 MB 的用户目录判成残留并自动勾选后清掉）就是这条规则改之前发生的。
     /// </summary>
     private static void Set(LeftoverItem item, LeftoverEvidence level, string reason)
     {
@@ -611,8 +607,8 @@ public static class LeftoverResolver
     /// ⛔⛔ 第二道闸（注册表版）。
     /// ⚠️ <b>必须区分"删整条键"和"删某个值"</b>：<c>HKCU\...\CurrentVersion\Run</c> 这条**键**
     ///    在禁碰名单里（它是系统固定结构，谁都不能删），但删它底下的**某一个值**
-    ///    恰恰是最典型的残留清理。一开始这里不分类别一律按键判，于是自启项那一条
-    ///    被判成"受保护的注册表位置"直接跳过（2026-10-15 体检报告里那条"被拦 1"）。
+    ///    恰恰是最典型的残留清理。若不分类别一律按键判，自启项清理会被
+    ///    误判成"受保护的注册表位置"直接跳过。
     /// </summary>
     public static bool IsForbiddenRegistryPublic(string probe, string path, string valueName)
         => IsForbidden(new FootprintNode(FootprintKind.RegistryValue, probe, path, path, valueName));
@@ -807,13 +803,13 @@ public static class LeftoverResolver
             //     （`%APPDATA%\Microsoft\Windows\Start Menu\Programs`），列进去会把整个开始菜单
             //     体检点一并挡死 —— 而"开始菜单里留下的空文件夹"恰恰是最典型的残留之一。
             //     它真正的保护由**叶子名规则**提供（`%APPDATA%` 探测出的直接子项叫 `Microsoft`，
-            //     命中禁碰叶子名，一样进不来）。2026-10-14 实测踩过这个坑。
+            //     命中禁碰叶子名，一样进不来）。
             Path.Combine(ra, "ClassSoftwareHub"),
 
             // 用户目录下的"当然是用户的东西"
             // ⛔⛔ 这里**故意不列** `%USERPROFILE%\AppData`：那是个"整片挡死"的前缀，
             //     而 `%LOCALAPPDATA%` / `%APPDATA%` / `%LOCALAPPDATA%\Programs` 全都长在它下面
-            //     —— 列进去的话整个残留扫描会一条都扫不出来。2026-10-14 实测踩过这个坑。
+            //     —— 列进去的话整个残留扫描会一条都扫不出来。
             //     AppData 自己那一层的保护同样由**叶子名规则**给（探测出的子项就叫 `AppData`，
             //     在禁碰叶子名里）。底下具体哪些系统目录要挡，由上面那批精确前缀负责。
             Path.Combine(up, "Desktop"),
@@ -970,19 +966,16 @@ public static class LeftoverResolver
 
             // ⛔⛔ InstallLocation / InstallDir 是卸载登记里**不可信**的字符串：
             //    见过空串、相对路径、盘根（C:\）、整个用户目录，甚至直接是 C:\Users。
-            //    一旦拿它当"强证据"的锚点，整盘或整个 profile 就会变成默认勾选的残留
-            //    —— 2026-10-15 那次误删正是这么发生的。这里不修数据，只把明显不合理
-            //    的值当成"没有安装目录"，让判据退回到名字比对。
+            //    一旦拿它当"强证据"的锚点，整盘或整个 profile 就会变成默认勾选的残留。
+            //    这里不修数据，只把明显不合理的值当成"没有安装目录"，让判据退回到名字比对。
             Location = SanitizeLocation(app.Location);
             FolderKey = Location.Length > 0
                 ? InstalledApps.Normalize(Path.GetFileName(Location.TrimEnd('\\')))
                 : "";
 
             // ⛔⛔ 这里**没有**"发布者"这一项，而且是**故意**不要的。
-            //    曾经有过一版拿 Publisher 去比名字，结果：测试软件的发布者是 ClassSoftwareHub，
-            //    于是 `%USERPROFILE%\ClassSoftwareHub-Mobile`（Nick 自己的手机版工程目录，90 MB）
-            //    被当成它的残留、默认勾选、清理掉了。2026-10-15 实拍。
-            //    根本原因：发布者是**品牌/公司名**，一个词能对上几十个不相干的目录
+            //    拿 Publisher 去比名字会把大量不相干的用户目录误判成残留：
+            //    发布者是**品牌/公司名**，一个词能对上几十个不相干的目录
             //    （「Microsoft」「Tencent」底下什么都有）。这条判据的收益远小于它的风险。
 
             // 主程序名：从卸载命令里掏出来的 exe 文件名

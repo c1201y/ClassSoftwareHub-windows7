@@ -170,7 +170,7 @@ public sealed class LevelChipBar
 
     /// <summary>
     /// 主题（深浅色）变了以后重算各芯片的颜色。
-    /// ⚠️ 2026-10-19 修（用户：日志详细窗口深浅色没适配）：构造期那次 <see cref="Quiet"/>/
+    /// ⚠️ 构造期那次 <see cref="Quiet"/>/
     ///    <see cref="LogReader.BrushOf"/> 查的是**当时**的主题画刷，都是写死的实例值；
     ///    窗口开着切深浅色时不会自己跟着变，深色下就成了"灰底灰字"。
     ///    这里把实例级资源与图标前景按**当前**主题重算一遍（选中态由 Sync 管着，不受影响）。
@@ -197,7 +197,7 @@ public sealed class LevelChipBar
     /// </summary>
     private void Quiet(ToggleButton button)
     {
-        // 实现收口到 ChipLook（2026-10-18 自上游 1.2.0 移植）：
+        // 实现收口到 ChipLook（自上游 1.2.0 移植）：
         // 「应用卸载」页的分类芯片与本条筛选栏共用同一套观感，两处不再各写一份。
         ChipLook.Quiet(button);
     }

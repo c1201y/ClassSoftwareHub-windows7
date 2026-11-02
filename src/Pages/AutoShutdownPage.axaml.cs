@@ -103,7 +103,7 @@ public sealed partial class AutoShutdownPage : PageBase
                 column.Children.Add(BuildPointButton(day, index, points[index]));
 
             // 列底：加号 + 它右边那颗「套用前一天」。
-            // ⚠️ 两颗并排放在一个横向 StackPanel 里（Nick 2026-10-12 指明"在加号右边再加一个"）。
+            // 两颗并排放在一个横向 StackPanel 里（「套用前一天」在加号右边）。
             var actions = new StackPanel
             {
                 Orientation = Avalonia.Layout.Orientation.Horizontal,
@@ -252,7 +252,6 @@ public sealed partial class AutoShutdownPage : PageBase
     private async Task AddPointAsync(int dayIndex)
     {
         // 新点的默认值：**上次填过的那个**（沿用上次设置）；没有历史就放学时段 + 直接关机 + 一分钟延迟。
-        // （2026-10-18 自上游 1.2.0 移植：Nick「一个一个配置太麻烦了，如果上次设置的啥，这次可以直接套用」。）
         var draft = _config.LastPoint is { } last
             ? new ShutdownPoint
             {

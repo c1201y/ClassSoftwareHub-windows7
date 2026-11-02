@@ -39,14 +39,14 @@ public sealed class AppSettings
     public bool TelemetryEnabled { get; set; }                 // 默认关闭
     public bool TelemetryAsked { get; set; }
 
-    /// <summary>点关闭 = 收进托盘（不退出程序），默认开；关了就是以前那样直接退出。</summary>
+    /// <summary>点关闭 = 收进托盘（不退出程序），默认开；关了就直接退出。</summary>
     public bool CloseToTray { get; set; } = true;
 
     /// <summary>
     /// 「收进托盘」的提示气泡是否已经出现过了（只提示一次）。
     ///
-    /// 为什么要有：2026-09-30 用户反馈"把软件关掉之后点桌面图标打不开，三四次没反应，只能去任务管理器"，
-    /// 根子就是收进托盘后用户不知道程序还在后台跑。托盘图标一旦被系统折进溢出区，更是一点线索都没有。
+    /// 为什么要有：收进托盘后用户可能不知道程序还在后台跑，重启后点桌面图标
+    /// 会以为程序"打不开"。托盘图标一旦被系统折进溢出区，更是一点线索都没有。
     /// </summary>
     public bool TrayHideHintShown { get; set; }
 
@@ -61,7 +61,7 @@ public sealed class AppSettings
     /// </summary>
     public int OobeState { get; set; }
 
-    // ── 文件快搜（2026-10-29 insider1.4）──────────────────────────────
+    // ── 文件快搜（insider1.4）──────────────────────────────
 
     /// <summary>
     /// 「文件快搜」索引哪些磁盘（根路径，如 <c>C:\</c>）。空数组 = 所有已就绪的固定 / 可移动磁盘。
@@ -83,7 +83,7 @@ public sealed class AppSettings
     public int PaletteY { get; set; } = -99999;
 
     /// <summary>工具浮窗上次的客户区尺寸（dip）；0 = 还没存过（用默认 400×360）。
-    /// 2026-10-03 起浮窗支持拖边缩放（用户第 14 轮），尺寸跟位置一起记。</summary>
+    /// 浮窗支持拖边缩放，尺寸跟位置一起记。</summary>
     public int PaletteW { get; set; }
     public int PaletteH { get; set; }
 
@@ -102,7 +102,7 @@ public sealed class AppSettings
     /// <summary>
     /// **贴靠模式**下侧边栏贴哪条边：<c>left</c> | <c>right</c>，外加 <c>both</c>
     /// （= 左右两条同时显示，共用 <see cref="SidebarPosRatio"/> 所以上下位置天然联动）。
-    /// ⚠️ 贴靠模式**只有左右两条边**（Nick 2026-09-28：贴靠 = 现在的左右模式）。
+    /// ⚠️ 贴靠模式**只有左右两条边**（贴靠 = 左右模式）。
     ///    上/下边归属自由模式，见 <see cref="SidebarFreeEdge"/>。
     /// ⚠️ <c>both</c> 只是**设置层**的值：运行时会拆成 left + right 两个 ToolSidebarWindow 实例
     /// （见 <c>ToolSidebarWindow.SyncInstances</c>），每个实例自己的边存私有字段，不读这个。
@@ -110,7 +110,7 @@ public sealed class AppSettings
     public string SidebarEdge { get; set; } = "right";
 
     /// <summary>
-    /// 侧边栏的行为模式（2026-09-28 Nick 提，当天再澄清过一次）：
+    /// 侧边栏的行为模式：
     /// <list type="bullet">
     ///   <item><c>dock</c>（默认）= 贴靠模式：只吸屏幕的**左右两条边**，可选「左右两边」同时显示两条，
     ///         沿边位置存 <see cref="SidebarPosRatio"/>。</item>
@@ -124,8 +124,7 @@ public sealed class AppSettings
 
     /// <summary>
     /// 侧边栏沿边位置（0~1）；-1 = 居中（默认）。两种模式共用。
-    /// 历史：2026-10-19 一度废弃、2026-10-22 移植时保持不落盘；**2026-10-24 按 Nick 要求恢复**
-    /// （他反馈"每次重启都跑回右边居中，明明调过位置"）。写入时机只有一处：
+    /// 写入时机只有一处：
     /// <c>ToolSidebarWindow.DockToNearestEdge()</c>（松手那一下），拖动过程中绝不写盘 ——
     /// 当初出问题正是拖动时反复 Save（卡顿 + 把启动早期的中间尺寸当成最终位置）。
     /// </summary>
@@ -169,7 +168,7 @@ public sealed class AppSettings
     /// 「动画方案」：拖放卡片落位时的收尾效果 —— <c>plain</c> 平滑收势 | <c>dip</c> 轻落一下（默认）。
     /// 在「侧边布局」页选择，见 <c>SidebarLayoutPage.SettleGhost</c>。
     /// ⚠️ 认不出的值一律当 <c>dip</c>（见 <c>SidebarLayoutPage.DropDipScale</c>）。
-    /// 2026-10-07 从上游 dv1.1.0 同步：上游 2026-10-01 加入（两种落位收尾都保留，交用户自选）。
+    /// 自上游 dv1.1.0 同步加入（两种落位收尾都保留，交用户自选）。
     /// </summary>
     public string SidebarDropAnim { get; set; } = "dip";
 
@@ -178,7 +177,7 @@ public sealed class AppSettings
     ///   <c>classic</c> 工具竖排列表（原版，默认）| <c>grid</c> 图标网格（4 列一页 + 分页点 + 快捷设置行）。
     /// 在「侧边布局」页选择。
     /// ⚠️ 认不出的值一律当 <c>classic</c>（见 <c>ToolSidebarWindow.UseGridStyle</c>）。
-    /// 2026-10-11 加：按用户给的希沃风格参考图做的第二套展开面板。
+    /// <c>grid</c> 为后加的第二套展开面板。
     /// </summary>
     public string SidebarPanelStyle { get; set; } = "classic";
 
@@ -191,22 +190,21 @@ public sealed class AppSettings
     public string SidebarCollapsedStyle { get; set; } = "grip";
 
     /// <summary>
-    /// 侧边栏**收起条**的大小样式（2026-10-18 自上游 1.2.0 移植；Nick：有用户嫌默认那套悬浮按钮太大）：
+    /// 侧边栏**收起条**的大小样式（自上游 1.2.0 移植）：
     /// <list type="bullet">
     ///   <item><c>standard</c>（默认）= 现在这套：抓手 20×110，展开后面板宽 92 dip，按钮 52 高、图标 20、图标下面带短名。</item>
-    ///   <item><c>compact</c> = 紧凑：细条 + 小图标小字，但**按钮本身的点击区域不跟着缩到底**
-    ///         （否则细条上的键点不准，Nick 特意提的）。</item>
+    ///   <item><c>compact</c> = 紧凑：细条 + 小图标小字，但**按钮本身的点击区域不跟着缩到底**（细条上的键点不准）。</item>
     /// </list>
     /// ⚠️ 认不出的值一律当 <c>standard</c>（见 <c>ToolSidebarWindow.CompactCollapsed</c>）。
     ///
-    /// ⚠️ 2026-10-12 起这项**只决定收起态**（那条小抓手），展开面板改由
+    /// ⚠️ 这项**只决定收起态**（那条小抓手），展开面板改由
     ///    <see cref="SidebarExpandedDensity"/> 决定 —— 有用户要「收起时紧凑省地方、展开后仍用标准」。
     ///    它的默认值 <c>same</c> 会让展开面板继续跟随本项，所以老用户升上来观感不变。
     /// </summary>
     public string SidebarDensity { get; set; } = "standard";
 
     /// <summary>
-    /// 侧边栏**展开后**（面板态）的大小样式（2026-10-18 自上游 1.2.0 移植）：
+    /// 侧边栏**展开后**（面板态）的大小样式（自上游 1.2.0 移植）：
     /// <list type="bullet">
     ///   <item><c>same</c>（默认）= 跟随 <see cref="SidebarDensity"/>，上下两态一致。</item>
     ///   <item><c>standard</c> / <c>compact</c> = 无论收起态怎么设，展开面板固定用这一套。</item>
@@ -218,13 +216,13 @@ public sealed class AppSettings
     /// <summary>
     /// 「收起条长度」（dip，竖条=高 / 横条=宽）。<c>0</c> = 按样式自带默认
     /// （圆角抓手 110 / 细竖线 220）；&gt; 0 = 用户钉死的值，两个样式共用。
-    /// 2026-10-17 用户要求"再加个长短调整功能" —— 「侧边布局」页一个滑杆，拖动立即生效。
+    /// 「侧边布局」页一个滑杆，拖动立即生效。
     /// ⚠️ 范围 60~400（见 <c>ToolSidebarWindow.MinCollapsedLengthDip</c>），进页面时会夹回范围内。
     /// </summary>
     public int SidebarCollapsedLength { get; set; }
 
     /// <summary>
-    /// ⚠️ **已弃用**（2026-09-29 从"一个总开关"改成"五颗各自一个开关"）：
+    /// ⚠️ **已弃用**（已从"一个总开关"改成"五颗各自一个开关"）：
     /// 老存档里 <c>false</c> = 五颗全隐藏。现在只用来做**一次性迁移**
     /// （见 <c>SettingsStore.MigrateSidebarFooter</c>，迁完就把它拨回 true 当"已迁"标记）。
     /// 留给老存档是为了不让用户"我明明全关了"这个状态在升级后丢掉。
@@ -240,7 +238,7 @@ public sealed class AppSettings
     /// </summary>
     public int SidebarModulesRevision { get; set; }
 
-    // ── 虚拟键盘（实验性功能，2026-10-01 从零重写那版）──────────
+    // ── 虚拟键盘（实验性功能）──────────
     // ⚠️ 总开关默认**关**：它要装全局触摸钩子、跑 UIA 探测，属于"用户明确想要才开"的功能，
     //    不能替所有人默认打开。关着的时候整套东西一行系统 API 都不会碰。
 
@@ -310,7 +308,7 @@ public sealed class AppSettings
 
     /// <summary>
     /// 上次退出时窗口左上角的位置（屏幕坐标）。<c>int.MinValue</c> = 没记过。
-    /// （2026-10-18 自上游 1.2.0 移植：记住窗口位置与大小，换台机器/换分辨率要按屏幕夹一趟。）
+    /// （自上游 1.2.0 移植：记住窗口位置与大小，换台机器/换分辨率要按屏幕夹一趟。）
     /// </summary>
     public int WindowLeft { get; set; } = int.MinValue;
     public int WindowTop { get; set; } = int.MinValue;
@@ -374,7 +372,7 @@ public sealed class AppSettings
     public string GithubDownloadRoute { get; set; } = "auto";
 
     /// <summary>
-    /// 下载**存到哪个文件夹**（2026-11-01 自上游 insider1.8 移植）。
+    /// 下载**存到哪个文件夹**（自上游 insider1.8 移植）。
     ///
     /// <para>
     /// 空串 = 跟着系统「下载」文件夹走（<see cref="Services.DownloadService.DefaultDir"/>，用户改过系统
@@ -388,13 +386,13 @@ public sealed class AppSettings
     public string DownloadFolder { get; set; } = "";
 
     /// <summary>
-    /// 「安装或解压完成后自动删除安装包或压缩包」（2026-10-18 自上游 1.2.0 移植，默认关）。
+    /// 「安装或解压完成后自动删除安装包或压缩包」（自上游 1.2.0 移植，默认关）。
     /// ⚠️ 默认关：删掉的是用户刚下到硬盘上的那个文件，不能替人做主。
     /// </summary>
     public bool AutoDeletePackage { get; set; }
 
     /// <summary>
-    /// 「解压完成后自动打开所在文件夹」（2026-10-18 自上游 1.2.0 移植，默认开）：
+    /// 「解压完成后自动打开所在文件夹」（自上游 1.2.0 移植，默认开）：
     /// 解压这个动作的目的就是去拿里面的东西，解完直接把产物目录摆到眼前最省事。
     /// </summary>
     public bool AutoOpenExtractFolder { get; set; } = true;
@@ -412,7 +410,7 @@ public sealed class AppSettings
     /// </summary>
     public bool TimerUseClockBackground { get; set; }
 
-    // ── 教室喊话（2026-10-12，自建 Worker 中继，设计稿 docs/教室喊话功能设计.md）──
+    // ── 教室喊话（自建 Worker 中继，设计稿 docs/教室喊话功能设计.md）──
     // ⚠️ 总开关默认**关**：它要后台轮询外网接口，属于"用户明确想要才开"的功能，
     //    不能替所有人默认打开；关着的时候一行网络请求都不会发。
 
@@ -440,13 +438,13 @@ public sealed class AppSettings
     public List<AnnounceDevice> AnnounceDevices { get; set; } = new();
 
     /// <summary>
-    /// 打开教室喊话页时默认展开哪一栏：<c>receive</c> | <c>send</c>（2026-10-25 Nick：
-    /// 有些用户主要是发，不该每次都先看到接收）。认不出的值按接收处理。
+    /// 打开教室喊话页时默认展开哪一栏：<c>receive</c> | <c>send</c>
+    /// （有些用户主要是发，不该每次都先看到接收）。认不出的值按接收处理。
     /// </summary>
     public string AnnounceDefaultView { get; set; } = "receive";
 
     /// <summary>
-    /// 本机标识（2026-10-25 Nick 提）：例如「高28班」「三楼办公室」。
+    /// 本机标识：例如「高28班」「三楼办公室」。
     /// 随局域网心跳广播出去，发送端的设备列表直接显示它 —— 老师一眼知道这台机是哪里的。
     /// 空 = 显示机器名。
     /// </summary>
@@ -468,7 +466,7 @@ public sealed class AppSettings
     public List<PendingUnbind> AnnouncePendingUnbinds { get; set; } = new();
 
     /// <summary>
-    /// 全屏喊话的出场方式（2026-10-25）：<c>typewriter</c> 打字机 / <c>slide</c> 按行交错划入 /
+    /// 全屏喊话的出场方式：<c>typewriter</c> 打字机 / <c>slide</c> 按行交错划入 /
     /// <c>pop</c> 弹入 / <c>none</c> 不做动画（兜底，给不喜欢动画的人）。认不出的值按 none 处理。
     /// </summary>
     public string AnnounceAnimation { get; set; } = "typewriter";
@@ -476,11 +474,11 @@ public sealed class AppSettings
     /// <summary>提示音路径；空 = 用内嵌的 announce-alert.wav。文件不存在时自动退回内嵌。</summary>
     public string AnnounceSoundPath { get; set; } = "";
 
-    // ══ Hub AI / 学科工具 等新设置（2026-10-22 自上游 1.2.0-insider1.3 移植）
+    // ══ Hub AI / 学科工具 等新设置（自上游 1.2.0-insider1.3 移植）
 
     /// <summary>
     /// Hub AI **上次停留的那个会话 id**（空 = 新对话）。
-    /// 2026-10-23 加：对话到一半切到别的页面，回来对话被吞 —— 页面一旦因任何原因被重建
+    /// 对话到一半切到别的页面再回来时，页面一旦因任何原因被重建
     /// （缓存被顶掉 / 导航栈清理），内存里的会话与当前 id 全丢；把 id 落到存档，重建后能自动选回那一段。
     /// </summary>
     public string HubAiLastSessionId { get; set; } = "";
@@ -493,7 +491,7 @@ public sealed class AppSettings
 
 
     /// <summary>
-    /// 侧边栏工具区**每行摆几个**（2026-10-11 Nick：单列排下来太占地方，想要能折行）：
+    /// 侧边栏工具区**每行摆几个**（单列排下来太占地方，支持折行）：
     /// <c>1</c>（默认）= 单列竖着排；<c>3</c> = 每行三个、满了自动折行。
     /// ⚠️ 只对**贴左右两边**（竖条）生效 —— 贴上/下边是横条，本来就是横向排一排，这个值不参与。
     /// ⚠️ 只认 1 / 3，别的值一律当 1（见 <c>ToolSidebarWindow.Columns</c>）。
@@ -502,11 +500,11 @@ public sealed class AppSettings
 
 
     /// <summary>
-    /// 侧边栏**收起**时那条小抓手离屏幕边缘留多少 dip（2026-10-11 Nick：有用户不喜欢那道缝）。
+    /// 侧边栏**收起**时那条小抓手离屏幕边缘留多少 dip。
     /// <c>0</c> = 紧贴屏幕边缘；默认 <c>6</c>（与 <c>ToolSidebarWindow.CollapsedGapDip</c> 的默认值一致）。
     ///
     /// ⚠️ 只在**收起态**生效 —— 展开态的面板跟屏幕边也有间距，但那是写死的 5 dip
-    ///    （<c>ToolSidebarWindow.ExpandedGapDip</c>，2026-10-31 用户要求），不跟这一项走。
+    ///    （<c>ToolSidebarWindow.ExpandedGapDip</c>），不跟这一项走。
     /// ⚠️ 值会被夹到 0~24（见 <c>ToolSidebarWindow.CollapsedGapDip</c>）：存档里万一存了离谱的数，
     ///    边条会被推到屏幕中间去，那就不是"贴边"了。
     /// </summary>
@@ -514,7 +512,7 @@ public sealed class AppSettings
 
 
     /// <summary>
-    /// 侧边栏展开面板的高度上限占工作区高度的几成（2026-10-18 Nick：别再固定调死，交给用户自己拖）。
+    /// 侧边栏展开面板的高度上限占工作区高度的几成（交用户自己拖）。
     /// 取值 <c>0.45</c>～<c>0.95</c>，默认 <c>0.75</c>。对应「侧边布局 → 展开面板高度」那根滑块。
     ///
     /// ⚠️ 它只是**封顶**，不是"给个固定高度"：面板仍按内容实测，模块少时该多矮就多矮
@@ -526,8 +524,8 @@ public sealed class AppSettings
 
 
     /// <summary>
-    /// 展开面板的高度是否**跟随内容**（2026-10-18 Nick 要，默认开）。
-    /// · <c>true</c>（自适应）= 高度由里面模块的数量实测决定，<see cref="SidebarHeightRatio"/> 只当**上限**；
+    /// 展开面板的高度是否**跟随内容**（默认开）。
+    /// · <c>true</c>（自适应）= 高度由里面模块的数量决定，<see cref="SidebarHeightRatio"/> 只当**上限**；
     ///   只有两个模块时面板就矮矮的，下面不留白。
     /// · <c>false</c>（锁定）= 高度固定为 <see cref="SidebarHeightRatio"/> × 工作区高度，
     ///   模块少时下面会留白。两者用「侧边布局 → 自适应高度」切换。
@@ -537,7 +535,7 @@ public sealed class AppSettings
 
 
     /// <summary>
-    /// 侧边栏「关机」按钮的关机方式（2026-10-18 Nick 要）：
+    /// 侧边栏「关机」按钮的关机方式：
     /// <list type="bullet">
     ///   <item><c>slide</c>（**默认**）= 手动关机：调系统的 <c>SlideToShutDown.exe</c>，弹出「下滑关机」界面，
     ///         下滑滑块才真正关机；不滑就一直停着，本身即确认步骤。</item>
@@ -549,10 +547,10 @@ public sealed class AppSettings
 
 
     /// <summary>
-    /// Hub AI 的**总闸**（2026-10-18）。
+    /// Hub AI 的**总闸**。
     ///
     /// <para>
-    /// 闸门关闭后的表现（Nick 14:00 定）：
+    /// 闸门关闭后的表现：
     /// <list type="bullet">
     ///   <item>软件下载页的**入口卡隐藏**（不占位、不留灰块）；</item>
     ///   <item>导航里的「Hub AI」**保留**，点进去给一张"去启用"的引导，而不是直接报错；</item>
@@ -585,7 +583,7 @@ public sealed class AppSettings
 
 
     /// <summary>
-    /// 是否开启思考模式（2026-10-18）。默认开 —— 主流思考模型现在都默认开，关掉反而要额外解释。
+    /// 是否开启思考模式。默认开 —— 主流思考模型现在都默认开，关掉反而要额外解释。
     /// ⚠️ 各家写法不同（<c>thinking.type</c> / <c>enable_thinking</c> / 仅 <c>reasoning_effort</c>），
     /// 由 <c>AiClient.ApplyThinking</c> 按服务商翻译，⛔ 别在这里存"最终发给服务商的字段"。
     /// </summary>
@@ -597,14 +595,14 @@ public sealed class AppSettings
 
 
     /// <summary>
-    /// 用户希望 AI 怎么称呼自己（2026-10-18）。空 = 未设置，AI 就用「你」。
+    /// 用户希望 AI 怎么称呼自己。空 = 未设置，AI 就用「你」。
     /// ⚠️ 只进 prompt，**不进日志**、不参与统计。
     /// </summary>
     public string UserDisplayName { get; set; } = "";
 
 
     /// <summary>
-    /// 已配置的模型列表（2026-10-18）。同一个服务商可以配多条。
+    /// 已配置的模型列表。同一个服务商可以配多条。
     /// ⚠️ 上面的 <c>HubAiProvider/HubAiBaseUrl/HubAiModel/HubAiThinking/HubAiEffort</c> 现在只是
     /// **当前那条的镜像**，供尚未改造的代码读取；真正的数据源是这里 + <see cref="HubAiActiveModelId"/>。
     /// </summary>
@@ -615,19 +613,19 @@ public sealed class AppSettings
     public string? HubAiActiveModelId { get; set; }
 
 
-    /// <summary>Hub AI 左侧历史栏是否收起（2026-10-19）。</summary>
+    /// <summary>Hub AI 左侧历史栏是否收起。</summary>
     public bool HubAiHistoryCollapsed { get; set; }
 
 
     /// <summary>
-    /// Hub AI 是否允许联网检索（2026-10-20，输入框上的「联网」开关）。
+    /// Hub AI 是否允许联网检索（输入框上的「联网」开关）。
     /// ⚠️ 只有开启且工具总闸也开着时，搜索工具才会交给模型。
     /// </summary>
     public bool HubAiWebEnabled { get; set; }
 
 
     /// <summary>
-    /// 是否启用 AI 工具包（2026-10-18）。
+    /// 是否启用 AI 工具包。
     ///
     /// <para>
     /// 工具包是**可选安装**：不装就不占空间，装了才有"查磁盘明细 / 检索软件库"这些能力。
@@ -637,7 +635,7 @@ public sealed class AppSettings
     /// </summary>
     public bool HubAiToolsEnabled { get; set; }
 
-    // ── 查阅单词（2026-11-01 自上游 dv1.2.0-insider1.8 移植）────────────
+    // ── 查阅单词（自上游 dv1.2.0-insider1.8 移植）────────────
 
     /// <summary>
     /// 词源优先级：<c>offline-first</c>（默认）/ <c>online-first</c> / <c>offline-only</c> / <c>online-only</c>。
@@ -750,7 +748,7 @@ public sealed class SettingsStore
     /// <summary>
     /// 把「后来才加进侧边栏的模块」补给老用户，每批只补一次（用 <see cref="AppSettings.SidebarModulesRevision"/> 记账）。
     ///   · revision 1（音量调节）：插在讲台动作类前面（工具 → 音量 → 动作），不打断用户已经排好的顺序；
-    ///   · revision 2（屏幕亮度，2026-09-26）：紧挨着音量后面放（这俩是一对儿），
+    ///   · revision 2（屏幕亮度）：紧挨着音量后面放（这俩是一对儿），
     ///     用户如果自己把音量删了，就还是插在动作类前面。
     /// </summary>
     private void EnsureNewSidebarModules()
@@ -810,7 +808,7 @@ public sealed class SettingsStore
 
         if (Current.SidebarModulesRevision < 3)
         {
-            // revision 3（虚拟键盘，2026-10-01）：放在讲台动作类最前面 —— 键盘是上课最常用的那一下。
+            // revision 3（虚拟键盘）：放在讲台动作类最前面 —— 键盘是上课最常用的那一下。
             try
             {
                 var list = (Current.SidebarModuleIds ?? Array.Empty<string>()).ToList();
@@ -834,7 +832,7 @@ public sealed class SettingsStore
 
         if (Current.SidebarModulesRevision < 4)
         {
-            // revision 4（文件快搜，2026-10-29）：插在工具类最后、讲台动作类最前，
+            // revision 4（文件快搜）：插在工具类最后、讲台动作类最前，
             // 跟「图片取色 / 编码」这些一次性工具排在一起。
             try
             {
@@ -921,7 +919,7 @@ public sealed class SettingsStore
 
             if (File.Exists(FilePath))
             {
-                // File.Replace 是原子的，并且会顺手留一份 .bak（出事了还能人工找回）
+                // File.Replace 是原子的，并且会保留一份 .bak（出问题时可人工找回）
                 File.Replace(tmp, FilePath, FilePath + ".bak", ignoreMetadataErrors: true);
             }
             else

@@ -16,8 +16,12 @@ namespace ClassSoftwareHub.Desktop.Platform;
 ///   Win11 22000+          → Mica          （DwmSetWindowAttribute / DWMSBT_MAINWINDOW）
 ///   Win10 1803+           → Acrylic       （SetWindowCompositionAttribute / ACCENT_ENABLE_ACRYLICBLURBEHIND）
 ///   Win8 / 8.1            → Aero 毛玻璃    （DwmEnableBlurBehindWindow + DwmExtendFrameIntoClientArea）
-///   Win7 主窗口           → 静态磨砂       （渐变底 + 标题栏/导航栏半透明罩，见 <see cref="Win7Frost"/>）
-///   以上都不可用 / Win7 工具窗 / Aero关闭 → 纯色底 （深浅色各一，与原版同样的色值）
+///   Win7 / 系统材质不可用  → 壁纸模糊底色   （见 <see cref="FrostedGlass"/>，不透明）
+///   壁纸也不可用（纯色桌面）→ 纯色底       （深浅色各一，与原版同样的色值）
+///
+/// ⚠️ Win7 不参与上面任何一级系统材质：
+///    没有 DWM 材质；Avalonia 11.2.8 在 Win7 上也没有透明窗口能力，因此改用不透明的
+///    壁纸模糊底色近似磨砂效果 —— 与远程会话 / 虚拟显卡走同一条路。
 ///
 /// ⚠️ **Win7 不参与「Aero 毛玻璃」这一级**（2026-10-15 收窄，原先含 Win7）。
 ///    根因：Avalonia 11.2.8 在 Win7 上**没有透明窗口能力** —— <c>WindowImpl</c> 既没有
@@ -33,10 +37,6 @@ namespace ClassSoftwareHub.Desktop.Platform;
 ///    「Win7 开 Aero 时圆角有白边/白角」；关掉 Aero 会落到下面的纯色分支，反而一切正常。
 ///    详细判定见 <see cref="Apply"/> 里 Aero 分支前的注释。
 ///
-/// ⚠️ 2026-10-31：Win7 **主窗口**不再落纯色底，改走 <see cref="Win7Frost"/> 的静态磨砂
-///    （窗口渐变 + 标题栏/导航栏半透明罩，让"只有导航栏/标题栏是玻璃"的分层成立）。
-///    它不依赖透明窗口，所以上面那些限制依旧成立、也依旧不抓屏；没有壳层的工具窗/浮窗仍走纯色。
-///
 /// ⚠️ 与原版一致的两条纪律：
 ///   ① 上了材质就把根元素背景置空，让材质透上来；
 ///   ② 完全不支持时**必须退纯色**，绝不能留透明根（否则露出来的是黑底）。
@@ -49,11 +49,9 @@ public static class Backdrop
     private static SetWindowCompositionAttributeDelegate? _setComposition;
     private static bool _compositionProbed;
 
-    /// <summary>已经记过「Win7 非主窗口退纯色底」那条日志了（材质会随主题/设置多次重算，只记第一条）。</summary>
-    private static bool _loggedWin7Route;
-
     /// <summary>
     /// 给窗口上背景，返回**实际生效**的 kind：<c>mica</c> / <c>acrylic</c> / <c>blur</c> / <c>solid</c>。
+    /// ⚠️ 返回值会被调用方写回设置，因此不得返回词汇表以外的值（模糊底色沿用传入的 kind）。
     /// </summary>
     /// <param name="win">目标窗口。</param>
     /// <param name="root">根面板；退纯色时用它刷底色，可空。</param>
@@ -78,23 +76,24 @@ public static class Backdrop
                 return "solid";
             }
 
-            // ── Win7：静态磨砂（2026-10-31）────────────────────────────────
-            // 用户要求「像 Win10 一样，只有导航栏 / 标题栏是玻璃」，且不接受抓屏。
-            // Win7 既没有 DWM 材质、Avalonia 也拿不到逐像素透明（见类头说明），所以这里
-            // 用纯静态的「窗口渐变底 + 标题栏/导航栏半透明罩」把分层做出来：
-            // 零抓屏、零计时器、零逐帧成本。详细取舍见 <see cref="Win7Frost"/>。
-            // ⚠️ 只有主窗口壳层（找得到 TitleBarArea）才改；工具窗/浮窗继续走下面的纯色兜底。
-            if (OsInfo.IsWindows7 && Win7Frost.TryApply(win, root))
-                return "acrylic";
+            // ── Win7：壁纸模糊底色 ─────────────────────────────────────────
+            // Win7 没有 DWM 材质，Avalonia 11.2.8 在它上面也拿不到透明窗口，所以这里用不透明的
+            // 「壁纸模糊 + 主题色罩」近似磨砂：观感与远程会话/虚拟显卡那条路一致，且零运行开销。
+            if (OsInfo.IsWindows7) return Frosted(win, root, hwnd, kind);
 
             // ── Win11：Mica ────────────────────────────────────────────────
             if (kind == "mica" && OsInfo.SupportsMica)
             {
+                // 系统材质画不出来的环境（虚拟显卡 / 远程会话）→ 壁纸模糊底色，见 OsInfo.DwmMaterialsAvailable
+                if (!OsInfo.DwmMaterialsAvailable)
+                    return Frosted(win, root, hwnd, "mica");
+
                 // 先把 Ava 的平台透明提示打开，DWM 材质才透得上来。
-                // ⛔ Win11 必须只声明 Transparent：声明 AcrylicBlur 会让 Avalonia 自己去调
-                //    SetWindowCompositionAttribute(ACCENT_ENABLE_ACRYLICBLURBEHIND)，
-                //    Win11 上那是"成功但没模糊"的脏玻璃，还会盖掉刚设好的 DWM 背板
-                //    （2026-10-30 实测：选亚克力整窗发灰、标题区发黑）。
+                // ⛔ Win11 必须只声明 Transparent：声明 AcrylicBlur 会让 Avalonia 上
+                //    合成背板（WinUiComposition 的 host backdrop brush + 高斯模糊），
+                //    那是另一条与 DWM 背板并行的链路 —— 两条背板同时挂着时 DWM 会叠在
+                //    合成面下面（2026-10-30 实测：整窗发灰、标题区发黑）；而在拿不到材质的
+                //    机器上合成面直接渲染成黑色（2026-11-01 实测）。
                 EnableAvaloniaTransparency(win,
                     WindowTransparencyLevel.Transparent,
                     WindowTransparencyLevel.None);
@@ -130,6 +129,12 @@ public static class Backdrop
                 //    ——Win10 没有 DWMWA_SYSTEMBACKDROP_TYPE，那台机器才用 AccentPolicy。
                 if (OsInfo.SupportsMica)
                 {
+                    // 系统材质画不出来的环境（虚拟显卡 / 远程会话）→ 壁纸模糊底色。
+                    // 判定依据见 OsInfo.DwmMaterialsAvailable：这类机器上系统背板只会露出兜底设计色、
+                    // 合成亚克力会整窗发黑，两条都比模糊底色更难看；也拿不到模糊（DWM 在此类会话下关闭模糊）。
+                    if (!OsInfo.DwmMaterialsAvailable)
+                        return Frosted(win, root, hwnd, "acrylic");
+
                     EnableAvaloniaTransparency(win,
                         WindowTransparencyLevel.Transparent,
                         WindowTransparencyLevel.None);
@@ -174,13 +179,6 @@ public static class Backdrop
             //       区域裁剪正常生效 → 圆角干净。Win7 上毛玻璃本来也无收益（内容不透明，玻璃在底下看不见）。
             var aeroAllowed = OsInfo.IsWindows8;
 
-            // 真机排障凭证：主窗口的磨砂在 Win7Frost 里记「静态磨砂」；走到这一行的 Win7
-            // 都是没有壳层的工具窗/浮窗，看这一行就能确认它们仍走纯色底。
-            if (OsInfo.IsWindows7 && !_loggedWin7Route)
-            {
-                _loggedWin7Route = true;
-                PortLog.Step("材质: Win7 非主窗口不走磨砂（无法透明/无导航栏）→ 退纯色底");
-            }
             if (aeroAllowed && OsInfo.IsDwmCompositionEnabled && TryApplyAeroBlur(hwnd))
             {
                 EnableAvaloniaTransparency(win,
@@ -198,6 +196,9 @@ public static class Backdrop
                 {
                     if (OsInfo.SupportsMica)
                     {
+                        if (!OsInfo.DwmMaterialsAvailable)
+                            return Frosted(win, root, hwnd, "acrylic");
+
                         EnableAvaloniaTransparency(win,
                             WindowTransparencyLevel.Transparent,
                             WindowTransparencyLevel.None);
@@ -254,6 +255,11 @@ public static class Backdrop
     /// </summary>
     private static string ApplyWin10Acrylic(Window win, Panel? root, IntPtr hwnd)
     {
+        // 虚拟显卡 / 远程会话：合成背板同样画不出来（Win11 上是整窗发黑），
+        // AccentPolicy 在这类机器上也没模糊 —— 直接走壁纸模糊底色，别去赌。
+        if (!OsInfo.DwmMaterialsAvailable)
+            return Frosted(win, root, hwnd, "acrylic");
+
         EnableAvaloniaTransparency(win,
             WindowTransparencyLevel.AcrylicBlur,
             WindowTransparencyLevel.Transparent,
@@ -436,13 +442,93 @@ public static class Backdrop
         catch { /* 关不掉顶多月牙带雾，不影响功能 */ }
     }
 
+    /// <summary>
+    /// 系统材质不可用时的替代：**壁纸模糊底色**（Win7、远程会话、虚拟显卡共用）。
+    ///
+    /// <para>
+    /// 这些环境里 DWM 不给模糊，真透明只会让背后的桌面清晰地透上来 —— 观感是「透」而不是「材质」。
+    /// 这里改用 <see cref="FrostedGlass"/> 生成的不透明位图（壁纸缩小重采样 + 主题色罩）作为窗口底色：
+    /// 一次静态绘制，与纯色底同一量级，没有计时器、抓屏和逐帧重算。
+    /// </para>
+    /// <para>
+    /// 不修改 <see cref="Window.TransparencyLevelHint"/>：主窗口圆角依赖既有的合成/区域裁剪路径，
+    /// 动它会改变窗口的合成方式。底色位图本身不透明，透明通道留着也不影响观感。
+    /// </para>
+    /// 壁纸不可用（纯色桌面 / 文件丢失）时退回 <see cref="Translucent"/>。
+    /// </summary>
+    private static string Frosted(Window win, Panel? root, IntPtr hwnd, string kind)
+    {
+        var dark = win.ActualThemeVariant == ThemeVariant.Dark;
+
+        var brush = FrostedGlass.TryCreate(dark);
+        if (brush is null) return Translucent(win, root, hwnd, kind);
+
+        try
+        {
+            win.Background = brush;
+            // 透明拿不到时露出来的是这一层，必须是不透明的成品色
+            win.TransparencyBackgroundFallback = new SolidColorBrush(dark
+                ? Color.FromArgb(255, 32, 32, 32)
+                : Color.FromArgb(255, 243, 243, 243));
+            if (root is not null) root.Background = null;
+        }
+        catch
+        {
+            Solid(win, root);
+            return "solid";
+        }
+
+        PortLog.Step($"材质: {kind} 系统材质不可用 → 壁纸模糊底色");
+        return kind;
+    }
+
+    /// <summary>
+    /// 壁纸不可用时的兜底：**真透明窗口 + 半透明设计色罩**。
+    ///
+    /// 没有壁纸可模糊（纯色桌面 / 壁纸文件丢失）时，让桌面真的透上来：没有模糊，
+    /// 但确实是半透明的（和这类机器上任务栏的观感一致）。
+    /// ⚠️ 罩子必须自己给：内容层的 Fluent 画笔本身就是半透明的，没有底色会糊成一片、字都看不清。
+    /// </summary>
+    private static string Translucent(Window win, Panel? root, IntPtr hwnd, string kind)
+    {
+        var none = NativeMethods.DWMSBT_NONE;
+        NativeMethods.DwmSetWindowAttribute(hwnd, NativeMethods.DWMWA_SYSTEMBACKDROP_TYPE, ref none, sizeof(int));
+
+        EnableAvaloniaTransparency(win,
+            WindowTransparencyLevel.Transparent,
+            WindowTransparencyLevel.None);
+
+        // 连透明都拿不到 → 老实退纯色，别留一块"透明无底"的脏玻璃
+        if (win.ActualTransparencyLevel != WindowTransparencyLevel.Transparent)
+        {
+            Solid(win, root);
+            return "solid";
+        }
+
+        try
+        {
+            // 透明度定在 0xE6：没有模糊时，背后的桌面/窗口是**清晰**透上来的，罩子一薄就成重影
+            // （实测 0xB0 后面窗口的文件名肉眼可读），一厚就退回纯色、看不出材质（实测 0xF7）。
+            // 0xE6 在本机壁纸上只剩一层淡色晕，观感与同机任务栏（同样只有透明、没有模糊）一致。
+            var dark = win.ActualThemeVariant == ThemeVariant.Dark;
+            win.Background = new SolidColorBrush(dark
+                ? Color.FromArgb(0xE6, 32, 32, 32)
+                : Color.FromArgb(0xE6, 243, 243, 243));
+            // 透明拿不到时露出来的是这一层，必须是不透明的成品色（默认白）
+            win.TransparencyBackgroundFallback = new SolidColorBrush(dark
+                ? Color.FromArgb(255, 32, 32, 32)
+                : Color.FromArgb(255, 243, 243, 243));
+            if (root is not null) root.Background = null;
+            PortLog.Step($"材质: {kind} 无壁纸可模糊 → 半透明底色");
+        }
+        catch { }
+
+        return kind;
+    }
+
     /// <summary>纯色兜底：与原版同一套色值（深 32,32,32 / 浅 243,243,243）。</summary>
     private static void Solid(Window win, Panel? root)
     {
-        // 从 Win7 静态磨砂切到「纯色」时，先把标题栏/导航栏上的玻璃罩摘掉，
-        // 否则纯色底之上还压着一层半透明白，标题栏会比底白一块。其他系统上是空操作。
-        Win7Frost.Reset(win);
-
         try
         {
             var dark = win.ActualThemeVariant == ThemeVariant.Dark;
