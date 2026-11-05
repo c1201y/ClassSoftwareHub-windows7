@@ -86,13 +86,13 @@ public static class AppLinks
             using (var open = key.CreateSubKey(@"shell\open\command", writable: true))
                 open?.SetValue(null, command);
 
-            AppLog.Step("links", $"已注册 {AppUri.Scheme}:// 协议 → {exe}");
+            AppLog.Step("links", $"协议注册完成｜协议={AppUri.Scheme}://｜指向={exe}");
             return true;
         }
         catch (Exception ex)
         {
             // 注册失败不影响应用本身：只是从外部点链接唤起这条路走不通
-            AppLog.Warn("links", "注册协议失败：" + ex.Message);
+            AppLog.Catch("links", $"注册协议｜协议={AppUri.Scheme}://", ex);
             return false;
         }
     }
@@ -103,12 +103,12 @@ public static class AppLinks
         try
         {
             Registry.CurrentUser.DeleteSubKeyTree(ProtocolKeyPath, throwOnMissingSubKey: false);
-            AppLog.Step("links", $"已撤销 {AppUri.Scheme}:// 协议注册");
+            AppLog.Step("links", $"协议注册已撤销｜协议={AppUri.Scheme}://");
             return true;
         }
         catch (Exception ex)
         {
-            AppLog.Warn("links", "撤销协议注册失败：" + ex.Message);
+            AppLog.Catch("links", $"撤销协议注册｜协议={AppUri.Scheme}://", ex);
             return false;
         }
     }
@@ -164,7 +164,7 @@ public static class AppLinks
         }
         catch (Exception ex)
         {
-            AppLog.Warn("links", "传递链接失败：" + ex.Message);
+            AppLog.Catch("links", "向运行中实例传递链接", ex);
             return false;
         }
     }
@@ -200,7 +200,7 @@ public static class AppLinks
             var age = DateTimeOffset.UtcNow - DateTimeOffset.FromUnixTimeSeconds(stamp);
             if (age < TimeSpan.Zero || age > QueueMaxAge)
             {
-                AppLog.Info("links", $"丢弃过期待处理链接（{age.TotalSeconds:0} 秒前留下）");
+                AppLog.Info("links", $"待处理链接已丢弃｜原因=超过有效期｜留存={age.TotalSeconds:0} 秒");
                 return null;
             }
 
@@ -209,7 +209,7 @@ public static class AppLinks
         }
         catch (Exception ex)
         {
-            AppLog.Warn("links", "读取待处理链接失败：" + ex.Message);
+            AppLog.Catch("links", "读取待处理链接", ex);
             return null;
         }
     }

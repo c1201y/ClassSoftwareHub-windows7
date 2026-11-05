@@ -150,7 +150,7 @@ public static class WheelRelay
         //    栈直接爆掉（dump 里那 600 多层 CoerceOffset 就是它）。所以这里必须挡住非有限值。
         if (!double.IsFinite(max) || !double.IsFinite(pick.Offset.Y))
         {
-            Core.AppLog.Debug("ui", $"滚轮接力：跳过（max={max}, offset={pick.Offset.Y} 不是有限值）");
+            Core.AppLog.Debug("ui", $"滚轮接力｜结果=跳过｜原因=数值非有限｜max={max}｜offsetY={pick.Offset.Y}");
             return;
         }
 

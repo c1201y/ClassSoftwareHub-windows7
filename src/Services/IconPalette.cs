@@ -112,7 +112,7 @@ public static class IconPalette
 
             var color = FromBytes(bytes);
             if (color is not null)
-                Core.AppLog.Debug("palette", "本机缓存取色：" + System.IO.Path.GetFileName(path));
+                Core.AppLog.Debug("palette", $"取色｜来源=本机图标缓存｜文件={System.IO.Path.GetFileName(path)}");
 
             return color;
         }

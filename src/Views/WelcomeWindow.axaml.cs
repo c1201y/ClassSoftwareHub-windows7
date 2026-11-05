@@ -137,14 +137,14 @@ public sealed partial class WelcomeWindow : Window
     internal void PreviewTheme(string theme)
     {
         try { RequestedThemeVariant = ThemeCompat.Map(theme); }
-        catch (Exception ex) { AppLog.Warn("oobe", "主题预览失败：" + ex.Message); }
+        catch (Exception ex) { AppLog.Catch("oobe", "应用主题预览", ex, Core.LogLevel.Debug); }
     }
 
     /// <summary>背景材质预览：只作用于本窗。</summary>
     internal void PreviewBackdrop(string kind)
     {
         try { BackdropTheme.Apply(this, Root, kind); }
-        catch (Exception ex) { AppLog.Warn("oobe", "背景预览失败：" + ex.Message); }
+        catch (Exception ex) { AppLog.Catch("oobe", "应用背景材质预览", ex, Core.LogLevel.Debug); }
     }
 
     /// <summary>本窗句柄（目录选择器之类的 owner）。</summary>
@@ -191,7 +191,7 @@ public sealed partial class WelcomeWindow : Window
         }
         catch (Exception ex)
         {
-            AppLog.Warn("oobe", "唤醒向导窗口失败：" + ex.Message);
+            AppLog.Catch("oobe", "唤醒初次配置窗口", ex);
         }
     }
 
@@ -204,11 +204,11 @@ public sealed partial class WelcomeWindow : Window
             _instance = new WelcomeWindow();
             _instance.Show();
             _instance.Activate();
-            AppLog.Info("oobe", _preview ? "初次配置窗口已弹出（预览）" : "初次配置窗口已弹出");
+            AppLog.Info("oobe", "初次配置窗口已显示｜预览模式=" + _preview);
         }
         catch (Exception ex)
         {
-            AppLog.Exception("oobe", ex, "初次配置窗口创建失败");
+            AppLog.Exception("oobe", ex, "创建初次配置窗口");
 
             // 创建失败时按"已处理"记账：否则之后每次启动都会重复尝试失败并留下异常日志。
             // 记账后用户仍可正常进入主界面。
@@ -240,7 +240,7 @@ public sealed partial class WelcomeWindow : Window
         }
         catch (Exception ex)
         {
-            AppLog.Exception("oobe", ex, "初次配置窗口初始化");
+            AppLog.Exception("oobe", ex, "初始化初次配置窗口");
         }
     }
 
@@ -264,7 +264,7 @@ public sealed partial class WelcomeWindow : Window
         }
         catch (Exception ex)
         {
-            AppLog.Warn("oobe", "初次配置窗口尺寸设置失败：" + ex.Message);
+            AppLog.Catch("oobe", "设置初次配置窗口尺寸", ex);
         }
     }
 
@@ -353,7 +353,7 @@ public sealed partial class WelcomeWindow : Window
         }
         catch (Exception ex)
         {
-            AppLog.Exception("oobe", ex, "向导换页失败：" + page.Name);
+            AppLog.Exception("oobe", ex, $"向导换页｜目标页={page.Name}");
         }
     }
 
@@ -377,7 +377,7 @@ public sealed partial class WelcomeWindow : Window
 
         if (_preview)
         {
-            AppLog.Info("oobe", "预览模式：不写入任何设置");
+            AppLog.Info("oobe", "初次配置完成｜预览模式=是｜设置写入=否");
         }
         else
         {
@@ -386,7 +386,7 @@ public sealed partial class WelcomeWindow : Window
             App.Settings.Current.OobeState = OobeStates.Done;
             App.Settings.Save();
 
-            AppLog.Info("oobe", "初次配置完成，已按选择写入设置");
+            AppLog.Info("oobe", "初次配置完成｜设置写入=是（按用户选择）");
         }
 
         OobeSession.Detach();
@@ -395,7 +395,7 @@ public sealed partial class WelcomeWindow : Window
         // 顺序与上游相反（先亮主界面、再收向导）：Avalonia 按「最后一个窗口关闭」退出，
         // 先 Close 会触发整条退出流程（见类注释）；两步在同一调用栈内完成，观感一致。
         try { _onDone?.Invoke(); }
-        catch (Exception ex) { AppLog.Warn("oobe", "收尾回调失败：" + ex.Message); }
+        catch (Exception ex) { AppLog.Catch("oobe", "执行初次配置收尾回调", ex); }
 
         try { Close(); } catch { /* 已经从 × 进来时窗口已关 */ }
     }
@@ -409,7 +409,7 @@ public sealed partial class WelcomeWindow : Window
         FinishOobe();
 
         try { App.MainWindow?.Shell.NavigateTo(tag); }
-        catch (Exception ex) { AppLog.Warn("oobe", "跳转失败：" + tag + "：" + ex.Message); }
+        catch (Exception ex) { AppLog.Catch("oobe", "向导内跳转｜目标=" + tag, ex); }
     }
 
     private static void ApplySettings(OobeDraft draft)
@@ -436,7 +436,7 @@ public sealed partial class WelcomeWindow : Window
             s.Theme = theme;
             ThemeCompat.Notify();
         }
-        AppLog.Info("oobe", "外观写入：" + theme);
+        AppLog.Info("oobe", "写入外观设置｜主题=" + theme);
 
         // 常用工具浮窗置顶有独立入口：它要同步通知已经开着的浮窗。
         if (shell is not null) shell.SetPaletteOnTop(draft.PaletteOnTop);
@@ -480,7 +480,7 @@ public sealed partial class WelcomeWindow : Window
         // 主窗口此时未显示，ApplySetting 会照常摆出侧边栏；放在 Save 之后、回调之前，
         // 保证用户首次见到桌面时侧边栏已在正确位置。
         try { ToolSidebarWindow.ApplySetting(); }
-        catch (Exception ex) { AppLog.Warn("oobe", "侧边栏开关应用失败：" + ex.Message); }
+        catch (Exception ex) { AppLog.Catch("oobe", "应用侧边栏开关", ex); }
     }
 
     /// <summary>下拉值归一：认不出的值落到默认档，别把草稿里的脏值写进存档。</summary>

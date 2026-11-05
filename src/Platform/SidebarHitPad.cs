@@ -90,7 +90,7 @@ internal sealed class SidebarHitPad : IDisposable
         {
             if (!EnsureClass())
             {
-                Core.AppLog.Info("sidebar", "热区: 窗口类注册失败，跳过（不影响点击，只是没有容错区）");
+                Core.AppLog.Warn("sidebar", "边缘热区未启用｜阶段=注册窗口类｜影响=不影响点击，仅缺少容错区");
                 return null;
             }
 
@@ -103,7 +103,7 @@ internal sealed class SidebarHitPad : IDisposable
 
             if (hwnd == IntPtr.Zero)
             {
-                Core.AppLog.Info("sidebar", "热区: CreateWindowEx 失败，跳过（不影响点击）");
+                Core.AppLog.Warn("sidebar", "边缘热区未启用｜阶段=CreateWindowEx｜影响=不影响点击");
                 return null;
             }
 
@@ -113,13 +113,13 @@ internal sealed class SidebarHitPad : IDisposable
             // alpha = 1/255：肉眼看不见，但**整块矩形都吃鼠标**（只有逐像素 alpha 的
             // UpdateLayeredWindow 才会按 alpha 做点击穿透，这里用的是整窗 alpha，不会穿透）。
             if (!NativeMethods.SetLayeredWindowAttributes(hwnd, 0, 1, NativeMethods.LWA_ALPHA))
-                Core.AppLog.Info("sidebar", "热区: 设置分层透明度失败（不影响点击）");
+                Core.AppLog.Warn("sidebar", "边缘热区透明度设置失败｜影响=不影响点击");
 
             return pad;
         }
         catch (Exception ex)
         {
-            Core.AppLog.Info("sidebar", "热区: 创建异常 " + ex.Message);
+            Core.AppLog.Catch("sidebar", "创建边缘热区", ex);
             return null;
         }
     }
@@ -146,7 +146,7 @@ internal sealed class SidebarHitPad : IDisposable
         }
         catch (Exception ex)
         {
-            Core.AppLog.Info("sidebar", "热区: 摆放失败 " + ex.Message);
+            Core.AppLog.Catch("sidebar", "摆放边缘热区", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -328,6 +328,6 @@ internal sealed class SidebarHitPad : IDisposable
     {
         _fired = true;
         try { NativeMethods.ReleaseCapture(); } catch { }
-        try { _onExpand(); } catch (Exception ex) { Core.AppLog.Info("sidebar", "热区: 展开回调异常 " + ex.Message); }
+        try { _onExpand(); } catch (Exception ex) { Core.AppLog.Catch("sidebar", "边缘热区展开回调", ex, Core.LogLevel.Debug); }
     }
 }

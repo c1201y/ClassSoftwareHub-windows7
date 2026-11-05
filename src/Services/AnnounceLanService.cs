@@ -189,7 +189,7 @@ public static partial class AnnounceLanService
             if (IsRunning) return;
             if (!App.Settings.Current.AnnounceLanEnabled)
             {
-                AppLog.Info("announce-lan", "局域网通道未启用，不启动");
+                AppLog.Info("announce-lan", "局域网通道未启动｜原因=设置中未启用");
                 return;
             }
 
@@ -201,7 +201,7 @@ public static partial class AnnounceLanService
                 StartDiscovery(_cts.Token);
                 StartReceiver(_cts.Token);
                 IsRunning = true;
-                AppLog.Begin("announce-lan", $"局域网通道已启动（发现 {DiscoveryPort} / 收件 {ReceivePort}，本机标识「{LabelOrDefault}」）");
+                AppLog.Begin("announce-lan", $"局域网通道启动｜发现端口={DiscoveryPort}｜收件端口={ReceivePort}｜本机标识={LabelOrDefault}");
 
                 // 启动后同时检查防火墙：被拦时通道「启动成功、日志正常」但外面一个包都进不来，
                 // 需要明确记录才能在现场区分开。⚠️ 只写日志，不弹任何窗口。
@@ -211,20 +211,20 @@ public static partial class AnnounceLanService
                     {
                         var state = await FirewallGateway.CheckAsync();
                         if (state is FirewallState.PortRulesMissing or FirewallState.ProgramBlocked)
-                            AppLog.Warn("announce-lan", "防火墙正在拦截局域网通道：" + FirewallGateway.Describe(state));
+                            AppLog.Warn("announce-lan", "防火墙拦截局域网通道｜状态=" + FirewallGateway.Describe(state));
                         else if (state == FirewallState.Ok)
-                            AppLog.Step("announce-lan", "防火墙检查通过（端口规则覆盖公用网络，无入站拦截）");
+                            AppLog.Step("announce-lan", "防火墙检查通过｜入站规则=已覆盖公用网络，无拦截");
                     }
                     catch (Exception ex)
                     {
-                        AppLog.Warn("announce-lan", "防火墙检查失败：" + ex.Message);
+                        AppLog.Catch("announce-lan", "检查防火墙状态", ex);
                     }
                 });
             }
             catch (Exception ex)
             {
                 LastError = ex.Message;
-                AppLog.Fail("announce-lan", ex, "局域网通道启动失败");
+                AppLog.Fail("announce-lan", ex, "启动局域网通道");
                 Stop();   // 半开状态比不开更糟
             }
         }
@@ -252,7 +252,7 @@ public static partial class AnnounceLanService
             _peers.Clear();
             _peerSeen.Clear();
 
-            AppLog.Info("announce-lan", "局域网通道已停止");
+            AppLog.Info("announce-lan", "局域网通道｜结果=已停止");
             if (hadPeers) PeersChanged?.Invoke();
         }
     }
@@ -309,7 +309,7 @@ public static partial class AnnounceLanService
             }
             catch (Exception ex)
             {
-                AppLog.Fail("announce-lan", ex, "接收心跳失败");
+                AppLog.Fail("announce-lan", ex, "接收心跳包");
                 return;
             }
 
@@ -320,7 +320,7 @@ public static partial class AnnounceLanService
             catch (Exception ex)
             {
                 // 单条脏包不该打断整个发现循环
-                AppLog.Warn("announce-lan", "心跳解析失败：" + ex.Message);
+                AppLog.Catch("announce-lan", "解析心跳报文", ex);
             }
         }
     }
@@ -423,7 +423,7 @@ public static partial class AnnounceLanService
             }
             catch (Exception ex)
             {
-                AppLog.Warn("announce-lan", "广播心跳失败：" + ex.Message);
+                AppLog.Catch("announce-lan", "广播心跳", ex);
             }
 
             try
@@ -475,7 +475,7 @@ public static partial class AnnounceLanService
         }
         catch (Exception ex)
         {
-            AppLog.Warn("announce-lan", "枚举本机地址失败（心跳不带地址列表）：" + ex.Message);
+            AppLog.Catch("announce-lan", "枚举本机地址（心跳将不带地址列表）", ex);
         }
 
         return list;
@@ -533,7 +533,7 @@ public static partial class AnnounceLanService
         }
         catch (Exception ex)
         {
-            AppLog.Warn("announce-lan", "枚举网卡失败（只用全局广播）：" + ex.Message);
+            AppLog.Catch("announce-lan", "枚举网卡（将只用全局广播地址）", ex);
         }
 
         return list;
@@ -563,7 +563,7 @@ public static partial class AnnounceLanService
 
             if (changed)
             {
-                AppLog.Step("announce-lan", "有设备心跳超时，已从列表移除");
+                AppLog.Step("announce-lan", "设备心跳超时｜处置=从在线列表移除");
                 PeersChanged?.Invoke();
             }
         }
@@ -580,7 +580,7 @@ public static partial class AnnounceLanService
         _socket.Bind(new IPEndPoint(IPAddress.Any, ReceivePort));
         _socket.Listen(16);
 
-        AppLog.Step("announce-lan", $"收件端口已监听 {_socket.LocalEndPoint}（handle={_socket.Handle}）");
+        AppLog.Step("announce-lan", $"收件端口监听中｜端点={_socket.LocalEndPoint}｜socket={_socket.Handle}");
 
         _ = Task.Run(() => AcceptLoopAsync(token));
         _ = Task.Run(() => SelfCheckAsync(token));   // 起来后自己打一条，确认收件链路真的通
@@ -606,20 +606,20 @@ public static partial class AnnounceLanService
             using var resp = await http.PostAsync($"http://127.0.0.1:{ReceivePort}/announce", content);
 
             if (resp.IsSuccessStatusCode)
-                AppLog.Done("announce-lan", "收件自检通过（进程内部 POST 成功）");
+                AppLog.Done("announce-lan", "收件自检通过｜方式=进程内 POST 到本机收件端口");
             else
-                AppLog.Warn("announce-lan", $"收件自检返回 {(int)resp.StatusCode}");
+                AppLog.Warn("announce-lan", $"收件自检未通过｜HTTP={(int)resp.StatusCode}");
         }
         catch (OperationCanceledException) { /* 通道被关掉，正常 */ }
         catch (Exception ex)
         {
-            AppLog.Fail("announce-lan", ex, "收件自检失败（本机自己的请求都进不去）");
+            AppLog.Fail("announce-lan", ex, "收件自检失败｜说明=本机自身请求也无法建立连接");
         }
     }
 
     private static async Task AcceptLoopAsync(CancellationToken token)
     {
-        AppLog.Step("announce-lan", $"收件循环启动（监听 {_socket?.LocalEndPoint}）");
+        AppLog.Step("announce-lan", $"收件循环启动｜端点={_socket?.LocalEndPoint}");
 
         while (!token.IsCancellationRequested)
         {
@@ -630,23 +630,23 @@ public static partial class AnnounceLanService
             }
             catch (OperationCanceledException)
             {
-                AppLog.Step("announce-lan", "收件循环退出（取消）");
+                AppLog.Step("announce-lan", "收件循环退出｜原因=已取消");
                 return;
             }
             catch (ObjectDisposedException)
             {
-                AppLog.Step("announce-lan", "收件循环退出（监听已关闭）");
+                AppLog.Step("announce-lan", "收件循环退出｜原因=监听套接字已关闭");
                 return;
             }
             catch (Exception ex)
             {
                 // 持续抛错时必须记日志并退避，否则循环会静默空转
-                AppLog.Fail("announce-lan", ex, "接受连接失败");
+                AppLog.Fail("announce-lan", ex, "接受入站连接");
                 try { await Task.Delay(300, token); } catch { return; }
                 continue;
             }
 
-            AppLog.Step("announce-lan", $"收到连接 {SafeEndpoint(client)}");
+            AppLog.Step("announce-lan", $"入站连接｜来源={SafeEndpoint(client)}");
             _ = Task.Run(() => HandleClientAsync(client, token));
         }
     }
@@ -676,13 +676,13 @@ public static partial class AnnounceLanService
                 var (headBytes, leftover) = await Core.HttpHeadReader.ReadAsync(stream, headCts.Token);
                 if (headBytes is null)
                 {
-                    AppLog.Warn("announce-lan", "请求头没读到（连接空转或超时）");
+                    AppLog.Warn("announce-lan", "请求头读取为空｜原因=连接空闲超时或对端未发送数据");
                     return;
                 }
 
                 var lines = Encoding.ASCII.GetString(headBytes).Split("\r\n");
                 var requestLine = lines.FirstOrDefault() ?? "";
-                AppLog.Step("announce-lan", $"请求行：{requestLine}");
+                AppLog.Step("announce-lan", $"入站请求｜请求行={requestLine}");
                 var parts = requestLine.Split(' ');
                 if (parts.Length < 2)
                 {
@@ -750,7 +750,7 @@ public static partial class AnnounceLanService
             }
             catch (Exception ex)
             {
-                AppLog.Warn("announce-lan", "收件处理失败：" + ex.Message);
+                AppLog.Catch("announce-lan", "处理收件请求", ex);
             }
         }
     }
@@ -780,7 +780,7 @@ public static partial class AnnounceLanService
 
         if (IsPairLockedOut(remoteIp))
         {
-            AppLog.Warn("announce-lan", $"配对码尝试次数过多，暂时拒绝 {remoteIp}");
+            AppLog.Warn("announce-lan", $"收件被拒绝｜原因=配对码尝试次数超限｜来源={remoteIp}");
             await WriteResponseAsync(stream, 429, "{\"error\":\"too_many_attempts\"}");
             return;
         }
@@ -789,7 +789,7 @@ public static partial class AnnounceLanService
         if (code != AnnounceService.MyPairCode)
         {
             NotePairFailure(remoteIp);
-            AppLog.Warn("announce-lan", "局域网收件被拒：配对码不匹配");
+            AppLog.Warn("announce-lan", "收件被拒绝｜原因=配对码不匹配");
             await WriteResponseAsync(stream, 403, "{\"error\":\"unknown_pair\"}");
             return;
         }
@@ -907,12 +907,12 @@ public static partial class AnnounceLanService
 
                 while (list.Count > 30) list.RemoveAt(0);   // 只留最近 30 条，名单别无限长
                 App.Settings.Save();
-                AppLog.Step("announce-lan", $"有新电脑保存了本机配对码：{(string.IsNullOrWhiteSpace(label) ? name : label)}");
+                AppLog.Step("announce-lan", $"新增已配对设备｜设备={(string.IsNullOrWhiteSpace(label) ? name : label)}");
                 BindersChanged?.Invoke();
             }
             catch (Exception ex)
             {
-                AppLog.Fail("announce-lan", ex, "记录登记失败");
+                AppLog.Fail("announce-lan", ex, "写入配对登记");
             }
         });
     }
@@ -934,13 +934,13 @@ public static partial class AnnounceLanService
                 using var resp = await http.PostAsync($"http://{ip}:{peer.Port}/bind", content);
                 if (resp.IsSuccessStatusCode)
                 {
-                    AppLog.Step("announce-lan", $"已通知 {peer.Display} 登记本机");
+                    AppLog.Step("announce-lan", $"配对登记通知已送达｜设备={peer.Display}");
                     return;
                 }
             }
             catch (Exception ex)
             {
-                AppLog.Warn("announce-lan", $"登记通知失败 @ {ip}:{peer.Port} — {ex.Message}");
+                AppLog.Catch("announce-lan", $"发送配对登记通知｜设备={peer.Display}｜端点={ip}:{peer.Port}", ex);
             }
         }
     }
@@ -976,7 +976,7 @@ public static partial class AnnounceLanService
 
         if (!fromOwner)
         {
-            AppLog.Warn("announce-lan", $"拒绝解除登记：{remoteIp} 不是配对码的主人");
+            AppLog.Warn("announce-lan", $"解除登记被拒绝｜原因=请求方不是该配对码的持有者｜来源={remoteIp}");
             await WriteResponseAsync(stream, 403, "{\"error\":\"not_owner\"}");
             return;
         }
@@ -999,12 +999,12 @@ public static partial class AnnounceLanService
                 if (removed == 0) return;
 
                 App.Settings.Save();
-                AppLog.Step("announce-lan", "对方删除了本机的一条登记，已从「已保存的电脑」移除");
+                AppLog.Step("announce-lan", "对端删除了一条登记｜处置=从「已保存的电脑」移除");
                 SavedPeersChanged?.Invoke();
             }
             catch (Exception ex)
             {
-                AppLog.Fail("announce-lan", ex, "移除已保存的电脑失败");
+                AppLog.Fail("announce-lan", ex, "移除已保存的电脑");
             }
         });
     }
@@ -1026,13 +1026,13 @@ public static partial class AnnounceLanService
 
             if (resp.IsSuccessStatusCode)
             {
-                AppLog.Done("announce-lan", $"已通知 {ip} 移除本机的登记");
+                AppLog.Done("announce-lan", $"解除登记通知已送达｜端点={ip}");
                 return true;
             }
         }
         catch (Exception ex)
         {
-            AppLog.Warn("announce-lan", $"解除登记通知失败 @ {ip} — {ex.Message}");
+            AppLog.Catch("announce-lan", $"发送解除登记通知｜端点={ip}", ex);
         }
 
         return false;
@@ -1127,16 +1127,16 @@ public static partial class AnnounceLanService
 
                 if (resp.IsSuccessStatusCode)
                 {
-                    AppLog.Done("announce-lan", $"局域网直达 {peer.Display}（{ip}:{peer.Port}）");
+                    AppLog.Done("announce-lan", $"局域网直达成功｜设备={peer.Display}｜端点={ip}:{peer.Port}");
                     return true;
                 }
 
-                AppLog.Warn("announce-lan", $"局域网直达被拒 {(int)resp.StatusCode}：{peer.Display} @ {ip}");
+                AppLog.Warn("announce-lan", $"局域网直达被拒绝｜HTTP={(int)resp.StatusCode}｜设备={peer.Display}｜端点={ip}");
                 return false;
             }
             catch (Exception ex)
             {
-                AppLog.Warn("announce-lan", $"局域网直达失败 @ {ip}:{peer.Port} — {ex.Message}");
+                AppLog.Catch("announce-lan", $"局域网直达｜端点={ip}:{peer.Port}", ex);
             }
         }
 

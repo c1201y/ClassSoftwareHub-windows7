@@ -123,7 +123,7 @@ public static class OssUpload
         if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
         {
             var missing = new OssUploadException(OssUploadErrorCode.Network, "文件不存在：" + filePath);
-            Core.AppLog.Fail("upload", missing, "上传失败：源文件不存在");
+            Core.AppLog.Fail("upload", missing, $"上传中止｜原因=源文件不存在｜文件={filePath}");
             throw missing;
         }
 
@@ -134,7 +134,8 @@ public static class OssUpload
                 OssUploadErrorCode.TooLarge,
                 $"file size {info.Length} exceeds limit {MaxBytes}");
             Core.AppLog.Fail("upload", tooBig,
-                $"上传「{info.Name}」失败：{Core.AppLog.Size(info.Length)} 超过上限 {Core.AppLog.Size(MaxBytes)}");
+                $"上传中止｜文件={info.Name}｜体积={Core.AppLog.Size(info.Length)}"
+                + $"｜上限={Core.AppLog.Size(MaxBytes)}｜原因=超出体积上限");
             throw tooBig;
         }
 
@@ -143,7 +144,8 @@ public static class OssUpload
         // ── 链路日志（对齐上游）：上传/提交是"点了没反应"的高发区 ——
         //    失败必须留有日志，不能只把一句人话写在界面上。
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        Core.AppLog.Begin("upload", $"上传「{info.Name}」开始 · {Core.AppLog.Size(info.Length)} · 用途={purpose} · 类型={contentType}");
+        Core.AppLog.Begin("upload", $"上传开始｜文件={info.Name}｜体积={Core.AppLog.Size(info.Length)}"
+            + $"｜用途={purpose}｜内容类型={contentType}");
 
         OssUploadException? lastUnreachable = null;
         foreach (var baseUrl in SubmitEndpoint.Ordered())
@@ -157,11 +159,11 @@ public static class OssUpload
             {
                 // 只有「这个入口本身不可用」才值得换下一个；服务已明确拒绝时不再重试
                 lastUnreachable = ex;
-                Core.AppLog.Warn("upload", $"入口 {baseUrl} 不可用（{ex.Message}）→ 换下一个");
+                Core.AppLog.Warn("upload", $"上传入口不可用｜入口={baseUrl}｜原因={ex.GetType().Name}: {ex.Message}｜处置=换下一个");
                 continue;
             }
 
-            Core.AppLog.Step("upload", $"已拿到预签名（入口 {baseUrl}，对象键 {target.Key}）");
+            Core.AppLog.Step("upload", $"预签名已获取｜入口={baseUrl}｜对象键={target.Key}");
             await PutAsync(target, filePath, info.Length, progress, ct).ConfigureAwait(false);
             // 传完了才把入口记下来：签发成功但传输失败，说明这个入口未必好用
             SubmitEndpoint.Remember(baseUrl);
@@ -169,12 +171,12 @@ public static class OssUpload
             var url = purpose == OssPurpose.Icon
                 ? $"{baseUrl}/api/icon?k={Uri.EscapeDataString(target.Key)}"
                 : "oss://" + target.Key;
-            Core.AppLog.Done("upload", $"上传「{info.Name}」完成 · 写入引用 {url}", sw.Elapsed);
+            Core.AppLog.Done("upload", $"上传完成｜文件={info.Name}｜体积={Core.AppLog.Size(info.Length)}｜引用={url}", sw.Elapsed);
             return new OssUploadResult(target.Key, url, target.OrphanMinutes, baseUrl);
         }
 
         var none = lastUnreachable ?? new OssUploadException(OssUploadErrorCode.Unreachable, "没有可用的提交入口");
-        Core.AppLog.Fail("upload", none, $"上传「{info.Name}」失败：所有提交入口都不可用");
+        Core.AppLog.Fail("upload", none, $"上传失败｜文件={info.Name}｜原因=全部上传入口不可用");
         throw none;
     }
 

@@ -56,7 +56,7 @@ public static class TranslationService
         }
         catch (Exception ex)
         {
-            AppLog.Warning("dict", $"翻译失败：{ex.Message}");
+            AppLog.Catch("dict", "在线翻译", ex, LogLevel.Debug);
             return new DictResult { Note = "翻译服务暂时连不上。", Error = ex.Message };
         }
 

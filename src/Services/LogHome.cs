@@ -58,6 +58,16 @@ public static class LogHome
 
     private const string StampFormat = "yyyy-MM-dd_HH-mm-ss";
 
+    /// <summary>
+    /// 「本次运行还活着」的标记文件名（会话目录内）。
+    ///
+    /// 判据设计：进程**正常走到退出流程**时删掉它；被任务管理器结束、被还原保护/杀软干掉、
+    /// 原生崩溃（访问冲突 / FailFast）都不会走到删除那一步 —— 于是下次启动看到它还在，
+    /// 就说明「上次没走完退出流程」。这比翻日志找"最后一行是不是退出记录"更可靠：
+    /// 日志可能因为写入失败而缺失，标记文件只有一个删除动作，语义更硬。
+    /// </summary>
+    private const string LiveMarker = "session.live";
+
     private static readonly object Gate = new();
     private static string? _sessionName;
 
@@ -115,13 +125,18 @@ public static class LogHome
 
                 _sessionName = name;
                 WriteBanner(dir, name);
+
+                // ⚠️ 顺序不能变：必须先落定 _sessionName 再调下面两个 ——
+                //    它们内部写日志会走 AppLog → Dir → Ensure()，此时必须能立即返回。
+                MarkSessionLive(dir);
+                DetectPreviousAbnormalExit(dir);
             }
             catch (Exception ex)
             {
                 // ⚠️⚠️ 必须先落定再记日志：下面这句 AppLog.Info 会走 SessionDir → Ensure，
                 //     如果这时 _sessionName 还是 null 就会递归回这里，写日志失败变成无限递归。
                 _sessionName = "";
-                AppLog.Info("logs", "初始化会话日志目录失败，退回 logs\\ 根：" + ex.Message);
+                AppLog.Catch("logs", "初始化会话日志目录（已退回 logs\\ 根）", ex, LogLevel.Warning);
             }
 
             return _sessionName;
@@ -134,6 +149,10 @@ public static class LogHome
     ///
     /// ⚠️ 每一行都要带**标准行格式**（<c>[时间] [级别] [模块] 内容</c>）—— 裸文本行在日志页里
     ///    会因为没有时间戳而被当成"独立条目"，模块列还会退化成文件名。
+    ///
+    /// 字段取舍原则：**凡是"事后问用户也问不清"的，都记下来**。典型是 DPI、显卡、材质分支、
+    /// 语言区域、是否管理员、内存余量 —— 界面错位、材质不生效、提权失败这些问题全靠这几行定位。
+    /// 反过来，凡是能从别的文件查到的（如软件清单），一律不写进来。
     /// </summary>
     private static void WriteBanner(string dir, string sessionName)
     {
@@ -146,11 +165,16 @@ public static class LogHome
             {
                 "════════════════ 应用启动 ════════════════",
                 "版本      : " + ShellConfig.ShellVersion,
-                "启动时间  : " + now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
-                "系统      : " + Environment.OSVersion.VersionString
-                                + (Environment.Is64BitOperatingSystem ? " 64 位" : " 32 位")
-                                + (Environment.Is64BitProcess ? "（进程 64 位）" : "（进程 32 位）"),
+                "启动时间  : " + now.ToString("yyyy-MM-dd HH:mm:ss zzz", CultureInfo.InvariantCulture),
+                "系统      : " + DescribeOs(),
+                "语言/区域 : " + CultureInfo.CurrentUICulture.Name + "／" + CultureInfo.CurrentCulture.Name
+                                + "／时区 " + SafeTimeZone(),
                 "显示      : " + SystemInfo.DisplaySummary(),
+                // 背景材质走哪条路是「界面看着像 Win7」类问题的第一现场：
+                // 分支（Win7/Win10/Win11）、远程会话、主显卡、系统材质可用性一次写全。
+                "材质      : " + Platform.OsInfo.MaterialSummary(),
+                "进程      : " + DescribeProcess(),
+                "内存      : " + SystemInfo.MemorySummary(),
                 "数据目录  : " + SettingsStore.Dir,
                 "会话目录  : " + sessionName,
                 "程序位置  : " + (Environment.ProcessPath ?? "(未知)"),
@@ -167,6 +191,153 @@ public static class LogHome
             File.WriteAllText(Path.Combine(dir, "app.log"), sb.ToString(), new UTF8Encoding(false));
         }
         catch { /* 横幅写不进去不影响日志本身 */ }
+    }
+
+    /// <summary>系统一行：版本串 + 位数 + 具体 build（UBR 决定"打没打某个补丁"，缺了就对不上）。</summary>
+    private static string DescribeOs()
+    {
+        try
+        {
+            var build = SystemInfo.OsBuildEx();
+            return Environment.OSVersion.VersionString
+                   + (Environment.Is64BitOperatingSystem ? " 64 位" : " 32 位")
+                   + (build.Length > 0 ? "／build " + build : "");
+        }
+        catch { return Environment.OSVersion.VersionString; }
+    }
+
+    /// <summary>进程一行：pid、位数、是否管理员、运行时版本。
+    /// 提权与否直接决定「改系统设置 / 写 Program Files」那类功能能不能成，必须每次记。</summary>
+    private static string DescribeProcess()
+    {
+        var elevated = "未知";
+        try
+        {
+            using var id = System.Security.Principal.WindowsIdentity.GetCurrent();
+            var principal = new System.Security.Principal.WindowsPrincipal(id);
+            elevated = principal.IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator) ? "是" : "否";
+        }
+        catch (Exception ex) { elevated = "无法判定（" + ex.GetType().Name + "）"; }
+
+        return $"pid={Environment.ProcessId}"
+               + "／" + (Environment.Is64BitProcess ? "64 位" : "32 位")
+               + "／管理员=" + elevated
+               + "／运行时=" + Environment.Version;
+    }
+
+    private static string SafeTimeZone()
+    {
+        try { return TimeZoneInfo.Local.Id; } catch { return "—"; }
+    }
+
+    /// <summary>在本次会话目录里打一个「活着」标记，正常退出时由 <see cref="MarkCleanExit"/> 摘掉。</summary>
+    private static void MarkSessionLive(string dir)
+    {
+        try
+        {
+            var info = $"pid={Environment.ProcessId}\r\nstart={DateTime.Now:yyyy-MM-dd HH:mm:ss}\r\n"
+                       + $"exe={Environment.ProcessPath}";
+            File.WriteAllText(Path.Combine(dir, LiveMarker), info, new UTF8Encoding(false));
+        }
+        catch { /* 标记写不进去只是失去这项判据，不影响运行 */ }
+    }
+
+    /// <summary>
+    /// 正常退出时调用（由 <c>App</c> 的 <c>ProcessExit</c> 钩子驱动）。
+    /// 摘掉「活着」标记 —— 下次启动看不到它，就认定上次是正常结束。
+    /// </summary>
+    public static void MarkCleanExit()
+    {
+        try
+        {
+            if (!Established) return;                 // 没建过会话（第二个实例自退）就没什么可摘
+            var marker = Path.Combine(SessionDir, LiveMarker);
+            if (File.Exists(marker)) File.Delete(marker);
+        }
+        catch { }
+    }
+
+    /// <summary>
+    /// 扫描历史会话目录，找出「上次没走到退出流程」的那一次，在当前会话的 crash.log 里留一条结论，
+    /// 并在 app.log 里补一行「上次退出」总述（正常 / 异常终止 + 会话名）。
+    ///
+    /// <para>
+    /// 为什么值得做：用户报「程序有时候直接没了」，事后只能翻日志目录猜是哪一次、为什么。
+    /// 有了这条结论，下一次打开程序时日志开头就会直接写明「上次是异常终止的」，
+    /// 配合 <c>crashes\</c> 里的转储（见 <c>Platform/CrashDump</c>）就能对上死因。
+    /// </para>
+    ///
+    /// <para>
+    /// 只报一次：确认后在那个旧目录里留下 <c>unclean-exit.txt</c> 并删掉标记，
+    /// 避免几个月前的旧账每次启动都刷一遍。
+    /// </para>
+    /// </summary>
+    private static void DetectPreviousAbnormalExit(string currentDir)
+    {
+        try
+        {
+            if (!Directory.Exists(Root)) return;
+
+            var current = Path.GetFullPath(currentDir);
+            var abnormal = new List<string>();
+            string? latestPrevious = null;
+
+            foreach (var prev in Directory.EnumerateDirectories(Root))
+            {
+                try
+                {
+                    if (string.Equals(Path.GetFullPath(prev), current, StringComparison.OrdinalIgnoreCase)) continue;
+
+                    var name = Path.GetFileName(prev);
+                    if (!SessionPattern.IsMatch(name)) continue;   // 归档目录不参与判断
+
+                    if (latestPrevious is null
+                        || string.CompareOrdinal(name, latestPrevious) > 0)
+                        latestPrevious = name;
+
+                    var marker = Path.Combine(prev, LiveMarker);
+                    if (!File.Exists(marker)) continue;      // 正常退出过
+
+                    string detail;
+                    try { detail = File.ReadAllText(marker); } catch { detail = ""; }
+
+                    try
+                    {
+                        File.WriteAllText(
+                            Path.Combine(prev, "unclean-exit.txt"),
+                            "本次运行未走到退出流程（被强制结束 / 原生崩溃 / FailFast）。\r\n"
+                            + $"发现时间：{DateTime.Now:yyyy-MM-dd HH:mm:ss}\r\n{detail}\r\n",
+                            new UTF8Encoding(false));
+                    }
+                    catch { }
+
+                    try { File.Delete(marker); } catch { }
+
+                    abnormal.Add(name);
+
+                    AppLog.Error("crash",
+                        $"上次运行未正常退出｜会话={name}｜判据=session.live 未摘除"
+                        + "｜现场=该会话 app.log 末尾／crashes\\ 下的同期转储");
+                }
+                catch { /* 单个目录出错不影响其他目录 */ }
+            }
+
+            // 一行总述，省得每次都要点开 crash.log 才知道上次是不是干净退出
+            if (abnormal.Count > 0)
+            {
+                AppLog.Warning("startup",
+                    $"上次退出｜状态=异常终止｜会话={string.Join(",", abnormal)}"
+                    + "｜说明=未走到进程退出收尾，详见 crash.log");
+            }
+            else if (latestPrevious is not null)
+            {
+                AppLog.Info("startup", $"上次退出｜状态=正常｜会话={latestPrevious}");
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Catch("startup", "检查上次退出状态", ex, LogLevel.Debug);
+        }
     }
 
     /// <summary>
@@ -282,7 +453,7 @@ public static class LogHome
         }
         catch (Exception ex)
         {
-            AppLog.Info("logs", $"统计会话目录失败（{name}）：{ex.Message}");
+            AppLog.Catch("logs", $"统计会话目录｜会话={name}", ex, LogLevel.Debug);
         }
         return (bytes, count);
     }
@@ -316,7 +487,7 @@ public static class LogHome
             catch (Exception ex)
             {
                 // 被占用（日志页正读着 / 杀软扫着）属正常：跳过，下次启动再试
-                AppLog.Info("logs", $"删除会话日志目录失败（{s.Name}）：{ex.Message}");
+                AppLog.Catch("logs", $"删除过期会话目录｜会话={s.Name}｜保留天数={keepDays}", ex);
             }
         }
 
@@ -340,7 +511,7 @@ public static class LogHome
         }
         catch (Exception ex)
         {
-            AppLog.Info("logs", $"删除会话日志目录失败（{name}）：{ex.Message}");
+            AppLog.Catch("logs", $"删除会话目录｜会话={name}", ex);
             return false;
         }
     }
@@ -368,13 +539,11 @@ public static class LogHome
             var days = App.Settings.Current.LogKeepDays;
             var removed = Clean(days);
             if (removed > 0)
-                AppLog.Info("logs", days <= 0
-                    ? $"已清理 {removed} 个旧会话日志目录"
-                    : $"已清理 {removed} 个旧会话日志目录（保留最近 {days} 天）");
+                AppLog.Info("logs", $"清理过期会话目录｜已删除={removed}｜保留={days} 天");
         }
         catch (Exception ex)
         {
-            AppLog.Info("logs", "日志清理失败: " + ex.Message);
+            AppLog.Catch("logs", "清理过期会话目录", ex);
         }
     });
 
@@ -411,16 +580,16 @@ public static class LogHome
                 }
                 catch (Exception ex)
                 {
-                    AppLog.Info("logs", $"归档旧日志失败（{Path.GetFileName(file)}）：{ex.Message}");
+                    AppLog.Catch("logs", $"归档旧版模块日志｜文件={Path.GetFileName(file)}", ex);
                 }
             }
 
             if (moved > 0)
-                AppLog.Info("logs", $"已把 {moved} 个上一版的模块日志归档到 {Path.GetFileName(dir)}\\");
+                AppLog.Info("logs", $"归档旧版模块日志｜文件数={moved}｜目标={Path.GetFileName(dir)}");
         }
         catch (Exception ex)
         {
-            AppLog.Info("logs", "归档旧日志失败：" + ex.Message);
+            AppLog.Catch("logs", "归档旧版模块日志", ex);
         }
     }
 

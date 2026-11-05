@@ -73,7 +73,7 @@ public static class OobeMotion
         }
         catch (Exception ex)
         {
-            Core.AppLog.Debug("oobe", "淡入动画失败：" + ex.Message);
+            Core.AppLog.Catch("oobe", "淡入动画", ex, Core.LogLevel.Debug);
         }
         finally
         {
@@ -130,7 +130,7 @@ public static class OobeMotion
             to.Opacity = 1;
             to.RenderTransform = null;
             to.IsHitTestVisible = true;
-            Core.AppLog.Warn("oobe", "换页动画失败：" + ex.Message);
+            Core.AppLog.Catch("oobe", "换页动画（淡入淡出）", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -170,7 +170,7 @@ public static class OobeMotion
         }
         catch (Exception ex)
         {
-            Core.AppLog.Warn("oobe", "换页动画执行失败：" + ex.Message);
+            Core.AppLog.Catch("oobe", "换页动画（平移）", ex, Core.LogLevel.Debug);
             to.IsHitTestVisible = true;
             to.RenderTransform = null;
             to.Opacity = 1;

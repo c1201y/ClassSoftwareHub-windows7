@@ -85,14 +85,14 @@ internal static class LicenseGate
                 }
                 catch (Exception ex)
                 {
-                    AppLog.Fail("license", ex, "激活对话框异常");
+                    AppLog.Fail("license", ex, "显示激活对话框");
                     tcs.TrySetResult(false);
                 }
             });
         }
         catch (Exception ex)
         {
-            AppLog.Fail("license", ex, "无法调度激活对话框");
+            AppLog.Fail("license", ex, "调度激活对话框到 UI 线程");
             tcs.TrySetResult(false);
         }
 

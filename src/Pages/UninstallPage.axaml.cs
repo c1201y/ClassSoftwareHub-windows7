@@ -562,7 +562,8 @@ public partial class UninstallPage : Platform.PageBase
         LeftoverHost.IsVisible = true;
         UpdateLeftoverBar();
 
-        AppLog.Info("leftover", $"进入残留确认：{appName}，{items.Count} 项（默认勾选 {_leftoverRows.Count(r => r.Check.IsChecked == true)} 项）");
+        AppLog.Info("leftover", $"残留确认｜应用={appName}｜残留项={items.Count}"
+            + $"｜默认勾选={_leftoverRows.Count(r => r.Check.IsChecked == true)}");
     }
 
     /// <summary>建一行的勾选框 + 行对象（勾选变化驱动底部统计）。</summary>
@@ -951,7 +952,7 @@ public partial class UninstallPage : Platform.PageBase
         }
         catch (Exception ex)
         {
-            AppLog.Exception("uninstall", ex, $"打开文件夹（{path}）");
+            AppLog.Exception("uninstall", ex, $"打开所在文件夹｜路径={path}");
         }
     }
 
@@ -970,7 +971,7 @@ public partial class UninstallPage : Platform.PageBase
         }
         catch (Exception ex)
         {
-            AppLog.Exception("uninstall", ex, $"定位到文件夹（{path}）");
+            AppLog.Exception("uninstall", ex, $"在资源管理器中定位｜路径={path}");
         }
     }
 

@@ -206,12 +206,12 @@ public partial class App : Application
             if (Services.AppLinks.ExtractFromCommandLine() is { Length: > 0 } incoming)
             {
                 Services.AppLinks.Queue(incoming);
-                Core.AppLog.Info("links", "已把链接转交给正在运行的实例：" + incoming);
+                Core.AppLog.Info("links", "链接转交｜目标=运行中实例｜链接=" + incoming);
             }
         }
         catch (Exception ex)
         {
-            Core.AppLog.Info("links", "转交链接失败: " + ex.Message);
+            Core.AppLog.Catch("links", "转交链接｜目标=运行中实例", ex);
         }
 
         if (ResolveSingleInstanceConflict())
@@ -245,7 +245,7 @@ public partial class App : Application
         {
             _exitReason = "检测到另一个 ClassSoftwareHub 实例正在启动，本程序将退出。"
                         + "如果没有看到窗口，请稍后重新运行，或在任务管理器中结束 ClassSoftwareHub.exe 后再试。";
-            Core.AppLog.Warning("single", "清掉僵尸后重抢互斥体失败（50 次 / 5 秒），按已有实例处理并退出");
+            Core.AppLog.Warning("single", "互斥体重抢失败｜尝试=50 次／5 秒｜处置=按已有实例处理并退出");
             Platform.PortLog.Step("单实例: 重抢互斥体失败，退出");
 
 #if CSH_CONSOLE
@@ -312,7 +312,7 @@ public partial class App : Application
         catch (Exception ex)
         {
             _activateSignal = null;
-            Core.AppLog.Info("single", "叫醒事件建不出来: " + ex.Message);
+            Core.AppLog.Catch("single", "创建唤醒事件", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -471,7 +471,7 @@ public partial class App : Application
             catch (Exception ex)
             {
                 // 打不开又不是"不存在"（多半是权限）→ 放弃敲门，交给窗口判据决定
-                Core.AppLog.Info("single", "叫醒事件打不开: " + ex.Message);
+                Core.AppLog.Catch("single", "打开唤醒事件", ex, Core.LogLevel.Debug);
                 return;
             }
         }
@@ -506,7 +506,6 @@ public partial class App : Application
     private static extern int MessageBoxW(IntPtr hWnd, string text, string caption, uint type);
 
     private const uint MB_OK = 0x00000000;
-    private const uint MB_ICONINFORMATION = 0x00000040;
     private const uint MB_ICONWARNING = 0x00000030;
     private const uint MB_SETFOREGROUND = 0x00010000;
 
@@ -514,8 +513,6 @@ public partial class App : Application
 
     public override void OnFrameworkInitializationCompleted()
     {
-        Core.AppLog.BootDiag(); // 旁路诊断（临时）：排「零日志」用的启动写入探针，排障完移除。
-
         // 初次配置（OOBE）到底该不该弹，**必须在 Load 之前**取这个事实。
         // ⛔ 不要改成 Load 之后再 File.Exists：Load 里的数据整备（新用户补侧边栏模块等）会 Save，
         //    一 Save 文件就存在了，"这是新装"这个事实当场丢失，OOBE 永远弹不出来。
@@ -560,6 +557,16 @@ public partial class App : Application
         }
         catch { /* 迁移失败不影响启动，文件留在原地 */ }
 
+        // 设备标识预热：Win10+ 要激活一次 WinRT 工厂（会加载 combase，毫秒级），
+        // Win7 只读注册表与卷序列号。放后台线程，别顶到首帧；
+        // 预热失败也不要紧 —— 首次发请求时惰性再算一次。
+        _ = System.Threading.Tasks.Task.Run(Services.DeviceIdentity.WarmUp);
+
+        // 崩溃转储的启动状态在这里才落盘，不在 Program.Main 的 CrashDump.Init 里 ——
+        // 本方法只有「确认是第一实例」才会走到，提前写会把会话目录建在第二实例的路径上。
+        // 详见 CrashDump.Init 的注释。
+        Platform.CrashDump.LogStartupStatus();
+
         // 异常日志的"现场"描述：当时在哪一页（Core 层不反依赖 Pages 层，走委托注入）。
         Core.AppLog.ContextProvider = () =>
         {
@@ -569,6 +576,13 @@ public partial class App : Application
             }
             catch { return ""; }
         };
+        // UI 线程卡死看门狗：现场「偶尔无响应、等一会儿自己好了」不抛异常，现有三个全局
+        // 异常钩子一个字都抓不到。这里在后台线程反向探活 UI 线程的排队延迟，
+        // 超过阈值就把「卡了多久 + 当时在哪一页 + GC/线程池读数」写进日志。
+        // ⚠️ 必须排在 ContextProvider 装配之后 —— 它靠它记录卡在哪一页。
+        Platform.HangWatchdog.Start();
+        Platform.HangWatchdog.RunSelfTestIfRequested(Environment.GetCommandLineArgs());
+
         Telemetry = new NoopTelemetryService(Settings);
         Telemetry.Track("app_launch", new Dictionary<string, object?>
         {
@@ -579,8 +593,8 @@ public partial class App : Application
 
         // TLS 口径留痕：Win7 上「检查更新/投稿永远网络错误」最常见的原因就是系统默认协议没开 TLS 1.2。
         // 全工程出网客户端都走 Core.HttpTls（显式指定协议），这里把实际配置写进日志，方便对账。
-        Core.AppLog.Info("net", "出网 TLS：" + Core.HttpTls.Describe()
-            + (Platform.OsInfo.IsWindows7 ? "（Win7 分支）" : ""));
+        Core.AppLog.Info("net", "出网 TLS｜" + Core.HttpTls.Describe()
+            + "｜系统分支=" + (Platform.OsInfo.IsWindows7 ? "Win7" : "Win10+"));
 
         // 弹出层（下拉菜单等）在深色模式下会露白边 —— 在无 DWM 合成的机器上，
         // 弹窗窗口没有逐像素透明度，圆角之外那圈露出的是窗口自己的白底。
@@ -598,6 +612,10 @@ public partial class App : Application
             desktop.Exit += (_, _) =>
             {
                 try { Services.BrightnessService.RestoreGamma(); } catch { }
+
+                // 停止卡死看门狗：Dispatcher 关掉之后再 Post 只会一直抛异常空转，
+                // 而且退出阶段本来就有正常等待（关窗、释放 WebView2），不该报成卡死。
+                try { Platform.HangWatchdog.Stop(); } catch { }
             };
 
             // 侧边栏「未钉住时点别处收起」的触摸路径：触摸走 WM_POINTER，不会置 VK_LBUTTON，
@@ -610,7 +628,7 @@ public partial class App : Application
             }
             catch (Exception ex)
             {
-                Core.AppLog.Debug("ui", "[sidebar] 注册窗口按下钩子失败: " + ex.Message);
+                Core.AppLog.Catch("sidebar", "注册窗口鼠标按下钩子", ex, Core.LogLevel.Debug);
             }
 
             // 本次启动是不是"故意不露脸"（开机最小化 / 只开工具浮窗）。放这么前是因为它同时决定
@@ -674,11 +692,11 @@ public partial class App : Application
         {
             Services.AppLinks.RegisterProtocol();
             _startupLink = Services.AppLinks.ExtractFromCommandLine();
-            if (_startupLink is { Length: > 0 }) Core.AppLog.Info("links", "启动参数里带着链接：" + _startupLink);
+            if (_startupLink is { Length: > 0 }) Core.AppLog.Info("links", "启动参数含链接｜链接=" + _startupLink);
         }
         catch (Exception ex)
         {
-            Core.AppLog.Info("links", "启动时准备应用链接失败: " + ex.Message);
+            Core.AppLog.Catch("links", "初始化应用链接（协议注册＋启动参数解析）", ex);
         }
 
         // 起一条后台线程守"叫醒"事件：用户又点了一次桌面图标 → 第二个实例 Set 这个事件 →
@@ -756,6 +774,17 @@ public partial class App : Application
             Core.AppLog.Exception("ppt-resume", ex, "启动 PPT 续播服务");
         }
 
+        // 在线心跳：与喊话开关无关。后台要知道「这台机器开着客户端」，而喊话出厂默认关，
+        // 靠它统计在线会把绝大多数设备漏掉。每分钟一次 GET /api/ping，只带设备码。
+        try
+        {
+            Services.PresenceService.Start();
+        }
+        catch (Exception ex)
+        {
+            Core.AppLog.Exception("presence", ex, "启动在线心跳");
+        }
+
         // 「内置工具 → 教室喊话」主动打开后才真正上电 —— 不替所有用户默认后台轮询。
         try
         {
@@ -798,7 +827,7 @@ public partial class App : Application
     /// </summary>
     private static void EndOobeAndShowMainWindow()
     {
-        Core.AppLog.Info("oobe", "初次配置结束，显示主窗口");
+        Core.AppLog.Info("oobe", "初次配置结束｜动作=显示主窗口");
 
         var desktop = Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;
 
@@ -823,7 +852,7 @@ public partial class App : Application
         }
         catch (Exception ex)
         {
-            Core.AppLog.Warn("oobe", "初次配置结束后激活主窗口失败：" + ex.Message);
+            Core.AppLog.Catch("oobe", "激活主窗口", ex);
         }
 
         try
@@ -832,7 +861,7 @@ public partial class App : Application
         }
         catch (Exception ex)
         {
-            Core.AppLog.Warn("oobe", "主窗口可见性兜底安装失败：" + ex.Message);
+            Core.AppLog.Catch("oobe", "安装主窗口可见性兜底看门狗", ex);
         }
     }
 
@@ -892,7 +921,7 @@ public partial class App : Application
                 }
 
                 // 落一条日志：这条链路出问题时，日志是唯一能分辨"根本没收到"还是"收到了但窗口没出来"的依据
-                Core.AppLog.Info("single", "收到唤醒请求，把主窗口叫出来");
+                Core.AppLog.Info("single", "唤醒事件到达｜处置=显示主窗口");
 
                 Dispatcher.UIThread.Post(() =>
                 {
@@ -908,7 +937,7 @@ public partial class App : Application
 
                         if (MainWindow is null)
                         {
-                            Core.AppLog.Info("single", "主窗口不存在，唤醒请求无人处理（见同日的 [startup] 记录）");
+                            Core.AppLog.Info("single", "唤醒事件到达｜处置=忽略｜原因=主窗口尚未创建（见 startup 记录）");
                             return;
                         }
                         MainWindow.ShowFromTray();
@@ -921,18 +950,18 @@ public partial class App : Application
                             var link = Services.AppLinks.TryTakeQueued();
                             if (link is { Length: > 0 })
                             {
-                                Core.AppLog.Step("single", "唤醒请求带着链接：" + link);
+                                Core.AppLog.Step("single", "唤醒请求附带链接｜链接=" + link);
                                 _ = MainWindow.HandleAppUriAsync(link);
                             }
                         }
                         catch (Exception ex)
                         {
-                            Core.AppLog.Warn("links", "处理唤醒带来的链接失败：" + ex.Message);
+                            Core.AppLog.Catch("links", "处理唤醒携带的链接", ex);
                         }
                     }
                     catch (Exception ex)
                     {
-                        Core.AppLog.Info("single", "叫醒主窗口失败: " + ex.Message);
+                        Core.AppLog.Catch("single", "显示主窗口（唤醒）", ex);
                     }
                 });
             }
@@ -969,9 +998,9 @@ public partial class App : Application
     {
         try
         {
-            var tail = $"CLR 未处理异常（即将终止={e.IsTerminating}）";
+            var tail = $"CLR 未处理异常｜进程即将终止={e.IsTerminating}";
             if (e.ExceptionObject is Exception ex) Core.AppLog.Exception("crash", ex, tail);
-            else Core.AppLog.Error("crash", tail + "：" + e.ExceptionObject);
+            else Core.AppLog.Error("crash", tail + "｜异常对象=" + e.ExceptionObject);
         }
         catch { }
     }
@@ -982,7 +1011,7 @@ public partial class App : Application
     /// </summary>
     private static void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
     {
-        try { Core.AppLog.Exception("crash", e.Exception, "后台任务未观察异常（已吞，不升级为进程级）"); }
+        try { Core.AppLog.Exception("crash", e.Exception, "后台任务未观察异常｜处置=标记已观察，不升级为进程级"); }
         catch { }
         try { e.SetObserved(); } catch { }
     }
@@ -1000,9 +1029,20 @@ public partial class App : Application
         try
         {
             if (!Services.LogHome.Established) return;
-            Core.AppLog.Info("exit", $"进程正常终止（退出码 {Environment.ExitCode}）");
+
+            // 先摘「活着」标记，再记日志：走到 ProcessExit 本身就足以证明不是崩溃/强杀，
+            // 不能因为后面写日志失败而让下次启动误判成「上次横死」。
+            Services.LogHome.MarkCleanExit();
+
+            Core.AppLog.Info("exit", $"进程终止｜方式=正常｜退出码={Environment.ExitCode}");
         }
         catch { }
+        finally
+        {
+            // 日志走的是常驻句柄（见 AppLog），这里主动关掉，否则退出后日志目录仍被占用、
+            // 用户看着「删不掉」会当成新问题。
+            try { Core.AppLog.Shutdown(); } catch { }
+        }
     }
 
     /// <summary>
@@ -1028,7 +1068,7 @@ public partial class App : Application
             if (ex is not null)
                 Core.AppLog.Exception("crash", ex, "UI 线程未处理异常");
             else
-                Core.AppLog.Error("crash", "UI 线程未处理异常（异常对象为空）");
+                Core.AppLog.Error("crash", "UI 线程未处理异常｜异常对象=空｜处置=按已处理吞掉");
         }
         catch { /* 记录失败也不影响 */ }
 

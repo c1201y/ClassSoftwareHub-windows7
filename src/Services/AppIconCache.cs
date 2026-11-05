@@ -136,7 +136,7 @@ public static class AppIconCache
             File.WriteAllText(EpochFile, DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture));
             _epochUtc = SafeMtimeUtc(EpochFile);
             _memo.Clear();   // ⛔ 进程内 memo 会绕过上面的文件检查，必须同时清掉
-            Core.AppLog.Info("cache", "软件数据已更新 → 图标缓存标记为陈旧，下次访问时按需刷新");
+            Core.AppLog.Info("cache", "图标缓存已标记为陈旧｜原因=软件数据更新｜处置=下次访问按需刷新");
         }
         catch (Exception ex)
         {
@@ -185,7 +185,7 @@ public static class AppIconCache
         var bytes = await DownloadSharedAsync(url, ct).ConfigureAwait(false);
         if (bytes is null || bytes.Length == 0)
         {
-            Core.AppLog.Warn("cache", $"图标取不到（各条线路均失败）→ 暂用本机旧图：{Host(url)}");
+            Core.AppLog.Warn("cache", $"图标获取失败｜主机={Host(url)}｜已尝试=全部线路｜处置=使用本机旧图");
             return;
         }
 
@@ -199,7 +199,7 @@ public static class AppIconCache
         }
         catch (Exception ex)
         {
-            Core.AppLog.Exception("cache", ex, $"缓存图标 {Host(url)}");
+            Core.AppLog.Exception("cache", ex, $"缓存图标｜主机={Host(url)}");
         }
     }
 
@@ -241,7 +241,7 @@ public static class AppIconCache
             }
             catch (Exception ex)
             {
-                Core.AppLog.Exception("cache", ex, $"下载图标 {Host(url)}");
+                Core.AppLog.Exception("cache", ex, $"下载图标｜主机={Host(url)}");
                 bytes = null;
             }
             tcs.SetResult(bytes);
@@ -293,7 +293,7 @@ public static class AppIconCache
                 {
                     _lastGoodMirror = null;         // 官方/自建这条通了就别惦记镜像了
                     if (!string.Equals(candidate.Url, url, StringComparison.Ordinal))
-                        Core.AppLog.Step("cache", $"图标经加速线路取到：{Host(url)} → {Host(candidate.Url)}");
+                        Core.AppLog.Step("cache", $"图标获取成功｜主机={Host(url)} → {Host(candidate.Url)}｜方式=加速线路");
                     return bytes;
                 }
             }
@@ -317,7 +317,7 @@ public static class AppIconCache
                 if (bytes is { Length: > 0 })
                 {
                     _lastGoodMirror = channel;
-                    Core.AppLog.Step("cache", $"图标经公益镜像取到：{Host(url)} → {channel.Name}");
+                    Core.AppLog.Step("cache", $"图标获取成功｜主机={Host(url)}｜方式=公益镜像｜镜像={channel.Name}");
                     return bytes;
                 }
             }

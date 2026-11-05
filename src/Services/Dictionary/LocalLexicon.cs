@@ -90,11 +90,11 @@ public static class LocalLexicon
                 _index = map;
                 _sortedKeys = null;   // 重建时再排一次，避免一次性把排序算在加载时间里
             }
-            AppLog.Info("dict", $"本地词库已加载，共 {map.Count} 条");
+            AppLog.Info("dict", $"本地词库加载完成｜词条={map.Count}｜用户词库={UserPath}");
         }
         catch (Exception ex)
         {
-            AppLog.Exception("dict", ex, "加载本地词库");
+            AppLog.Exception("dict", ex, "加载本地词库｜阶段=读取并建索引");
             lock (Gate) _loading = null;   // 允许下次再试
         }
     }
@@ -112,7 +112,7 @@ public static class LocalLexicon
         }
         catch (Exception ex)
         {
-            AppLog.Warning("dict", $"读取词库 {Path.GetFileName(path)} 失败：{ex.Message}");
+            AppLog.Catch("dict", $"读取词库｜文件={Path.GetFileName(path)}", ex);
         }
     }
 
@@ -136,7 +136,7 @@ public static class LocalLexicon
         }
         catch (Exception ex)
         {
-            AppLog.Exception("dict", ex, "释放内置词库");
+            AppLog.Exception("dict", ex, "释放内置词库｜目标=本地缓存文件");
             return null;
         }
     }
@@ -244,7 +244,7 @@ public static class LocalLexicon
         }
         catch (Exception ex)
         {
-            AppLog.Warning("dict", "补记用户词库失败：" + ex.Message);
+            AppLog.Catch("dict", $"补记用户词库｜单词={entry.Word}", ex);
         }
     }
 }

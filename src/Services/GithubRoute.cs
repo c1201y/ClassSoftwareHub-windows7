@@ -144,14 +144,14 @@ public static class GithubRoute
         // 只有「GitHub 上的文件地址」才谈得上换路（官网直链、网盘、商店页一律不动）
         if (!Core.GithubMirror.IsMirrorableUrl(url))
         {
-            Core.AppLog.Step("download-route", "非 GitHub 链接 → 原样直连（不改写）");
+            Core.AppLog.Step("download-route", "选路｜结果=直连｜原因=链接不在 GitHub 域，不参与加速改写");
             return new[] { DownloadCandidate.Direct(url) };
         }
 
         var official = DownloadCandidate.Direct(url);
         if (Current == GithubRoutes.Official)
         {
-            Core.AppLog.Step("download-route", "线路=GitHub 源 → 直连，不探测不改写");
+            Core.AppLog.Step("download-route", "选路｜结果=直连｜原因=线路设置为 GitHub 源，不探测不改写");
             return new[] { official };
         }
 
@@ -162,14 +162,14 @@ public static class GithubRoute
         // 一句"最后到底排成了什么样"：自动模式下面 AutoAsync 已经逐条报了实测速度，
         // 这条是给**命中缓存**和**自建模式**补的（它们不走那段探速日志）。
         Core.AppLog.Step("download-route",
-            $"线路={DisplayName(Current)} · 候选 {list.Count} 条 → "
+            $"选路｜线路={DisplayName(Current)}｜候选数={list.Count}｜顺序="
             + string.Join(" > ", list.Select(c => HostOf(c.Url))));
 
         return list;
     }
 
     /// <summary>只取域名（日志里看"走了哪一家"就够，不必把带签名的整条 URL 铺进去）。</summary>
-    private static string HostOf(string url)
+    internal static string HostOf(string url)
     {
         try { return new Uri(url).Host; } catch { return url; }
     }
@@ -192,7 +192,7 @@ public static class GithubRoute
         //    偷偷换路会把故障掩盖成「能下但很慢」，反而更难排查。
         if (signed is null)
         {
-            Core.AppLog.Warn("download-route", "自建加速服务：未取得签名，按设置直接失败（不回退）");
+            Core.AppLog.Warn("download-route", "选路失败｜原因=自建加速未取得签名，且线路设置为只走自建｜处置=不回退，直接失败");
 
             throw new InvalidOperationException(
                 "自建加速服务未能取得下载签名，本次下载未开始。\n\n"
@@ -252,7 +252,7 @@ public static class GithubRoute
         Remember(ranked.Select(item => item.Id).ToArray());
 
         Core.AppLog.Info("download-route",
-            "自动选路 → " + string.Join(" > ", ranked.Select(item => $"{Label(item.Id)} {Describe(probes[item.Id].Result)}")));
+            "选路｜方式=自动测速｜结果=" + string.Join(" > ", ranked.Select(item => $"{Label(item.Id)}（{Describe(probes[item.Id].Result)}）")));
 
         return ranked.Select(item => item.Candidate).ToList();
     }

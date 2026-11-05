@@ -250,8 +250,8 @@ public sealed partial class SystemFeaturesPage : PageBase
         else _pending[def.Id] = target;
 
         AppLog.Step("sysfeatures", _pending.ContainsKey(def.Id)
-            ? $"排队：{def.Id} = {target}（{def.Label(target)}）"
-            : $"取消排队：{def.Id}（与当前系统状态一致）");
+            ? $"加入待应用清单｜项目={def.Id}｜目标={target}｜说明={def.Label(target)}"
+            : $"移出待应用清单｜项目={def.Id}｜原因=与当前系统状态一致");
 
         _tipDismissed = false;
         _failedMode = false;
@@ -276,7 +276,7 @@ public sealed partial class SystemFeaturesPage : PageBase
 
         _loading = false;
 
-        AppLog.Step("sysfeatures", $"取消排队：{id}");
+        AppLog.Step("sysfeatures", $"移出待应用清单｜项目={id}");
         UpdatePendingUi();
     }
 
@@ -520,7 +520,7 @@ public sealed partial class SystemFeaturesPage : PageBase
         }
         catch (Exception ex)
         {
-            AppLog.Warn("sysfeatures", "确认框没能弹出：" + ex.Message);
+            AppLog.Catch("sysfeatures", "显示确认框", ex);
             return false;
         }
         finally

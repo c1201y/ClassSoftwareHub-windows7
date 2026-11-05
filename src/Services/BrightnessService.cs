@@ -159,7 +159,7 @@ public static class BrightnessService
         }
         catch (Exception ex)
         {
-            LogOnce("WMI 读亮度失败: " + ex.Message);
+            LogOnce("读取亮度｜方式=WMI｜结果=失败｜原因=" + ex.GetType().Name + ": " + ex.Message, Core.LogLevel.Warning);
         }
         return false;
     }
@@ -195,7 +195,7 @@ public static class BrightnessService
         }
         catch (Exception ex)
         {
-            LogOnce("WMI 设亮度失败: " + ex.Message);
+            LogOnce("设置亮度｜方式=WMI｜结果=失败｜原因=" + ex.GetType().Name + ": " + ex.Message, Core.LogLevel.Warning);
             return false;
         }
     }
@@ -211,7 +211,7 @@ public static class BrightnessService
         {
             if (!TryGetPhysicalMonitor(out var hMonitor, out var err))
             {
-                LogOnce("dxva2 取显示器句柄失败: " + err);
+                LogOnce($"读取亮度｜方式=dxva2｜阶段=取显示器句柄｜结果=失败｜错误码={err}", Core.LogLevel.Warning);
                 return false;
             }
 
@@ -334,7 +334,7 @@ public static class BrightnessService
             if (_gammaProbe < 0)
             {
                 _gammaProbe = ProbeGamma() ? 1 : 0;
-                if (_gammaProbe == 0) LogOnce("软件调光（gamma）也不可用 —— 这台机器亮度完全无法调节");
+                if (_gammaProbe == 0) LogOnce("软件调光｜方式=gamma｜结果=不可用｜影响=本机亮度无法通过本程序调节", Core.LogLevel.Warning);
             }
             return _gammaProbe == 1;
         }
@@ -389,7 +389,7 @@ public static class BrightnessService
 
                 if (!NativeMethodsDisplay.SetDeviceGammaRamp(hdc, ramp))
                 {
-                    LogOnce("软件调光失败：SetDeviceGammaRamp 被拒绝（该显卡驱动不支持软件 gamma）");
+                    LogOnce("软件调光｜方式=gamma｜结果=失败｜原因=SetDeviceGammaRamp 被驱动拒绝（不支持软件 gamma）", Core.LogLevel.Warning);
                     return false;
                 }
 
@@ -578,11 +578,11 @@ public static class BrightnessService
     }
 
     /// <summary>亮度这条路的日志（万一又出"读不到"，看这个就知道卡在哪一步）。</summary>
-    private static void Log(string message)
+    private static void Log(string message, Core.LogLevel level = Core.LogLevel.Info)
     {
         try
         {
-            Core.AppLog.Info("brightness", message);
+            Core.AppLog.Write("brightness", level, message);
         }
         catch
         {
@@ -600,13 +600,13 @@ public static class BrightnessService
     ///    不节流的话日志会被同一句失败刷屏，把真正有用的信息顶出诊断控制台。
     ///    "读不到"是这类机器的**恒定事实**，说一次就够。
     /// </summary>
-    private static void LogOnce(string message)
+    private static void LogOnce(string message, Core.LogLevel level = Core.LogLevel.Info)
     {
         lock (_loggedOnce)
         {
             if (!_loggedOnce.Add(message)) return;
         }
-        Log(message);
+        Log(message, level);
     }
 
     private const string SubVideo = "7516b95f-f776-4464-8c53-06167f40cc99";      // SUB_VIDEO（显示）

@@ -73,7 +73,7 @@ internal static class ActivationDialog
             }
             catch (Exception ex)
             {
-                AppLog.Fail("license", ex, "复制设备码失败");
+                AppLog.Fail("license", ex, "复制设备码");
             }
         };
         deviceRow.Children.Add(copy);
@@ -94,7 +94,7 @@ internal static class ActivationDialog
             }
             catch (Exception ex)
             {
-                AppLog.Fail("license", ex, "打开官网失败");
+                AppLog.Fail("license", ex, "打开激活官网");
             }
         };
 
@@ -184,7 +184,7 @@ internal static class ActivationDialog
             }
             catch (Exception ex)
             {
-                AppLog.Fail("license", ex, "激活失败");
+                AppLog.Fail("license", ex, "提交激活请求");
                 error.Text = "激活过程出错，请稍后重试。";
                 error.Foreground = new SolidColorBrush(Color.FromRgb(0xC4, 0x2B, 0x1C));
             }
@@ -201,7 +201,7 @@ internal static class ActivationDialog
         }
         catch (Exception ex)
         {
-            AppLog.Fail("license", ex, "激活对话框无法显示");
+            AppLog.Fail("license", ex, "显示激活对话框");
             return false;
         }
 

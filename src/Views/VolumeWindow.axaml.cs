@@ -89,13 +89,13 @@ public sealed partial class VolumeWindow : Window
     {
         try
         {
-            ScreenCapture.Log($"Toggle({target}) 进来：instance={(_instance is not null)} visible={_instance?._visible}");
+            Core.AppLog.Step("ui", $"音量浮窗切换｜目标={target}｜已有实例={_instance is not null}｜当前可见={_instance?._visible}");
             _instance ??= new VolumeWindow();
             var w = _instance;
 
             if (w._visible && w._target == target)
             {
-                ScreenCapture.Log("Toggle → 同目标已开着 → HideSelf");
+                Core.AppLog.Step("ui", "音量浮窗切换｜结果=收起｜原因=同目标已打开");
                 w.HideSelf();
                 return;
             }
@@ -110,7 +110,7 @@ public sealed partial class VolumeWindow : Window
         catch (Exception ex)
         {
             // 异常必须记录而非静默吞掉，否则"点击无反应"无法排查；统一走 ScreenCapture.Log。
-            ScreenCapture.Log("浮窗开关失败: " + ex.Message);
+            Core.AppLog.Catch("ui", "切换音量浮窗", ex);
         }
     }
 
@@ -194,7 +194,7 @@ public sealed partial class VolumeWindow : Window
         }
         catch (Exception ex)
         {
-            ScreenCapture.Log("音量浮窗初始化失败: " + ex.Message);
+            Core.AppLog.Catch("ui", "初始化音量浮窗", ex);
         }
     }
 
@@ -283,13 +283,13 @@ public sealed partial class VolumeWindow : Window
         }
         catch (Exception ex)
         {
-            ScreenCapture.Log("音量浮窗显示失败: " + ex.Message);
+            Core.AppLog.Catch("ui", "显示音量浮窗", ex);
         }
     }
 
     private void HideSelf()
     {
-        ScreenCapture.Log($"HideSelf：visible={_visible}（谁叫的看调用方日志）");
+        Core.AppLog.Step("ui", $"音量浮窗收起｜收起前可见={_visible}");
         if (!_visible) return;
         _visible = false;
         Stop();
@@ -341,7 +341,7 @@ public sealed partial class VolumeWindow : Window
         }
         catch (Exception ex)
         {
-            ScreenCapture.Log("浮窗改尺寸失败: " + ex.Message);
+            Core.AppLog.Catch("ui", "调整音量浮窗尺寸", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -380,7 +380,7 @@ public sealed partial class VolumeWindow : Window
         }
         catch (Exception ex)
         {
-            ScreenCapture.Log("浮窗换目标失败: " + ex.Message);
+            Core.AppLog.Catch("ui", "切换音量浮窗目标设备", ex, Core.LogLevel.Debug);
         }
     }
 

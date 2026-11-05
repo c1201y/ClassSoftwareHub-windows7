@@ -593,6 +593,26 @@ public static class SystemInfo
     }
 
     /// <summary>
+    /// 一行「物理内存」摘要（日志横幅用）：总量 / 可用 / 占用率。
+    ///
+    /// <para>用途与 <see cref="DisplaySummary"/> 相同：内存告急、页面文件反复调整、
+    /// 回收迟迟不生效这类问题，第一现场就是这三个数，每次启动自己记一行。</para>
+    /// </summary>
+    public static string MemorySummary()
+    {
+        try
+        {
+            var st = new NativeMethodsEx.MEMORYSTATUSEX
+            {
+                dwLength = (uint)Marshal.SizeOf<NativeMethodsEx.MEMORYSTATUSEX>()
+            };
+            if (!NativeMethodsEx.GlobalMemoryStatusEx(ref st)) return "—";
+            return $"{Size((long)st.ullTotalPhys)} 总计／可用 {Size((long)st.ullAvailPhys)}／占用 {st.dwMemoryLoad}%";
+        }
+        catch { return "—"; }
+    }
+
+    /// <summary>
     /// **具体**的内部版本号：<c>CurrentBuildNumber</c> + <c>UBR</c>（如 <c>26220.1234</c>）。
     /// 只给 <c>CurrentBuildNumber</c>（26220）是不够的 —— 同一个 build 上装没装某个累积更新
     ///    就靠 UBR 区分，排查"打了某补丁之后才出问题"时缺了它根本对不上。

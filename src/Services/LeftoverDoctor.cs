@@ -50,7 +50,7 @@ public static class LeftoverDoctor
         void Say(string line)
         {
             log.AppendLine(line);
-            AppLog.Info("doctor", line);
+            AppLog.Info("doctor", "体检报告｜" + line);
         }
 
         try

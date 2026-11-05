@@ -53,7 +53,6 @@ public sealed partial class MainWindow : Window
     private readonly SettingsStore _settings = App.Settings;
     private readonly BridgeService _bridge;
     private readonly WebViewRuntimeService _runtime = App.WebRuntime;
-    private readonly DispatcherTimer _loadTimer;
 
     private bool _themeFromWeb;
     private bool _firstActivated;
@@ -125,16 +124,12 @@ public sealed partial class MainWindow : Window
 
         Title = ShellConfig.WindowTitle;
 
-        _loadTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(ShellConfig.LoadTimeoutSeconds) };
-        _loadTimer.Tick += (_, _) => { _loadTimer.Stop(); ShowNetworkError("连接超时"); };
-
         _bridge = new BridgeService(this, _settings);
 
         ConfigureWindow();
         ConfigureTitleBar();
         ApplyTheme(_settings.Current.Theme);
         ApplyBackdrop(_settings.Current.Backdrop);
-        LoadLoadingIcon();
         Platform.PortLog.Step("MainWindow: 窗口/标题栏/主题/材质 配置完成");
 
         Closed += OnWindowClosed;
@@ -308,7 +303,7 @@ public sealed partial class MainWindow : Window
                 NativeMethods.SetWindowPos(hwnd, IntPtr.Zero, x, y, w, h,
                     NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE);
 
-                Core.AppLog.Info("startup", $"主窗口原本不在屏幕内（{r.Left},{r.Top},{r.Right},{r.Bottom}）→ 已居中到 {x},{y} {w}×{h}");
+                Core.AppLog.Info("startup", $"主窗口越界修正｜原位置={r.Left},{r.Top},{r.Right},{r.Bottom}｜结果=居中｜新位置={x},{y} {w}×{h}");
                 return;
             }
 
@@ -326,7 +321,7 @@ public sealed partial class MainWindow : Window
             NativeMethods.SetWindowPos(hwnd, IntPtr.Zero, nx, ny, 0, 0,
                 NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOZORDER | NativeMethods.SWP_NOACTIVATE);
 
-            Core.AppLog.Info("startup", $"主窗口右下越界（{r.Left},{r.Top},{r.Right},{r.Bottom}）→ 已挪回 {nx},{ny}");
+            Core.AppLog.Info("startup", $"主窗口越界修正｜原位置={r.Left},{r.Top},{r.Right},{r.Bottom}｜结果=回拉到工作区｜新位置={nx},{ny}");
         }
         catch { }
     }
@@ -480,7 +475,7 @@ public sealed partial class MainWindow : Window
 
             var changed = App.Content.Source != oldSource || App.Content.Apps.Count != oldCount;
             if (changed)
-                Debug.WriteLine($"[content] {result.Message}；{oldSource} → {App.Content.Source}");
+                Core.AppLog.Info("content", $"内容源切换｜结果={result.Message}｜{oldSource} → {App.Content.Source}");
         }
         catch
         {
@@ -637,16 +632,16 @@ public sealed partial class MainWindow : Window
 
         Closing += (_, _) =>
         {
-            Core.AppLog.Info("exit", "主窗 Closing#1 SaveWindowState");
+            Core.AppLog.Info("exit", "主窗 Closing｜阶段=保存窗口状态");
             SaveWindowState();
         };
 
         // 点右上角 × 默认收进托盘（可在设置 / 内置工具页关掉）
         Closing += (_, args) =>
         {
-            Core.AppLog.Info("exit", $"主窗 Closing: exitRequested={_exitRequested} "
-                + $"closeToTray={_settings.Current.CloseToTray} trayReady={_tray?.IsReady} "
-                + $"trayErr={_tray?.LastError}");
+            Core.AppLog.Info("exit", $"主窗 Closing｜exitRequested={_exitRequested}"
+                + $"｜closeToTray={_settings.Current.CloseToTray}｜trayReady={_tray?.IsReady}"
+                + $"｜trayErr={_tray?.LastError}");
 
             // 这一支是"真的要走"（托盘退出 / 用户关掉了「收进托盘」）。
             // ⚠️ 必须打上全局退出标记：工具浮窗与 Q 群反馈窗的 Closing 会把关闭拦成"收起来"，
@@ -655,7 +650,7 @@ public sealed partial class MainWindow : Window
             if (_exitRequested || !_settings.Current.CloseToTray)
             {
                 App.IsExiting = true;
-                Core.AppLog.Info("exit", "主窗 Closing -> 放行（真的要走）");
+                Core.AppLog.Info("exit", "主窗 Closing｜裁决=放行｜原因=已请求退出或未启用收起托盘");
                 return;
             }
 
@@ -670,19 +665,19 @@ public sealed partial class MainWindow : Window
                 if (_trayUnavailableCloses++ == 0)
                 {
                     args.Cancel = true;
-                    Core.AppLog.Info("exit", "主窗 Closing -> 托盘不可用，改为最小化并提示");
+                    Core.AppLog.Info("exit", "主窗 Closing｜裁决=取消关闭｜原因=托盘不可用（第 1 次）｜处置=最小化并提示");
                     try { WindowState = WindowState.Minimized; } catch { }
                     ShowTrayUnavailableOnce();
                     return;
                 }
 
                 App.IsExiting = true;
-                Core.AppLog.Info("exit", "主窗 Closing -> 托盘不可用，第二次关闭放行");
+                Core.AppLog.Info("exit", "主窗 Closing｜裁决=放行｜原因=托盘不可用（第 2 次）");
                 return;
             }
 
             args.Cancel = true;
-            Core.AppLog.Info("exit", "主窗 Closing -> 取消（收进托盘）");
+            Core.AppLog.Info("exit", "主窗 Closing｜裁决=取消关闭｜处置=收进托盘");
             HideToTray();
             ShowTrayHideHintOnce();
         };
@@ -819,7 +814,7 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Debug.WriteLine("[shell] 标题栏定制不可用: " + ex.Message);
+            Core.AppLog.Catch("chrome", "定制主窗标题栏（保持系统默认）", ex, Core.LogLevel.Debug);
         }
 
         ApplyWindowRounding();   // ⚠️ 必须在扩展客户区之后 —— 那一步会把圆角偏好按回 Default(直角)
@@ -860,7 +855,7 @@ public sealed partial class MainWindow : Window
                 Opened += (_, _) =>
                 {
                     try { AttachCaptionHitTest(); }
-                    catch (Exception ex) { Debug.WriteLine("[shell] 标题栏命中测试挂载失败: " + ex.Message); }
+                    catch (Exception ex) { Core.AppLog.Catch("chrome", "挂载标题栏命中测试", ex, Core.LogLevel.Debug); }
                 };
                 return;
             }
@@ -879,7 +874,7 @@ public sealed partial class MainWindow : Window
         catch (Exception ex)
         {
             // 挂不上不影响其它功能：最坏就是标题栏拖不动（和修复前一样）
-            Debug.WriteLine("[shell] 标题栏命中测试挂载失败: " + ex.Message);
+            Core.AppLog.Catch("chrome", "挂载标题栏命中测试", ex, Core.LogLevel.Debug);
             Platform.PortLog.Step("MainWindow: 标题栏命中测试挂载失败 - " + ex.Message);
         }
     }
@@ -990,7 +985,7 @@ public sealed partial class MainWindow : Window
         catch (Exception ex)
         {
             _frame = null;
-            Debug.WriteLine("[shell] 自绘窗口框架挂载失败，退回原生标题栏: " + ex.Message);
+            Core.AppLog.Catch("window", "挂载主窗自绘框架（已退回原生标题栏）", ex, Core.LogLevel.Debug);
             Platform.PortLog.Step("MainWindow: 自绘窗口框架挂载失败，退回原生标题栏 - " + ex.Message);
         }
     }
@@ -1172,7 +1167,7 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Debug.WriteLine("[shell] 拖动失败: " + ex.Message);
+            Core.AppLog.Catch("window", "拖动主窗口", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -1318,7 +1313,7 @@ public sealed partial class MainWindow : Window
                     Position = new PixelPoint(s.WindowLeft, s.WindowTop);
                 else
                 {
-                    Core.AppLog.Info("window", "上次的窗口位置在当前屏幕外，已忽略（改为默认居中）");
+                    Core.AppLog.Info("window", "恢复窗口位置｜结果=跳过｜原因=上次位置不在当前显示器工作区内｜处置=居中显示");
                     s.WindowLeft = int.MinValue;
                     s.WindowTop = int.MinValue;
                 }
@@ -1328,14 +1323,13 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Core.AppLog.Warn("window", "恢复窗口位置失败：" + ex.Message);
+            Core.AppLog.Catch("window", "恢复窗口位置", ex);
         }
     }
 
     private void OnWindowClosed(object? sender, EventArgs args)
     {
-        Core.AppLog.Info("exit", $"主窗口 Closed (exitRequested={_exitRequested})");
-        _loadTimer.Stop();
+        Core.AppLog.Info("exit", $"主窗口已关闭｜exitRequested={_exitRequested}");
         DownloadManager.Current.Finished -= OnDownloadFinished;
         try { _settings.Save(); } catch { }
         try { _sheetHost?.Dispose(); } catch { }
@@ -1364,12 +1358,6 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void LoadLoadingIcon()
-    {
-        try { LoadingIcon.Source = LoadBitmapFromCache("AppIcon-512.png", "AppIcon-512.png"); }
-        catch { }
-    }
-
     // ============================================================
     // caption 区域（原生侧，可选）
     // ============================================================
@@ -1396,14 +1384,17 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 窗口背景：一律交给 <see cref="Backdrop.Apply"/>（它按系统分级降级 Mica → Acrylic → Win7 Aero 毛玻璃 → 纯色）。
+    /// 窗口背景：一律交给 <see cref="Backdrop.Apply"/>（Win11 云母 / Mica Alt → Win10 合成亚克力
+    /// → Win8 Aero 毛玻璃 → 纯色；Win7 固定壁纸模糊，系统材质画不出来时也退纯色）。
     /// ⚠️ 不要在这里自己写 SystemBackdrop 等价逻辑，也别绕过 Backdrop 直接调 DWM。
     /// </summary>
     private void ApplyBackdrop(string kind)
     {
         // ⚠️ 走 BackdropTheme 而不是 Backdrop：Win10 的亚克力着色必须跟深浅色走
         //    （Backdrop 里写死 60% 白，深色下会糊成奶白雾），顺带补深色标题栏。
-        var applied = BackdropTheme.Apply(this, RootGrid, kind);
+        //    primaryWindow: true —— 只有主窗口能接受「整窗全透明 + 清空根面板底色」，
+        //    浮窗那样做在 Win10 上会整个消失（见 Backdrop.ApplyWin10Acrylic）。
+        var applied = BackdropTheme.Apply(this, RootGrid, kind, primaryWindow: true);
         _settings.Current.Backdrop = applied;
         _bridge.Send("shell.backdropChanged", new { value = applied });
     }
@@ -1494,7 +1485,6 @@ public sealed partial class MainWindow : Window
         // 原生界面完全不依赖 WebView2 —— 所以缺了也照常进主界面。
         // 只有应用内网页浮层（WebSheet）需要它，那边会给「去安装 / 用浏览器打开」的兜底。
         _runtime.Probe();
-        RuntimePanel.IsVisible = false;
 
         // 记一笔"这台电脑运行过的版本"（更新页的「历史版本」读的就是这份记录）
         Services.VersionHistory.Record();
@@ -1502,60 +1492,6 @@ public sealed partial class MainWindow : Window
         // 原生界面优先：启动时不加载任何网页。
         return Task.CompletedTask;
     }
-
-    private void ShowNetworkError(string? tip = null)
-    {
-        _loadTimer.Stop();
-        LoadingRing.IsActive = false;
-        LoadingPanel.IsVisible = false;
-        ErrorTitle.Text = ShellConfig.NetworkErrorMessage;
-        ErrorTip.Text = tip ?? string.Empty;
-        ErrorPanel.IsVisible = true;
-    }
-
-    // ============================================================
-    // WebView2 缺失：弹窗三选项
-    // ============================================================
-
-    private void HandleMissingRuntime()
-    {
-        var choice = _settings.Current.WebView2MissingChoice;
-        if (choice == "browser")
-        {
-            OpenExternal(ShellConfig.SiteUrl);
-            ExitApp();
-            return;
-        }
-
-        if (choice == "install")
-            OpenExternal(ShellConfig.WebView2DownloadUrl);
-
-        ErrorPanel.IsVisible = false;
-        LoadingRing.IsActive = false;
-        LoadingPanel.IsVisible = false;
-        RuntimePanel.IsVisible = true;
-        if (NoPromptCheck is not null && choice.Length > 0)
-            NoPromptCheck.IsChecked = true;
-    }
-
-    private void InstallRuntime_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
-    {
-        if (NoPromptCheck?.IsChecked == true) _settings.Current.WebView2MissingChoice = "install";
-        _settings.Save();
-        OpenExternal(ShellConfig.WebView2DownloadUrl);
-    }
-
-    private void OpenInBrowser_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
-    {
-        if (NoPromptCheck?.IsChecked == true) _settings.Current.WebView2MissingChoice = "browser";
-        _settings.Save();
-        OpenExternal(ShellConfig.SiteUrl);
-        ExitApp();
-    }
-
-    private void ExitApp_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => ExitApp();
-
-    private void RetryButton_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e) => _ = BootAsync();
 
     // ============================================================
     // 桥接动作
@@ -1655,7 +1591,7 @@ public sealed partial class MainWindow : Window
             _tray.MenuItems.Add(new TrayMenuItem { Text = "退出", Command = "exit", Glyph = "\uE7E8" });
 
             if (!_tray.Setup(ShellConfig.WindowTitle))
-                Debug.WriteLine("[tray] 托盘图标没挂上（挂不上时关闭窗口仍然直接退出）");
+                Core.AppLog.Warn("tray", "托盘挂载｜结果=失败｜影响=关闭主窗将直接退出（不再收进托盘）");
 
             // 托盘图标二：常用工具（左键 = 直接开工具窗口，不用先进主界面）—— 学校电脑是触屏，少点几下
             _trayTools = new Win32TrayIcon(ToolIconPath());
@@ -1667,7 +1603,7 @@ public sealed partial class MainWindow : Window
             _trayTools.MenuItems.Add(new TrayMenuItem { Text = "退出", Command = "exit", Glyph = "\uE7E8" });
 
             if (!_trayTools.Setup("常用工具"))
-                Debug.WriteLine("[tray] 第二个托盘图标没挂上");
+                Core.AppLog.Warn("tray", "托盘挂载｜结果=失败｜项=常用工具图标｜影响=只能从主界面打开常用工具");
 
             // 屏幕右边那条工具侧边栏（全屏放 PPT 时也够得着工具）
             // ⛔ 初次配置期间先不摆：向导是那时唯一的窗口，侧边栏压上来会抢镜；
@@ -1680,7 +1616,7 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Debug.WriteLine("[tray] 初始化失败: " + ex.Message);
+            Core.AppLog.Catch("tray", "初始化托盘", ex);
         }
     }
 
@@ -1740,7 +1676,7 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Debug.WriteLine("[tray] 切换窗口失败: " + ex.Message);
+            Core.AppLog.Catch("tray", "托盘菜单切换窗口", ex);
         }
     }
 
@@ -1874,7 +1810,7 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Debug.WriteLine("[tray] 显示窗口失败: " + ex.Message);
+            Core.AppLog.Catch("tray", "托盘菜单显示主窗口", ex);
         }
     }
 
@@ -1891,7 +1827,7 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Debug.WriteLine("[palette] 打开工具设置失败: " + ex.Message);
+            Core.AppLog.Catch("palette", "从浮窗打开工具设置", ex);
         }
     }
 
@@ -1932,7 +1868,7 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Debug.WriteLine("[update] 检查更新失败: " + ex.Message);
+            Core.AppLog.Catch("update", "检查更新", ex);
         }
     }
 
@@ -1970,7 +1906,7 @@ public sealed partial class MainWindow : Window
                 {
                     key.SetValue(valueName, cmd);
                     AppLog.Info("startup",
-                        $"开机自启项已校正：{(string.IsNullOrEmpty(current) ? "(原本没有)" : current)} → {cmd}");
+                        $"开机自启项校正｜原值={(string.IsNullOrEmpty(current) ? "(无)" : current)}｜新值={cmd}");
                 }
             }
             else if (key.GetValue(valueName) is not null)
@@ -1980,7 +1916,7 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Debug.WriteLine("[shell] 开机自启设置失败: " + ex.Message);
+            Core.AppLog.Catch("startupitem", "设置开机自启", ex);
         }
     }
 
@@ -1999,7 +1935,7 @@ public sealed partial class MainWindow : Window
 
         if (!AllowedExternalSchemes.Contains(uri.Scheme))
         {
-            Debug.WriteLine($"[shell] 拒绝打开非白名单协议的外部链接: {uri.Scheme}");
+            Core.AppLog.Warn("links", $"打开外部链接｜结果=拒绝｜原因=协议不在白名单｜协议={uri.Scheme}");
             return;
         }
 
@@ -2009,7 +1945,7 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Debug.WriteLine("[shell] 打开外部链接失败: " + ex.Message);
+            Core.AppLog.Catch("links", "打开外部链接", ex);
         }
     }
 
@@ -2046,7 +1982,7 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Debug.WriteLine("[shell] 打开商店失败，改开网页: " + ex.Message);
+            Core.AppLog.Catch("links", "打开商店应用（已改用网页）", ex);
             OpenExternal(url);
         }
     }
@@ -2064,7 +2000,7 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Debug.WriteLine("[shell] 打开文件失败: " + ex.Message);
+            Core.AppLog.Catch("links", "打开文件", ex);
         }
     }
 
@@ -2078,7 +2014,7 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Debug.WriteLine("[shell] 定位文件失败: " + ex.Message);
+            Core.AppLog.Catch("links", "在资源管理器中定位文件", ex);
         }
     }
 
@@ -2159,7 +2095,7 @@ public sealed partial class MainWindow : Window
                     //    不校验来源等于把 setAutoStart / setTelemetry / 窗口命令交出去。
                     if (!IsTrustedBridgeSource(source))
                     {
-                        Core.AppLog.Warn("bridge", "拒绝非本家网页的桥接消息，来源：" + (source ?? "未知"));
+                        Core.AppLog.Warn("bridge", "桥接消息被拒｜原因=来源不是本应用页面｜来源=" + (source ?? "未知"));
                         return;
                     }
                     _bridge.HandleWebMessage(json);
@@ -2475,7 +2411,7 @@ public sealed partial class MainWindow : Window
         var exe = Environment.ProcessPath;
         if (string.IsNullOrWhiteSpace(exe))
         {
-            Core.AppLog.Warn("exit", "重启应用失败：取不到自身可执行文件路径");
+            Core.AppLog.Warn("exit", "重启应用失败｜原因=无法获取自身可执行文件路径");
             return;
         }
 
@@ -2490,12 +2426,12 @@ public sealed partial class MainWindow : Window
             };
 
             System.Diagnostics.Process.Start(psi);
-            Core.AppLog.Info("exit", "已安排重启：约 2 秒后拉起新实例");
+            Core.AppLog.Info("exit", "安排重启｜延时=约 2 秒｜可执行文件=" + exe);
         }
         catch (Exception ex)
         {
             // 安排不成就别退出 —— 否则用户既没重启成，手上的窗口也没了
-            Core.AppLog.Fail("exit", ex, "安排重启失败，本次不退出");
+            Core.AppLog.Fail("exit", ex, "安排重启｜处置=放弃退出并保留当前进程");
             return;
         }
 
@@ -2530,13 +2466,13 @@ public sealed partial class MainWindow : Window
                 }
                 else
                 {
-                    Core.AppLog.Warn("links", "无法识别的链接：" + uri);
+                    Core.AppLog.Warn("links", "链接被忽略｜原因=既非本应用 scheme 也非 ms-settings｜链接=" + uri);
                 }
                 return System.Threading.Tasks.Task.CompletedTask;
             }
 
             ShowFromTray();
-            Core.AppLog.Step("links", $"处理链接 {target.Kind}/{target.Target}");
+            Core.AppLog.Step("links", $"处理链接｜类型={target.Kind}｜目标={target.Target}");
 
             switch (target.Kind)
             {
@@ -2553,7 +2489,7 @@ public sealed partial class MainWindow : Window
 
                 case Core.AppUriKind.Article:
                     // 文档库还没做（需求 1:15 在后续批次）。先如实记日志，别假装跳过去了。
-                    Core.AppLog.Info("links", $"文章链接暂未支持（文档库尚未实现）：{target.Target}");
+                    Core.AppLog.Info("links", $"链接被忽略｜原因=文章类型暂未支持（文档库未实现）｜目标={target.Target}");
                     break;
 
                 case Core.AppUriKind.System:
@@ -2589,7 +2525,7 @@ public sealed partial class MainWindow : Window
         catch (Exception ex)
         {
             // Win7 没有 ms-settings: 处理器 —— 打不开就只留痕，不打扰用户
-            Core.AppLog.Warn("links", "交给系统打开设置失败：" + ex.Message);
+            Core.AppLog.Catch("links", "交由系统处理 ms-settings 链接", ex);
         }
     }
 
@@ -2603,7 +2539,7 @@ public sealed partial class MainWindow : Window
     /// </summary>
     public void ExitApp()
     {
-        Core.AppLog.Info("exit", "ExitApp() 被调用");
+        Core.AppLog.Info("exit", "退出流程开始｜触发=ExitApp()");
         _exitRequested = true;
         // 让工具浮窗 / Q 群反馈窗的 Closing 放行（它们默认是"关掉 = 收起来"）。
         // ⚠️ 实测：程序化的 Window.Close() 与 desktop.Shutdown() **都不保证**触发
@@ -2639,7 +2575,7 @@ public sealed partial class MainWindow : Window
         //    ⛔ 不能只依赖 desktop.Shutdown()，实测它会漏窗口：
         //       没关掉的窗口把消息循环撑住，结果就是「主界面没了、托盘图标也没了，
         //       进程却一直挂在任务管理器里」—— 正是用户反馈的"点了退出，任务管理器里还有残留"。
-        Core.AppLog.Info("exit", "开始显式关闭所有窗口");
+        Core.AppLog.Info("exit", "退出流程｜步骤=显式关闭全部自建窗口");
         try { Views.ToolPaletteWindow.CloseForExit(); } catch { }
         try { Views.QqFeedbackGuideWindow.CloseForExit(); } catch { }
         try { Views.ToolSidebarWindow.CloseForExit(); } catch { }
@@ -2666,7 +2602,7 @@ public sealed partial class MainWindow : Window
         }
         catch { }
 
-        Core.AppLog.Info("exit", "窗口已全部请求关闭");
+        Core.AppLog.Info("exit", "退出流程｜步骤=全部窗口已请求关闭");
 
         try
         {
@@ -2677,14 +2613,14 @@ public sealed partial class MainWindow : Window
                 Environment.Exit(0);
         }
         catch { Environment.Exit(0); }
-        Core.AppLog.Info("exit", "Shutdown() 已返回（若进程仍在 = 消息循环没退）");
+        Core.AppLog.Info("exit", "退出流程｜步骤=Shutdown() 已返回｜判据=此后进程仍存在即消息循环未退出");
 
         // ③ 最后一道保险：desktop.Shutdown() 偶尔仍会让消息循环卡住不退。
         //    1.5 秒还没走就硬退 —— 走到这里该做的清理都已做完（设置已存、托盘已摘、键盘钩子已还原），硬退是安全的。
         new System.Threading.Thread(() =>
         {
             System.Threading.Thread.Sleep(1500);
-            Core.AppLog.Info("exit", "1.5 秒后进程仍在 -> 硬退兜底");
+            Core.AppLog.Info("exit", "退出流程｜步骤=强制退出兜底｜等待=1.5 秒｜说明=消息循环未退出");
             Environment.Exit(0);
         })
         { IsBackground = true, Name = "csh-exit-watchdog" }.Start();

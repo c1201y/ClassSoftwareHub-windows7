@@ -67,7 +67,7 @@ public partial class OobeUpdatePage : UserControl
         catch (Exception ex)
         {
             if (ct.IsCancellationRequested) return;
-            AppLog.Warn("oobe", "初次配置检查更新失败：" + ex.Message);
+            AppLog.Catch("oobe", "初次配置阶段检查更新", ex, LogLevel.Debug);
             ShowFailure();
         }
     }

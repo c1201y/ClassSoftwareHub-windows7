@@ -134,7 +134,7 @@ public static class TimerAlarm
             if (string.IsNullOrEmpty(path)) return;
 
             var ext = Path.GetExtension(path).ToLowerInvariant();
-            AppLog.Info("ring", $"响铃请求：{path}");
+            AppLog.Info("ring", $"响铃开始｜文件={path}｜格式={ext}");
 
             // ① wav 优先 PlaySound：最小的一条播放路，winmm 直接按文件名播，不占 MCI 设备
             if (ext == ".wav" && PlayViaSound(path)) return;
@@ -143,11 +143,11 @@ public static class TimerAlarm
             if (PlayViaMci(path, ext)) return;
             // ③ 最后一搏：不管扩展名都交给 PlaySound；还不行就只记日志
             if (!PlayViaSound(path))
-                AppLog.Info("ring", $"铃声播放失败（MCI 与 PlaySound 都没成功）：{path}");
+                AppLog.Warn("ring", $"响铃失败｜文件={path}｜格式={ext}｜已尝试=PlaySound、MCI｜处置=仅提示，不重试");
         }
         catch (Exception ex)
         {
-            AppLog.Info("ring", "响铃出错：" + ex.Message);
+            AppLog.Catch("ring", "响铃", ex);
         }
     }
 
@@ -159,17 +159,17 @@ public static class TimerAlarm
             MciClose();     // 上一次 MCI 的声音先掐掉，避免叠音
             if (!PlaySoundW(path, IntPtr.Zero, SndFileName | SndAsync | SndNoDefault))
             {
-                AppLog.Info("ring", "PlaySound 没接住（无音频设备/解码失败），改走 MCI");
+                AppLog.Warn("ring", "PlaySound 播放失败｜可能原因=无音频设备或解码器缺失｜处置=改走 MCI");
                 return false;
             }
             _usingPlaySound = true;
             // 成功路径也记一行：排查「没声音」问题时可直接区分是播放器未接住还是音量/设备问题
-            AppLog.Info("ring", "铃声已交给 PlaySound 播放：" + path);
+            AppLog.Info("ring", $"PlaySound 播放已启动｜文件={path}");
             return true;
         }
         catch (Exception ex)
         {
-            AppLog.Info("ring", "PlaySound 出错：" + ex.Message);
+            AppLog.Catch("ring", $"PlaySound 播放｜文件={path}", ex);
             return false;
         }
     }
@@ -188,7 +188,7 @@ public static class TimerAlarm
         if (ext != ".wav" && ext != ".mp3")
         {
             // MCI 在 Win7 上稳的只有 wav（waveaudio）/ mp3（mpegvideo），其余解码器不保证有
-            AppLog.Info("ring", $"铃声格式不在 wav/mp3 内，MCI 可能无法播放：{ext}");
+            AppLog.Warn("ring", $"铃声格式不受支持｜格式={ext}｜支持=wav、mp3｜处置=仍按 MCI 尝试，可能无声");
         }
 
         MciClose();
@@ -209,7 +209,7 @@ public static class TimerAlarm
 
         if (open != 0)
         {
-            AppLog.Info("ring", $"铃声播放失败：MCI open 返回 {MciErrorText(open)}（文件：{path}）");
+            AppLog.Warn("ring", $"MCI 播放失败｜阶段=open｜错误码={open}｜错误={MciErrorText(open)}｜文件={path}");
             return false;
         }
 
@@ -218,7 +218,7 @@ public static class TimerAlarm
         var play = Mci("play " + Alias);
         if (play != 0)
         {
-            AppLog.Info("ring", $"铃声播放失败：MCI play 返回 {MciErrorText(play)}");
+            AppLog.Warn("ring", $"MCI 播放失败｜阶段=play｜错误码={play}｜错误={MciErrorText(play)}｜文件={path}");
             return false;
         }
 
@@ -234,12 +234,12 @@ public static class TimerAlarm
                 if (_playSeq != seq || !_opened || p1 < 0) return;
                 var p2 = MciPosition();
                 if (p2 >= 0 && p2 == p1)
-                    AppLog.Info("ring", "MCI play 后 position 未前进，疑似静音播放（解码器/设备异常）：" + path);
+                    AppLog.Warn("ring", $"MCI 播放疑似无声｜判据=play 后 800ms 内位置未前进｜文件={path}｜可能原因=解码器缺失或音频设备异常");
             }
             catch { }
         });
 
-        AppLog.Info("ring", "铃声已交给 MCI 播放：" + path);
+        AppLog.Info("ring", $"MCI 播放已启动｜文件={path}｜设备={(ext == ".mp3" ? "mpegvideo" : "自动选择")}");
         return true;
     }
 
@@ -313,7 +313,7 @@ public static class TimerAlarm
         }
         catch (Exception ex)
         {
-            AppLog.Info("ring", "MCI 命令失败：" + ex.Message);
+            AppLog.Catch("ring", $"发送 MCI 命令｜命令={command}", ex, LogLevel.Debug);
             return -1;
         }
     }

@@ -256,11 +256,11 @@ public static class LeftoverResolver
 
         sw.Stop();
         AppLog.Info("leftover",
-            $"残留判定（{app.Name}）：差集 {sorted.Count} 条" +
-            $"（确定 {sorted.Count(i => i.Evidence == LeftoverEvidence.Strong)}、" +
-            $"很可能 {sorted.Count(i => i.Evidence == LeftoverEvidence.Medium)}、" +
-            $"不确定 {sorted.Count(i => i.Evidence == LeftoverEvidence.Weak)}），" +
-            $"用时 {sw.ElapsedMilliseconds} ms");
+            $"残留判定｜应用={app.Name}｜候选={sorted.Count}"
+            + $"｜确定={sorted.Count(i => i.Evidence == LeftoverEvidence.Strong)}"
+            + $"｜很可能={sorted.Count(i => i.Evidence == LeftoverEvidence.Medium)}"
+            + $"｜不确定={sorted.Count(i => i.Evidence == LeftoverEvidence.Weak)}"
+            + $"｜耗时={sw.ElapsedMilliseconds}ms");
 
         return sorted;
     }
@@ -466,7 +466,7 @@ public static class LeftoverResolver
         }
         catch (Exception ex)
         {
-            AppLog.Info("leftover", $"读注册表值内容失败（{item.Path} ▸ {item.ValueName}）：{ex.GetType().Name}");
+            AppLog.Info("leftover", $"读注册表值失败｜项={item.Path} ▸ {item.ValueName}｜原因={ex.GetType().Name}");
             return "";
         }
     }
@@ -488,7 +488,7 @@ public static class LeftoverResolver
         }
         catch (Exception ex)
         {
-            AppLog.Info("leftover", $"读注册表默认值失败（{path}）：{ex.GetType().Name}");
+            AppLog.Info("leftover", $"读注册表默认值失败｜项={path}｜原因={ex.GetType().Name}");
             return "";
         }
     }
@@ -920,7 +920,7 @@ public static class LeftoverResolver
             }
             catch (Exception ex)
             {
-                AppLog.Info("leftover", $"测算体积失败（{item.Path}）：{ex.GetType().Name}");
+                AppLog.Info("leftover", $"测算体积失败｜路径={item.Path}｜原因={ex.GetType().Name}");
                 item.SizeBytes = -1;
                 continue;
             }

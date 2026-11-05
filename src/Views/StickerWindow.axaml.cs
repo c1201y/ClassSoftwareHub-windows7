@@ -34,8 +34,7 @@ public sealed partial class StickerWindow : Window
 
     private const double MinSide = 48;
     private const double MaxSide = 8000;
-    private const double EdgeDip = 10;                 // 鼠标：离边多近算"要拖边框"
-    private const double TouchEdgeDip = 30;            // 触屏/笔：手指比光标粗，判定放宽
+    private const double EdgeDip = 10;                 // 离边多近算"要拖边框"（鼠标与触屏同一档）
 
     private static readonly List<StickerWindow> Keep = new();
 
@@ -118,11 +117,11 @@ public sealed partial class StickerWindow : Window
                 catch { }
             });
 
-            ScreenCapture.Log($"贴图已出: {pxW}x{pxH} @{screenX},{screenY}（当前共 {Keep.Count} 张）");
+            ScreenCapture.Log($"贴图创建｜尺寸={pxW}x{pxH}｜位置={screenX},{screenY}｜当前贴图数={Keep.Count}");
         }
         catch (Exception ex)
         {
-            ScreenCapture.Log("贴图失败: " + ex);
+            Core.AppLog.Exception("snip", ex, "创建贴图窗口");
         }
     }
 
@@ -164,7 +163,7 @@ public sealed partial class StickerWindow : Window
         }
         catch (Exception ex)
         {
-            ScreenCapture.Log("贴图载图失败: " + ex);
+            Core.AppLog.Exception("snip", ex, "贴图载入像素图");
         }
     }
 
@@ -202,7 +201,7 @@ public sealed partial class StickerWindow : Window
         }
         catch (Exception ex)
         {
-            ScreenCapture.Log("贴图摆位失败: " + ex.Message);
+            Core.AppLog.Catch("snip", "贴图窗口摆位", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -408,7 +407,7 @@ public sealed partial class StickerWindow : Window
 
     private void CloseSticker()
     {
-        ScreenCapture.Log("贴图关闭");
+        ScreenCapture.Log("贴图关闭｜结果=窗口已销毁");
         try { Close(); } catch { }
     }
 

@@ -120,12 +120,12 @@ public sealed partial class SnipEditorWindow : Window
             w.Show();                                     // Avalonia：先 Show 才拿得到 HWND / 真实缩放
             w.PostShow();
             _ = w.AutoSaveAsync();                        // 自动存一份原图（设置里能关/能换目录）
-            ScreenCapture.Log($"编辑窗已开: {cropW}x{cropH}");
+            ScreenCapture.Log($"编辑窗打开｜区域={cropW}x{cropH}");
             return w;
         }
         catch (Exception ex)
         {
-            ScreenCapture.Log("编辑窗打开失败: " + ex);
+            Core.AppLog.Exception("snip", ex, $"打开编辑窗｜区域={cropW}x{cropH}");
             return null;
         }
     }
@@ -155,13 +155,13 @@ public sealed partial class SnipEditorWindow : Window
             _frameNc.TitleBarHeight = 32;                      // 32dip 以内返回 HTCAPTION，拖动交给系统
             _frameNc.InteractiveRegions = TitleBarInteractiveRegions;
             _frameNc.EraseColorProvider = SelfDrawnFrame.EraseColorFrom(RootGrid);
-            ScreenCapture.Log("编辑窗: 已接管非客户区（自绘标题栏 32dip，Win7 不再画原生边框）");
+            ScreenCapture.Log("编辑窗外观｜阶段=挂载自绘框架｜结果=已接管非客户区｜标题栏高度=32dip｜原生边框=不绘制");
         }
         catch (Exception ex)
         {
             _frameNc = null;
             CaptionCloseButton.IsVisible = false;              // 挂载失败退回原生标题栏：系统有 ✕，自绘的撤掉
-            ScreenCapture.Log("编辑窗自绘框架挂载失败，退回原生标题栏: " + ex.Message);
+            Core.AppLog.Catch("snip", "挂载编辑窗自绘框架（已退回原生标题栏）", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -250,7 +250,7 @@ public sealed partial class SnipEditorWindow : Window
         }
         catch (Exception ex)
         {
-            ScreenCapture.Log("编辑窗标题栏定制失败: " + ex.Message);
+            Core.AppLog.Catch("snip", "定制编辑窗标题栏", ex, Core.LogLevel.Debug);
         }
 
         // 系统背景（云母 / 亚克力，跟着「设置」里主窗口那个选择走）：根底置空让背景透出来，
@@ -312,7 +312,7 @@ public sealed partial class SnipEditorWindow : Window
         }
         catch (Exception ex)
         {
-            ScreenCapture.Log("自动保存失败: " + ex.Message);
+            Core.AppLog.Catch("snip", "编辑窗自动保存原图", ex);
         }
     }
 
@@ -326,7 +326,7 @@ public sealed partial class SnipEditorWindow : Window
         }
         catch (Exception ex)
         {
-            ScreenCapture.Log("编辑窗载图失败: " + ex);
+            Core.AppLog.Exception("snip", ex, "编辑窗载入底图");
         }
     }
 
@@ -723,7 +723,7 @@ public sealed partial class SnipEditorWindow : Window
         }
         catch (Exception ex)
         {
-            ScreenCapture.Log("文字失败: " + ex.Message);
+            Core.AppLog.Catch("snip", "编辑窗文字工具", ex);
         }
         finally
         {
@@ -779,12 +779,12 @@ public sealed partial class SnipEditorWindow : Window
             await ScreenCapture.CopyToClipboardAsync(bmpStream.ToArray());
 
             Status("已复制到剪贴板");
-            ScreenCapture.Log($"编辑窗：已复制 {_pxW}x{_pxH}");
+            ScreenCapture.Log($"剪贴板写入｜来源=编辑窗｜尺寸={_pxW}x{_pxH}｜结果=成功");
         }
         catch (Exception ex)
         {
             Status("复制失败");
-            ScreenCapture.Log("复制失败: " + ex.Message);
+            Core.AppLog.Catch("snip", "写入剪贴板", ex);
         }
     }
 
@@ -815,12 +815,12 @@ public sealed partial class SnipEditorWindow : Window
                 await s.WriteAsync(png, 0, png.Length);
             }
             Status("已保存：" + file.Name);
-            ScreenCapture.Log($"编辑窗：已保存 {file.Path}");
+            ScreenCapture.Log($"保存截图｜路径={file.Path}｜尺寸={_pxW}x{_pxH}｜结果=成功");
         }
         catch (Exception ex)
         {
             Status("保存失败");
-            ScreenCapture.Log("保存失败: " + ex.Message);
+            Core.AppLog.Catch("snip", "保存截图", ex);
         }
     }
 
@@ -831,13 +831,13 @@ public sealed partial class SnipEditorWindow : Window
             var png = await ComposeAsync();
             if (png is null) { Status("合成失败"); return; }
             StickerWindow.Pin(png, _shotX, _shotY, _pxW, _pxH);
-            ScreenCapture.Log($"编辑窗：已钉图 {_pxW}x{_pxH}");
+            ScreenCapture.Log($"钉图窗口创建｜尺寸={_pxW}x{_pxH}｜结果=成功");
             Close();
         }
         catch (Exception ex)
         {
             Status("钉图失败");
-            ScreenCapture.Log("钉图失败: " + ex.Message);
+            Core.AppLog.Catch("snip", "创建钉图窗口", ex);
         }
     }
 
@@ -866,7 +866,7 @@ public sealed partial class SnipEditorWindow : Window
         }
         catch (Exception ex)
         {
-            ScreenCapture.Log("合成失败: " + ex);
+            Core.AppLog.Exception("snip", ex, $"合成输出图｜尺寸={_pxW}x{_pxH}");
             return Task.FromResult<byte[]?>(null);
         }
     }

@@ -127,12 +127,12 @@ public static class AnnounceSound
             var path = ResolvePath();
             if (string.IsNullOrEmpty(path))
             {
-                AppLog.Warn("announce", "提示音取不到（内嵌资源释放失败）");
+                AppLog.Warn("announce", "提示音不可用｜原因=内嵌资源无法释放到临时目录");
                 return;
             }
 
             var ext = Path.GetExtension(path).ToLowerInvariant();
-            AppLog.Info("announce", "提示音播放请求：" + path);
+            AppLog.Step("announce", "提示音播放开始｜文件=" + path);
 
             // ① wav 优先 PlaySound：最小的一条播放路，winmm 直接按文件名播，不占 MCI 设备
             if (ext == ".wav" && PlayViaSound(path)) return;
@@ -142,11 +142,11 @@ public static class AnnounceSound
 
             // ③ 最后一搏：不管扩展名都交给 PlaySound；还不行就只记日志
             if (!PlayViaSound(path))
-                AppLog.Warn("announce", $"提示音播放失败（MCI 与 PlaySound 都没成功）：{path}");
+                AppLog.Warn("announce", $"提示音播放失败｜文件={path}｜已尝试=PlaySound、MCI｜结果=均未成功");
         }
         catch (Exception ex)
         {
-            AppLog.Warn("announce", "播放提示音出错：" + ex.Message);
+            AppLog.Catch("announce", "播放提示音", ex);
         }
     }
 
@@ -158,17 +158,17 @@ public static class AnnounceSound
             MciClose();     // 上一次 MCI 的声音先掐掉，避免叠音
             if (!PlaySoundW(path, IntPtr.Zero, SndFileName | SndAsync | SndNoDefault))
             {
-                AppLog.Info("announce", "PlaySound 没接住（无音频设备/解码失败），改走 MCI");
+                AppLog.Info("announce", "PlaySound 未成功｜可能原因=无音频设备或解码失败｜处置=改用 MCI");
                 return false;
             }
             _usingPlaySound = true;
             // 成功路径也记一行：排查「没声音」问题时可直接区分是播放器未接住还是音量/设备问题
-            AppLog.Info("announce", "提示音已交给 PlaySound 播放：" + path);
+            AppLog.Info("announce", "提示音已交由 PlaySound 播放｜文件=" + path);
             return true;
         }
         catch (Exception ex)
         {
-            AppLog.Warn("announce", "PlaySound 出错：" + ex.Message);
+            AppLog.Catch("announce", "调用 PlaySound", ex, Core.LogLevel.Debug);
             return false;
         }
     }
@@ -187,7 +187,7 @@ public static class AnnounceSound
         if (ext != ".wav" && ext != ".mp3")
         {
             // MCI 在 Win7 上稳的只有 wav（waveaudio）/ mp3（mpegvideo），其余解码器不保证有
-            AppLog.Warn("announce", $"提示音格式不在 wav/mp3 内，MCI 可能无法播放：{ext}");
+            AppLog.Warn("announce", $"提示音格式不受支持｜扩展名={ext}｜说明=MCI 可能无法播放（仅保证 wav/mp3）");
         }
 
         MciClose();
@@ -208,7 +208,7 @@ public static class AnnounceSound
 
         if (open != 0)
         {
-            AppLog.Warn("announce", $"提示音播放失败：MCI open 返回 {MciErrorText(open)}（文件：{path}）");
+            AppLog.Warn("announce", $"提示音播放失败｜阶段=MCI open｜返回={MciErrorText(open)}｜文件={path}");
             return false;
         }
 
@@ -217,7 +217,7 @@ public static class AnnounceSound
         var play = Mci("play " + Alias);
         if (play != 0)
         {
-            AppLog.Warn("announce", $"提示音播放失败：MCI play 返回 {MciErrorText(play)}");
+            AppLog.Warn("announce", $"提示音播放失败｜阶段=MCI play｜返回={MciErrorText(play)}");
             return false;
         }
 
@@ -234,12 +234,12 @@ public static class AnnounceSound
                 if (_playSeq != seq || !_opened || p1 < 0) return;
                 var p2 = MciPosition();
                 if (p2 >= 0 && p2 == p1)
-                    AppLog.Warn("announce", "MCI play 后 position 未前进，疑似静音播放（解码器/设备异常）：" + path);
+                    AppLog.Warn("announce", "提示音播放无进度｜判据=MCI play 后 position 未前进｜可能原因=解码器或音频设备异常｜文件=" + path);
             }
             catch { }
         });
 
-        AppLog.Info("announce", $"提示音已交给 MCI 播放：{path}（mode={MciStatus()}）");
+        AppLog.Info("announce", $"提示音已交由 MCI 播放｜文件={path}｜设备状态={MciStatus()}");
         return true;
     }
 
@@ -327,7 +327,7 @@ public static class AnnounceSound
         }
         catch (Exception ex)
         {
-            AppLog.Warn("announce", "MCI 命令失败：" + ex.Message);
+            AppLog.Catch("announce", "发送 MCI 命令", ex, Core.LogLevel.Debug);
             return -1;
         }
     }

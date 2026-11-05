@@ -142,7 +142,7 @@ public partial class SystemRepairPage : Platform.PageBase
         var unfinished = SystemRepair.FindUnfinished();
         if (unfinished is null) return;
 
-        AppLog.Info("repair", $"接上一次未结束的任务：{unfinished.Task.Name}");
+        AppLog.Info("repair", $"恢复未收尾的任务｜任务={unfinished.Task.Name}");
         EnterRun(unfinished);
     }
 
@@ -409,8 +409,8 @@ public partial class SystemRepairPage : Platform.PageBase
 
         ResultBar.IsOpen = true;
         AppLog.Info("repair",
-            $"「{session.Task.Name}」收尾：中止={outcome.Cancelled} 退出码={outcome.ExitCode} "
-            + $"用时={Format(elapsed)}（{span}）");
+            $"任务收尾｜任务={session.Task.Name}｜已中止={outcome.Cancelled}｜退出码={outcome.ExitCode}"
+            + $"｜用时={Format(elapsed)}｜时间跨度={span}");
     }
 
     private void Stop_Click(object? sender, RoutedEventArgs e)
@@ -502,7 +502,7 @@ public partial class SystemRepairPage : Platform.PageBase
         }
         catch (Exception ex)
         {
-            AppLog.Info("repair", $"弹窗没弹出来：{ex.GetType().Name}");
+            AppLog.Warn("repair", $"确认对话框未能显示｜原因={ex.GetType().Name}");
             return ContentDialogResult.None;
         }
         finally

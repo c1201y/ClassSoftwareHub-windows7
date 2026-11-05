@@ -132,7 +132,7 @@ public static class InstalledApps
         catch (Exception ex)
         {
             // 极端情形（接口被策略挡了之类）。回落去读注册表 —— 噪声大，但总比整个分类空着强。
-            AppLog.Exception("uninstall", ex, "读商店应用（PackageManager）");
+            AppLog.Exception("uninstall", ex, "读取商店应用（PackageManager）");
             return EnumerateStoreFromRegistry();
         }
     }
@@ -144,13 +144,9 @@ public static class InstalledApps
         //    这里退回注册表路径，但公开签名与上游一致，页面代码不用感知差异。
         //    （上游用 PackageManager 的动机 —— "只列当前账户的包 / 解出 ms-resource /
         //      区分 System 签名" —— 在注册表路径里靠 ReadPackage + CleanDisplayName 兜。）
-        AppLog.Info("uninstall", "PackageManager 不可用（Win7 移植版走注册表回落路径）");
+        AppLog.Info("uninstall", "商店应用枚举｜方式=注册表回落｜原因=PackageManager 不可用");
         return EnumerateStoreFromRegistry();
     }
-
-    // 保留上游 PackageManager 版本的注释与结构，供在 Win10+ 上调试时参考；
-    // 实际编译期不引用 WinRT 类型（net6.0-windows7.0 没有 Windows.Media 投影）。
-    private const bool UsePackageManager = false;
 
     // 保留上游 PackageManager 版本的注释与结构，供在 Win10+ 上调试时参考；
     // 实际编译期不引用 WinRT 类型（net6.0-windows7.0 没有对应投影）。

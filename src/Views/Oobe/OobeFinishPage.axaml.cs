@@ -58,7 +58,7 @@ public partial class OobeFinishPage : UserControl
         }
         catch (Exception ex)
         {
-            AppLog.Exception("oobe", ex, "完成页配图加载失败：" + assetName);
+            AppLog.Exception("oobe", ex, $"加载完成页配图｜资源={assetName}");
         }
     }
 

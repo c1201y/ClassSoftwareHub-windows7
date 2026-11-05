@@ -207,7 +207,7 @@ public partial class OobeWelcomeIntro : UserControl
         }
         catch (Exception ex)
         {
-            AppLog.Exception("oobe", ex, "欢迎页图标加载失败");
+            AppLog.Exception("oobe", ex, "加载欢迎页图标");
         }
     }
 
@@ -509,7 +509,7 @@ public partial class OobeWelcomeIntro : UserControl
         }
         catch (Exception ex)
         {
-            AppLog.Warn("oobe", "欢迎页开场失败：" + ex.Message);
+            AppLog.Catch("oobe", "播放欢迎页开场动画", ex, LogLevel.Debug);
             ShowFinalStatic();
             RaiseCompleted();
         }
@@ -552,7 +552,7 @@ public partial class OobeWelcomeIntro : UserControl
         }
         catch (Exception ex)
         {
-            AppLog.Debug("oobe", "跑马灯退场动画失败：" + ex.Message);
+            AppLog.Catch("oobe", "跑马灯退场动画", ex, LogLevel.Debug);
         }
         finally
         {
@@ -616,7 +616,7 @@ public partial class OobeWelcomeIntro : UserControl
         }
         catch (Exception ex)
         {
-            AppLog.Debug("oobe", "标语飞入动画失败：" + ex.Message);
+            AppLog.Catch("oobe", "标语飞入动画", ex, LogLevel.Debug);
         }
         finally
         {
@@ -864,7 +864,7 @@ public partial class OobeWelcomeIntro : UserControl
         }
         catch (Exception ex)
         {
-            AppLog.Debug("oobe", "收尾落位动画失败：" + ex.Message);
+            AppLog.Catch("oobe", "收尾落位动画", ex, LogLevel.Debug);
         }
         finally
         {
@@ -952,7 +952,7 @@ public partial class OobeWelcomeIntro : UserControl
         }
         catch (Exception ex)
         {
-            AppLog.Debug("oobe", "淡入动画失败：" + ex.Message);
+            AppLog.Catch("oobe", "欢迎页淡入动画", ex, LogLevel.Debug);
         }
         finally
         {

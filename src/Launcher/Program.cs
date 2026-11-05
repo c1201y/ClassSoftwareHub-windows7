@@ -78,6 +78,14 @@ internal static class Program
             foreach (var a in args)
                 psi.ArgumentList.Add(a);
 
+            // ⛔ 崩溃转储开关必须由启动器来设：托管层的访问冲突在 .NET 6 上由 CLR 自己接管
+            //    （FailFast），绕过 WER 的 LocalDumps —— 只有 CLR 自带的 createdump 能留下现场。
+            //    而这些开关是 CLR 启动时读的，子进程起来之后再设置就晚了，所以只能在拉起之前注入。
+            //
+            //    应用本体里也有一份同样的设置（见 Platform/CrashDump.ConfigureRuntimeDump），
+            //    那份是给「直接双击 app\ 里的 exe」兜底的；这里设置的值优先级更高。
+            ConfigureCrashDump(psi);
+
             Process.Start(psi);
             return 0;
         }
@@ -85,6 +93,44 @@ internal static class Program
         {
             Fail("启动失败：" + ex.Message);
             return 1;
+        }
+    }
+
+    /// <summary>
+    /// 给子进程注入 .NET 崩溃转储开关。
+    ///
+    /// <para>
+    /// 这条链路解决的是「程序有时候直接没了、日志里什么都没有」：托管代码里的访问冲突、
+    /// 栈溢出、<c>FailFast</c> 都不会经过 CLR 的托管异常钩子，进程当场结束。
+    /// 没有转储就只剩一句「崩了」，无从查起。
+    /// </para>
+    ///
+    /// <para>
+    /// ⚠️ 必须在 <see cref="Process.Start(ProcessStartInfo)"/> 之前写进
+    /// <c>psi.EnvironmentVariables</c>：CLR 是在启动阶段读这些变量的，进程起来之后再设无效。
+    /// 任何一步失败都不影响启动 —— 转储是排障手段，不是运行前提。
+    /// </para>
+    /// </summary>
+    private static void ConfigureCrashDump(ProcessStartInfo psi)
+    {
+        try
+        {
+            var dumpDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "ClassSoftwareHub", "crashes");
+
+            try { Directory.CreateDirectory(dumpDir); } catch { /* 建不出来就让 CLR 自己处理失败 */ }
+
+            psi.EnvironmentVariables["DOTNET_DbgEnableMiniDump"] = "1";
+            // 1 = MiniDumpNormal：含线程栈与模块列表，足以定位崩在哪一行；
+            // 教室机磁盘紧张，默认不抓完整堆（完整转储动辄数百兆）。
+            psi.EnvironmentVariables["DOTNET_DbgMiniDumpType"] = "1";
+            // %p 会被 CLR 替换成进程号，多开时不互相覆盖。
+            psi.EnvironmentVariables["DOTNET_DbgMiniDumpName"] = Path.Combine(dumpDir, "csh.%p.dmp");
+        }
+        catch
+        {
+            // 转储配置失败绝不能让程序起不来。
         }
     }
 

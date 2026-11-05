@@ -222,7 +222,7 @@ internal static class TouchPanScroll
         }
         catch (Exception ex)
         {
-            Core.AppLog.Debug("ui", "[touch-pan] 挂载失败: " + ex.Message);
+            Core.AppLog.Catch("ui", "挂载触摸平移手势", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -284,7 +284,7 @@ internal static class TouchPanScroll
             }
             catch (Exception ex)
             {
-                Core.AppLog.Debug("ui", "[touch-pan] 帧异常: " + ex.Message);
+                Core.AppLog.Catch("ui", "触摸平移逐帧处理", ex, Core.LogLevel.Debug);
                 StopPump(state);
             }
         };

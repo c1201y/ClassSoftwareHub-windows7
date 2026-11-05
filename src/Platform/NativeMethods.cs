@@ -133,9 +133,6 @@ internal static class NativeMethods
 
     /// <summary>最低 Win2000。读写窗口样式/扩展样式（无边框、工具窗等）。</summary>
     [DllImport("user32.dll", SetLastError = true)]
-    internal static extern int GetWindowLong(IntPtr hWnd, int nIndex);
-
-    [DllImport("user32.dll", SetLastError = true)]
     internal static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
 
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtr", SetLastError = true)]
@@ -237,13 +234,6 @@ internal static class NativeMethods
 
     internal const int VK_LBUTTON = 0x01;
 
-    /// <summary>
-    /// 最低 Win2000。**屏幕像素取样** —— 取色器 / 截屏取点用。
-    /// ⚠️ Win7 没有 Windows.Graphics.Capture，抓屏一律走 GDI 的 BitBlt（见 Services/ScreenCapture）。
-    /// </summary>
-    [DllImport("gdi32.dll")]
-    internal static extern uint GetPixel(IntPtr hdc, int nXPos, int nYPos);
-
     [DllImport("user32.dll")]
     internal static extern IntPtr GetDC(IntPtr hWnd);
 
@@ -256,9 +246,6 @@ internal static class NativeMethods
 
     [DllImport("gdi32.dll", SetLastError = true)]
     internal static extern IntPtr CreateCompatibleDC(IntPtr hdc);
-
-    [DllImport("gdi32.dll", SetLastError = true)]
-    internal static extern IntPtr CreateCompatibleBitmap(IntPtr hdc, int nWidth, int nHeight);
 
     [DllImport("gdi32.dll", SetLastError = true)]
     internal static extern IntPtr SelectObject(IntPtr hdc, IntPtr hgdiobj);
@@ -513,6 +500,13 @@ internal static class NativeMethods
     internal const uint WS_EX_NOACTIVATE = 0x08000000;
     internal const uint SWP_SHOWWINDOW = 0x0040;
     internal const uint LWA_ALPHA = 0x00000002;
+
+    /// <summary>
+    /// 色键：把窗口里等于 <c>crKey</c> 的像素整块抠成完全透明。
+    /// 与 <see cref="LWA_ALPHA"/>（整窗统一 alpha，文字跟着变淡）不同，
+    /// 它只影响"这一个颜色"——桌面留言在 Win7 上就靠它做"只有文字、没有底色"。
+    /// </summary>
+    internal const uint LWA_COLORKEY = 0x00000001;
     internal const int MA_NOACTIVATE = 3;
     internal const int HTCLIENT = 1;
 

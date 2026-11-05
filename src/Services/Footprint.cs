@@ -94,7 +94,7 @@ public sealed class FootprintSnapshot
             if (sw.ElapsedMilliseconds > BudgetMs)
             {
                 truncated = true;
-                AppLog.Warning("footprint", $"快照（{phase}）超过 {BudgetMs} ms 预算，剩下的体检点已跳过");
+                AppLog.Warn("footprint", $"体检快照｜阶段={phase}｜结果=超出预算｜预算={BudgetMs}ms｜处置=剩余体检点跳过");
                 break;
             }
 
@@ -106,26 +106,16 @@ public sealed class FootprintSnapshot
             catch (Exception ex)
             {
                 // 单个体检点读不动（权限 / 已被删）不影响别的 —— 但必须留痕，⛔ 别写裸 catch
-                AppLog.Info("footprint", $"体检点「{probe.Label}」读取失败：{ex.GetType().Name} {ex.Message}");
+                AppLog.Warn("footprint", $"体检点读取失败｜体检点={probe.Label}｜原因={ex.GetType().Name}: {ex.Message}");
             }
         }
 
         sw.Stop();
         AppLog.Info("footprint",
-            $"快照（{phase}）：{nodes.Count} 条痕迹，用时 {sw.ElapsedMilliseconds} ms" +
-            (truncated ? "（已截断）" : ""));
+            $"痕迹快照｜阶段={phase}｜条目={nodes.Count}" +
+            $"｜耗时={sw.ElapsedMilliseconds}ms｜截断={(truncated ? "是" : "否")}");
 
         return new FootprintSnapshot(DateTime.Now, nodes, (int)sw.ElapsedMilliseconds, truncated);
-    }
-
-    /// <summary>两份快照里"后一份有、前一份没有"的那些记录（即卸载过程中新出现的）。</summary>
-    public IReadOnlyList<FootprintNode> NewSince(FootprintSnapshot before)
-    {
-        var list = new List<FootprintNode>();
-        foreach (var (key, node) in _nodes)
-            if (!before._nodes.ContainsKey(key))
-                list.Add(node);
-        return list;
     }
 
     /// <summary>这一条在另一份快照里是不是**已经存在**（用来区分"新冒出来的"和"老早就在那儿的"）。</summary>
@@ -286,7 +276,7 @@ public sealed class FootprintSnapshot
             }
             catch (Exception ex)
             {
-                AppLog.Info("footprint", $"读注册表子键失败（{childPath}）：{ex.GetType().Name}");
+                AppLog.Warn("footprint", $"读取注册表子键｜路径={childPath}｜结果=失败｜原因={ex.GetType().Name}");
             }
         }
     }
@@ -305,9 +295,6 @@ public sealed class FootprintSnapshot
         => kind + "|" + path.ToLowerInvariant() + "|" + valueName.ToLowerInvariant();
 
     private static string KeyOf(FootprintNode node) => KeyOf(node.Kind, node.Path, node.ValueName);
-
-    /// <summary>给外部（残留判定）用的同一套键算法 —— 必须与快照内部一致，否则比不出来。</summary>
-    internal static string KeyOfPublic(FootprintNode node) => KeyOf(node);
 }
 
 /// <summary>

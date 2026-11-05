@@ -61,7 +61,7 @@ internal static class ScrollGestureFix
         }
         catch (Exception ex)
         {
-            Core.AppLog.Debug("ui", "[scroll-fix] 安装失败: " + ex.Message);
+            Core.AppLog.Catch("ui", "安装滚动手势兼容修复", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -117,7 +117,8 @@ internal static class ScrollGestureFix
 
             if (removed > 0)
                 Core.AppLog.Debug("ui",
-                    $"[scroll-fix] 从 {element.GetType().Name} 摘掉滚动手势识别器 {removed} 个（0xC00000FD 根因）");
+                    $"滚动手势兼容修复｜控件={element.GetType().Name}｜已移除识别器={removed}"
+                    + "｜针对=0xC00000FD 栈溢出");
 
             // 摘掉识别器会连触屏滑动一起废掉 —— 用我们自己的安全实现补回来
             // （只动 Offset、带有限性夹取，不走那条会递归的绑定路径）。
@@ -126,7 +127,7 @@ internal static class ScrollGestureFix
         }
         catch (Exception ex)
         {
-            Core.AppLog.Debug("ui", "[scroll-fix] 摘除失败: " + ex.Message);
+            Core.AppLog.Catch("ui", "移除滚动手势识别器", ex, Core.LogLevel.Debug);
         }
     }
 }

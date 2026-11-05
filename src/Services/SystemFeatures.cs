@@ -75,7 +75,7 @@ public static class SystemFeatures
         }
         catch (Exception ex)
         {
-            AppLog.Warn("sysfeatures", "读取休眠文件大小失败：" + ex.Message);
+            AppLog.Catch("sysfeatures", "读取休眠文件大小", ex, LogLevel.Debug);
             return 0;
         }
     }
@@ -92,7 +92,7 @@ public static class SystemFeatures
         }
         catch (Exception ex)
         {
-            AppLog.Warn("sysfeatures", $"读取 {path}\\{name} 失败：{ex.Message}");
+            AppLog.Catch("sysfeatures", $"读取注册表值｜项={path}\\{name}", ex, LogLevel.Debug);
             return null;
         }
     }
@@ -136,7 +136,7 @@ public static class SystemFeatures
         }
         catch (Exception ex)
         {
-            AppLog.Warn("sysfeatures", $"读取电源设置 {setting} 失败：{ex.Message}");
+            AppLog.Catch("sysfeatures", $"读取电源设置｜设置={setting}", ex, LogLevel.Debug);
         }
 
         return null;
@@ -171,7 +171,7 @@ public static class SystemFeatures
         }
         catch (Exception ex)
         {
-            AppLog.Warn("sysfeatures", $"读取 {path}\\{name} 失败：{ex.Message}");
+            AppLog.Catch("sysfeatures", $"读取注册表值｜项={path}\\{name}", ex, LogLevel.Debug);
             return null;
         }
     }
@@ -193,7 +193,7 @@ public static class SystemFeatures
             // cmd 在中文系统上按 GBK 读脚本最稳；内容本来就全是 ASCII，加不加 BOM 都不影响
             await File.WriteAllTextAsync(path, script, Encoding.Default);
 
-            AppLog.Step("sysfeatures", $"应用 {changes.Count} 项：{string.Join("、", changes.Select(c => c.Def.Id))}");
+            AppLog.Step("sysfeatures", $"应用系统功能｜数量={changes.Count}｜项目={string.Join("、", changes.Select(c => c.Def.Id))}");
 
             var started = await RunElevatedAsync("cmd.exe", $"/c \"{path}\"");
             if (!started)
@@ -206,8 +206,9 @@ public static class SystemFeatures
             var failed = SysFeatureRules.FailedAfterApply(changes);
 
             AppLog.Info("sysfeatures", failed.Count == 0
-                ? $"全部生效（{changes.Count} 项）"
-                : $"有 {failed.Count} 项未生效：{string.Join("、", failed)}");
+                ? $"系统功能应用｜结果=全部生效｜数量={changes.Count}"
+                : $"系统功能应用｜结果=部分未生效｜未生效={failed.Count}/{changes.Count}"
+                  + $"｜项目={string.Join("、", failed)}");
 
             return new SysApplyResult(changes.Count, failed, null);
         }
@@ -234,7 +235,7 @@ public static class SystemFeatures
         }
         catch (Exception ex)
         {
-            AppLog.Exception("sysfeatures", ex, $"读取 {name}");
+            AppLog.Exception("sysfeatures", ex, $"读取系统功能状态｜项目={name}");
             return FeatureState.Unknown;
         }
     }
@@ -267,7 +268,7 @@ public static class SystemFeatures
         catch (Exception ex)
         {
             // 用户点「否」走这里（Win32Exception: 操作已被用户取消）
-            AppLog.Warn("sysfeatures", $"提权命令未执行（{Path.GetFileName(file)}）：{ex.Message}");
+            AppLog.Catch("sysfeatures", $"执行提权命令｜脚本={Path.GetFileName(file)}", ex);
             return false;
         }
     }

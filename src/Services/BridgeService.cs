@@ -137,12 +137,12 @@ public sealed class BridgeService
 
             case "shell.log":
                 // 网页端主动 console.log 过来的：高频、按调试级记，默认在日志页被「调试」筛选挡掉
-                Core.AppLog.Debug("web", Str(obj["message"]));
+                Core.AppLog.Debug("bridge", "网页端日志｜" + Str(obj["message"]));
                 break;
 
             default:
                 // 两端协议没对上（网页是新版、壳是老版之类）—— 这属于"已经不对了"，按警告记
-                Core.AppLog.Warn("bridge", "网页端发来未知消息类型：" + type);
+                Core.AppLog.Warn("bridge", $"网页端消息｜结果=忽略｜原因=未知类型｜类型={type}");
                 break;
         }
     }

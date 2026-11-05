@@ -207,9 +207,10 @@ public sealed partial class SystemTweaksPage : PageBase
         }
 
         if (disabled.Count == 0)
-            AppLog.Step("tweaks", $"系统 build {build}：全部 {TweakCatalog.All.Count} 项均可用");
+            AppLog.Step("tweaks", $"优化项可用性｜系统 build={build}｜全部={TweakCatalog.All.Count} 项可用");
         else
-            AppLog.Step("tweaks", $"系统 build {build}：停用 {disabled.Count} 项（{string.Join("、", disabled)}）");
+            AppLog.Step("tweaks", $"优化项可用性｜系统 build={build}｜停用={disabled.Count} 项"
+                + $"｜停用项={string.Join("、", disabled)}");
     }
 
     /// <summary>门槛翻成人话。</summary>
@@ -247,7 +248,7 @@ public sealed partial class SystemTweaksPage : PageBase
                 }
             }
 
-            AppLog.Step("tweaks", $"按当前系统设置回填 {seen.Count} 项；当前状态：{string.Join("、", seen)}");
+            AppLog.Step("tweaks", $"按系统当前状态回填｜已回填={seen.Count} 项｜当前状态={string.Join("、", seen)}");
         }
         finally
         {
@@ -295,7 +296,7 @@ public sealed partial class SystemTweaksPage : PageBase
             catch (Exception ex)
             {
                 // 弹不出来就别改：宁可这一下不生效，也不能带着"没确认过"的状态往下走
-                AppLog.Warn("tweaks", $"确认框未显示（{def.Id}）：{ex.Message}");
+                AppLog.Catch("tweaks", $"显示确认框｜项目={def.Id}", ex, Core.LogLevel.Debug);
                 ok = false;
             }
 
@@ -344,8 +345,8 @@ public sealed partial class SystemTweaksPage : PageBase
         else _pending[def.Id] = target;
 
         AppLog.Step("tweaks", _pending.ContainsKey(def.Id)
-            ? $"排队：{def.Id} = {target}（{label}）"
-            : $"取消排队：{def.Id}（与当前系统状态一致）");
+            ? $"加入待应用清单｜项目={def.Id}｜目标={target}｜说明={label}"
+            : $"移出待应用清单｜项目={def.Id}｜原因=与当前系统状态一致");
 
         // 用户又动了一下开关 ⇒ 他认为还在改，可以重新提示一次
         _tipDismissed = false;
@@ -465,7 +466,7 @@ public sealed partial class SystemTweaksPage : PageBase
     {
         if (sender is not Button { Tag: string id }) return;
 
-        if (_pending.Remove(id)) AppLog.Step("tweaks", $"从任务清单取消：{id}");
+        if (_pending.Remove(id)) AppLog.Step("tweaks", $"移出待应用清单｜项目={id}");
 
         _tipMode = TipMode.Pending;
         LoadStates();
@@ -626,7 +627,7 @@ public sealed partial class SystemTweaksPage : PageBase
         }
         catch (Exception ex)
         {
-            AppLog.Warn("tweaks", "确认框没能弹出：" + ex.Message);
+            AppLog.Catch("tweaks", "显示确认框", ex);
             return false;
         }
         finally

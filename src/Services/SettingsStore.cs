@@ -222,6 +222,22 @@ public sealed class AppSettings
     public int SidebarCollapsedLength { get; set; }
 
     /// <summary>
+    /// 「图标网格」样式下每颗格子的边长（dip）。
+    ///
+    /// <para>
+    /// ⚠️ 只有一个值：格子是**正方形**（图标在上、短名在下），宽度与高度用同一个数，
+    ///    面板尺寸由它乘列数/行数推出来，所以「调整大小」只需要调这一边。
+    /// </para>
+    ///
+    /// <para>
+    /// 默认 60（<c>ToolSidebarWindow.GridCellDefaultDip</c>），范围 44~96
+    /// （<c>GridCellMinDip</c> / <c>GridCellMaxDip</c>，进设置页时会夹回范围内）。
+    /// 只对 <c>SidebarPanelStyle == "grid"</c> 生效；经典竖排列表不吃这一项。
+    /// </para>
+    /// </summary>
+    public int SidebarGridCellSize { get; set; } = 60;
+
+    /// <summary>
     /// ⚠️ **已弃用**（已从"一个总开关"改成"五颗各自一个开关"）：
     /// 老存档里 <c>false</c> = 五颗全隐藏。现在只用来做**一次性迁移**
     /// （见 <c>SettingsStore.MigrateSidebarFooter</c>，迁完就把它拨回 true 当"已迁"标记）。
@@ -277,8 +293,6 @@ public sealed class AppSettings
     /// <summary>悬浮时的窗口左上角（物理像素）；负值 = 还没摆过，按贴底算。</summary>
     public double VirtualKeyboardFloatX { get; set; } = -1;
     public double VirtualKeyboardFloatY { get; set; } = -1;
-
-    public string WebView2MissingChoice { get; set; } = "";    // "" | install | browser
 
     /// <summary>截图后自动存一份原图（默认开）。目录见 ShotSaveDir，空 = 桌面。</summary>
     public bool ShotAutoSave { get; set; } = true;

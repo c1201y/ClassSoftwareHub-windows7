@@ -75,7 +75,7 @@ public sealed partial class FileSearchWindow : Window
         var w = _instance;
         _instance = null;
         try { w?.Close(); } catch { }
-        AppLog.Info("exit", "文件快搜窗口实例已请求 Close");
+        AppLog.Info("window", "窗口关闭请求｜窗口=文件快搜｜触发=程序化 Close");
     }
 
     // ── 窗口本身 ─────────────────────────────────────────────────────────
@@ -100,7 +100,7 @@ public sealed partial class FileSearchWindow : Window
             ClientSize = new Size(DefaultWidthDip, DefaultHeightDip);
             UpdatePinVisual();
 
-            Closed += (_, _) => AppLog.Info("exit", "文件快搜窗口 Closed");
+            Closed += (_, _) => AppLog.Info("window", "窗口已关闭｜窗口=文件快搜");
 
             Closing += (_, args) =>
             {
@@ -128,7 +128,7 @@ public sealed partial class FileSearchWindow : Window
         catch (Exception ex)
         {
             _frame = null;
-            AppLog.Debug("file-search", "自绘窗口框架挂载失败，退回原生标题栏: " + ex.Message);
+            AppLog.Catch("file-search", "挂载自绘窗口框架（已退回原生标题栏）", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -237,7 +237,7 @@ public sealed partial class FileSearchWindow : Window
         {
             if (epoch != _fadeEpoch) return;
             try { NativeMethods.ShowWindow(Backdrop.TryGetHwnd(this), SW_HIDE); }
-            catch (Exception ex) { AppLog.Debug("file-search", "收起失败: " + ex.Message); }
+            catch (Exception ex) { AppLog.Catch("file-search", "收起文件快搜窗口", ex, Core.LogLevel.Debug); }
         });
     }
 
@@ -258,7 +258,7 @@ public sealed partial class FileSearchWindow : Window
         }
         catch (Exception ex)
         {
-            AppLog.Debug("file-search", "定位失败: " + ex.Message);
+            AppLog.Catch("file-search", "定位文件快搜窗口", ex, Core.LogLevel.Debug);
         }
     }
 

@@ -230,7 +230,7 @@ public sealed class PptResumeService
         }
         catch (Exception ex)
         {
-            AppLog.Exception("ppt-resume", ex, "导入 CSES 课表");
+            AppLog.Exception("ppt-resume", ex, "导入 CSES 课表｜格式=CSES 课表文件");
             return (false, "读取课表失败：" + ex.Message);
         }
     }
@@ -371,7 +371,7 @@ public sealed class PptResumeService
                 while (_commands.TryTake(out var command))
                 {
                     try { command(); }
-                    catch (Exception ex) { AppLog.Debug("ppt-resume", "命令执行失败: " + ex.Message); }
+                    catch (Exception ex) { AppLog.Catch("ppt-resume", "执行放映线程排队的操作", ex, LogLevel.Debug); }
                 }
 
                 var now = Environment.TickCount;
@@ -383,7 +383,7 @@ public sealed class PptResumeService
             }
             catch (Exception ex)
             {
-                AppLog.Debug("ppt-resume", "轮询失败: " + ex.Message);
+                AppLog.Catch("ppt-resume", "轮询放映状态", ex, LogLevel.Debug);
             }
 
             Thread.Sleep(200);
@@ -431,7 +431,7 @@ public sealed class PptResumeService
         }
         catch (Exception ex)
         {
-            AppLog.Debug("ppt-resume", "读取放映状态失败: " + ex.Message);
+            AppLog.Catch("ppt-resume", "读取放映状态", ex, LogLevel.Debug);
             ReleaseApp();
             SetLive(false, "读取放映状态失败（演示软件可能正忙或被弹窗挡住）。", "", 0, 0, "");
         }
@@ -609,7 +609,7 @@ public sealed class PptResumeService
         }
         catch (Exception ex)
         {
-            AppLog.Exception("ppt-resume", ex, "续播 " + subject);
+            AppLog.Exception("ppt-resume", ex, $"续播｜科目={subject}");
             SetMessage("续播失败：" + ex.Message);
             ReleaseApp();
         }

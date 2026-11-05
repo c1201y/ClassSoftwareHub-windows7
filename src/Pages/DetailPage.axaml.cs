@@ -411,7 +411,7 @@ public sealed partial class DetailPage : PageBase
         }
         catch (Exception ex)
         {
-            Core.AppLog.Warn("detail", "商店图标加载失败（资源缺失？）：" + ex.Message);
+            Core.AppLog.Catch("ui", "加载商店图标", ex, Core.LogLevel.Debug);
             return null;
         }
     }
@@ -477,14 +477,14 @@ public sealed partial class DetailPage : PageBase
             var r = await FilePickerCompat.PickFolderAsync(top, "选择下载文件夹");
             if (r.Error is not null)
             {
-                AppLog.Warn("download", "选下载文件夹被拒：" + r.Error);
+                AppLog.Warn("download", "选择下载目录｜结果=被拒绝｜原因=" + r.Error);
                 return null;
             }
             return r.Files.Count > 0 ? r.Files[0] : null;
         }
         catch (Exception ex)
         {
-            AppLog.Warn("download", "选择下载文件夹失败：" + ex.Message);
+            AppLog.Catch("download", "选择下载目录", ex);
             return null;
         }
     }
@@ -531,7 +531,7 @@ public sealed partial class DetailPage : PageBase
         }
         catch (Exception ex)
         {
-            AppLog.Fail("detail", ex, "打开下载链接失败");
+            AppLog.Fail("ui", ex, "打开下载链接");
         }
     }
 
@@ -657,7 +657,7 @@ public sealed partial class DetailPage : PageBase
         }
         catch (Exception ex)
         {
-            Debug.WriteLine("[detail] 跳哈希校验失败: " + ex.Message);
+            Core.AppLog.Catch("ui", "跳转到哈希校验页", ex);
         }
     }
 

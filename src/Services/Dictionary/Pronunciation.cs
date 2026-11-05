@@ -54,7 +54,7 @@ public static class Pronunciation
             var path = await EnsureCachedAsync(word);
             if (path is null)
             {
-                AppLog.Warn("dict", "发音下载失败：" + word);
+                AppLog.Warn("dict", $"发音缓存｜单词={word}｜结果=未取得音频文件｜影响=本次不发声");
                 return;
             }
 
@@ -62,7 +62,7 @@ public static class Pronunciation
         }
         catch (Exception ex)
         {
-            AppLog.Warn("dict", "播放发音失败：" + ex.Message);
+            AppLog.Catch("dict", $"播放发音｜单词={word}", ex);
         }
     }
 
@@ -101,7 +101,7 @@ public static class Pronunciation
             if (open != 0) open = Mci($"open \"{path}\" alias {Alias}");
             if (open != 0)
             {
-                AppLog.Warn("dict", $"发音播放失败：MCI open 返回 {open}（文件：{path}）");
+                AppLog.Warn("dict", $"MCI 发音失败｜阶段=open｜错误码={open}｜文件={path}");
                 return;
             }
 
@@ -109,7 +109,7 @@ public static class Pronunciation
 
             var play = Mci("play " + Alias);
             if (play != 0)
-                AppLog.Warn("dict", $"发音播放失败：MCI play 返回 {play}");
+                AppLog.Warn("dict", $"MCI 发音失败｜阶段=play｜错误码={play}｜文件={path}");
         }
     }
 
@@ -128,7 +128,7 @@ public static class Pronunciation
         }
         catch (Exception ex)
         {
-            AppLog.Warn("dict", "MCI 命令失败：" + ex.Message);
+            AppLog.Catch("dict", $"发送 MCI 命令｜命令={command}", ex, LogLevel.Debug);
             return -1;
         }
     }

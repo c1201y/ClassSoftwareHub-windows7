@@ -54,7 +54,7 @@ public sealed class AiChatService
         var raw = Environment.GetEnvironmentVariable("CSH_AI_BUDGET_SECONDS");
         if (int.TryParse(raw, out var seconds) && seconds > 0)
         {
-            AppLog.Warn("hubai", $"调试覆盖：本轮预算改为 {seconds} 秒（来自 CSH_AI_BUDGET_SECONDS）");
+            AppLog.Warn("hubai", $"问答预算｜来源=环境变量 CSH_AI_BUDGET_SECONDS｜预算={seconds}s");
             return TimeSpan.FromSeconds(seconds);
         }
 
@@ -257,13 +257,13 @@ public sealed class AiChatService
                     if (ToolRunner.RequiresApproval(call.Name) && approveTool is not null)
                     {
                         onStatus?.Invoke($"等待确认：{call.Name}");
-                        AppLog.Step("hubai", $"请求授权：{call.Name}");
+                        AppLog.Step("hubai", $"工具授权｜工具={call.Name}｜状态=等待用户确认");
 
                         var approved = await approveTool(call.Name, call.Arguments);
 
                         if (!approved)
                         {
-                            AppLog.Step("hubai", $"用户拒绝了 {call.Name}");
+                            AppLog.Step("hubai", $"工具授权｜工具={call.Name}｜结果=用户拒绝｜处置=不执行并如实告知");
                             _messages.Add(AiMessage.Tool(call.Id,
                                 "用户拒绝了这次操作。不要重试同一动作，如实说明，并给出不需要改动系统的替代方案。"));
                             onToolDone?.Invoke("已拒绝这次操作");
@@ -272,7 +272,7 @@ public sealed class AiChatService
                     }
 
                     onStatus?.Invoke(DescribeTool(call.Name));
-                    AppLog.Step("hubai", $"工具调用：{call.Name}（第 {round + 1} 轮，已用 {watch.Elapsed.TotalSeconds:0} 秒）");
+                    AppLog.Step("hubai", $"工具调用开始｜工具={call.Name}｜轮次={round + 1}｜已用={watch.Elapsed.TotalSeconds:0}s");
 
                     // ⚠️ 传的是 deadline.Token，不是 ct：预算到点时 ToolRunner 会原样往外抛
                     //    （它只把"自己的 90 秒超时"翻成结果字符串），正好落到下面的 catch 里
@@ -300,7 +300,7 @@ public sealed class AiChatService
             //    （这个坑本来就有，用户点停止后再提问就撞，只是以前没人把它和"停止"联系起来）。
             var repaired = HistoryRepair.Close(_messages);
             if (repaired > 0)
-                AppLog.Warn("hubai", $"中止后补齐 {repaired} 条未回应的工具结果（否则下次请求会被服务端拒绝）");
+                AppLog.Warn("hubai", $"历史修复｜动作=补齐未回应的工具结果｜条数={repaired}｜原因=上一轮未正常收尾｜不补齐则下次请求被服务端拒绝");
 
             // 用户自己按的停止：保持原样往上抛，让上层静默保留已生成的部分（既有行为，别改）
             if (stopReason == AiStopReason.None) throw;
@@ -310,8 +310,8 @@ public sealed class AiChatService
 
         var used = watch.Elapsed;
         AppLog.Warn("hubai",
-            $"本轮问答中止（{stopReason}）：已用 {used.TotalSeconds:0} 秒 / 预算 {AnswerBudget.TotalSeconds:0} 秒，" +
-            $"上下文 {_messages.Count} 条，累计 {total.TotalTokens} token");
+            $"本轮问答中止｜原因={stopReason}｜已用={used.TotalSeconds:0}s｜预算={AnswerBudget.TotalSeconds:0}s" +
+            $"｜上下文={_messages.Count} 条｜累计 token={total.TotalTokens}");
 
         // 说明也要进上下文：不然用户追问"刚才怎么停了"时，模型不知道自己被打断过，会把已经做过的事重做一遍
         var notice = AiTimeBudget.Describe(stopReason, AnswerBudget).TrimStart('\r', '\n');
@@ -381,14 +381,14 @@ public sealed class AiChatService
             var summary = sb.ToString().Trim();
             if (summary.Length == 0)
             {
-                AppLog.Warn("hubai", "上下文摘要为空，本次退回截断");
+                AppLog.Warn("hubai", $"上下文摘要｜结果=空｜待压条数={_pendingDrop.Count}｜处置=退回纯截断");
                 _pendingDrop.Clear();
                 return;
             }
 
             _historySummary = summary;
             ApplySummary(summary);
-            AppLog.Step("hubai", $"上下文摘要完成：压掉 {count} 条 / {chars} 字 → {summary.Length} 字");
+            AppLog.Step("hubai", $"上下文摘要完成｜压缩条数={count}｜原文={chars} 字｜摘要={summary.Length} 字");
             _pendingDrop.Clear();
         }
         catch (OperationCanceledException)
@@ -397,7 +397,7 @@ public sealed class AiChatService
         }
         catch (Exception ex)
         {
-            AppLog.Exception("hubai", ex, "上下文摘要");
+            AppLog.Exception("hubai", ex, $"生成上下文摘要｜待压条数={_pendingDrop.Count}");
             _pendingDrop.Clear();      // 别每轮重试同一批，直接退回纯截断
         }
     }
@@ -574,7 +574,7 @@ public sealed class AiChatService
             // ⚠️ 别在这里同步调模型 —— 本方法在每轮请求前都会跑，压一次就多一次往返。
             foreach (var turn in turns.Take(drop)) _pendingDrop.AddRange(turn);
 
-            AppLog.Step("hubai", $"历史裁剪：丢掉最早 {drop} 个回合，保留 {_messages.Count} 条");
+            AppLog.Step("hubai", $"历史裁剪｜丢弃回合={drop}｜保留条数={_messages.Count}");
         }
 
         EnsureToolPairing();
@@ -654,7 +654,7 @@ public sealed class AiChatService
 
         _messages.Clear();
         _messages.AddRange(rebuilt);
-        AppLog.Step("hubai", $"历史修复：清掉 {dropped} 条无法配对的工具调用/结果");
+        AppLog.Step("hubai", $"历史修复｜动作=清除无法配对的工具调用/结果｜条数={dropped}");
     }
 
     private static string DescribeTool(string id) => id switch

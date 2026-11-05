@@ -32,7 +32,7 @@ public static class ShellConfig
     ///
     /// 基数不随便抬（否则旧包会被强制顶掉）。
     /// </summary>
-    public const string ShellVersion = "1.2.0-insider1.6";
+    public const string ShellVersion = "1.2.0-insider1.7";
 
     /// <summary>当前是不是预览（内测）构建 —— 版本号里带 <c>insider</c> 即为真。</summary>
     public static bool IsInsider =>
@@ -139,13 +139,8 @@ public static class ShellConfig
     }
 
 
-    public const string NetworkErrorMessage = "网络出现错误，请稍后重试";
-
     /// <summary>标题栏高度（与 AppWindow PreferredHeightOption.Tall 对齐）。</summary>
     public const int TitleBarHeight = 48;
-
-    /// <summary>导航超时（秒），超时视为网络错误。</summary>
-    public const int LoadTimeoutSeconds = 25;
 
     /// <summary>单实例互斥名。</summary>
     public const string MutexName = "ClassSoftwareHub.Desktop.SingleInstance";

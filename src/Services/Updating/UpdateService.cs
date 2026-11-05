@@ -83,12 +83,12 @@ public sealed class UpdateService
     {
         if (!Source.IsConfigured)
         {
-            AppLog.Warn("update", "检查更新：更新源未配置，直接放弃");
+            AppLog.Warn("update", "检查更新｜结果=跳过｜原因=未配置更新源");
             return UpdateCheckResult.None("尚未配置更新源，暂时无法检查更新。");
         }
 
         var ch = UpdateChannels.ToDisplay(channel);
-        AppLog.Info("update", $"▶ 检查更新 · 通道={ch} · 当前版本 {currentVersion}");
+        AppLog.Begin("update", $"检查更新｜通道={ch}｜当前版本={currentVersion}");
 
         // ⚠️ 记完日志**原样抛出**（不改这里的行为）：调用方本来就靠异常来区分
         //    "网络不通"和"已是最新"，把它吞成 None 会让界面误报"已是最新"。
@@ -103,13 +103,13 @@ public sealed class UpdateService
         }
         catch (Exception ex)
         {
-            AppLog.Fail("update", ex, $"检查更新失败（通道={ch}）");
+            AppLog.Fail("update", ex, $"检查更新失败｜通道={ch}");
             throw;
         }
 
         if (releases.Count == 0)
         {
-            AppLog.Step("update", $"{ch} 通道下暂时没有发布");
+            AppLog.Step("update", $"检查更新｜结果=无发布｜通道={ch}");
             return UpdateCheckResult.None($"{ch} 通道下暂时还没有发布。");
         }
 
@@ -118,11 +118,11 @@ public sealed class UpdateService
 
         if (!VersionCompare.IsNewer(newest.Version, currentVersion))
         {
-            AppLog.Step("update", $"已是最新（最新发布 {newest.Tag}，通道内共 {releases.Count} 条）");
+            AppLog.Step("update", $"检查更新｜结果=已是最新｜最新发布={newest.Tag}｜通道内发布数={releases.Count}｜通道={ch}");
             return UpdateCheckResult.None($"已是最新（{ch} 通道）。");
         }
 
-        AppLog.Done("update", $"发现新版本 {newest.Tag}（{ch}），当前 {currentVersion}");
+        AppLog.Done("update", $"检查更新｜结果=发现新版本｜新版本={newest.Tag}｜当前版本={currentVersion}｜通道={ch}");
         return new UpdateCheckResult(true, newest, $"发现新版本 {newest.Tag}（{ch} 通道）");
     }
 
@@ -184,7 +184,7 @@ public sealed class UpdateService
         {
             var noChecksum = new MissingChecksumException(
                 $"发布「{package.Name}」没有提供任何校验值（没有 .md5 资产，接口也没给 SHA256），已拒绝安装。");
-            AppLog.Fail("update", noChecksum, "更新中止：拿不到任何校验值");
+            AppLog.Fail("update", noChecksum, "更新中止｜原因=发布方与待装标记均未提供校验值");
             throw noChecksum;
         }
 
@@ -197,7 +197,7 @@ public sealed class UpdateService
         {
             // ── 链路日志：更新是"最不能出错"的一条链路，失败时必须留有日志线索。 ──
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            AppLog.Begin("update", $"下载安装包「{package.Name}」· {package.Url}");
+            AppLog.Begin("update", $"下载安装包｜文件={package.Name}｜链接={package.Url}");
 
             // 按用户设置（自建加速 / 自动 / GitHub 源）把原始链接翻译成候选，逐个尝试：
             // 自建加速经本站 Worker 代签取限时直链，失败自动回落官方直链。
@@ -213,9 +213,9 @@ public sealed class UpdateService
             pending.AddRange(demoted);
             candidates = pending;
             if (demoted.Count > 0)
-                AppLog.Step("update", $"最近发过坏包的线路排到最后：{string.Join("、", demoted.Select(c => HostOf(c.Url)))}");
+                AppLog.Step("update", $"线路降权｜原因=近期校验失败｜置于末位={string.Join("、", demoted.Select(c => HostOf(c.Url)))}");
 
-            AppLog.Step("update", $"线路候选 {candidates.Count} 条 · 落盘 {destinationFile}");
+            AppLog.Step("update", $"线路候选｜数量={candidates.Count}｜落盘={destinationFile}");
             Exception? lastError = null;
             ChecksumMismatchException? lastMismatch = null;
 
@@ -249,7 +249,7 @@ public sealed class UpdateService
                     {
                         var bad = new ChecksumMismatchException(kind, expected, actual);
                         TryDelete(temp);
-                        AppLog.Fail("update", bad, $"更新包「{package.Name}」校验不通过（{kind}）");
+                        AppLog.Fail("update", bad, $"更新包校验失败｜文件={package.Name}｜算法={kind}");
                         return bad;
                     }
 
@@ -277,7 +277,7 @@ public sealed class UpdateService
                     long finalSize = 0;
                     try { finalSize = new FileInfo(destinationFile).Length; } catch { }
                     AppLog.Done("update",
-                        $"更新包「{package.Name}」就绪 · {AppLog.Size(finalSize)} · {note}", sw.Elapsed);
+                        $"更新包就绪｜文件={package.Name}｜体积={AppLog.Size(finalSize)}｜校验={note}", sw.Elapsed);
 
                     return new DownloadedPackage(destinationFile, actualMd5, actualSha, verified, note);
                 }
@@ -306,16 +306,16 @@ public sealed class UpdateService
                         {
                             progress?.Report(new DownloadProgress(0, package.Size, 0));
                             AppLog.Warn("update",
-                                $"更新包候选 {candidateIndex + 1}/{candidates.Count}（{HostOf(candidate.Url)}）"
-                                + $"给的包校验不过：{mismatch.Message} → 换下一条重下");
+                                $"更新包候选校验失败｜候选={candidateIndex + 1}/{candidates.Count}"
+                                + $"｜主机={HostOf(candidate.Url)}｜原因={mismatch.Message}｜处置=换下一条重下");
                         }
                         continue;
                     }
 
                     if (candidateIndex < candidates.Count - 1)
                         AppLog.Warn("update",
-                            $"更新包候选 {candidateIndex + 1}/{candidates.Count}（{HostOf(candidate.Url)}）"
-                            + $"不可用（{ex.Message}）→ 换下一条");
+                            $"更新包候选不可用｜候选={candidateIndex + 1}/{candidates.Count}"
+                            + $"｜主机={HostOf(candidate.Url)}｜原因={ex.GetType().Name}: {ex.Message}｜处置=换下一条");
                 }
             }
 
@@ -326,14 +326,15 @@ public sealed class UpdateService
                     lastMismatch.Kind, lastMismatch.Expected, lastMismatch.Actual,
                     $"{candidates.Count} 条下载线路给的包都不可信；可在「设置 → 更新」把下载路径换成 GitHub 源后重试");
                 AppLog.Fail("update", final,
-                    $"更新包「{package.Name}」校验不通过（{final.Kind}）—— {candidates.Count} 条线路全部试过");
+                    $"更新包校验失败｜文件={package.Name}｜算法={final.Kind}"
+                    + $"｜候选={candidates.Count}/{candidates.Count} 全部失败");
                 throw final;
             }
 
             // 所有候选都失败：抛出最后一条错误（没有候选时兜一个通用错误）
             var exhausted = lastError ?? new InvalidOperationException("下载失败。");
             AppLog.Fail("update", exhausted,
-                $"更新包「{package.Name}」下载失败（{candidates.Count} 条候选全部试过）");
+                $"更新包下载失败｜文件={package.Name}｜候选={candidates.Count}/{candidates.Count} 全部失败");
             throw exhausted;
         }
         finally
@@ -389,7 +390,7 @@ public sealed class UpdateService
         {
             var trimmed = line.Trim();
             if (trimmed.Length == 0) continue;
-            if (!package.Name.IsEmpty() && trimmed.Contains(package.Name, StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrEmpty(package.Name) && trimmed.Contains(package.Name, StringComparison.OrdinalIgnoreCase))
             {
                 var hit = NormalizeMd5(trimmed);
                 if (hit.Length > 0) return hit;
@@ -505,7 +506,7 @@ public sealed class UpdateService
                 : "（⚠ 文件不存在，安装必然失败）";
         }
         catch { }
-        AppLog.Info("update", $"▶ 拉起安装程序 · {installerPath}{sizeText}");
+        AppLog.Info("update", $"拉起安装程序｜程序={installerPath}{sizeText}");
 
         // Inno Setup 静默参数：/SP- 不显示"准备安装"提示，/CLOSEAPPLICATIONS 自动关掉占用的应用。
         // ⚠️ 桌面快捷方式（desktopicon 任务）**不再强制勾选**：升级时尊重用户当前的选择 ——
@@ -572,7 +573,7 @@ public sealed class UpdateService
             // 仅启动 cmd 进程即返回（调用方随后必须立即退出应用）；
             // 退出码由 cmd 在安装器结束后写入文件，本进程不等待。
             Process.Start(psi)?.Dispose();
-            AppLog.Info("update", "安装程序已排队（延迟约 3 秒启动，留给应用退出的窗口）");
+            AppLog.Info("update", "安装程序已排队｜延时=约 3 秒｜目的=等待应用退出并释放文件占用");
         }
         catch (Exception ex)
         {
@@ -664,9 +665,4 @@ public sealed class UpdateService
 public sealed class VersionTextComparer : IComparer<string>
 {
     public int Compare(string? x, string? y) => VersionCompare.Compare(x, y);
-}
-
-internal static class StringHelper
-{
-    public static bool IsEmpty(this string? s) => string.IsNullOrEmpty(s);
 }

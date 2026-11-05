@@ -308,7 +308,8 @@ public partial class AppDataPage : Platform.PageBase
         LoadingPanel.IsVisible = false;
 
         AppLog.Info("appdata",
-            $"目录结构读取完成：本地 {_foldersLocal.Count} 个一级目录、漫游 {_foldersRoaming.Count} 个、可清理 {_clean.Count} 项");
+            $"目录结构读取完成｜本地一级目录={_foldersLocal.Count}｜漫游一级目录={_foldersRoaming.Count}"
+            + $"｜可清理项={_clean.Count}");
 
         // ── 阶段 B：后台逐个统计体积 ──
         var queue = new List<AppDataRow>(_foldersLocal.Count + _foldersRoaming.Count + _clean.Count);
@@ -340,7 +341,7 @@ public partial class AppDataPage : Platform.PageBase
             catch (Exception ex)
             {
                 if (cts.IsCancellationRequested) return;
-                AppLog.Exception("appdata", ex, "统计体积：" + path);
+                AppLog.Exception("appdata", ex, $"统计目录体积｜路径={path}");
                 continue;
             }
 
@@ -365,7 +366,7 @@ public partial class AppDataPage : Platform.PageBase
         var biggest = _foldersLocal.FirstOrDefault();
         if (biggest is not null && biggest.Bytes > 0)
             AppLog.Info("appdata",
-                $"体积统计完成；本地最大的一个一级目录是「{biggest.Name}」（{AppLog.Size(biggest.Bytes)}）");
+                $"体积统计完成｜最大本地目录={biggest.Name}｜体积={AppLog.Size(biggest.Bytes)}");
     }
 
     private static void SortBySize(List<AppDataRow> rows)
@@ -788,7 +789,7 @@ public partial class AppDataPage : Platform.PageBase
         }
         catch (Exception ex)
         {
-            AppLog.Exception("appdata", ex, "复制路径：" + text);
+            AppLog.Exception("appdata", ex, $"复制路径到剪贴板｜路径={text}");
             return false;
         }
     }
@@ -812,7 +813,7 @@ public partial class AppDataPage : Platform.PageBase
         }
         catch (Exception ex)
         {
-            AppLog.Exception("appdata", ex, "打开浏览器搜索：" + fullPath);
+            AppLog.Exception("appdata", ex, $"用浏览器搜索｜关键词={fullPath}");
             return false;
         }
     }
@@ -936,7 +937,7 @@ public partial class AppDataPage : Platform.PageBase
             {
                 failCount++;
                 row.Status = "";
-                AppLog.Fail("appdata", ex, "清理：" + row.Name);
+                AppLog.Fail("appdata", ex, $"清理目录｜目录={row.Name}");
                 notes.Add($"「{row.Name}」：遇到错误，详情见日志。");
             }
             finally

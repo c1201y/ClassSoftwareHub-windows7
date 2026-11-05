@@ -73,7 +73,7 @@ public sealed partial class QqFeedbackFlyoutWindow : Window
         }
         catch (Exception ex)
         {
-            ScreenCapture.Log("反馈提醒浮窗显示失败: " + ex.Message);
+            Core.AppLog.Catch("ui", "显示反馈提醒浮窗", ex);
         }
     }
 
@@ -90,7 +90,7 @@ public sealed partial class QqFeedbackFlyoutWindow : Window
         }
         catch (Exception ex)
         {
-            ScreenCapture.Log("反馈提醒浮窗初始化失败: " + ex.Message);
+            Core.AppLog.Catch("ui", "初始化反馈提醒浮窗", ex);
         }
     }
 

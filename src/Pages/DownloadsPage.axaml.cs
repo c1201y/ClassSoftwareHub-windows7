@@ -158,7 +158,7 @@ public sealed partial class DownloadsPage : PageBase
         }
         catch (Exception ex)
         {
-            Core.AppLog.Exception("download", ex, "弹出「删除已下载的文件」确认框");
+            Core.AppLog.Exception("download", ex, "弹出删除下载文件确认框");
             return false;
         }
     }
@@ -180,7 +180,7 @@ public sealed partial class DownloadsPage : PageBase
         try
         {
             File.Delete(path);
-            Core.AppLog.Done("download", $"已删除已下载的文件「{task.Title}」→ {path}");
+            Core.AppLog.Done("download", $"删除文件｜任务={task.Title}｜路径={path}");
 
             var s = App.Settings.Current;
             if (string.Equals(s.UpdatePendingPath, path, StringComparison.OrdinalIgnoreCase))
@@ -190,14 +190,14 @@ public sealed partial class DownloadsPage : PageBase
                 s.UpdatePendingMd5 = "";
                 s.UpdatePendingSha256 = "";
                 App.Settings.Save();
-                Core.AppLog.Info("update", "随文件删除，待装标记已一并清除");
+                Core.AppLog.Info("update", "待装标记已清除｜原因=对应安装包已被删除");
             }
 
             DownloadManager.Current.Remove(task.Id);
         }
         catch (Exception ex)
         {
-            Core.AppLog.Exception("download", ex, "删除已下载的文件：" + path);
+            Core.AppLog.Exception("download", ex, $"删除已下载文件｜路径={path}");
 
             var fail = new FluentAvalonia.UI.Controls.ContentDialog
             {
@@ -240,7 +240,7 @@ public sealed partial class DownloadsPage : PageBase
         }
         catch (Exception ex)
         {
-            Core.AppLog.Exception("downloads", ex, "启动更新包安装");
+            Core.AppLog.Exception("download", ex, "启动更新包安装");
             await InfoAsync("未能启动安装", ex.Message);
         }
     }
@@ -305,7 +305,7 @@ public sealed partial class DownloadsPage : PageBase
 
         write(on);
         App.Settings.Save();
-        Core.AppLog.Info("package", $"「{label}」已{(on ? "开启" : "关闭")}");
+        Core.AppLog.Info("package", $"随包安装开关｜项={label}｜状态={(on ? "开" : "关")}｜已写入设置");
     }
 
     private async Task InfoAsync(string title, string body)

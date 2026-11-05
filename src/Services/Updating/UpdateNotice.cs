@@ -43,7 +43,7 @@ public static class UpdateNotice
             _pending = release;
         }
 
-        Core.AppLog.Info("update", $"记住可用更新 {release.Tag}（首页会显示「发现新版本」入口）");
+        Core.AppLog.Info("update", $"可用更新已记录｜版本={release.Tag}｜入口=首页「发现新版本」");
         Raise();
     }
 
@@ -60,7 +60,7 @@ public static class UpdateNotice
         }
 
         // 级别用「调试」：每次启动检查查到最新都会走一遍，写「信息」会把正常日志刷满
-        Core.AppLog.Debug("update", "清除「发现新版本」状态（首页那颗入口会收起来）");
+        Core.AppLog.Debug("update", "可用更新已清除｜入口=首页「发现新版本」");
         Raise();
     }
 
@@ -78,7 +78,7 @@ public static class UpdateNotice
         }
         catch (Exception ex)
         {
-            Core.AppLog.Exception("update", ex, "广播「发现新版本」状态变化");
+            Core.AppLog.Exception("update", ex, "广播可用更新状态变化");
         }
     }
 }

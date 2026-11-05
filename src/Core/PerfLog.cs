@@ -15,8 +15,8 @@ using ClassSoftwareHub.Desktop.Services;
 namespace ClassSoftwareHub.Desktop.Core;
 
 /// <summary>
-/// 轻量性能探针：把「切页到底花多久」写成数字，落到
-/// <c>%LOCALAPPDATA%\ClassSoftwareHub\perf.log</c>。
+/// 轻量性能探针：把「切页到底花多久」写成数字，落到当前会话的 <c>app.log</c>
+/// （模块名 <c>perf</c>，见 <see cref="AppLog"/>）。
 ///
 /// 为什么要它：页面跳转的卡顿感无法作为验收依据 ——
 /// 改之前先拿到每页的真实耗时，改完才有东西可比。探针本身不影响功能：
@@ -138,10 +138,10 @@ public static class PerfLog
         public TimingScope(string name)
         {
             _name = name;
-            if (Enabled) Mark($"… {_name} 开始");
+            if (Enabled) Mark($"耗时打点｜环节={_name}｜阶段=开始");
         }
 
-        public void Dispose() => Mark($"√ {_name} {_sw.ElapsedMilliseconds}ms");
+        public void Dispose() => Mark($"耗时打点｜环节={_name}｜阶段=结束｜耗时={_sw.ElapsedMilliseconds}ms");
     }
 
     private static void Write(string line)

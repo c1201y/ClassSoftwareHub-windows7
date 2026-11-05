@@ -223,13 +223,13 @@ public static class ChatSessionStore
                 }
                 catch (Exception ex)
                 {
-                    AppLog.Exception("hubai", ex, $"读取历史对话 {Path.GetFileName(file)}");
+                    AppLog.Exception("hubai", ex, $"读取历史对话｜文件={Path.GetFileName(file)}");
                 }
             }
         }
         catch (Exception ex)
         {
-            AppLog.Exception("hubai", ex, "读取历史对话列表");
+            AppLog.Exception("hubai", ex, $"读取历史对话列表｜目录={Dir}");
         }
 
         return list.OrderByDescending(s => s.CreatedAt).ToList();
@@ -311,7 +311,7 @@ public static class ChatSessionStore
         catch (Exception ex)
         {
             // 存历史失败不该影响对话本身，记一条就够
-            AppLog.Exception("hubai", ex, "保存历史对话");
+            AppLog.Exception("hubai", ex, $"保存历史对话｜会话={sessionId ?? "(新建)"}");
             return sessionId;
         }
     }
@@ -332,7 +332,7 @@ public static class ChatSessionStore
         }
         catch (Exception ex)
         {
-            AppLog.Exception("hubai", ex, "切换历史分支");
+            AppLog.Exception("hubai", ex, $"切换历史分支｜会话={sessionId}｜目标节点={entryId}");
         }
     }
 
@@ -349,7 +349,7 @@ public static class ChatSessionStore
         }
         catch (Exception ex)
         {
-            AppLog.Exception("hubai", ex, "读取历史对话");
+            AppLog.Exception("hubai", ex, $"读取历史对话｜文件={Path.Combine(Dir, id + ".json")}");
             return null;
         }
     }
@@ -363,7 +363,7 @@ public static class ChatSessionStore
         }
         catch (Exception ex)
         {
-            AppLog.Exception("hubai", ex, "删除历史对话");
+            AppLog.Exception("hubai", ex, $"删除历史对话｜文件={Path.Combine(Dir, id + ".json")}");
         }
     }
 
@@ -399,7 +399,7 @@ public static class ChatSessionStore
         }
         catch (Exception ex)
         {
-            AppLog.Exception("hubai", ex, "清理旧历史对话");
+            AppLog.Exception("hubai", ex, $"清理旧历史对话｜目录={Dir}｜上限={MaxSessions} 份");
         }
     }
 }

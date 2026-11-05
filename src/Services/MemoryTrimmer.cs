@@ -208,7 +208,7 @@ public static class MemoryTrimmer
         {
             _hiddenTrimActive = false;
             if (_hiddenQuietCount > 0)
-                Log($"窗口不可见期间另静默回收 {_hiddenQuietCount} 次（同一种情况不再逐条记录）");
+                Log($"静默回收汇总｜窗口=不可见｜次数={_hiddenQuietCount}｜说明=同类事件已合并，不再逐条记录");
             _hiddenQuietCount = 0;
         }
 
@@ -262,14 +262,39 @@ public static class MemoryTrimmer
         }
     }
 
-    /// <summary>切页回收本体（节流走 <see cref="Run"/> 那个共享的"上次回收时间"，不会跟别的路重复收）。</summary>
-    private static void OnNavigated() => Run("切页", NavCooldownMs);
+    /// <summary>
+    /// 切页回收本体（节流走 <see cref="Run"/> 那个共享的"上次回收时间"，不会跟别的路重复收）。
+    ///
+    /// ⛔⛔ 切页这条**只做后台 GC，绝不动工作集**（2026-11-03 修正）。
+    ///
+    ///   之前的写法是切页 600ms 后照样 EmptyWorkingSet，理由是"跳一页收一次"。实测日志：
+    ///       <c>第 1 次（切页）：工作集 191.2 → 30.4 MB，托管堆 19.8 → 19.8 MB</c>
+    ///   工作集被砍掉 161MB，托管堆一个字节没降 —— 说明被丢掉的全是**刚渲染好的页面资源**
+    ///   （字形缓存、位图、渲染表面），不是垃圾。那 600ms 正好是用户切过去开始滚动 / 点击的时刻，
+    ///   接下来每一次绘制都要把这些页从 standby 或磁盘调回来。内存紧张的机器上（8G 还开着
+    ///   希沃 / PPT / 浏览器）这些页早已被换到磁盘，回来就是**硬页错误** ——
+    ///   "切过去先顿一下"就是这么来的。
+    ///
+    ///   ⚠️ 移后台线程并不能解决：EmptyWorkingSet 影响的是**整个进程**的物理页，
+    ///      UI 线程下一次访问照样要 page fault。要改的是**时机**，不是线程。
+    ///
+    ///   现在：切页只清垃圾（GC），工作集留给"窗口不可见"和"用户停手够久"两条路去收 ——
+    ///   那两个时机用户本来就没在操作，换页无感。
+    /// </summary>
+    private static void OnNavigated()
+    {
+        // 没到水位就不收：用户连点导航时，每 1.2 秒一次全代 GC 本身就是负担。
+        if (CurrentWorkingSet() < _softFloor) return;
+
+        Run("切页", NavCooldownMs, trimWorkingSet: false);
+    }
 
     /// <summary>
     /// 过节流就真收（换后台线程做）。返回 <c>true</c> = 这次真的收了（没过节流）。
     /// <paramref name="quiet"/> = 收但**不写日志**（只用于"窗口不可见"那种反复触发的场合）。
+    /// <paramref name="trimWorkingSet"/> = 是否连工作集一起砍（<c>false</c> = 只做 GC，不换页）。
     /// </summary>
-    private static bool Run(string reason, int cooldownMs, bool quiet = false)
+    private static bool Run(string reason, int cooldownMs, bool quiet = false, bool trimWorkingSet = true)
     {
         lock (Gate)
         {
@@ -280,11 +305,11 @@ public static class MemoryTrimmer
         }
 
         // 换后台线程做：GC / EmptyWorkingSet 都不需要 UI 线程，别在这儿堵界面
-        System.Threading.Tasks.Task.Run(() => DoTrim(reason, quiet));
+        System.Threading.Tasks.Task.Run(() => DoTrim(reason, quiet, trimWorkingSet));
         return true;
     }
 
-    private static void DoTrim(string reason, bool quiet = false)
+    private static void DoTrim(string reason, bool quiet = false, bool trimWorkingSet = true)
     {
         try
         {
@@ -298,7 +323,8 @@ public static class MemoryTrimmer
             var after = GC.GetTotalMemory(false);
             LastFreedBytes = Math.Max(0, before - after);
 
-            EmptyWorkingSet(GetCurrentProcess());
+            // 切页那条路不换页（理由见 OnNavigated 的长注释）：丢掉的全是刚渲染好的页面资源。
+            if (trimWorkingSet) EmptyWorkingSet(GetCurrentProcess());
 
             var wsAfter = CurrentWorkingSet();
             LastWorkingSetBytes = wsAfter;
@@ -307,16 +333,18 @@ public static class MemoryTrimmer
             // 才能分清"内存被托管对象占着"（GC 能收回来）还是"被非托管/常驻模块占着"（收了也不降）。
             // ⚠️ quiet 的一枪不写这一行（见 Run 的注释）；失败那条仍然照写，不受 quiet 影响。
             if (!quiet)
-                Log($"第 {TrimCount} 次（{reason}）：工作集 {Mb(wsBefore):0.#} → {Mb(wsAfter):0.#} MB，" +
-                    $"托管堆 {Mb(before):0.#} → {Mb(after):0.#} MB");
+                Log($"内存回收｜次数={TrimCount}｜原因={reason}｜工作集={Mb(wsBefore):0.#} → {Mb(wsAfter):0.#} MB" +
+                    $"｜托管堆={Mb(before):0.#} → {Mb(after):0.#} MB｜换页={(trimWorkingSet ? "已执行" : "未执行（仅 GC）")}");
 
-            RaiseFloorIfNeeded(wsAfter);
+            // 只有真砍过工作集，这个读数才能回答"哪部分是刚需"。
+            // 没砍就抬水位 = 把闸门自己顶穿，之后再也不收了。
+            if (trimWorkingSet) RaiseFloorIfNeeded(wsAfter);
         }
         catch (Exception ex)
         {
             // 回收失败是要能查的事，固定按警告记（发布版里 Debug.WriteLine 没人监听、
             // 调试级日志又会被「调试」筛选拦掉）。
-            Core.AppLog.Warn("memory", "内存回收失败：" + ex.Message);
+            Core.AppLog.Catch("memory", "回收工作集内存", ex);
         }
     }
 
@@ -329,7 +357,7 @@ public static class MemoryTrimmer
         if (raised <= _softFloor) return;
 
         _softFloor = raised;
-        Log($"回收后工作集仍有 {Mb(wsAfter):0.#}MB（属于刚需部分）→ 软水位自适应抬到 {Mb(raised):0.#}MB");
+        Log($"软水位自适应｜原因=回收后工作集仍高于软水位（属刚需部分）｜回收后={Mb(wsAfter):0.#}MB｜新软水位={Mb(raised):0.#}MB");
     }
 
     /// <summary>
@@ -346,7 +374,7 @@ public static class MemoryTrimmer
             _lastBaseline = now;
         }
 
-        Log($"[基线] 工作集 {Mb(ws):0.#} MB，托管堆 {Mb(GC.GetTotalMemory(false)):0.#} MB");
+        Log($"内存基线｜工作集={Mb(ws):0.#} MB｜托管堆={Mb(GC.GetTotalMemory(false)):0.#} MB");
     }
 
     /// <summary>
@@ -363,8 +391,8 @@ public static class MemoryTrimmer
             _lastObserve = now;
         }
 
-        Log($"[观察] 工作集 {Mb(ws):0.#}MB（{(hard ? "已过硬水位" : "超软水位")}），" +
-            $"用户仍在操作（停手 {idle / 1000.0:0.#}s）→ 暂不回收");
+        Log($"内存观察｜工作集={Mb(ws):0.#}MB｜水位={(hard ? "已过硬水位" : "超软水位")}" +
+            $"｜用户停手={idle / 1000.0:0.#}s｜处置=暂不回收");
     }
 
     /// <summary>

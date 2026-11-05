@@ -133,7 +133,7 @@ public sealed partial class PageFilePage : PageBase
             RefreshRows();
             UpdateEditability();
 
-            AppLog.Step("pagefile", $"读取：自动管理={_autoCurrent}，驱动器 {_drives.Count} 个（"
+            AppLog.Step("pagefile", $"读取当前配置｜自动管理={_autoCurrent}｜驱动器数={_drives.Count}｜"
                 + string.Join("、", _drives.Select(d => $"{d.Drive}={d.Plan.SizeText}")) + "）");
         }
         finally
@@ -320,8 +320,8 @@ public sealed partial class PageFilePage : PageBase
         RefreshRows();
 
         AppLog.Step("pagefile", _autoChanged
-            ? $"排队：自动管理 = {(_autoPending ? "开" : "关")}"
-            : "自动管理回到原状态");
+            ? $"加入待应用清单｜项=自动管理｜目标={(_autoPending ? "开" : "关")}"
+            : "移出待应用清单｜项=自动管理｜原因=与当前状态一致");
 
         _tipDismissed = false;
         _failedMode = false;
@@ -404,8 +404,8 @@ public sealed partial class PageFilePage : PageBase
         else _pending[drive.Drive] = plan;
 
         AppLog.Step("pagefile", _pending.ContainsKey(drive.Drive)
-            ? $"排队：{drive.Drive} = {plan.SizeText}"
-            : $"取消排队：{drive.Drive}（与当前配置一致）");
+            ? $"加入待应用清单｜驱动器={drive.Drive}｜目标={plan.SizeText}"
+            : $"移出待应用清单｜驱动器={drive.Drive}｜原因=与当前配置一致");
 
         ShowShapeHint(null, isError: false);
 
@@ -539,7 +539,7 @@ public sealed partial class PageFilePage : PageBase
         if (_selected == driveId) FillEditor(driveId);
         UpdateRowSize(driveId);
 
-        AppLog.Step("pagefile", $"取消排队：{driveId}");
+        AppLog.Step("pagefile", $"移出待应用清单｜驱动器={driveId}");
         UpdatePendingUi();
     }
 
@@ -559,7 +559,7 @@ public sealed partial class PageFilePage : PageBase
         catch (Exception ex)
         {
             // async void 里漏出去的异常会直接终止进程 —— 兜到底
-            AppLog.Exception("pagefile", ex, "应用更改");
+            AppLog.Exception("pagefile", ex, "应用页面文件更改");
             ShowNotice("应用失败：" + ex.Message, InfoBarSeverity.Error);
         }
     }
@@ -678,7 +678,7 @@ public sealed partial class PageFilePage : PageBase
         }
         catch (Exception ex)
         {
-            AppLog.Warn("pagefile", "确认框没能弹出：" + ex.Message);
+            AppLog.Catch("pagefile", "显示确认框", ex);
             return false;
         }
         finally

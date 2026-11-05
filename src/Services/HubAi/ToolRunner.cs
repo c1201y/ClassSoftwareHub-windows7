@@ -127,7 +127,7 @@ public static class ToolRunner
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            AppLog.Warn("hubai", $"工具 {id} 执行超时");
+            AppLog.Warn("hubai", $"工具执行｜工具={id}｜结果=超时｜上限={ToolTimeout.TotalSeconds:0}s");
             return $"工具 {id} 执行超过 {ToolTimeout.TotalSeconds:0} 秒仍未完成。" +
                    "如果是整盘扫描，说明该盘文件过多；请如实告知用户本次未完成，不要编造结果，可建议改为查询具体目录。";
         }
@@ -137,7 +137,7 @@ public static class ToolRunner
         }
         catch (Exception ex)
         {
-            AppLog.Exception("hubai", ex, $"执行工具 {id}");
+            AppLog.Exception("hubai", ex, $"工具执行｜工具={id}｜参数长度={argumentsJson.Length} 字符");
             return $"工具 {id} 执行失败。请告知用户该操作未能完成，不要编造结果。";
         }
     }

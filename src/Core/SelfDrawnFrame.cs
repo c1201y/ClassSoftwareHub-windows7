@@ -280,13 +280,69 @@ public sealed class SelfDrawnFrame
 
             _fullRepaintPending = true;
             _lastFullRepaintMs = Environment.TickCount64;
-            _ = NativeMethodsEx.InvalidateRect(hwnd, IntPtr.Zero, false);
+
+            // ⚠️⚠️ bErase 必须是 **true**（2026-11-02 第 N 轮「学科工具首次打开有黑边，拖一下才正常」）。
+            //    bErase=false 只把窗口标脏、不发 WM_ERASEBKGND —— 而「整窗填底色」恰恰只在
+            //    WM_ERASEBKGND 里做（见 OnEraseBackground），于是 _fullRepaintPending 永远等不到
+            //    那次擦除，Avalonia 的 surface 又没内容可重画 → 那一圈就一直是黑的，
+            //    只有用户自己拖一下窗口（走 WM_EXITSIZEMOVE → RequestFullRepaint）才会补上。
+            //    这条路径专门用于"显示之后补一次"，闪一下无所谓（窗口刚出来），所以用 true。
+            _ = NativeMethodsEx.InvalidateRect(hwnd, IntPtr.Zero, true);
 
             PortLog.Step($"窗口框架: 显示后重算非客户区并整窗补画（{why}）");
         }
         catch
         {
             // 补画失败最多维持"拖动一下才正常"，不影响功能
+        }
+    }
+
+    /// <summary>
+    /// 让 Avalonia 按**当前客户区**重建一次渲染表面 —— 手段是"1 像素抖动"。
+    ///
+    /// <para>
+    /// ⚠️ 为什么光靠 <see cref="RefreshFrame"/> 不够（2026-11-02 学科工具二次反馈）：
+    /// <c>SWP_FRAMECHANGED</c> 只让系统重算非客户区，**尺寸没变**，系统就不会发 <c>WM_SIZE</c>；
+    /// 而 Avalonia 的 <c>WindowImpl</c> 正是在 <c>WM_SIZE</c> 里更新 surface 尺寸的 ——
+    /// 少了这一条，surface 还是按"被吃掉边框之前"的客户区分配，四周那一圈永远没人画。
+    /// 用户手动拖动窗口之所以能修好，就是因为它产生了真实的尺寸变化。
+    /// </para>
+    ///
+    /// <para>
+    /// 这里把窗口高度 +1 再改回来（<c>SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE</c>，不动位置、不抢焦点），
+    /// 制造两次真实的 <c>WM_SIZE</c>。1px 的变化肉眼不可见，但足够让 surface 跟上。
+    /// ⚠️ 最大化时直接跳过：改尺寸会把它踢出最大化状态。
+    /// </para>
+    /// </summary>
+    public void NudgeSurface(string why)
+    {
+        if (!_attached || Suspended) return;
+
+        try
+        {
+            var hwnd = Backdrop.TryGetHwnd(_window);
+            if (hwnd == IntPtr.Zero) return;
+
+            // 最大化（以及 Win7 的"贴边最大化"）时不许抖 —— 会退出最大化
+            if (NativeMethods.IsZoomed(hwnd)) return;
+
+            if (!NativeMethods.GetWindowRect(hwnd, out var r)) return;
+            var w = r.Right - r.Left;
+            var h = r.Bottom - r.Top;
+            if (w <= 0 || h <= 0) return;
+
+            const uint flags = NativeMethods.SWP_NOMOVE
+                               | NativeMethods.SWP_NOZORDER
+                               | NativeMethods.SWP_NOACTIVATE;
+
+            _ = NativeMethods.SetWindowPos(hwnd, IntPtr.Zero, 0, 0, w, h + 1, flags);
+            _ = NativeMethods.SetWindowPos(hwnd, IntPtr.Zero, 0, 0, w, h, flags);
+
+            PortLog.Step($"窗口框架: 尺寸抖动 1px 以重建渲染表面（{why}）");
+        }
+        catch
+        {
+            // 抖不动就维持原样：最坏还是"拖动一下才正常"
         }
     }
 

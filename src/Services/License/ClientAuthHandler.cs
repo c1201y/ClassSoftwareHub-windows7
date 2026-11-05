@@ -28,6 +28,7 @@ internal sealed class ClientAuthHandler : DelegatingHandler
     private const string BuildHeader = "X-CSH-Build";
     private const string SignatureHeader = "X-CSH-Sig";
     private const string DeviceHeader = "X-CSH-Device";
+    private const string DeviceIdHeader = DeviceIdentity.Header;
     private const string VersionHeader = "X-CSH-Ver";
     private const string LicenseHeader = "X-CSH-Lic";
     private const string TokenExpiryHeader = "X-CSH-Lic-Exp";
@@ -48,7 +49,7 @@ internal sealed class ClientAuthHandler : DelegatingHandler
         var challenge = await ReadChallengeAsync(response, ct).ConfigureAwait(false);
         if (challenge is null) return response;
 
-        AppLog.Warn("license", $"服务端要求激活（{challenge.Value.Code}）：{request.RequestUri?.AbsolutePath}");
+        AppLog.Warn("license", $"服务端要求激活｜状态码={challenge.Value.Code}｜路径={request.RequestUri?.AbsolutePath}");
 
         if (!await LicenseGate.EnsureAsync(challenge.Value.Message).ConfigureAwait(false))
             return response;
@@ -66,7 +67,7 @@ internal sealed class ClientAuthHandler : DelegatingHandler
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
-            AppLog.Fail("license", ex, "激活后重放请求失败");
+            AppLog.Fail("license", ex, $"激活后重放请求｜路径={request.RequestUri?.AbsolutePath}");
             return response;
         }
         finally
@@ -81,6 +82,7 @@ internal sealed class ClientAuthHandler : DelegatingHandler
         headers.Remove(BuildHeader);
         headers.Remove(SignatureHeader);
         headers.Remove(DeviceHeader);
+        headers.Remove(DeviceIdHeader);
         headers.Remove(VersionHeader);
         headers.Remove(LicenseHeader);
 
@@ -90,6 +92,11 @@ internal sealed class ClientAuthHandler : DelegatingHandler
 
         headers.TryAddWithoutValidation(DeviceHeader, DeviceFingerprint.Value);
         headers.TryAddWithoutValidation(VersionHeader, ShellConfig.ShellVersion);
+
+        // 硬件锚定的设备标识（Win10+ 用系统标识，Win7 用安装码 + 卷序列号）。
+        // 服务端拿它判信誉与封禁 —— 比单纯按 IP 限流准得多（同一出口 IP 后面常是一整间机房）。
+        var deviceId = DeviceIdentity.Value;
+        if (deviceId.Length > 0) headers.TryAddWithoutValidation(DeviceIdHeader, deviceId);
 
         var token = LicenseStore.Token;
         if (token.Length > 0) headers.TryAddWithoutValidation(LicenseHeader, token);

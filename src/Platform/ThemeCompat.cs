@@ -64,7 +64,7 @@ public static class ThemeCompat
         }
         catch (Exception ex)
         {
-            Services.ScreenCapture.Log("应用窗口主题失败: " + ex.Message);
+            Core.AppLog.Catch("theme", "应用窗口主题", ex);
         }
     }
 

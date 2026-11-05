@@ -194,7 +194,7 @@ public static class SystemRepair
         var exe = Environment.ProcessPath;
         if (string.IsNullOrEmpty(exe))
         {
-            AppLog.Warning("repair", "拿不到本程序路径，无法提权");
+            AppLog.Warn("repair", "提权未执行｜原因=无法获取本程序路径");
             return null;
         }
 
@@ -209,7 +209,7 @@ public static class SystemRepair
             JsonSerializer.Serialize(new RepairManifest(task.Id), Json), ct);
 
         var session = new RepairSession(task, manifest);
-        AppLog.Info("repair", $"开始执行「{task.Name}」：{task.Command}");
+        AppLog.Begin("repair", $"执行修复任务｜任务={task.Name}｜命令={task.Command}");
 
         var psi = new ProcessStartInfo
         {
@@ -228,12 +228,12 @@ public static class SystemRepair
         }
         catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223)
         {
-            AppLog.Info("repair", "用户取消了提权，任务未开始");
+            AppLog.Info("repair", "修复任务已取消｜触发=用户取消 UAC 授权");
             return null;
         }
         catch (Exception ex)
         {
-            AppLog.Exception("repair", ex, $"启动提权助手（{task.Name}）");
+            AppLog.Exception("repair", ex, $"启动提权助手｜任务={task.Name}");
             return null;
         }
     }
@@ -269,7 +269,7 @@ public static class SystemRepair
         }
         catch (Exception ex)
         {
-            AppLog.Info("repair", $"查未收尾的运行失败：{ex.GetType().Name}");
+            AppLog.Catch("repair", "检查未收尾的运行", ex, LogLevel.Debug);
             return null;
         }
     }
@@ -282,7 +282,7 @@ public static class SystemRepair
         }
         catch (Exception ex)
         {
-            AppLog.Info("repair", $"读运行清单失败（{manifestPath}）：{ex.GetType().Name}");
+            AppLog.Catch("repair", $"读取运行清单｜清单={manifestPath}", ex, LogLevel.Debug);
             return null;
         }
     }
@@ -308,13 +308,13 @@ public static class SystemRepair
                 }
                 catch (Exception ex)
                 {
-                    AppLog.Info("repair", $"清旧运行目录失败（{dir}）：{ex.GetType().Name}");
+                    AppLog.Catch("repair", $"清理旧运行目录｜目录={dir}", ex, LogLevel.Debug);
                 }
             }
         }
         catch (Exception ex)
         {
-            AppLog.Info("repair", $"清旧运行目录失败：{ex.GetType().Name}");
+            AppLog.Catch("repair", "清理旧运行目录", ex, LogLevel.Debug);
         }
     }
 
@@ -324,7 +324,7 @@ public static class SystemRepair
 
     public static void RunElevated(string manifestPath)
     {
-        AppLog.Info("repair", $"提权助手启动，清单：{manifestPath}");
+        AppLog.Info("repair", $"提权助手启动｜清单={manifestPath}");
 
         var outcome = new RepairOutcome(false, -1, "未执行");
 
@@ -462,7 +462,7 @@ public static class SystemRepair
                 }
                 catch (Exception ex)
                 {
-                    AppLog.Info("repair", $"读命令输出中断：{ex.GetType().Name}");
+                    AppLog.Catch("repair", "读取命令输出流", ex, LogLevel.Debug);
                 }
             })
             {
@@ -486,14 +486,14 @@ public static class SystemRepair
                     if (File.Exists(cancelPath))
                     {
                         cancelled = true;
-                        AppLog.Info("repair", "收到中止请求，结束子进程树");
+                        AppLog.Info("repair", "收到中止请求｜处置=结束子进程树");
                         KillTree(process);
                         break;
                     }
                 }
                 catch (Exception ex)
                 {
-                    AppLog.Info("repair", $"读中止哨兵失败：{ex.GetType().Name}");
+                    AppLog.Catch("repair", "读取中止哨兵", ex, LogLevel.Debug);
                 }
 
                 // ── 把这一拍拿到的数据切成行 ──
@@ -522,7 +522,7 @@ public static class SystemRepair
         }
         catch (Exception ex)
         {
-            AppLog.Exception("repair", ex, $"读取命令输出（{task.Name}）");
+            AppLog.Exception("repair", ex, $"读取命令输出｜任务={task.Name}");
         }
 
         // ── 收尾 ──
@@ -533,7 +533,7 @@ public static class SystemRepair
         try { File.WriteAllText(beatPath, DateTime.UtcNow.Ticks.ToString()); } catch { }
 
         var note = cancelled ? "已中止" : (exitCode == 0 ? "" : $"命令返回代码 {exitCode}");
-        AppLog.Info("repair", $"「{task.Name}」结束：{(cancelled ? "已中止" : $"退出码 {exitCode}")}");
+        AppLog.Info("repair", $"修复任务结束｜任务={task.Name}｜结果={(cancelled ? "已中止" : $"退出码={exitCode}")}");
 
         return new RepairOutcome(cancelled, exitCode, note, startedUtc.Ticks, DateTime.UtcNow.Ticks);
     }
@@ -610,14 +610,14 @@ public static class SystemRepair
         }
         catch (Exception ex)
         {
-            AppLog.Info("repair", $"结束子进程树失败：{ex.GetType().Name}");
+            AppLog.Catch("repair", "结束子进程树", ex, LogLevel.Debug);
         }
     }
 
     private static void SafeDelete(string path)
     {
         try { if (File.Exists(path)) File.Delete(path); }
-        catch (Exception ex) { AppLog.Info("repair", $"删旧文件失败（{path}）：{ex.GetType().Name}"); }
+        catch (Exception ex) { AppLog.Catch("repair", $"删除旧文件｜文件={path}", ex, LogLevel.Debug); }
     }
 
     private sealed record RepairManifest(string TaskId);
@@ -695,7 +695,7 @@ public static class SystemRepair
         }
         catch (Exception ex)
         {
-            AppLog.Info("repair", $"读系统 OEM 代码页失败：{ex.GetType().Name}");
+            AppLog.Catch("repair", "读取系统 OEM 代码页", ex, LogLevel.Debug);
         }
 
         return 0;
@@ -717,16 +717,16 @@ public static class SystemRepair
             }
             catch (Exception ex)
             {
-                AppLog.Info("repair", $"取 CurrentCulture.OEMCodePage 失败：{ex.GetType().Name}");
+                AppLog.Catch("repair", "读取 CurrentCulture.OEMCodePage", ex, LogLevel.Debug);
             }
 
-            AppLog.Info("repair", $"代码页探测：注册表 OEMCP={fromRegistry} 托管 OEMCodePage={fromCulture}");
+            AppLog.Info("repair", $"代码页探测｜注册表 OEMCP={fromRegistry}｜托管 OEMCodePage={fromCulture}");
 
             _codePage = fromRegistry != 0 ? fromRegistry
                       : fromCulture > 0 ? (uint)fromCulture
                       : 65001;
 
-            AppLog.Info("repair", $"控制台输出按代码页 {_codePage} 解码");
+            AppLog.Info("repair", $"控制台输出解码｜代码页={_codePage}");
             return _codePage;
         }
     }
@@ -764,7 +764,7 @@ public static class SystemRepair
     {
         if (_decodeWarned) return;
         _decodeWarned = true;
-        AppLog.Warning("repair", $"{reason}，本次运行的输出已退回 UTF-8（中文会变乱码）");
+        AppLog.Warn("repair", $"控制台输出解码回退｜原因={reason}｜实际=UTF-8｜影响=中文输出会出现乱码");
     }
 }
 
@@ -861,7 +861,7 @@ public sealed class RepairSession
         }
         catch (Exception ex)
         {
-            AppLog.Info("repair", $"读运行输出失败：{ex.GetType().Name}");
+            AppLog.Catch("repair", "读取运行输出", ex, LogLevel.Debug);
             return "";
         }
     }
@@ -890,7 +890,7 @@ public sealed class RepairSession
         }
         catch (Exception ex)
         {
-            AppLog.Info("repair", $"读运行结局失败：{ex.GetType().Name}");
+            AppLog.Catch("repair", "读取运行结局", ex, LogLevel.Debug);
             return null;
         }
     }
@@ -905,11 +905,11 @@ public sealed class RepairSession
         try
         {
             File.WriteAllText(ManifestPath + ".cancel", DateTime.UtcNow.Ticks.ToString());
-            AppLog.Info("repair", $"已请求中止「{Task.Name}」");
+            AppLog.Info("repair", $"已请求中止任务｜任务={Task.Name}");
         }
         catch (Exception ex)
         {
-            AppLog.Exception("repair", ex, "写中止哨兵");
+            AppLog.Exception("repair", ex, "写中止哨兵文件");
         }
     }
 }

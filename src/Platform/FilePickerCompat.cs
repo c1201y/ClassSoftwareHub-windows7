@@ -226,8 +226,8 @@ internal static class Win7Picker
                 Flags = flags,
             };
 
-            Core.AppLog.Info("picker", $"Win7 打开文件对话框（GetOpenFileNameW，多选={allowMultiple}，" +
-                                       $"线程套间={Thread.CurrentThread.GetApartmentState()}）");
+            Core.AppLog.Step("picker", $"打开文件对话框｜实现=GetOpenFileNameW（Win7 兼容）｜多选={allowMultiple}"
+                                       + $"｜线程套间={Thread.CurrentThread.GetApartmentState()}");
 
             if (!GetOpenFileNameW(ref ofn))
             {
@@ -236,11 +236,11 @@ internal static class Win7Picker
 
                 if (err == 0)
                 {
-                    Core.AppLog.Info("picker", $"Win7 文件对话框：用户取消（{ms}ms）");
+                    Core.AppLog.Info("picker", $"文件对话框结果=用户取消｜耗时={ms}ms");
                     return new FilePickResult(Array.Empty<string>());
                 }
 
-                Core.AppLog.Warn("picker", $"Win7 文件对话框失败：CommDlgExtendedError=0x{err:X4}（{ms}ms）");
+                Core.AppLog.Warn("picker", $"文件对话框失败｜CommDlgExtendedError=0x{err:X4}｜耗时={ms}ms");
                 return new FilePickResult(Array.Empty<string>(),
                     err == FnerrBufferTooSmall
                         ? "一次选择的文件太多，请分几次选择。"
@@ -248,11 +248,11 @@ internal static class Win7Picker
             }
 
             var paths = ParseSelectedFiles(fileBuffer, FileBufferChars);
-            Core.AppLog.Info("picker", $"Win7 文件对话框返回 {paths.Count} 个文件（{(Environment.TickCount64 - started)}ms）");
+            Core.AppLog.Info("picker", $"文件对话框结果=已选择｜文件数={paths.Count}｜耗时={Environment.TickCount64 - started}ms");
 
             if (paths.Count == 0)
             {
-                Core.AppLog.Warn("picker", "Win7 文件对话框返回成功，但缓冲区里没有路径");
+                Core.AppLog.Warn("picker", "文件对话框返回值=成功｜结果=缓冲区无路径｜可能原因=缓冲区过小");
                 return new FilePickResult(paths, "未能读取所选文件，请重新选择。");
             }
 
@@ -260,7 +260,7 @@ internal static class Win7Picker
         }
         catch (Exception ex)
         {
-            Core.AppLog.Warn("picker", "Win7 文件对话框异常：" + ex);
+            Core.AppLog.Catch("picker", "调用文件对话框", ex);
             return new FilePickResult(Array.Empty<string>(), "打开文件选择器失败：" + ex.Message);
         }
         finally
@@ -294,20 +294,20 @@ internal static class Win7Picker
                 ulFlags = flags,
             };
 
-            Core.AppLog.Info("picker", $"Win7 打开文件夹对话框（SHBrowseForFolderW，新样式={newStyle}，" +
-                                       $"线程套间={Thread.CurrentThread.GetApartmentState()}）");
+            Core.AppLog.Step("picker", $"打开文件夹对话框｜实现=SHBrowseForFolderW（Win7 兼容）｜新样式={newStyle}"
+                                       + $"｜线程套间={Thread.CurrentThread.GetApartmentState()}");
 
             pidl = SHBrowseForFolderW(ref bi);
             if (pidl == IntPtr.Zero)
             {
-                Core.AppLog.Info("picker", "Win7 文件夹对话框：用户取消");
+                Core.AppLog.Info("picker", "文件夹对话框｜结果=用户取消｜处置=保留原值");
                 return new FilePickResult(Array.Empty<string>());
             }
 
             var sb = new StringBuilder(MaxPath);
             if (!SHGetPathFromIDListW(pidl, sb) || sb.Length == 0)
             {
-                Core.AppLog.Warn("picker", "Win7 文件夹对话框：所选位置不是文件系统路径");
+                Core.AppLog.Warn("picker", "文件夹对话框结果=无效选择｜原因=所选位置不是文件系统路径");
                 return new FilePickResult(Array.Empty<string>(),
                     "所选位置不是本地文件夹，请打开具体磁盘后重新选择。");
             }
@@ -316,7 +316,7 @@ internal static class Win7Picker
         }
         catch (Exception ex)
         {
-            Core.AppLog.Warn("picker", "Win7 文件夹对话框异常：" + ex);
+            Core.AppLog.Catch("picker", "调用文件夹对话框", ex);
             return new FilePickResult(Array.Empty<string>(), "打开文件夹选择器失败：" + ex.Message);
         }
         finally

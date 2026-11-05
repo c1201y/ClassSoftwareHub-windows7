@@ -121,7 +121,7 @@ public sealed partial class TimerToolPage : PageBase
                         Patterns = Array.ConvertAll(Services.TimerAlarm.Extensions, ext => "*" + ext),
                     },
                 });
-            if (r.Error is not null) { Core.AppLog.Warn("timer", "挑选铃声被拒：" + r.Error); return; }
+            if (r.Error is not null) { Core.AppLog.Warn("timer", $"选择铃声｜结果=被拒绝｜原因={r.Error}"); return; }
             if (r.Files.Count == 0) return;
 
             Services.TimerAlarm.CustomPath = r.Files[0];
@@ -130,7 +130,7 @@ public sealed partial class TimerToolPage : PageBase
         }
         catch (Exception ex)
         {
-            Core.AppLog.Info("timer", "挑选铃声失败：" + ex.Message);
+            Core.AppLog.Catch("timer", "选择铃声", ex);
         }
     }
 

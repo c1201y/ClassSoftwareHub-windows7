@@ -26,10 +26,9 @@ namespace ClassSoftwareHub.Desktop.Views;
 /// ⚠️ 透明（无底色）：<see cref="MessageConfig.Transparent"/> 只是**用户意愿**，
 /// 真正的逐像素透明要系统合成支持（Win7 经典/基本主题、关了 DWM 时并不成立）。
 /// 所以显示之后**必须**按运行时拿到的 <see cref="TopLevel.ActualTransparencyLevel"/> 复核一次：
-/// 拿到 <see cref="WindowTransparencyLevel.None"/> 就老老实实退回用户设的底色 ——
-/// 否则在教室机（常关 Aero）上会得到一整块黑底，比不透明还难看。
-/// 在那之后还有一层兜底（2026-11-01）：Win7 上逐像素透明永远不可用，但可以走分层窗口的
-/// 整窗 alpha 做出真正的"透出来"效果，见 <see cref="ApplyLegacyTranslucency"/>。
+/// 拿到 <see cref="WindowTransparencyLevel.None"/> 就说明平台给不了逐像素 alpha。
+/// 在那种系统上不再退回"半透明"（2026-11-02 用户明确要求全透明），改走色键：
+/// 见 <see cref="ApplyLegacyTranslucency"/> —— 底色被整块抠掉，只有文字留在桌面上。
 /// </para>
 /// </summary>
 public sealed partial class MessageWindow : Window
@@ -55,12 +54,14 @@ public sealed partial class MessageWindow : Window
     private bool _realTransparent;
 
     /// <summary>
-    /// Win7 兜底半透明的整窗 alpha（0–255）。取 200（≈78%）：
-    /// 再低文字就开始发灰、教室后几排看不清，再高又和"不透明"没区别。
+    /// 色键没设上时的退路：整窗 alpha。取 200（≈78%）—— 再低文字就开始发灰、教室后几排看不清。
+    /// 只在 <c>LWA_COLORKEY</c> 返回 false（极少见的驱动/合成组合）时用。
     /// </summary>
-    private const byte LegacyAlpha = 200;
+    private const byte LegacyFallbackAlpha = 200;
 
-    /// <summary>上次应用的分层半透明状态（null=还没动过）——只用来避免反复写日志。</summary>
+    /// <summary>
+    /// 上次应用的分层透明状态（null=还没动过）——只用来避免反复写日志。
+    /// </summary>
     private bool? _legacyAlphaState;
 
     private MessageWindow()
@@ -95,7 +96,7 @@ public sealed partial class MessageWindow : Window
         }
         catch (Exception ex)
         {
-            AppLog.Warning("message", "悬浮窗显示失败: " + ex.Message);
+            AppLog.Catch("message", "显示留言悬浮窗", ex);
         }
     }
 
@@ -119,7 +120,7 @@ public sealed partial class MessageWindow : Window
         }
         catch (Exception ex)
         {
-            AppLog.Warning("message", "悬浮窗就地刷新失败: " + ex.Message);
+            AppLog.Catch("message", "就地刷新留言悬浮窗", ex);
         }
     }
 
@@ -132,7 +133,7 @@ public sealed partial class MessageWindow : Window
         }
         catch (Exception ex)
         {
-            AppLog.Warning("message", "悬浮窗收起失败: " + ex.Message);
+            AppLog.Catch("message", "收起留言悬浮窗", ex);
         }
     }
 
@@ -195,14 +196,15 @@ public sealed partial class MessageWindow : Window
         var hwnd2 = Backdrop.TryGetHwnd(this);
         if (hwnd2 != IntPtr.Zero)
         {
-            WindowChrome.RemoveBorder(hwnd2, rounded: !_realTransparent, dark: false);
+            // 色键全透明档不要圆角边框：那一圈会被抠色后留下一条半透明的描边。
+            WindowChrome.RemoveBorder(hwnd2, rounded: !_realTransparent && !_cfg.Transparent, dark: false);
             WindowChrome.MarkToolWindow(hwnd2);   // 别让任务管理器把留言单列成一条「应用」
         }
         _corners?.Refresh();
 
         AppLog.Info("message",
-            $"悬浮窗已显示：{w}x{h}px @{pos.X},{pos.Y} 透明={_realTransparent}"
-            + $"（等级 {ActualTransparencyLevel}，整窗半透明={_legacyAlphaState == true}）");
+            $"留言悬浮窗已显示｜尺寸={w}x{h}px｜位置={pos.X},{pos.Y}｜逐像素透明={_realTransparent}"
+            + $"｜透明级别={ActualTransparencyLevel}｜整窗半透明={_legacyAlphaState == true}");
     }
 
     /// <summary>把留言内容铺到 TextBlock 上。</summary>
@@ -254,6 +256,23 @@ public sealed partial class MessageWindow : Window
                 Panel.Background = Brushes.Transparent;
                 Panel.BorderThickness = new Thickness(0);
             }
+            else if (_cfg.Transparent)
+            {
+                // ── 平台给不了逐像素透明（Win7 / 无合成）→ 色键 ────────────────────
+                // 整窗（含面板）只刷"键色"，系统把这一个颜色整块抠成全透明；
+                // 文字主体与键色差 1 个色阶，所以文字留着。
+                // ⚠️ 这一档**不画描边、不铺用户选的底色** —— 用户要的是"没有底"，不是"换个底"；
+                //    描边还会在抠色后留下一条半透明的框。
+                var keyBrush = new SolidColorBrush(LegacyKeyColor(textColor));
+                Background = keyBrush;
+                TransparencyBackgroundFallback = Brushes.Transparent;
+                Panel.Background = keyBrush;
+                Panel.BorderThickness = new Thickness(0);
+
+                // 色键下文字必须整块不透明：Body 只要带一点整体 Opacity，
+                // 文字色就会被"稀释"到键色附近，整段话跟着被抠掉（空内容占位符就是这么消失的）。
+                Body.Opacity = 1;
+            }
             else
             {
                 var back = Brush(_cfg.BackColor, Colors.White);
@@ -283,7 +302,21 @@ public sealed partial class MessageWindow : Window
             ApplyLegacyTranslucency();
 
             // ⚠️ 不透明才裁圆角：透明窗口裁掉四角会连"圆角之外本该透出桌面"的部分一起切掉
-            if (_realTransparent) return;
+            if (_realTransparent)
+            {
+                RoundedCorners.Clear(this);
+                return;
+            }
+
+            // 色键全透明档同理：四角本来就是键色、已经被系统抠透了，再裁一次只会多出一圈硬边；
+            // ⚠️ 但从"不透明"切到这一档时必须**主动撤掉**旧的 SetWindowRgn，
+            //    否则窗口还保持着上一轮的圆角区域（表现为四个角被切掉一块）。
+            if (_cfg.Transparent)
+            {
+                RoundedCorners.Clear(this);
+                return;
+            }
+
             // Win8+ 且 DWM 合成时，圆角由面板 alpha 抠（见 Platform.BackdropTheme）；
             // 区域裁剪只在 Win7 / 无 DWM（此时窗口走重定向位图）才挂得上。
             if (!BackdropTheme.SupportsAlphaCorners)
@@ -291,27 +324,36 @@ public sealed partial class MessageWindow : Window
         }
         catch (Exception ex)
         {
-            AppLog.Warning("message", "悬浮窗外观应用失败: " + ex.Message);
+            AppLog.Catch("message", "应用留言悬浮窗外观", ex);
         }
     }
 
     /// <summary>
-    /// 平台拿不到逐像素透明时的兜底：<c>WS_EX_LAYERED</c> + <c>SetLayeredWindowAttributes(LWA_ALPHA)</c>。
+    /// 平台拿不到逐像素透明时的兜底：<c>WS_EX_LAYERED</c> + <c>SetLayeredWindowAttributes(LWA_COLORKEY)</c>。
     ///
     /// <para>
-    /// ⚠️ 2026-11-01（真机反馈「有 Aero 的机器上桌面留言不透明」）：
-    /// Avalonia 11 在 Win7 上根本没有逐像素透明能力（窗口走重定向位图，
-    /// <see cref="TopLevel.ActualTransparencyLevel"/> 恒为 <c>None</c>），
-    /// 所以「无底色」这个选项在 Win7 上一直是空转 —— 窗口老老实实铺了底色。
-    /// 分层窗口的 <c>LWA_ALPHA</c> 是 Win2000 就有的能力，DWM 开不开都能用：
-    /// 整窗（含文字）按同一个 alpha 与桌面混合，视觉上就是「透出来了」。
+    /// ── 为什么从 LWA_ALPHA 换成 LWA_COLORKEY（2026-11-02 用户：「开 Aero 的机器上背景只能半透明，改成全透明」）
+    /// <c>LWA_ALPHA</c> 是**整窗统一**的透明度：底色透出来的同时文字也一起变淡，
+    /// 最好也只能做到"半透明"（原来取 200/255）。用户要的是"只有文字浮在桌面上"，
+    /// 那就只有色键能做到 —— 把背景刷成一个特定的颜色，系统只抠这一个颜色，文字一点不动。
     /// </para>
     ///
     /// <para>
-    /// ⛔ 不用色键（LWA_COLORKEY）抠底色：文字抗锯齿的边缘会留一圈底色毛边。
-    /// ⛔ 不用 UpdateLayeredWindow 自己送位图：那要接管整条渲染链路，代价远大于收益。
-    /// 代价说明：alpha 是整窗统一的，文字也会跟着变淡 —— 所以取 <see cref="LegacyAlpha"/>
-    /// 这档（≈78%）保证仍然看得清。
+    /// ── 键色是怎么选的（这是整个方案能不能看的关键）
+    /// 取 <b>文字色偏移 1 个色阶</b>，见 <see cref="LegacyKeyColor"/>。
+    /// 差 1 阶意味着：
+    /// <list type="number">
+    ///   <item>文字主体永远不等于键色 → 不会被抠掉；</item>
+    ///   <item>背景是纯键色 → 整块变透明；</item>
+    ///   <item>抗锯齿边缘的过渡像素落在两者之间被一并抠掉 —— 而这些像素本来就该是半透明的，
+    ///         所以既不会留下"一圈底色毛边"，文字也不会缺角。</item>
+    /// </list>
+    /// 以前注释里"色键会留一圈底色毛边"的顾虑，是因为用**用户选的底色**当键色（差得远）；
+    /// 贴着文字色取键色这个问题就不存在了。
+    /// </para>
+    ///
+    /// <para>
+    /// ⛔ 仍然不用 <c>UpdateLayeredWindow</c> 自己送位图：那要接管整条渲染链路，代价远大于收益。
     /// </para>
     /// </summary>
     private void ApplyLegacyTranslucency()
@@ -328,40 +370,89 @@ public sealed partial class MessageWindow : Window
 
             if (want)
             {
+                var turnedOn = false;
                 if (!layered)
                 {
                     NativeMethods.SetWindowLongPtr(hwnd, NativeMethods.GWL_EXSTYLE,
                         new IntPtr(ex | NativeMethods.WS_EX_LAYERED));
+                    turnedOn = true;
                 }
 
+                var keyColor = LegacyKeyColor(Color(_cfg.TextColor, Colors.Black));
+                var key = NativeMethodsEx.ToColorRef(keyColor.R, keyColor.G, keyColor.B);
+
                 var ok = NativeMethods.SetLayeredWindowAttributes(
-                    hwnd, 0, LegacyAlpha, NativeMethods.LWA_ALPHA);
+                    hwnd, key, 0, NativeMethods.LWA_COLORKEY);
+                var byColorKey = ok;
+
+                if (!ok)
+                {
+                    // 色键没设上（极少见）→ 退回整窗半透明：至少"能透出来"，
+                    // 总比留成一块实心色板好。日志里会写明是哪一档。
+                    ok = NativeMethods.SetLayeredWindowAttributes(
+                        hwnd, 0, LegacyFallbackAlpha, NativeMethods.LWA_ALPHA);
+                }
+
+                // ⚠️ 刚挂上 WS_EX_LAYERED 的窗口不会自己重画，色键要等一整帧重绘才生效 ——
+                //    不补这一步就会重演"刚打开还是实心的，拖一下才变透明"。
+                if (turnedOn) RepaintWholeWindow(hwnd);
 
                 if (_legacyAlphaState != true)
                 {
                     _legacyAlphaState = true;
-                    AppLog.Info("message", ok
-                        ? $"逐像素透明不可用（{ActualTransparencyLevel}）→ 改用整窗半透明，alpha {LegacyAlpha}/255"
-                        : "整窗半透明也不可用 → 维持不透明底色");
+                    AppLog.Warning("message",
+                        !ok ? $"透明方案降级｜逐像素=不可用｜色键=不可用｜整窗半透明=不可用｜实际=不透明底色｜透明级别={ActualTransparencyLevel}"
+                        : byColorKey
+                            ? $"透明方案降级｜逐像素=不可用｜实际=色键全透明｜键色=#{key:X6}｜透明级别={ActualTransparencyLevel}"
+                            : $"透明方案降级｜逐像素=不可用｜色键=失败｜实际=整窗半透明 alpha={LegacyFallbackAlpha}｜透明级别={ActualTransparencyLevel}");
                 }
             }
             else if (layered)
             {
-                // 用户关掉「透明」后必须真的恢复不透明：清掉 alpha 再摘掉分层窗口样式。
+                // 用户关掉「透明」后必须真的恢复不透明：撤掉色键、摘掉分层窗口样式，再重画一次。
                 NativeMethods.SetLayeredWindowAttributes(hwnd, 0, 255, NativeMethods.LWA_ALPHA);
                 NativeMethods.SetWindowLongPtr(hwnd, NativeMethods.GWL_EXSTYLE,
                     new IntPtr(ex & ~(long)NativeMethods.WS_EX_LAYERED));
+                RepaintWholeWindow(hwnd);
 
                 if (_legacyAlphaState != false)
                 {
                     _legacyAlphaState = false;
-                    AppLog.Info("message", "整窗半透明已关闭，恢复不透明底色");
+                    AppLog.Info("message", "透明方案=已关闭色键｜实际=不透明底色");
                 }
             }
         }
         catch (Exception ex2)
         {
-            AppLog.Warning("message", "整窗半透明应用失败: " + ex2.Message);
+            AppLog.Catch("message", "应用色键透明", ex2);
+        }
+    }
+
+    /// <summary>
+    /// 色键模式下用来"抠掉背景"的颜色：取文字色**偏移 1 个色阶**。
+    /// 文字主体与键色永不相等（不会被抠），背景纯键色（整块透明），
+    /// 抗锯齿边缘的过渡像素被一并抠掉 —— 详见 <see cref="ApplyLegacyTranslucency"/>。
+    /// </summary>
+    private static Color LegacyKeyColor(Color text)
+    {
+        static byte Step(byte v) => v > 0 ? (byte)(v - 1) : (byte)1;
+
+        // ⚠️ 必须写全名 Avalonia.Media.Color：本类里有个同名方法 Color(string?, Color)，
+        //    直接写 Color.FromRgb 会被解析成"在方法组上取成员"，编译报 CS0119。
+        return Avalonia.Media.Color.FromRgb(Step(text.R), Step(text.G), Step(text.B));
+    }
+
+    /// <summary>改完窗口样式（分层 / 色键 / 区域）后立刻重绘整窗 —— 否则要等用户拖一下才生效。</summary>
+    private static void RepaintWholeWindow(IntPtr hwnd)
+    {
+        try
+        {
+            NativeMethodsEx.InvalidateRect(hwnd, IntPtr.Zero, true);
+            NativeMethodsUtil.UpdateWindow(hwnd);
+        }
+        catch
+        {
+            // 重绘失败不影响正确性：下一次正常重绘就会带上色键
         }
     }
 
@@ -450,7 +541,7 @@ public sealed partial class MessageWindow : Window
         }
         catch (Exception ex)
         {
-            AppLog.Warning("message", "拖动失败: " + ex.Message);
+            AppLog.Catch("message", "拖动留言悬浮窗", ex, Core.LogLevel.Debug);
         }
         finally
         {

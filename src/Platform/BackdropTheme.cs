@@ -47,6 +47,7 @@ public static class BackdropTheme
         public Panel? Root;
         public string? Prefer;
         public bool AlphaCorners;
+        public bool PrimaryWindow;
         public bool Logged;
         public EventHandler? Handler;
         public bool ReassertQueued;
@@ -65,19 +66,25 @@ public static class BackdropTheme
     /// <param name="root">根面板（传给 <see cref="Backdrop.Apply"/>，可空）。</param>
     /// <param name="prefer">"mica" / "acrylic" / "solid"；不传则沿用上一次或读设置。</param>
     /// <param name="alphaCorners">窗口内容是否有自带圆角的面板（浮窗传 true）。</param>
-    public static string Apply(Window win, Panel? root = null, string? prefer = null, bool alphaCorners = false)
+    /// <param name="primaryWindow">
+    /// 是不是主窗口。**只有主窗口能传 true** —— 详见 <see cref="Backdrop.Apply"/> 的说明：
+    /// Win10 的亚克力会让窗口全透明、并清空根面板底色，浮窗那样做会整个消失。
+    /// </param>
+    public static string Apply(Window win, Panel? root = null, string? prefer = null, bool alphaCorners = false,
+        bool primaryWindow = false)
     {
         var state = States.GetValue(win, _ => new State());
         state.Root = root ?? state.Root;
         state.Prefer = prefer ?? state.Prefer;
         state.AlphaCorners = alphaCorners;
+        state.PrimaryWindow = primaryWindow;
 
         if (state.Handler is null)
         {
             state.Handler = (_, _) =>
             {
                 try { ApplyCore(win, state); }
-                catch (Exception ex) { AppLog.Warning("backdrop", "主题切换重算材质失败: " + ex.Message); }
+                catch (Exception ex) { AppLog.Catch("backdrop", "主题切换后重算材质", ex); }
             };
             try { win.ActualThemeVariantChanged += state.Handler; } catch { }
 
@@ -126,12 +133,12 @@ public static class BackdropTheme
                 }
 
                 AppLog.Info("backdrop",
-                    $"缩放变化重钉材质/圆角: 透明级别 {before} → {win.ActualTransparencyLevel} " +
-                    $"(alpha={state.AlphaCorners && SupportsAlphaCorners})");
+                    $"缩放变化后重算材质｜透明级别={before} → {win.ActualTransparencyLevel}"
+                    + $"｜逐像素圆角={state.AlphaCorners && SupportsAlphaCorners}");
             }
             catch (Exception ex)
             {
-                AppLog.Warning("backdrop", "缩放变化重钉材质失败: " + ex.Message);
+                AppLog.Catch("backdrop", "缩放变化后重算材质", ex);
             }
         }, Avalonia.Threading.DispatcherPriority.Loaded);
     }
@@ -173,7 +180,7 @@ public static class BackdropTheme
         }
         else
         {
-            kind = Backdrop.Apply(win, state.Root, state.Prefer);
+            kind = Backdrop.Apply(win, state.Root, state.Prefer, state.PrimaryWindow);
         }
 
         if (!state.Logged)

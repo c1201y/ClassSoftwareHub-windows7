@@ -145,7 +145,7 @@ public static class ProcessGuard
 
         Process[] all;
         try { all = Process.GetProcesses(); }
-        catch (Exception ex) { Log("枚举进程失败: " + ex.Message); return list; }
+        catch (Exception ex) { Core.AppLog.Catch("procguard", "枚举进程", ex); return list; }
 
         foreach (var p in all)
         {
@@ -296,7 +296,7 @@ public static class ProcessGuard
         {
             // 原版 DispatcherQueue.GetForCurrentThread() 在非 UI 线程返回 null；
             // Avalonia 的对应判定：当前不在 UI 线程就不启动（DispatcherTimer 绑当前线程的 Dispatcher）。
-            if (!Dispatcher.UIThread.CheckAccess()) { Log("不在 UI 线程，定时查杀未启用"); return; }
+            if (!Dispatcher.UIThread.CheckAccess()) { Core.AppLog.Warn("procguard", "定时查杀｜结果=未启用｜原因=当前不在 UI 线程"); return; }
 
             _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(TickSeconds) };
             _timer.Tick += (_, _) => Tick();
@@ -305,7 +305,7 @@ public static class ProcessGuard
         }
         catch (Exception ex)
         {
-            Log("启动定时巡检失败: " + ex.Message);
+            Core.AppLog.Catch("procguard", "启动定时巡检", ex);
         }
     }
 
@@ -344,7 +344,7 @@ public static class ProcessGuard
         }
         catch (Exception ex)
         {
-            Log("巡检出错: " + ex.Message);
+            Core.AppLog.Catch("procguard", "定时巡检轮次", ex);
         }
     }
 

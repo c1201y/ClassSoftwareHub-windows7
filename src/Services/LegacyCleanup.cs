@@ -48,11 +48,11 @@ public static class LegacyCleanup
         {
             var removed = CleanDataRoot() + CleanCacheRoot();
             if (removed > 0)
-                AppLog.Info("legacy", $"已清理 {removed} 个旧结构遗留文件");
+                AppLog.Info("legacy", $"清理旧版遗留文件｜已删除={removed}");
         }
         catch (Exception ex)
         {
-            AppLog.Info("legacy", "清理旧残留失败：" + ex.Message);
+            AppLog.Catch("legacy", "清理旧版遗留文件", ex);
         }
     }
 
@@ -113,7 +113,7 @@ public static class LegacyCleanup
         }
         catch (Exception ex)
         {
-            AppLog.Info("legacy", $"删除失败（{Path.GetFileName(path)}）：{ex.Message}");
+            AppLog.Catch("legacy", $"删除遗留文件｜文件={Path.GetFileName(path)}", ex, LogLevel.Debug);
             return false;
         }
     }

@@ -103,7 +103,7 @@ public static class CacheHome
             }
             catch (Exception ex)
             {
-                AppLog.Info("cache", "初始化版本缓存目录失败，退回 cache\\ 根：" + ex.Message);
+                AppLog.Catch("cache", "初始化版本缓存目录（已退回 cache 根）", ex);
                 _instanceName = "";   // 兜底：不建目录（素材直接写 cache\ 根），且 Clean 会因此拒绝动手
             }
 
@@ -142,7 +142,7 @@ public static class CacheHome
             }
             catch (Exception ex)
             {
-                AppLog.Info("cache", $"统计缓存目录失败（{name}）：{ex.Message}");
+                AppLog.Catch("cache", $"统计缓存目录体积｜目录={name}", ex, Core.LogLevel.Debug);
             }
 
             list.Add(new CacheInstanceInfo(
@@ -181,7 +181,7 @@ public static class CacheHome
             catch (Exception ex)
             {
                 // 被占用（应用正开着、图片正被 BitmapImage 持有）属正常：跳过，下次启动再试
-                AppLog.Info("cache", $"删除缓存目录失败（{inst.Name}）：{ex.Message}");
+                AppLog.Catch("cache", $"删除过期缓存目录｜目录={inst.Name}", ex);
             }
         }
 
@@ -205,7 +205,7 @@ public static class CacheHome
         }
         catch (Exception ex)
         {
-            AppLog.Info("cache", $"删除缓存目录失败（{name}）：{ex.Message}");
+            AppLog.Catch("cache", $"删除缓存目录｜目录={name}", ex);
             return false;
         }
     }
@@ -233,11 +233,11 @@ public static class CacheHome
             var keep = App.Settings.Current.CacheKeepCount;
             var removed = Clean(keep);
             if (removed > 0)
-                AppLog.Info("cache", $"已清理 {removed} 个旧版本缓存目录（保留最近 {Math.Clamp(keep, 1, 10)} 个）");
+                AppLog.Info("cache", $"清理过期缓存目录｜已删除={removed}｜保留={Math.Clamp(keep, 1, 10)} 个");
         }
         catch (Exception ex)
         {
-            AppLog.Info("cache", "缓存清理失败: " + ex.Message);
+            AppLog.Catch("cache", "清理过期缓存目录", ex);
         }
     });
 

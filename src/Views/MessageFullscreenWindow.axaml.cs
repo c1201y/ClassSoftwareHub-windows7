@@ -60,7 +60,7 @@ public sealed partial class MessageFullscreenWindow : Window
         }
         catch (Exception ex)
         {
-            AppLog.Warning("message", "全屏留言失败: " + ex.Message);
+            AppLog.Catch("message", "显示全屏留言", ex);
         }
     }
 
@@ -207,7 +207,7 @@ public sealed partial class MessageFullscreenWindow : Window
     {
         _exitTimer.Stop();
         if (ReferenceEquals(_current, this)) _current = null;
-        AppLog.Info("message", "全屏留言已关闭");
+        AppLog.Info("message", "全屏留言｜结果=已关闭");
     }
 
     private static IBrush Brush(string? hex, Color fallback)

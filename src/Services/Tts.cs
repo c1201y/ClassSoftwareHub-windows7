@@ -44,7 +44,7 @@ internal static class Tts
         {
             // 建好实例之后才炸（声卡拔了 / 引擎被卸了）也按不可用处理，本次运行不再试
             _failed = true;
-            AppLog.Warn("announce", "语音播报不可用，后续只出提示音（" + ex.Message + "）");
+            AppLog.Warn("announce", $"语音播报不可用｜处置=后续只播提示音｜原因={ex.GetType().Name}: {ex.Message}");
         }
     }
 
@@ -76,7 +76,7 @@ internal static class Tts
         catch (Exception ex)
         {
             ChineseVoiceAvailable = false;
-            AppLog.Warn("announce", "枚举中文语音失败：" + ex.Message);
+            AppLog.Catch("announce", "枚举中文语音包", ex);
         }
 
         voice.Rate = 0;      // 正常语速（教室里播通知，快了听不清）

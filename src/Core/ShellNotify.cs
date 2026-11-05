@@ -63,11 +63,11 @@ public static class ShellNotify
             SendMessageTimeoutText(HwndBroadcast, WmSettingChange, IntPtr.Zero, "TraySettings",
                 SmtoAbortIfHung, TimeoutMs, out _);
 
-            AppLog.Step("shell", "已发送任务栏刷新通知（TraySettings）");
+            AppLog.Step("shell", "任务栏刷新通知｜方式=WM_SETTINGCHANGE｜区域=TraySettings｜结果=已发送");
         }
         catch (Exception ex)
         {
-            AppLog.Warn("shell", "发送任务栏刷新通知失败：" + ex.Message);
+            AppLog.Catch("shell", "发送任务栏刷新通知", ex, LogLevel.Debug);
         }
     }
 
@@ -79,18 +79,18 @@ public static class ShellNotify
             var progman = FindWindow("Progman", null);
             if (progman == IntPtr.Zero)
             {
-                AppLog.Warn("shell", "找不到桌面窗口（Progman），跳过刷新通知");
+                AppLog.Warn("shell", "桌面刷新通知｜结果=跳过｜原因=未找到 Progman 窗口");
                 return;
             }
 
             SendMessageTimeoutValue(progman, WmCommand, new IntPtr(DesktopRefreshCommand), IntPtr.Zero,
                 SmtoAbortIfHung, TimeoutMs, out _);
 
-            AppLog.Step("shell", "已发送桌面刷新通知");
+            AppLog.Step("shell", "桌面刷新通知｜方式=WM_SETTINGCHANGE｜结果=已发送");
         }
         catch (Exception ex)
         {
-            AppLog.Warn("shell", "发送桌面刷新通知失败：" + ex.Message);
+            AppLog.Catch("shell", "发送桌面刷新通知", ex, LogLevel.Debug);
         }
     }
 }

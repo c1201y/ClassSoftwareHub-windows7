@@ -89,7 +89,7 @@ public static class InstallerCleanup
         }
         catch (Exception ex)
         {
-            ScreenCapture.Log($"[cleanup] 枚举安装包目录失败（{dir}）: {ex.Message}");
+            Core.AppLog.Catch("cleanup", $"枚举安装包目录｜目录={dir}", ex, Core.LogLevel.Debug);
             return new List<string>();
         }
     }
@@ -115,7 +115,7 @@ public static class InstallerCleanup
             }
             catch (Exception ex)
             {
-                ScreenCapture.Log($"[cleanup] 读取安装包信息失败（{name}）: {ex.Message}");
+                Core.AppLog.Catch("cleanup", $"读取安装包信息｜文件={name}", ex, Core.LogLevel.Debug);
             }
         }
 
@@ -211,7 +211,7 @@ public static class InstallerCleanup
             }
             catch (Exception ex)
             {
-                ScreenCapture.Log($"[cleanup] 删除下载残片失败（{Path.GetFileName(path)}）: {ex.Message}");
+                Core.AppLog.Catch("cleanup", $"删除下载残片｜文件={Path.GetFileName(path)}", ex, Core.LogLevel.Debug);
             }
         }
     }
@@ -239,7 +239,7 @@ public static class InstallerCleanup
         catch (Exception ex)
         {
             // 被占用（安装程序正在运行）属正常情况：跳过，下次启动再试
-            ScreenCapture.Log($"[cleanup] 删除失败（{Path.GetFileName(path)}）: {ex.Message}");
+            Core.AppLog.Catch("cleanup", $"删除安装包｜文件={Path.GetFileName(path)}", ex, Core.LogLevel.Debug);
             return false;
         }
     }
@@ -259,7 +259,7 @@ public static class InstallerCleanup
         }
         catch (Exception ex)
         {
-            ScreenCapture.Log("[cleanup] 读取「安装包保留数量」失败，按默认值 3 处理: " + ex.Message);
+            Core.AppLog.Catch("cleanup", "读取「安装包保留数量」（按默认值 3 处理）", ex, Core.LogLevel.Debug);
             keep = 3;
             pendingPath = "";
         }
@@ -270,11 +270,11 @@ public static class InstallerCleanup
             {
                 var removed = Clean(keep, pendingPath);
                 if (removed > 0)
-                    ScreenCapture.Log($"[cleanup] 已清理 {removed} 个旧安装包（保留最近 {Math.Clamp(keep, 1, 10)} 个）");
+                    Core.AppLog.Info("cleanup", $"清理旧安装包｜已删除={removed}｜保留={Math.Clamp(keep, 1, 10)} 个");
             }
             catch (Exception ex)
             {
-                ScreenCapture.Log("[cleanup] 安装包清理失败: " + ex.Message);
+                Core.AppLog.Catch("cleanup", "清理旧安装包", ex);
             }
         });
     }

@@ -104,7 +104,7 @@ public static class NewlyAddedService
             // 清单被 GitHub 截断＝不完整，减出来的"新增"会是一堆假货 —— 宁可不报
             if (truncated)
             {
-                AppLog.Warning("ui", "近期新增：基准清单被 GitHub 截断，这次不显示");
+                AppLog.Warn("ui", "近期新增｜结果=跳过｜原因=基准提交的清单被 GitHub 截断（不完整）｜影响=差集不可信");
                 return null;
             }
 
@@ -117,8 +117,9 @@ public static class NewlyAddedService
             WriteCache(fresh);
 
             AppLog.Info("ui",
-                $"近期新增：{ids.Count} 款（窗口 {window.TotalHours:0} 小时，排名基准 {(baseSha.Length >= 7 ? baseSha[..7] : baseSha)}，"
-                + $"清单 {baseIds.Count} → {headIds.Count}）");
+                $"近期新增｜数量={ids.Count}｜窗口={window.TotalHours:0}h"
+                + $"｜基准提交={(baseSha.Length >= 7 ? baseSha[..7] : baseSha)}"
+                + $"｜清单条目={baseIds.Count} → {headIds.Count}");
             return new NewlyAddedResult(ids);
         }
         catch (OperationCanceledException)
@@ -128,7 +129,7 @@ public static class NewlyAddedService
         catch (Exception ex)
         {
             // 拿不到就是拿不到 —— 调用方不显示这一句，而不是显示 0
-            AppLog.Warning("ui", "今日新增：算不出来，这次不显示（" + ex.Message + "）");
+            AppLog.Warn("ui", $"近期新增｜结果=跳过｜原因={ex.GetType().Name}: {ex.Message}");
             return null;
         }
         finally

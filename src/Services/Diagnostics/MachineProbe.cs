@@ -42,7 +42,7 @@ public static class MachineProbe
         var watch = Stopwatch.StartNew();
         var warnings = new List<string>();
 
-        AppLog.Begin("hubai", "采集本机快照");
+        AppLog.Begin("hubai", "采集本机快照｜范围=CPU、内存、磁盘、系统、进程、启动项、AppData、已装软件");
 
         var cpuName = "";
         int cpuThreads = 0, cpuCores = 0, cpuMhz = 0;
@@ -75,7 +75,7 @@ public static class MachineProbe
         catch (Exception ex)
         {
             warnings.Add("CPU 型号");
-            AppLog.Exception("hubai", ex, "读 CPU 型号");
+            AppLog.Exception("hubai", ex, "读取 CPU 型号｜来源=注册表 CentralProcessor");
         }
 
         // ── ② 内存总量 / 占用（GlobalMemoryStatusEx，一次调用拿全） ──
@@ -96,7 +96,7 @@ public static class MachineProbe
         catch (Exception ex)
         {
             warnings.Add("内存");
-            AppLog.Exception("hubai", ex, "读内存状态");
+            AppLog.Exception("hubai", ex, "读取内存状态｜来源=GlobalMemoryStatusEx");
         }
 
         // ── ③ CPU 占用（两次采样算差值） ──
@@ -108,7 +108,7 @@ public static class MachineProbe
         catch (Exception ex)
         {
             warnings.Add("CPU 占用");
-            AppLog.Exception("hubai", ex, "采样 CPU 占用");
+            AppLog.Exception("hubai", ex, "采样 CPU 占用｜来源=GetSystemTimes");
         }
 
         // ── ④ 磁盘（复用 DiskUsage，跳过光驱/网络盘） ──
@@ -130,14 +130,14 @@ public static class MachineProbe
                 catch (Exception ex)
                 {
                     // 单块盘读不到（BitLocker 锁定等）不该拖垮整份快照
-                    AppLog.Exception("hubai", ex, $"读磁盘 {d.Name}");
+                    AppLog.Exception("hubai", ex, $"读取磁盘｜盘符={d.Name}");
                 }
             }
         }
         catch (Exception ex)
         {
             warnings.Add("磁盘");
-            AppLog.Exception("hubai", ex, "枚举磁盘");
+            AppLog.Exception("hubai", ex, "枚举本地磁盘｜来源=DriveInfo.GetDrives");
         }
 
         // ── ⑤ 系统版本 ──
@@ -158,7 +158,7 @@ public static class MachineProbe
         catch (Exception ex)
         {
             warnings.Add("系统版本");
-            AppLog.Exception("hubai", ex, "读系统版本");
+            AppLog.Exception("hubai", ex, "读取系统版本｜来源=RtlGetVersion");
             osName = RuntimeInformation.OSDescription;
         }
 
@@ -198,7 +198,7 @@ public static class MachineProbe
         catch (Exception ex)
         {
             warnings.Add("进程");
-            AppLog.Exception("hubai", ex, "枚举进程");
+            AppLog.Exception("hubai", ex, "枚举进程｜来源=Process.GetProcesses");
         }
 
         token.ThrowIfCancellationRequested();
@@ -211,7 +211,7 @@ public static class MachineProbe
         catch (Exception ex)
         {
             warnings.Add("启动项");
-            AppLog.Exception("hubai", ex, "统计启动项");
+            AppLog.Exception("hubai", ex, "统计启动项｜来源=启动项枚举");
         }
 
         // ── ⑧ AppData 大头目录（只给名字，大小要全盘扫，太慢） ──
@@ -226,7 +226,7 @@ public static class MachineProbe
         catch (Exception ex)
         {
             warnings.Add("AppData 目录");
-            AppLog.Exception("hubai", ex, "列 AppData 目录");
+            AppLog.Exception("hubai", ex, "列出 AppData 目录｜层级=1");
         }
 
         // ── ⑨ 已装软件（最慢的一支，放最后，前面几支先把界面喂饱） ──
@@ -244,7 +244,7 @@ public static class MachineProbe
         catch (Exception ex)
         {
             warnings.Add("已装软件");
-            AppLog.Exception("hubai", ex, "枚举已装软件");
+            AppLog.Exception("hubai", ex, "枚举已安装软件｜来源=注册表 Uninstall");
         }
 
         watch.Stop();
@@ -275,16 +275,16 @@ public static class MachineProbe
         };
 
         if (warnings.Count > 0)
-            AppLog.Warn("hubai", $"快照有 {warnings.Count} 项没取到：{string.Join("、", warnings)}");
+            AppLog.Warn("hubai", $"快照字段缺失｜缺失数={warnings.Count}｜字段={string.Join("、", warnings)}｜影响=体检结论可能不完整");
 
         // 摘要进日志：数值有争议时这是唯一能离线复核的东西。
         // ⚠️ 只记硬件与数量，**不记已装软件名**（那是用户隐私）。
         AppLog.Info("hubai",
-            $"快照摘要：CPU={cpuName} 线程={cpuThreads} 负载={cpuLoad:0.#}% " +
-            $"内存={memTotal}MB 可用={memFree}MB 占用={memLoad}% " +
-            $"磁盘={disks.Count}块 进程={processCount} 启动项={startupCount} 应用={appCount}");
+            $"快照摘要｜CPU={cpuName}｜线程={cpuThreads}｜负载={cpuLoad:0.#}%" +
+            $"｜内存={memTotal}MB｜可用={memFree}MB｜占用={memLoad}%" +
+            $"｜磁盘={disks.Count} 块｜进程={processCount}｜启动项={startupCount}｜已装软件={appCount}");
 
-        AppLog.Done("hubai", $"采集本机快照（{watch.ElapsedMilliseconds}ms）", watch.Elapsed);
+        AppLog.Done("hubai", $"采集本机快照完成｜已装软件={appCount}｜缺失字段={warnings.Count}", watch.Elapsed);
         return snapshot;
     }
 
@@ -338,7 +338,7 @@ public static class MachineProbe
             catch (Exception ex)
             {
                 // 单个位置读不到（组策略锁死 Run 键）不影响已数到的部分
-                AppLog.Exception("hubai", ex, $"读启动项 {path}");
+                AppLog.Exception("hubai", ex, $"读取启动项｜路径={path}");
             }
         }
 

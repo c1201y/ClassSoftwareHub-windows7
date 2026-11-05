@@ -351,6 +351,17 @@ public sealed partial class SidebarLayoutPage : PageBase
             // 「自适应高度」：开 = 按内容伸缩、比例当上限；关 = 锁死那个比例
             if (HeightAutoSwitch is not null) HeightAutoSwitch.IsChecked = s.SidebarHeightAuto;
 
+            // 「网格图标大小」：格子边长（dip）。老存档没有这一项 ⇒ 0，按默认 60 显示。
+            // 格子正方形 ⇒ 宽高同一个值，见 ToolSidebarWindow.GridCellDip。
+            if (GridCellSizeSlider is not null)
+            {
+                var cell = s.SidebarGridCellSize <= 0
+                    ? 60
+                    : Math.Clamp(s.SidebarGridCellSize, 48, 96);
+                if (Math.Abs(GridCellSizeSlider.Value - cell) > 0.01) GridCellSizeSlider.Value = cell;
+                if (GridCellSizeText is not null) GridCellSizeText.Text = cell + " dip";
+            }
+
             // 「收起时离屏幕边缘」（2026-10-11 上游；2026-10-22 移植）
             if (SidebarGapCombo is not null)
             {
@@ -2065,6 +2076,40 @@ public sealed partial class SidebarLayoutPage : PageBase
         if (App.Settings.Current.SidebarEnabled) ToolSidebarWindow.ApplyHeightRatio();
     }
 
+    /// <summary>
+    /// 「网格图标大小」滑块：图标网格样式下每颗格子的边长（dip）。
+    ///
+    /// <para>
+    /// 格子是正方形，宽高共用这一个值，面板宽高由它乘列数 / 行数推出来 ——
+    /// 所以「调整面板大小」在这里只需要一根滑杆（用户 2026-11-04 的要求：只调一边就够了）。
+    /// </para>
+    ///
+    /// <para>
+    /// ⚠️ 拖动连续触发：走 <c>ApplyGridCellSize()</c> 那条轻路（就地改格子尺寸 + 重新量面板），
+    ///    ⛔ 别用 <c>ApplyStyle()</c> / <c>ApplySetting()</c> —— 那是重建格子，拖动时会一路闪，
+    ///    还会断掉按住型模块（放大镜）的指针捕获。
+    /// ⚠️ 落盘与「展开面板高度」共用 350ms 防抖（<see cref="_heightSaveTimer"/>）。
+    /// </summary>
+    private void GridCellSize_ValueChanged(object? sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_toolSync) return;
+
+        // XAML 已把范围限在 48~96，这里再夹一道并吸到 4 的整数倍（触摸拖动可能停在非整档上）
+        var cell = Math.Clamp(
+            (int)Math.Round(e.NewValue / 4.0, MidpointRounding.AwayFromZero) * 4, 48, 96);
+
+        App.Settings.Current.SidebarGridCellSize = cell;
+        if (GridCellSizeText is not null) GridCellSizeText.Text = cell + " dip";
+
+        if (App.Settings.Current.SidebarEnabled) ToolSidebarWindow.ApplyGridCellSize();
+
+        _heightSaveTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
+        _heightSaveTimer.Stop();
+        _heightSaveTimer.Tick -= HeightSaveTimer_Tick;
+        _heightSaveTimer.Tick += HeightSaveTimer_Tick;
+        _heightSaveTimer.Start();
+    }
+
     // ── 收起时离屏幕边缘（2026-10-11 上游；2026-10-22 移植） ──────────────────
 
     /// <summary>
@@ -2139,7 +2184,7 @@ public sealed partial class SidebarLayoutPage : PageBase
             if (top is null) return;
 
             var r = await FilePickerCompat.PickFolderAsync(top, "选择截图保存目录");
-            if (r.Error is not null) { Services.ScreenCapture.Log("选截图目录被拒: " + r.Error); return; }
+            if (r.Error is not null) { Core.AppLog.Warn("ui", $"选择截图目录｜结果=被拒绝｜原因={r.Error}"); return; }
             if (r.Files.Count == 0) return;
 
             App.Settings.Current.ShotSaveDir = r.Files[0];
@@ -2148,7 +2193,7 @@ public sealed partial class SidebarLayoutPage : PageBase
         }
         catch (Exception ex)
         {
-            Services.ScreenCapture.Log("选截图目录失败: " + ex.Message);
+            Core.AppLog.Catch("ui", "选择截图目录", ex);
         }
     }
 
@@ -2162,7 +2207,7 @@ public sealed partial class SidebarLayoutPage : PageBase
         }
         catch (Exception ex)
         {
-            Services.ScreenCapture.Log("打开截图目录失败: " + ex.Message);
+            Core.AppLog.Catch("ui", "打开截图目录", ex);
         }
     }
 

@@ -94,7 +94,7 @@ public static class AppUninstaller
         //    所以真正动手之前必须再拦一次 —— 这类包放出去点了就是拆系统。
         if (IsProtected(app))
         {
-            AppLog.Warning("uninstall", $"拒绝卸载 Windows 自带组件：{app.Name}（{app.PackageFullName}）");
+            AppLog.Warn("uninstall", $"卸载被拒绝｜原因=Windows 系统组件｜应用={app.Name}｜包={app.PackageFullName}");
             return new(false,
                 $"「{app.Name}」为 Windows 系统组件，移除后将导致对应系统功能失效，本程序不予执行。" +
                 "如确需移除，请使用系统自带工具操作。");
@@ -106,7 +106,7 @@ public static class AppUninstaller
         var raw = app.QuietUninstallString.Length > 0 ? app.QuietUninstallString : app.UninstallString;
         if (raw.Length == 0)
         {
-            AppLog.Info("uninstall", $"「{app.Name}」没有 UninstallString，跳过");
+            AppLog.Info("uninstall", $"卸载跳过｜应用={app.Name}｜原因=注册表未提供 UninstallString");
             return new(false,
                 "该记录未提供卸载命令。此类条目通常只有安装登记（例如免安装版留下的痕迹），" +
                 "需手动删除程序目录，或前往系统「设置 → 应用」查找。");
@@ -120,7 +120,7 @@ public static class AppUninstaller
         // "修改 / 修复 / 删除"那个维护对话框，用户还得自己点"删除"。这里给它换过来。
         if (IsMsiExec(exe)) args = MsiInstallToUninstall(args);
 
-        AppLog.Info("uninstall", $"卸载「{app.Name}」：{exe} {args}");
+        AppLog.Begin("uninstall", $"卸载开始｜应用={app.Name}｜命令={exe} {args}");
         return await StartAndWaitAsync(exe, args, app.Name, ct, elevate);
     }
 
@@ -191,7 +191,8 @@ public static class AppUninstaller
 
         // ① 先走系统 API（上游的 PackageManager 快路在 Win7 上没有，见上方移植说明）。
         {
-            AppLog.Info("uninstall", $"商店应用「{app.Name}」直接走 PowerShell 移除（Win7 无 AppX API）：{app.PackageFullName}");
+            AppLog.Info("uninstall", $"卸载方式=PowerShell 移除｜应用={app.Name}｜包={app.PackageFullName}"
+                + "｜原因=Win7 无 AppX API");
         }
 
         // ② 回落：提权跑 PowerShell。管理员身份下 Remove-AppxPackage 一定能动。
@@ -258,7 +259,7 @@ public static class AppUninstaller
         }
         catch (Exception ex)
         {
-            AppLog.Exception("uninstall", ex, $"启动卸载程序（{appName}）");
+            AppLog.Exception("uninstall", ex, $"启动卸载程序｜应用={appName}");
             return new(false, $"启动卸载程序失败：{ex.Message}");
         }
     }

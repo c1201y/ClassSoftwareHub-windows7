@@ -124,7 +124,7 @@ public sealed partial class LogDetailWindow : Window
         }
         catch (Exception ex)
         {
-            AppLog.Debug("port", "[log-detail] 主题刷新失败: " + ex.Message);
+            AppLog.Catch("logs", "日志详细视图刷新主题", ex, LogLevel.Debug);
         }
     }
 
@@ -145,7 +145,7 @@ public sealed partial class LogDetailWindow : Window
         }
         catch (Exception ex)
         {
-            AppLog.Warning("logs", "打开日志详细视图失败：" + ex.Message);
+            AppLog.Catch("logs", "打开日志详细视图", ex, LogLevel.Error);
         }
     }
 
@@ -158,7 +158,7 @@ public sealed partial class LogDetailWindow : Window
         var w = _instance;
         _instance = null;
         try { w?.Close(); } catch { }
-        AppLog.Info("exit", "日志详细视图实例已请求 Close");
+        AppLog.Info("window", "窗口关闭请求｜窗口=日志详细视图｜触发=程序化 Close");
     }
 
     // ── 窗口本身 ─────────────────────────────────────────────────────────
@@ -190,7 +190,7 @@ public sealed partial class LogDetailWindow : Window
         }
         catch (Exception ex)
         {
-            AppLog.Warning("logs", "日志详细视图初始化失败：" + ex.Message);
+            AppLog.Catch("logs", "初始化日志详细视图", ex, LogLevel.Error);
         }
     }
 
@@ -215,7 +215,7 @@ public sealed partial class LogDetailWindow : Window
         }
         catch (Exception ex)
         {
-            Core.AppLog.Debug("port", "[log-detail] 尺寸设置失败: " + ex.Message);
+            Core.AppLog.Catch("logs", "设置日志详细视图尺寸", ex, LogLevel.Debug);
         }
     }
 
@@ -248,7 +248,7 @@ public sealed partial class LogDetailWindow : Window
         }
         catch (Exception ex)
         {
-            AppLog.Warning("logs", "日志详细视图激活失败：" + ex.Message);
+            AppLog.Catch("logs", "激活日志详细视图", ex);
         }
     }
 

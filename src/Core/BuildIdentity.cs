@@ -58,8 +58,8 @@ public static class BuildIdentity
         IssuedAt = issued;
 
         AppLog.Info("license", IsOfficial
-            ? $"构建身份: 官方（{BuildId}，签发 {IssuedAt}）"
-            : $"构建身份: 社区（{BuildId}）—— 在线服务需激活后使用");
+            ? $"构建身份｜通道=官方｜构建={BuildId}｜签发时间={IssuedAt}"
+            : $"构建身份｜通道=社区｜构建={BuildId}｜说明=在线服务需激活后使用");
     }
 
     private static (string Id, string Sig, string Issued) Read()

@@ -130,7 +130,7 @@ public sealed partial class ToolPaletteWindow : Window
         var w = _instance;
         _instance = null;
         try { w?.Close(); } catch { }
-        Core.AppLog.Info("exit", "浮窗实例已请求 Close");
+        Core.AppLog.Info("window", "窗口关闭请求｜窗口=常用工具浮窗｜触发=程序化 Close");
     }
 
     public static void TogglePalette()
@@ -175,7 +175,7 @@ public sealed partial class ToolPaletteWindow : Window
             }
             catch (Exception ex2)
             {
-                Core.AppLog.Debug("port", "[toolwin] 标题栏定制不可用: " + ex2.Message);
+                Core.AppLog.Catch("ui", "定制浮窗标题栏（保持系统默认标题栏）", ex2, Core.LogLevel.Debug);
             }
 
             // 圆角：Win11 用 DWM 的 CORNER_PREFERENCE，Win7/8/10 那个属性不认，得靠 SetWindowRgn 裁剪。
@@ -189,11 +189,11 @@ public sealed partial class ToolPaletteWindow : Window
         }
         catch (Exception ex)
         {
-            Core.AppLog.Debug("port", "[toolwin] 初始化失败: " + ex.Message);
+            Core.AppLog.Catch("ui", "初始化常用工具浮窗", ex);
         }
 
-        Core.AppLog.Info("exit", "浮窗实例已建");
-        Closed += (_, _) => Core.AppLog.Info("exit", "浮窗 Closed");
+        Core.AppLog.Info("window", "窗口已创建｜窗口=常用工具浮窗");
+        Closed += (_, _) => Core.AppLog.Info("window", "窗口已关闭｜窗口=常用工具浮窗");
 
         // 关掉 = 收起来，别真销毁。
         // 但**应用正在退出时必须放行**：desktop.Shutdown() 逐个关窗，撞上被取消的关闭会中止整条退出流程
@@ -201,10 +201,10 @@ public sealed partial class ToolPaletteWindow : Window
         //    App.IsExiting 由 MainWindow.ExitApp / 主窗真的关闭时置位。
         Closing += (_, args) =>
         {
-            Core.AppLog.Info("exit", $"浮窗 Closing: IsExiting={App.IsExiting}");
+            Core.AppLog.Info("window", $"窗口关闭请求｜窗口=常用工具浮窗｜IsExiting={App.IsExiting}");
             if (App.IsExiting) return;
             args.Cancel = true;
-            Core.AppLog.Info("exit", "浮窗 Closing -> 取消（收起来）");
+            Core.AppLog.Info("window", "窗口关闭请求｜窗口=常用工具浮窗｜裁决=取消关闭｜处置=收起");
             HidePalette();
         };
     }
@@ -239,7 +239,7 @@ public sealed partial class ToolPaletteWindow : Window
         catch (Exception ex)
         {
             _frame = null;
-            Core.AppLog.Debug("port", "[toolwin] 自绘窗口框架挂载失败，退回原生标题栏: " + ex.Message);
+            Core.AppLog.Catch("ui", "挂载自绘窗口框架（已退回原生标题栏）", ex, Core.LogLevel.Debug);
             PortLog.Step("ToolPaletteWindow: 自绘窗口框架挂载失败，退回原生标题栏 - " + ex.Message);
         }
     }
@@ -327,7 +327,7 @@ public sealed partial class ToolPaletteWindow : Window
         }
         catch (Exception ex)
         {
-            Core.AppLog.Debug("port", "[toolwin] 显示失败: " + ex.Message);
+            Core.AppLog.Catch("ui", "显示常用工具浮窗", ex);
         }
 
         _visible = true;
@@ -358,7 +358,7 @@ public sealed partial class ToolPaletteWindow : Window
         {
             if (epoch != _fadeEpoch) return;             // 淡出期间又点开了：别把刚显示的窗藏掉
             try { NativeMethods.ShowWindow(Backdrop.TryGetHwnd(this), SW_HIDE); }
-            catch (Exception ex) { Core.AppLog.Debug("port", "[toolwin] 收起失败: " + ex.Message); }
+            catch (Exception ex) { Core.AppLog.Catch("ui", "收起常用工具浮窗", ex, Core.LogLevel.Debug); }
 
             MemoryTrimmer.Trim();
         });

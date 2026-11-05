@@ -446,7 +446,7 @@ public static class UpdateFlow
 
         if (expectedMd5.Length == 0 && expectedSha.Length == 0)
         {
-            Core.AppLog.Info("update", $"待装包没有记录校验值（旧版本遗留），跳过安装前复核：{path}");
+            Core.AppLog.Info("update", $"安装前复核｜结果=跳过｜原因=待装包未记录校验值（旧版本遗留）｜文件={path}");
             return true;
         }
 
@@ -465,8 +465,8 @@ public static class UpdateFlow
             if (ok) return true;
 
             Core.AppLog.Warn("update",
-                $"待装包复核不通过（期望 MD5={expectedMd5} / SHA256={expectedSha}，" +
-                $"实际 MD5={actualMd5} / SHA256={actualSha}）：{path}");
+                $"安装前复核失败｜期望 MD5={expectedMd5}｜期望 SHA256={expectedSha}" +
+                $"｜实际 MD5={actualMd5}｜实际 SHA256={actualSha}｜文件={path}｜处置=删除并清空待装标记");
 
             s.UpdatePendingPath = "";
             s.UpdatePendingTag = "";
@@ -475,7 +475,7 @@ public static class UpdateFlow
             App.Settings.Save();
 
             try { File.Delete(path); }
-            catch (Exception ex) { Core.AppLog.Warn("update", $"删除复核失败的安装包失败：{ex.Message}"); }
+            catch (Exception ex) { Core.AppLog.Catch("update", $"删除未通过复核的安装包｜文件={path}", ex); }
 
             await ShowMessageAsync("安装包校验失败",
                 "安装包在下载完成后发生了变化（可能已损坏或被替换）。为安全起见已删除，请重新下载更新。");
@@ -507,7 +507,7 @@ public static class UpdateFlow
         }
         catch (Exception ex)
         {
-            Core.AppLog.Warn("update", $"提示框显示失败（{title}）：{ex.Message}");
+            Core.AppLog.Catch("update", $"显示提示框｜标题={title}", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -528,7 +528,7 @@ public static class UpdateFlow
         }
         catch (Exception ex)
         {
-            ScreenCapture.Log($"[update] 拉起安装程序失败（{installerPath}）：{ex.Message}");
+            Core.AppLog.Catch("update", $"拉起安装程序｜程序={installerPath}", ex, Core.LogLevel.Error);
             try
             {
                 var dialog = new ContentDialog

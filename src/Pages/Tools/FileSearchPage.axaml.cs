@@ -94,7 +94,7 @@ public sealed partial class FileSearchPage : PageBase
         }
         catch (Exception ex)
         {
-            Core.AppLog.Warning("file-search", "更新索引范围失败：" + ex.Message);
+            Core.AppLog.Catch("file-search", "更新索引范围", ex);
         }
     }
 

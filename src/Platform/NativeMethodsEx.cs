@@ -433,13 +433,6 @@ internal static class NativeMethodsEx
             _ = SetClassLongW(hWnd, GCL_STYLE, value);
     }
 
-    // ── 光标（GripDragFrame：浮窗把手上显式画"能拖"的四向移动光标）──
-    [DllImport("user32.dll", SetLastError = true)]
-    internal static extern IntPtr LoadCursorW(IntPtr hInstance, uint lpCursorName);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    internal static extern IntPtr SetCursorW(IntPtr hCursor);
-
     // ══════════════════════════════════════════════════════════════════
     //  窗口区域裁剪 —— Win7 / Win10 的圆角（Win11 走 DWM 的 CORNER_PREFERENCE）
     //
@@ -458,15 +451,6 @@ internal static class NativeMethodsEx
     [DllImport("gdi32.dll", SetLastError = true)]
     internal static extern IntPtr CreateRoundRectRgn(int left, int top, int right, int bottom,
                                                     int ellipseWidth, int ellipseHeight);
-
-    [DllImport("gdi32.dll", SetLastError = true)]
-    internal static extern IntPtr CreateRectRgn(int left, int top, int right, int bottom);
-
-    /// <summary>区域合并（RGN_OR / RGN_DIFF…）。</summary>
-    [DllImport("gdi32.dll", SetLastError = true)]
-    internal static extern int CombineRgn(IntPtr hrgnDest, IntPtr hrgnSrc1, IntPtr hrgnSrc2, int fnCombineMode);
-
-    internal const int RGN_OR = 2;
 
     /// <summary>
     /// 释放 GDI 对象。

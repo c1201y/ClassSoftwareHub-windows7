@@ -98,7 +98,7 @@ public static class PageFileService
         }
         catch (Exception ex)
         {
-            AppLog.Exception("pagefile", ex, "读取 PagingFiles");
+            AppLog.Exception("pagefile", ex, "读取 PagingFiles 配置");
             return new List<string>();
         }
     }
@@ -163,7 +163,7 @@ public static class PageFileService
             }
             catch (Exception ex)
             {
-                AppLog.Warn("pagefile", $"跳过一个驱动器：{ex.Message}");
+                AppLog.Catch("pagefile", "读取驱动器信息（已跳过该驱动器）", ex);
             }
         }
 
@@ -208,8 +208,8 @@ public static class PageFileService
                 JsonSerializer.Serialize(new PageFileTask(automatic, plans.ToList()), Json), ct);
 
             AppLog.Step("pagefile", automatic
-                ? "应用：自动管理所有驱动器"
-                : $"应用：{string.Join("，", plans.Where(p => p.Mode != PageFileMode.None).Select(p => $"{p.Drive}={p.SizeText}"))}");
+                ? "应用配置｜自动管理=全部驱动器"
+                : $"应用配置｜{string.Join("，", plans.Where(p => p.Mode != PageFileMode.None).Select(p => $"{p.Drive}={p.SizeText}"))}");
 
             var exe = Environment.ProcessPath;
             if (string.IsNullOrEmpty(exe))
@@ -233,7 +233,7 @@ public static class PageFileService
                 try { await proc.WaitForExitAsync(timeout.Token); }
                 catch (OperationCanceledException) when (!ct.IsCancellationRequested)
                 {
-                    AppLog.Warn("pagefile", "提权写入超时（2 分钟）");
+                    AppLog.Warn("pagefile", "提权写入超时｜阈值=2 分钟｜处置=放弃本次改动");
                     return new PageFileApplyResult(false, "提权写入超时，请重试。");
                 }
             }
@@ -247,14 +247,16 @@ public static class PageFileService
             if (result is null)
                 return new PageFileApplyResult(false, "提权结果无法解析。");
 
-            AppLog.Info("pagefile", result.Ok ? "写入并校验通过（重启后生效）" : "写入未通过校验：" + result.Error);
+            AppLog.Info("pagefile", result.Ok
+                ? "写入结果=成功｜校验=通过｜生效时机=重启后"
+                : "写入结果=失败｜校验=未通过｜原因=" + result.Error);
 
             return new PageFileApplyResult(result.Ok, result.Error, Applied: true);
         }
         catch (Exception ex)
         {
             // 用户点「否」也走这里（Win32Exception: 操作已被用户取消）
-            AppLog.Warn("pagefile", "提权未执行：" + ex.Message);
+            AppLog.Catch("pagefile", "提权写入页面文件配置", ex);
             return new PageFileApplyResult(false, "没有拿到管理员授权，改动未执行。");
         }
         finally
@@ -276,7 +278,7 @@ public static class PageFileService
 
         try
         {
-            AppLog.Info("pagefile", $"提权助手启动，清单：{manifestPath}");
+            AppLog.Info("pagefile", $"提权助手启动｜清单={manifestPath}");
 
             var task = JsonSerializer.Deserialize<PageFileTask>(File.ReadAllText(manifestPath));
 
@@ -301,7 +303,7 @@ public static class PageFileService
         }
         catch (Exception ex)
         {
-            AppLog.Exception("pagefile", ex, "写提权结果");
+            AppLog.Exception("pagefile", ex, "写提权结果文件");
         }
     }
 
@@ -336,7 +338,7 @@ public static class PageFileService
         }
         catch (Exception ex)
         {
-            AppLog.Exception("pagefile", ex, "写入 PagingFiles");
+            AppLog.Exception("pagefile", ex, "写入 PagingFiles 配置");
             return new PageFileResult(false, ex.Message);
         }
     }

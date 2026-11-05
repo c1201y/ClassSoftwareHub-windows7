@@ -41,14 +41,18 @@ public static class AnnounceService
     private static readonly HttpClient Http = Core.OfficialApi.Create(timeoutSeconds: 10);
 
     /// <summary>
-    /// 轮询专用客户端，超时压到 6 秒。
+    /// 轮询专用客户端。
     /// <para>
-    /// 轮询是后台循环，不是用户点出来的操作 —— 一个入口卡 10 秒、三个入口就是 30 秒，
-    /// 期间状态行一直显示「正在连接」，看起来就是「服务器连不上」。
-    /// 6 秒还没回应基本可以判这一个入口不通，换下一个更划算。
+    /// 在线状态依赖这一条链路：服务端 ann-poll 单次实测 2.8–6.0 秒（封禁查询、配置读取、
+    /// 注册表与消息两次存储读取）。原先的超时 6 秒正好落在该分布上沿，抖动一次即判整轮失败，
+    /// 随后按 15/30/60/120 秒退避，心跳变得稀疏，管理端在线窗口内看不到设备。
+    /// </para>
+    /// <para>
+    /// 放宽到 12 秒：正常抖动不再被当作断网；仍保留「超时就换下一个入口」的行为，
+    /// 单轮最坏耗时由入口数量决定，不会无限等待。
     /// </para>
     /// </summary>
-    private static readonly HttpClient PollHttp = Core.OfficialApi.Create(timeoutSeconds: 6);
+    private static readonly HttpClient PollHttp = Core.OfficialApi.Create(timeoutSeconds: 12);
 
     private static readonly object Gate = new();
 
@@ -113,7 +117,7 @@ public static class AnnounceService
         {
             if (!App.Settings.Current.AnnounceEnabled)
             {
-                AppLog.Info("announce", "喊话轮询未启用（设置开关关闭），不启动");
+                AppLog.Info("announce", "喊话轮询未启动｜原因=设置中未启用定期轮询");
                 return;
             }
             if (_running) return;
@@ -130,7 +134,7 @@ public static class AnnounceService
             _ = Task.Run(() => LoopAsync(token));
         }
 
-        AppLog.Begin("announce", $"启动喊话轮询（间隔 {App.Settings.Current.AnnounceIntervalSec}s）");
+        AppLog.Begin("announce", $"喊话轮询启动｜间隔={App.Settings.Current.AnnounceIntervalSec}s");
     }
 
     /// <summary>停止轮询（关掉开关时调）。正在播报的窗口不关，让它自然播完。</summary>
@@ -144,7 +148,7 @@ public static class AnnounceService
             try { _loopCts?.Cancel(); } catch { }
             _loopCts = null;
         }
-        AppLog.Info("announce", "喊话轮询已停止");
+        AppLog.Info("announce", "喊话轮询｜结果=已停止");
     }
 
     /// <summary>改了间隔档之后调一下：未运行则拉起，已运行则下一轮自然生效。</summary>
@@ -174,7 +178,7 @@ public static class AnnounceService
             catch (OperationCanceledException) { return; }
             catch (Exception ex)
             {
-                AppLog.Fail("announce", ex, "轮询循环意外异常");
+                AppLog.Fail("announce", ex, "轮询喊话消息");
                 lock (Gate) { _failStreak++; _backoffSec = 60; }
             }
         }
@@ -287,7 +291,7 @@ public static class AnnounceService
                     MarkOk(baseUrl);
                     if (msg is null)
                     {
-                        AppLog.Warn("announce", $"poll 200 但内容解不出来（长度 {body.Length}）");
+                        AppLog.Warn("announce", $"轮询响应无法解析｜HTTP=200｜响应长度={body.Length}");
                         return;
                     }
                     OnMessage(msg);
@@ -298,7 +302,7 @@ public static class AnnounceService
                 {
                     // 固定码广播方案下 poll 不应出现 403。真见到就是服务端语义变了 —— Warn 加退避，
                     // 但别把轮询停死（停了之后没人会去重新拉起来）。
-                    AppLog.Warn("announce", "poll 403：服务端拒绝本机（语义可能已变化）");
+                    AppLog.Warn("announce", "轮询被拒绝｜HTTP=403｜原因=服务端不认可本机（接口语义可能已变更）");
                     lock (Gate) { _backoffSec = 60; }
                     return;
                 }
@@ -309,7 +313,7 @@ public static class AnnounceService
                 }
 
                 // 其他 4xx：参数是我们自己拼的，重试也不会好，记一笔就回
-                AppLog.Warn("announce", $"poll 返回 {(int)resp.StatusCode}，本轮放弃");
+                AppLog.Warn("announce", $"轮询失败｜HTTP={(int)resp.StatusCode}｜处置=放弃本轮");
                 return;
             }
         }
@@ -324,9 +328,9 @@ public static class AnnounceService
                 _backoffSec = Math.Min(120, 15 * (1 << Math.Min(_failStreak, 3)));   // 15/30/60/120 封顶
                 if (_failStreak == 1 || _failStreak % 5 == 0)
                     AppLog.Warn("announce",
-                        $"所有入口均不可达（连续第 {_failStreak} 轮，试了 {tried}/{ShellConfig.SubmitEndpoints.Length} 个入口），"
-                        + $"退避 {_backoffSec}s"
-                        + (failures.Count > 0 ? "。逐条：" + string.Join("；", failures) : ""));
+                        $"轮询失败｜原因=全部入口不可达｜连续失败轮次={_failStreak}"
+                        + $"｜已尝试入口={tried}/{ShellConfig.SubmitEndpoints.Length}｜退避={_backoffSec}s"
+                        + (failures.Count > 0 ? "｜逐条=" + string.Join("；", failures) : ""));
             }
         }
     }
@@ -357,7 +361,7 @@ public static class AnnounceService
             {
                 if (_recentIds.Contains(msg.Id))
                 {
-                    AppLog.Info("announce", $"重复消息已忽略（{via}）id={msg.Id}");
+                    AppLog.Info("announce", $"喊话消息重复｜消息={msg.Id}｜来源通道={via}｜处置=忽略");
                     return;
                 }
                 _recentIds.Enqueue(msg.Id);
@@ -365,8 +369,8 @@ public static class AnnounceService
             }
         }
 
-        AppLog.Begin("announce", $"收到喊话（{via}）id={msg.Id} 长度={msg.Text.Length} 时长={msg.Duration}s"
-            + (string.IsNullOrEmpty(msg.From) ? "" : " 有署名"));
+        AppLog.Begin("announce", $"收到喊话｜消息={msg.Id}｜来源通道={via}｜正文长度={msg.Text.Length}"
+            + $"｜时长={msg.Duration}s｜署名={(string.IsNullOrEmpty(msg.From) ? "无" : msg.From)}");
 
         // ⛔ 不要加「UI 调度器是否已抓到」之类的闸门：只开局域网接收、没开服务器轮询的
         //    教室机会因此丢掉全部消息（默认设置正是这样）。Avalonia 的 Dispatcher.UIThread
@@ -380,7 +384,7 @@ public static class AnnounceService
             }
             catch (Exception ex)
             {
-                AppLog.Fail("announce", ex, "弹出喊话窗失败");
+                AppLog.Fail("announce", ex, "显示喊话窗口");
             }
         });
     }
@@ -406,8 +410,8 @@ public static class AnnounceService
         var codes = targetCodes?.Where(c => !string.IsNullOrWhiteSpace(c)).Distinct().ToList() ?? new List<string>();
         if (codes.Count == 0) return new SendResult(false, "no_target", 0, 0);
 
-        AppLog.Begin("announce", $"发送喊话 长度={text.Length} 时长={duration}s 目标 {codes.Count} 台"
-            + (string.IsNullOrWhiteSpace(from) ? "" : " 有署名"));
+        AppLog.Begin("announce", $"发送喊话｜正文长度={text.Length}｜时长={duration}s｜目标设备数={codes.Count}"
+            + $"｜署名={(string.IsNullOrWhiteSpace(from) ? "无" : from)}");
 
         var devices = 0;
         var failed = new List<string>();
@@ -420,11 +424,12 @@ public static class AnnounceService
 
         if (failed.Count == 0)
         {
-            AppLog.Done("announce", $"发送成功，将送达 {devices} 台设备");
+            AppLog.Done("announce", $"发送喊话成功｜送达设备数={devices}");
             return new SendResult(true, "", devices, 0);
         }
 
-        AppLog.Warn("announce", $"发送完成：成功 {codes.Count - failed.Count} 台，失败 {failed.Count} 台（{string.Join(", ", failed)}）");
+        AppLog.Warn("announce", $"发送喊话部分失败｜成功={codes.Count - failed.Count}｜失败={failed.Count}"
+            + $"｜失败目标={string.Join(", ", failed)}");
         return new SendResult(failed.Count < codes.Count, failed[0], devices, failed.Count);
     }
 
@@ -524,16 +529,16 @@ public static class AnnounceService
                 if ((int)resp.StatusCode is >= 200 and < 300)
                 {
                     ShellConfig.RememberSubmitEndpoint(baseUrl);
-                    AppLog.Step("announce", "已在服务端登记本机的保存关系");
+                    AppLog.Step("announce", "服务端登记完成｜内容=本机保存关系");
                     return true;
                 }
 
-                AppLog.Warn("announce", $"服务端登记返回 {(int)resp.StatusCode}（未实现时属正常）");
+                AppLog.Warn("announce", $"服务端登记未成功｜HTTP={(int)resp.StatusCode}｜说明=服务端未实现该接口时属预期");
                 return false;
             }
             catch (Exception ex)
             {
-                AppLog.Warn("announce", "服务端登记失败：" + ex.Message);
+                AppLog.Catch("announce", "服务端登记保存关系", ex);
             }
         }
 
@@ -615,7 +620,7 @@ public static class AnnounceService
             }
             catch (Exception ex)
             {
-                AppLog.Warn("announce", "服务端解除登记失败：" + ex.Message);
+                AppLog.Catch("announce", "服务端解除登记", ex);
             }
         }
 

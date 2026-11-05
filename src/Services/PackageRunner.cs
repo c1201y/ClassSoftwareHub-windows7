@@ -280,7 +280,8 @@ public static class PackageRunner
                             : "安装程序已启动。");
 
                 Core.AppLog.Info("package",
-                    $"启动第三方安装程序「{task.Title}」· 自动删除={autoDelete} · 已删除={result.SourceDeleted}");
+                    $"启动第三方安装程序｜任务={task.Title}｜自动删除源文件={autoDelete}"
+                    + $"｜源文件已删除={result.SourceDeleted}");
                 return;
             }
 
@@ -299,13 +300,14 @@ public static class PackageRunner
                 : $"已解压至 {extracted.Directory}");
 
             Core.AppLog.Done("package",
-                $"解压完成「{task.Title}」→ {extracted.Directory} · 自动删除={autoDelete} · 已删除={deleted}");
+                $"解压完成｜任务={task.Title}｜输出目录={extracted.Directory}"
+                + $"｜自动删除源文件={autoDelete}｜源文件已删除={deleted}");
 
             // 解压本来就是为了去那个目录拿东西，所以默认直接把它打开（可在任务页取消勾选）
             if (autoOpen)
             {
                 App.MainWindow?.RevealFile(extracted.Directory);
-                Core.AppLog.Info("package", $"已按开关自动打开产物目录：{extracted.Directory}");
+                Core.AppLog.Info("package", $"打开产物目录｜触发=设置项开关｜目录={extracted.Directory}");
             }
         }
         catch (Exception ex)
@@ -350,8 +352,8 @@ public static class PackageRunner
         }
         catch (Exception ex)
         {
-            Core.AppLog.Info("package",
-                $"解压失败后清理半截产物未能完成（不影响主流程）：{dir} · {ex.Message}");
+            Core.AppLog.Warn("package",
+                $"清理半截产物｜结果=失败｜目录={dir}｜原因={ex.GetType().Name}: {ex.Message}｜影响=不阻塞主流程");
         }
     }
 }

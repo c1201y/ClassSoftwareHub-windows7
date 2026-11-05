@@ -124,10 +124,18 @@ public sealed partial class SettingsPage : PageBase
             _ => 0
         };
 
-        // Win7 没有系统材质可上，实际效果一律是壁纸模糊（磨砂），说明写清楚免得误解。
+        // Win7 / Win10 1803 以前都没有系统材质可上，实际效果是壁纸模糊（磨砂），说明写清楚免得误解。
+        // 系统「透明效果」被关掉时同理：DWM 接受背板却一笔都不画，窗口只会透出清晰壁纸 ——
+        // 这种环境会直接退纯色（不再拿磨砂顶替），这里必须点明去哪儿恢复。
         BackdropCard.Description = OsInfo.IsWindows7
             ? "Win7 不支持系统背景材质（云母/亚克力），主界面固定使用壁纸模糊的磨砂底色。"
-            : "主界面、常用工具浮窗与截图编辑窗都随此项；截图框选层与钉图不参与。";
+            : OsInfo.IsWindows10OrLater && !OsInfo.SupportsAcrylicBlur
+                ? "当前系统版本（Win10 1803 以前）没有云母/亚克力，主界面使用壁纸模糊的磨砂底色。"
+                : !OsInfo.TransparencyEffectsEnabled
+                    ? "系统「透明效果」已关闭，云母/亚克力不会显示，主界面退回纯色。"
+                      + "到「系统功能 → 关闭透明效果」关掉那一项即可恢复，"
+                      + "或去 设置 → 个性化 → 颜色 → 透明效果 打开。"
+                    : "主界面、常用工具浮窗与截图编辑窗都随此项；截图框选层与钉图不参与。";
         TopMostSwitch.IsChecked = s.AlwaysOnTop;
         AutoStartSwitch.IsChecked = s.AutoStart;
         MinimizeSwitch.IsChecked = s.MinimizeOnStart;
@@ -300,7 +308,7 @@ public sealed partial class SettingsPage : PageBase
         }
         catch (Exception ex)
         {
-            Core.AppLog.Exception("echo", ex, "回声洞投稿失败");
+            Core.AppLog.Exception("echo-cave", ex, "提交回声洞投稿");
             ok = false;
             message = "提交失败：" + ex.Message;
         }
@@ -370,7 +378,7 @@ public sealed partial class SettingsPage : PageBase
         if (target is null)
         {
             try { RootScroll.Offset = new Vector(0, 0); } catch { }
-            AppLog.Info("settings", $"链接指向的分组认不出「{section}」，已停在页面顶部");
+            AppLog.Info("ui", $"设置跳转｜结果=未识别分组｜分组={section}｜处置=停在页面顶部");
             return;
         }
 
@@ -1526,14 +1534,14 @@ public sealed partial class SettingsPage : PageBase
             var r = await FilePickerCompat.PickFolderAsync(top, "选择下载文件夹");
             if (r.Error is not null)
             {
-                Core.AppLog.Warn("download", "选下载文件夹被拒：" + r.Error);
+                Core.AppLog.Warn("download", "选择下载目录｜结果=被拒绝｜原因=" + r.Error);
                 return null;
             }
             return r.Files.Count > 0 ? r.Files[0] : null;
         }
         catch (Exception ex)
         {
-            Core.AppLog.Warn("download", "选择下载文件夹失败：" + ex.Message);
+            Core.AppLog.Catch("download", "选择下载目录", ex);
             return null;
         }
     }
@@ -1558,7 +1566,7 @@ public sealed partial class SettingsPage : PageBase
     {
         if (Core.BuildIdentity.IsOfficial)
         {
-            LicenseCard.Description = "官方发布版：在线服务已启用。";
+            LicenseCard.Description = "已通过官方激活，永久可用。";
             return;
         }
 
@@ -1580,7 +1588,8 @@ public sealed partial class SettingsPage : PageBase
     {
         try
         {
-            if (Services.License.LicenseStore.IsActivated)
+            // 官方发布版与已激活的自行编译版都只展示状态，不再要求输入激活码
+            if (Core.BuildIdentity.IsOfficial || Services.License.LicenseStore.IsActivated)
             {
                 await new ContentDialog
                 {
@@ -1603,12 +1612,16 @@ public sealed partial class SettingsPage : PageBase
         }
         catch (Exception ex)
         {
-            Core.AppLog.Fail("license", ex, "打开激活对话框失败");
+            Core.AppLog.Fail("license", ex, "打开激活对话框");
         }
     }
 
     private string RefreshLicenseCardText()
     {
+        // 官方发布版：签名在编译期写入，无到期时间，也不做设备绑定
+        if (Core.BuildIdentity.IsOfficial)
+            return "已通过官方激活，永久可用。\n\n在线服务（投稿、反馈、回声洞、教室喊话、下载加速）全部启用。";
+
         var expiry = Services.License.LicenseStore.ExpiryText;
         var text = expiry is null
             ? "本机已激活正版授权，在线服务可用（长期有效）。"

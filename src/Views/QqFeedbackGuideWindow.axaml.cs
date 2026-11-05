@@ -67,7 +67,7 @@ public sealed partial class QqFeedbackGuideWindow : Window
         }
         catch (Exception ex)
         {
-            ScreenCapture.Log("Q群反馈流程窗显示失败: " + ex.Message);
+            Core.AppLog.Catch("ui", "显示 QQ 反馈引导窗", ex);
         }
     }
 
@@ -83,7 +83,7 @@ public sealed partial class QqFeedbackGuideWindow : Window
         var w = _instance;
         _instance = null;
         try { w?.Close(); } catch { }
-        Core.AppLog.Info("exit", "QQ反馈窗实例已请求 Close");
+        Core.AppLog.Info("window", "窗口关闭请求｜窗口=QQ 反馈引导｜触发=程序化 Close");
     }
 
     // ── 窗口本身 ─────────────────────────────────────────────────────────
@@ -116,7 +116,7 @@ public sealed partial class QqFeedbackGuideWindow : Window
             //    中断整条退出流程，进程留在任务管理器里（同 ToolPaletteWindow）。
             Closing += (_, args) =>
             {
-                Core.AppLog.Info("exit", $"QQ反馈窗 Closing: IsExiting={App.IsExiting}");
+                Core.AppLog.Info("window", $"窗口关闭请求｜窗口=QQ 反馈引导｜IsExiting={App.IsExiting}");
                 if (App.IsExiting) return;
                 args.Cancel = true;
                 HideSelf();
@@ -124,7 +124,7 @@ public sealed partial class QqFeedbackGuideWindow : Window
         }
         catch (Exception ex)
         {
-            ScreenCapture.Log("Q群反馈流程窗初始化失败: " + ex.Message);
+            Core.AppLog.Catch("ui", "初始化 QQ 反馈引导窗", ex);
         }
     }
 
@@ -149,7 +149,7 @@ public sealed partial class QqFeedbackGuideWindow : Window
         }
         catch (Exception ex)
         {
-            Core.AppLog.Debug("port", "[qq-guide] 尺寸设置失败: " + ex.Message);
+            Core.AppLog.Catch("ui", "设置 QQ 反馈引导窗尺寸", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -184,7 +184,7 @@ public sealed partial class QqFeedbackGuideWindow : Window
         }
         catch (Exception ex)
         {
-            ScreenCapture.Log("Q群反馈流程窗激活失败: " + ex.Message);
+            Core.AppLog.Catch("ui", "激活 QQ 反馈引导窗", ex);
         }
     }
 
@@ -222,7 +222,7 @@ public sealed partial class QqFeedbackGuideWindow : Window
         catch (Exception ex)
         {
             // 图读不到就空着，别把整扇窗搞崩（同 FeedbackPage.LoadIcon 的处理）
-            Core.AppLog.Debug("port", "[qq-guide] 截图加载失败 " + fileName + ": " + ex.Message);
+            Core.AppLog.Catch("ui", "加载 QQ 反馈引导截图｜资源=" + fileName, ex, Core.LogLevel.Debug);
         }
     }
 

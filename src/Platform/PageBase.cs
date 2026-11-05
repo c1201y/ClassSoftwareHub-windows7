@@ -72,7 +72,7 @@ public static class Navigation
                 }
                 catch (Exception ex)
                 {
-                    Services.ScreenCapture.Log("[nav] OnNavigatedTo 失败: " + ex);
+                    Core.AppLog.Exception("ui", ex, $"页面进入回调 OnNavigatedTo｜页面={page.GetType().Name}");
                 }
             }
             else

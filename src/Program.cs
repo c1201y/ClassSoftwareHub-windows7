@@ -52,6 +52,11 @@ internal static class Program
     [STAThread]
     public static void Main(string[] args)
     {
+        // ⛔ 必须是 Main 的第一句：CLR 只在**进程启动之前**读崩溃转储开关，
+        //    晚一步就再也补不上了。没有注入时这里会带开关重启自身并让本进程退出。
+        //    理由见 CrashDump.TryHandoff（托管崩溃走 CLR 自己的 FailFast，WER 抓不到）。
+        if (Platform.CrashDump.TryHandoff(args)) return;
+
         // 排障：数学排版离屏自检（--mathshot <输出 png>）。开主界面之前就跑完并退出，
         // 用来核对分数/上标/根号的基线位置（见 Platform/MathShot）。只用于开发验证。
         var shotAt = Array.FindIndex(args, a => a.Equals("--mathshot", StringComparison.OrdinalIgnoreCase));
@@ -77,6 +82,22 @@ internal static class Program
         Platform.OsInfo.SimulateWin7 =
             Array.Exists(args, a => a.Equals("--simulate-win7", StringComparison.OrdinalIgnoreCase))
             || Environment.GetEnvironmentVariable("CSH_SIMULATE_WIN7") == "1";
+
+        // 排障：强制按 Win10 分支跑（Win11 开发机上验证 Backdrop 的 Win10 亚克力链路，
+        // 见 OsInfo.SimulateWin10）。与 --simulate-win7 互斥，同时给时以 Win7 为准。
+        Platform.OsInfo.SimulateWin10 =
+            Array.Exists(args, a => a.Equals("--simulate-win10", StringComparison.OrdinalIgnoreCase))
+            || Environment.GetEnvironmentVariable("CSH_SIMULATE_WIN10") == "1";
+
+        // ⛔ 原生崩溃转储必须在这里注册，排在**任何可能崩的代码之前**。
+        //    现场反馈的「程序有时候直接没了」不属于 CLR 的异常通道（访问冲突 / 栈溢出 /
+        //    FailFast 都是进程当场结束，钩子来不及跑），只能靠 WER 在进程死亡时写内存转储。
+        //    注册本身只写注册表，不注入进程内钩子 —— 理由见 CrashDump 类注释。
+        Platform.CrashDump.Init(args);
+
+        // 排障：故意制造一次访问冲突，验证上面的转储链路在真机上确实会落地。
+        // 仅在显式传 --test-crash 时触发，正式使用不会走到。
+        Platform.CrashDump.RunSelfTestIfRequested(args);
 
         // ⚠️ Win7 抽号页随机灰矩形问题（真机复核确认）：
         //   现象：Win7 抽号页出现位置随机的浅灰矩形残影，每帧形状不同。

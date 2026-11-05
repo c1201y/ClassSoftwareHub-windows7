@@ -107,7 +107,7 @@ public static class ThemeBrush
         try
         {
             var sb = new System.Text.StringBuilder();
-            sb.Append(DateTime.Now.ToString("HH:mm:ss.fff")).Append(" [").Append(tag).Append("] ");
+            sb.Append('[').Append(tag).Append("] ");
             sb.Append("el=").Append(el?.GetType().Name ?? "null");
             sb.Append(" elTheme=").Append(el?.ActualThemeVariant.ToString() ?? "-");
             try
@@ -130,7 +130,7 @@ public static class ThemeBrush
             sb.Append(" text=#").Append(b.Color.A.ToString("X2")).Append(b.Color.R.ToString("X2")).Append(b.Color.G.ToString("X2")).Append(b.Color.B.ToString("X2"));
             var c = (SolidColorBrush)Get(el, "CardBackgroundFillColorDefaultBrush");
             sb.Append(" card=#").Append(c.Color.A.ToString("X2")).Append(c.Color.R.ToString("X2")).Append(c.Color.G.ToString("X2")).Append(c.Color.B.ToString("X2"));
-            Core.AppLog.Info("theme", sb.ToString());
+            Core.AppLog.Info("theme", "主题解析｜" + sb.ToString());
         }
         catch { }
     }

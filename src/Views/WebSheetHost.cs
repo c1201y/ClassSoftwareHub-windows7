@@ -200,15 +200,6 @@ internal sealed class WebSheetHost : IDisposable
         catch { }
     }
 
-    public void SetZoom(double zoom)
-    {
-        try
-        {
-            if (_controller is { } c) c.ZoomFactor = Math.Clamp(zoom, 0.5, 3.0);
-        }
-        catch { }
-    }
-
     public void Dispose()
     {
         if (_disposed) return;

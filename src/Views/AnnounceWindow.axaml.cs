@@ -87,7 +87,7 @@ public sealed partial class AnnounceWindow : Window
             // 必须清掉 _current：Start() 抛异常时窗口未打开，但 _current 已指向它；
             // 留着会使 IsShowing 恒为真，后续喊话都只会 Replace 到不存在的窗口上。
             _current = null;
-            AppLog.Fail("announce", ex, "打开喊话窗失败");
+            AppLog.Fail("announce", ex, "显示喊话窗口");
         }
     }
 
@@ -189,7 +189,7 @@ public sealed partial class AnnounceWindow : Window
         else
         {
             // 「没声音」的第一嫌疑人就是安静模式：日志里留一行，省得再猜
-            AppLog.Info("announce", "安静模式开着，本次不播提示音");
+            AppLog.Info("announce", "提示音跳过｜原因=安静模式已开启");
         }
 
         _countdown.Start();
@@ -680,6 +680,6 @@ public sealed partial class AnnounceWindow : Window
         try { Tts.Cancel(); } catch { }
 
         var played = Math.Max(0, _durationSec - Math.Max(0, _remainSec));
-        AppLog.Done("announce", "喊话展示结束", TimeSpan.FromSeconds(played));
+        AppLog.Done("announce", $"喊话展示结束｜时长={played}s", TimeSpan.FromSeconds(played));
     }
 }

@@ -149,8 +149,14 @@ public sealed partial class ToolSidebarWindow : Window
     /// <summary>滑入每帧间隔（毫秒）。15ms ≈ 66fps，SetWindowPos 只改坐标，代价很低。</summary>
     private const int SlideFrameMs = 15;
 
-    /// <summary>收起时面板先原地淡出的时长（毫秒），淡完再变身成竖线 —— 竖线始终钉在原位，不滑。</summary>
+    /// <summary>收起时"原地淡出"的时长（毫秒）—— 只在没有窗口可滑的兜底路径上用。</summary>
     private const double CollapseFadeMs = 110;
+
+    /// <summary>
+    /// 收起滑出时长（毫秒）。比展开（<see cref="ExpandSlideMs"/>）略短：收起要利落，
+    /// 拖太久面板会一直糊在画面边上。
+    /// </summary>
+    private const double CollapseSlideMs = 200;
 
     /// <summary>
     /// 底部按钮那一排在竖条里的高度增量 —— <b>五颗全显</b>时的经验值。
@@ -180,9 +186,12 @@ public sealed partial class ToolSidebarWindow : Window
     private const int FlatRowPadDip = 24;               // 横条里每一行的左右内边距 + 余量
 
     // ── 展开样式的第二套：图标网格（grid）───────────────────────
-    // 尺寸全部按 dip 写死，算式在 GridPanelDip() 里，改这里就整块跟着变。
-    private const int GridCellWDip = 60;                // 每颗格子的宽
-    private const int GridCellHDip = 60;                // 每颗格子的高（图标 + 短名）
+    // 尺寸全部按 dip 写，算式在 GridPanelDip() 里，改这里就整块跟着变。
+    // 格子边长是**用户可调**的一项（SidebarGridCellSize）：格子是正方形，
+    //   宽高共用同一个数，面板宽高由它乘列数 / 行数推出来（见 GridCellDip）。
+    private const int GridCellDefaultDip = 60;          // 格子边长的默认值（与老版本观感一致）
+    private const int GridCellMinDip = 48;              // 能缩到多小（再小图标与两字短名挤不下）
+    private const int GridCellMaxDip = 96;              // 能放到多大（再大贴上下边时 8 列会超屏）
     private const int GridGapDip = 6;                   // 格子之间的缝
     private const int GridPadDip = 8;                   // 面板四周内边距（= GridPanel 的 Margin）
     private const int GridHeaderDip = 26;               // 顶条（标题 + 四颗小图标键）的高度
@@ -193,6 +202,11 @@ public sealed partial class ToolSidebarWindow : Window
     private const int GridRowsSide = 2;                 // 贴左右边时一页几行
     private const int GridColsFlat = 8;                 // 贴上下边时一页几列（横条宽，一行铺开）
     private const int GridRowsFlat = 1;                 // 贴上下边时一页几行
+
+    // 翻页过渡：当前页淡出 → 换内容 → 新页淡入（见 GoToPage / FadeGridTo）。
+    // 只动 Opacity：教室里那批老机器滚不动逐帧位移，透明度是最廉价的一种。
+    private const double GridFadeOutMs = 70;
+    private const double GridFadeInMs = 100;
 
     // ── 收起样式的第二套：细竖线（line）─────────────────────────
     // 窗口厚度不能给到太细：RoundedCorners 的圆角半径固定 8dip，
@@ -324,6 +338,12 @@ public sealed partial class ToolSidebarWindow : Window
     /// <summary>滑入批次号：作废已经排上的那一拍（窗口被别的路挪过之后，计时器不能再把它拖回去）。</summary>
     private int _slideEpoch;
 
+    /// <summary>最近一次滑入的目标落点：收起打断滑入时用来把面板先摆正（见 <see cref="Collapse"/>）。</summary>
+    private PixelPoint _slideTarget;
+
+    /// <summary><see cref="_slideTarget"/> 是否有效（没滑过就没有目标）。</summary>
+    private bool _hasSlideTarget;
+
     /// <summary>展开面板里的工具按钮（按「侧边布局」的模块清单动态生成，见 BuildToolButtons）。</summary>
     private readonly List<Button> _toolButtons = new();
 
@@ -336,6 +356,18 @@ public sealed partial class ToolSidebarWindow : Window
 
     /// <summary>网格当前在第几页（0 起）。模块清单变少时会被 <see cref="RenderGridPage"/> 归零。</summary>
     private int _gridPage;
+
+    /// <summary>网格翻页过渡用的按帧计时器（淡出 / 淡入共用，一次只有一个）。</summary>
+    private DispatcherTimer? _gridFadeTimer;
+
+    /// <summary>翻页过渡的批次号：新的翻页请求 / 取消会作废上一次还没跑完的那一段。</summary>
+    private int _gridFadeEpoch;
+
+    /// <summary>过渡收尾时要换到哪一页（-1 = 没有待换的页）。淡出期间连点只改这里，不重启动画。</summary>
+    private int _gridFadeTarget = -1;
+
+    /// <summary>过渡是不是正处在"淡出"这一段：只有这一段才适合把连点合并掉。</summary>
+    private bool _gridFadingOut;
 
     /// <summary>收起条现在算不算"悬停中"（鼠标 / 手指搭在上面）。两套收起样式都用它换色。</summary>
     private bool _hover;
@@ -501,10 +533,10 @@ public sealed partial class ToolSidebarWindow : Window
 
         Configure();
 
-        Core.AppLog.Info("exit", $"侧边栏实例已建 edge={_edge}");
+        Core.AppLog.Info("window", $"窗口已创建｜窗口=工具侧边栏｜贴边={_edge}");
         Closed += (_, _) =>
         {
-            Core.AppLog.Info("exit", $"侧边栏 Closed edge={_edge}");
+            Core.AppLog.Info("window", $"窗口已关闭｜窗口=工具侧边栏｜贴边={_edge}");
             try { _hitPad?.Dispose(); } catch { }
             _hitPad = null;
         };
@@ -540,7 +572,7 @@ public sealed partial class ToolSidebarWindow : Window
             try { w.Close(); } catch { }
         }
         _pool.Clear();
-        Core.AppLog.Info("exit", "侧边栏实例已请求 Close");
+        Core.AppLog.Info("window", "窗口关闭请求｜窗口=工具侧边栏｜触发=程序化 Close");
     }
 
     /// <summary>
@@ -737,6 +769,29 @@ public sealed partial class ToolSidebarWindow : Window
 
     // ── 网格面板的排版参数（都由上面那几个常量算出来）──────────
 
+    /// <summary>
+    /// 每颗格子的边长（dip）—— 宽高**同一个值**，因为格子是正方形（图标在上、短名在下）。
+    ///
+    /// <para>
+    /// 「调整大小」只需要这一个数：面板宽 = 列数 × 它，面板高 = 行数 × 它 + 固定条，
+    /// 所以设置页只放了一根「网格图标大小」滑杆，不用分别调宽高。
+    /// </para>
+    ///
+    /// <para>
+    /// ⚠️ 存档里的值一律夹到 <see cref="GridCellMinDip"/>~<see cref="GridCellMaxDip"/>：
+    /// 手改存档、或以后调小上限，都不该让面板算出负数或撑破屏幕。
+    /// </para>
+    /// </summary>
+    private static int GridCellDip
+    {
+        get
+        {
+            var v = App.Settings.Current.SidebarGridCellSize;
+            if (v <= 0) v = GridCellDefaultDip;           // 老存档没有这一项 → 0，用默认值
+            return Math.Clamp(v, GridCellMinDip, GridCellMaxDip);
+        }
+    }
+
     /// <summary>一页几列：贴左右边 4 列、贴上下边 8 列（横条宽，一行铺开才不浪费）。</summary>
     private int GridCols => IsFlat ? GridColsFlat : GridColsSide;
 
@@ -764,11 +819,12 @@ public sealed partial class ToolSidebarWindow : Window
     {
         var cols = GridCols;
         var rows = GridRows;
+        var cell = GridCellDip;
 
-        var w = cols * GridCellWDip + (cols - 1) * GridGapDip + GridPadDip * 2;
+        var w = cols * cell + (cols - 1) * GridGapDip + GridPadDip * 2;
         var h = GridPadDip * 2
                 + GridHeaderDip + GridSectionGapDip
-                + rows * GridCellHDip + (rows - 1) * GridGapDip + GridSectionGapDip
+                + rows * cell + (rows - 1) * GridGapDip + GridSectionGapDip
                 + (GridPages > 1 ? GridDotsDip + GridSectionGapDip : 0)
                 + GridQuickDip;
 
@@ -819,7 +875,7 @@ public sealed partial class ToolSidebarWindow : Window
             CanResize = false;
 
             // 退出追踪：上游原版挂在 AppWindow.Closing 上；本仓库无 AppWindow，挂 Avalonia 窗口的 Closing。
-            Closing += (_, _) => Core.AppLog.Info("exit", $"侧边栏 Closing edge={_edge}");
+            Closing += (_, _) => Core.AppLog.Info("window", $"窗口关闭请求｜窗口=工具侧边栏｜贴边={_edge}");
 
             // 亚克力底（模糊背后的画面）；机器不支持的话会自动退回纯色，不会崩。
             // 材质要等窗口真显示出来再上（Present 里走 Backdrop.Apply），构造期拿不到 HWND。
@@ -871,7 +927,7 @@ public sealed partial class ToolSidebarWindow : Window
                 // 换主题不会自己跟着变 —— 这里重刷一遍（分页点只在真的显示着网格面板时才重建）。
                 _hover = false;
                 UpdateCollapsedLook();
-                if (UseGridStyle && GridPanel.IsVisible) RenderGridPage();
+                if (UseGridStyle && GridPanel.IsVisible) RenderGridPageNow();
                 // 窗口那圈边的颜色也是跟着深浅色走的，换主题得重画一次
                 try
                 {
@@ -885,7 +941,7 @@ public sealed partial class ToolSidebarWindow : Window
         }
         catch (Exception ex)
         {
-            Log("初始化失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "初始化工具侧栏", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -954,7 +1010,7 @@ public sealed partial class ToolSidebarWindow : Window
         }
         catch (Exception ex)
         {
-            Log("显示失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "显示工具侧栏", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -1055,6 +1111,7 @@ public sealed partial class ToolSidebarWindow : Window
     private void ExpandInPlace()
     {
         SetPanelOpacity(0f);
+        CancelGridFade();                                 // 上次翻页可能停在半透明：展开前先把网格归 1
 
         PixelPoint target, start;
         int width, height;
@@ -1070,12 +1127,12 @@ public sealed partial class ToolSidebarWindow : Window
         }
         catch (Exception ex)
         {
-            Log("展开落位失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "展开落位", ex, Core.LogLevel.Debug);
             FadePanelOpacity(1, ExpandFadeMs);            // 兜底：至少把内容放出来
             return;
         }
 
-        Log($"展开滑入：{start.X},{start.Y} → {target.X},{target.Y}（{width}×{height}，{SlideFrameMs}ms/帧）");
+        Log($"侧栏展开｜起点={start.X},{start.Y}｜终点={target.X},{target.Y}｜尺寸={width}x{height}｜帧间隔={SlideFrameMs}ms");
         SlideWindow(start, target);
         FadePanelOpacity(1, ExpandFadeMs);
     }
@@ -1084,28 +1141,46 @@ public sealed partial class ToolSidebarWindow : Window
     {
         _idle.Stop();
         StopOutsideWatch();                               // 收起来就不用再看前台窗口了
-        StopSlide();                                      // 滑入未完成即收起：停在原地，不再继续移动
+        CancelGridFade();                                 // 翻页过渡就地作废，别把半透明的网格留到下次展开
 
         // animate=false 用在"要立刻消失"的场合（截图前、刚出现时），那种必须当帧就收干净。
         if (!_expanded || !ExpandedView.IsVisible || !animate)
         {
-            // 淡出已经在跑：这一次是重复请求（Deactivated + 进程内按下钩子最常撞在一起）。
-            // 直接 FinishCollapse 会跳过淡出 —— 面板瞬间缩成线、竖线换位，表现为位置跳变。
+            // 收起动画在跑：这一次是重复请求（Deactivated + 进程内按下钩子最常撞在一起）。
+            // 既不重复收、也**不能 StopSlide** —— 把滑出掐掉就没人来收尾了，
+            // 面板会永远停在地板上（_collapsing 一直为真，后面所有收起请求都被吞掉）。
             if (_collapsing) return;
 
+            StopSlide();
             _expanded = false;
             FinishCollapse(anchor: animate);              // 用户触发的收起要锚在面板当前位置；"刚出现/截图"那条不动位置
             return;
         }
 
+        // 展开滑入还没走完就收起：先把它摆到展开落点再收。
+        // 拿滑动中途的位置当锚点会算出偏小的沿边比例（贴上下边时尤其明显），竖线就落到面板角上。
+        if (_slideTimer is not null && _hasSlideTarget) MoveWin(Hwnd(), _slideTarget);
+        StopSlide();
+
         _expanded = false;                                // 先立旗：避免收起期间再次触发自动收起
         _collapsing = true;
         var epoch = ++_collapseEpoch;
 
-        // 锚定式收起：面板在原地淡出，然后一次变身成竖线。窗口外边缘全程不动，竖线不会飞。
+        // 收起 = 整个窗口往贴着的那条边**滑出去**（跟展开滑入同一条路，方向相反），
+        // 滑到屏幕外再真收：这样"面板变成竖线"那一下发生在屏幕外，用户看不到，
+        // 抓手随后淡入接上。没有窗口可滑（句柄还没就绪）时才退回原地淡出。
+        if (SlideOutToEdge(() =>
+            {
+                if (epoch != _collapseEpoch) return;      // 又被展开/再次收起打断了
+                _collapsing = false;
+                if (_expanded) { FadePanelOpacity(1, ExpandFadeMs); return; }
+                FinishCollapse(fadeIn: true, anchor: true);
+            }))
+            return;
+
         FadePanelOpacity(0, CollapseFadeMs, () =>
         {
-            if (epoch != _collapseEpoch) return;          // 又被展开/再次收起打断了
+            if (epoch != _collapseEpoch) return;
             _collapsing = false;
             if (_expanded) { FadePanelOpacity(1, ExpandFadeMs); return; }
             FinishCollapse(fadeIn: true, anchor: true);
@@ -1117,7 +1192,7 @@ public sealed partial class ToolSidebarWindow : Window
     /// 真收：换回抓手 + 落位。中途用户又展开了就别收（_expanded 已被置回 true）。
     /// </summary>
     /// <param name="fadeIn">
-    /// true = 竖线淡入（走收起动画那条路用它：面板刚在原地淡出，小条紧跟着淡入比"啪一下出现"自然）。
+    /// true = 竖线淡入（走收起动画那条路用它：面板刚滑出屏幕，小条淡入比"啪一下出现"自然）。
     /// false = 当帧就位（截图前、窗口刚出现时那种要立刻收干净的场合，不能有任何可见动画）。
     /// </param>
     /// <param name="anchor">
@@ -1149,7 +1224,7 @@ public sealed partial class ToolSidebarWindow : Window
         }
         catch (Exception ex)
         {
-            Log("收尾落位失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "收尾落位", ex, Core.LogLevel.Debug);
         }
 
         if (fadeIn) FadePanelOpacity(1, 90);
@@ -1212,7 +1287,7 @@ public sealed partial class ToolSidebarWindow : Window
         }
         catch (Exception ex)
         {
-            Log("面板透明度过渡失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "面板透明度过渡", ex, Core.LogLevel.Debug);
             Panel.Opacity = to;
             done?.Invoke();
         }
@@ -1241,6 +1316,48 @@ public sealed partial class ToolSidebarWindow : Window
     }
 
     /// <summary>
+    /// 沿"往屏幕外"的方向把点挪开 <paramref name="distance"/> 像素（贴哪条边就往哪边外推）。
+    /// 展开滑入的起点、收起滑出的终点都靠它，两边方向正好相反。
+    /// </summary>
+    private PixelPoint OutwardOffset(PixelPoint from, int distance) => _edge switch
+    {
+        "left" => new PixelPoint(from.X - distance, from.Y),
+        "right" => new PixelPoint(from.X + distance, from.Y),
+        "top" => new PixelPoint(from.X, from.Y - distance),
+        _ => new PixelPoint(from.X, from.Y + distance)
+    };
+
+    /// <summary>
+    /// 收起滑出：整个窗口往贴着的那条边推出去，滑完交给 <paramref name="done"/> 收尾。
+    ///
+    /// <para>
+    /// 必须推到**整块窗口都在屏幕外**（距离 = 当前厚度 + 2px 余量），而不是只推"展开宽度 − 收起宽度"：
+    /// 否则滑完还剩一条展开态的窄边贴在屏幕上，紧接着又被 Resize 成抓手 ——
+    /// 肉眼就是"没滑出去就突然变身"。推到全出去之后，"面板→竖线"那一下发生在屏幕外，
+    /// 用户看到的是"面板滑走 → 抓手淡入"。
+    /// </para>
+    /// <para>
+    /// 返回 false = 没有窗口可滑（句柄没就绪 / 起点终点重合），调用方退回原地淡出。
+    /// </para>
+    /// </summary>
+    private bool SlideOutToEdge(Action done)
+    {
+        StopSlide();
+
+        var hwnd = Hwnd();
+        if (hwnd == IntPtr.Zero) return false;
+
+        var from = WinPos();
+        var size = WinSizePx();
+        var thickness = IsFlat ? size.Height : size.Width;
+        if (thickness <= 0) return false;
+
+        var to = OutwardOffset(from, thickness + 2);
+        SlideWindow(from, to, CollapseSlideMs, done);
+        return true;
+    }
+
+    /// <summary>
     /// 把窗口从 <paramref name="from"/> 缓出地挪到 <paramref name="to"/>（只挪位置，不改尺寸）。
     ///
     /// <para>
@@ -1253,6 +1370,8 @@ public sealed partial class ToolSidebarWindow : Window
     private void SlideWindow(PixelPoint from, PixelPoint to, double ms = ExpandSlideMs, Action? done = null)
     {
         StopSlide();
+        _slideTarget = to;                                // 收起打断滑入时，先摆到这里再收（见 Collapse）
+        _hasSlideTarget = true;
 
         var hwnd = Hwnd();
         if (ms <= 0 || hwnd == IntPtr.Zero || from == to)
@@ -1290,7 +1409,7 @@ public sealed partial class ToolSidebarWindow : Window
         }
         catch (Exception ex)
         {
-            Log("滑入动画失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "滑入动画", ex, Core.LogLevel.Debug);
             MoveWin(Hwnd(), to);
             done?.Invoke();
         }
@@ -1326,12 +1445,12 @@ public sealed partial class ToolSidebarWindow : Window
                 if (now.Width == size.Width && now.Height == size.Height
                     && Math.Abs(at.X - pos.X) <= 2 && Math.Abs(at.Y - pos.Y) <= 2) return;
 
-                Log("兜底落位：尺寸/位置没对上，纠一次");
+                Log("兜底落位｜结果=执行｜原因=尺寸或位置不符｜次数=1");
                 MoveResizeWin(pos, size.Width, size.Height);
             }
             catch (Exception ex)
             {
-                Log("兜底落位失败: " + ex.Message);
+                Core.AppLog.Catch("sidebar", "兜底落位", ex, Core.LogLevel.Debug);
             }
         });
     }
@@ -1366,11 +1485,11 @@ public sealed partial class ToolSidebarWindow : Window
                 ResetPanelOpacity();             // 变身中途切缩放：别把面板留在半透明
                 InvalidateVisual();              // 让整窗按新缩放重画一遍，别停在旧像素/旧形状
 
-                Log($"缩放变化 → 重排（edge={_edge} scale={Scale():0.##} 展开={_expanded}）");
+                Log($"缩放变化重排｜贴边={_edge}｜缩放={Scale():0.##}｜展开={_expanded}");
             }
             catch (Exception ex)
             {
-                Log("缩放变化后重排失败: " + ex.Message);
+                Core.AppLog.Catch("sidebar", "缩放变化后重排", ex, Core.LogLevel.Debug);
             }
         }, Avalonia.Threading.DispatcherPriority.Loaded);
     }
@@ -1397,7 +1516,7 @@ public sealed partial class ToolSidebarWindow : Window
         Touch();                            // 松开时重新起计时；钉住时 Touch 自己会跳过
         if (pinned) StopOutsideWatch();      // 钉住 = 点别处也不收
         else if (_expanded) StartOutsideWatch();
-        Log(pinned ? "常驻：开" : "常驻：关");
+        Log($"常驻模式｜状态={(pinned ? "开" : "关")}");
     }
 
     // ══════════════════════════════════════════════════════════════════
@@ -1469,7 +1588,7 @@ public sealed partial class ToolSidebarWindow : Window
         }
         catch (Exception ex)
         {
-            Core.AppLog.Debug("ui", "[sidebar] 挂窗口按下钩子失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "挂载窗口鼠标按下钩子", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -1480,7 +1599,7 @@ public sealed partial class ToolSidebarWindow : Window
         foreach (var w in _pool.Values)
         {
             try { w.OnAppPointerPressed(source); }
-            catch (Exception ex) { Log("进程内点别处处理异常: " + ex.Message); }
+            catch (Exception ex) { Core.AppLog.Catch("sidebar", "进程内点别处处理", ex, Core.LogLevel.Debug); }
         }
     }
 
@@ -1496,7 +1615,7 @@ public sealed partial class ToolSidebarWindow : Window
         var other = Backdrop.TryGetHwnd(source);
         if (self != IntPtr.Zero && other != IntPtr.Zero && IsSelfOrOwnedBy(other, self)) return;  // 自己的弹层
 
-        Log("点外面（进程内按下）→ 收起展开面板（未常驻）");
+        Log("收起展开面板｜触发=进程内点击外部｜常驻=否");
         Collapse();
     }
 
@@ -1563,7 +1682,7 @@ public sealed partial class ToolSidebarWindow : Window
 
             if (!outside) return;
 
-            Log(freshPress ? "点外面 → 收起展开面板（未常驻）" : "前台换成别的程序 → 收起展开面板（触摸兜底）");
+            Log($"收起展开面板｜触发={(freshPress ? "进程内点击外部" : "前台切换到其他程序（触摸兜底）")}｜常驻=否");
             Collapse();
         }
         catch (Exception ex)
@@ -1625,7 +1744,7 @@ public sealed partial class ToolSidebarWindow : Window
         }
         catch (Exception ex)
         {
-            Log("常驻外观更新失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "常驻外观更新", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -1685,7 +1804,7 @@ public sealed partial class ToolSidebarWindow : Window
         }
         catch (Exception ex)
         {
-            Log("打开主界面失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "打开主界面", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -1716,7 +1835,7 @@ public sealed partial class ToolSidebarWindow : Window
         }
         catch (Exception ex)
         {
-            Log("重建模块失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "重建模块", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -1761,7 +1880,7 @@ public sealed partial class ToolSidebarWindow : Window
         }
         catch (Exception ex)
         {
-            Log("改收起条长度失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "改收起条长度", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -1784,7 +1903,7 @@ public sealed partial class ToolSidebarWindow : Window
             GridPanel.IsVisible = grid;
             ExpandedStack.IsVisible = !grid;
 
-            if (grid) RenderGridPage();
+            if (grid) RenderGridPageNow();
 
             // 收起样式的内芯：只有「圆角抓手」画那截 5×48，细竖线保持光溜溜（见 ApplyCollapsedGrip）。
             ApplyCollapsedGrip();
@@ -1792,7 +1911,7 @@ public sealed partial class ToolSidebarWindow : Window
         }
         catch (Exception ex)
         {
-            Log("切换样式失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "切换样式", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -1817,7 +1936,7 @@ public sealed partial class ToolSidebarWindow : Window
         }
         catch (Exception ex)
         {
-            Log("摆收起抓手失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "摆放收起抓手", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -1847,7 +1966,7 @@ public sealed partial class ToolSidebarWindow : Window
         }
         catch (Exception ex)
         {
-            Log("算圆角失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "计算侧栏圆角", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -1977,25 +2096,26 @@ public sealed partial class ToolSidebarWindow : Window
     /// <summary>建一颗网格格子。<paramref name="m"/> 为 null = 固定补的那两颗（主页 / 设置）。</summary>
     private Control CreateGridCell(string id, string glyph, string shortName, string tip, SidebarModule? m)
     {
+        var cell = GridCellDip;
         var content = new StackPanel { Spacing = 3 };
         content.Children.Add(new FontIcon
         {
             Glyph = glyph,
-            FontSize = 22,
+            FontSize = GridIconFontSize(cell),
             HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center
         });
         content.Children.Add(new TextBlock
         {
             Text = shortName,
-            FontSize = 10.5,
+            FontSize = GridLabelFontSize(cell),
             HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center
         });
 
         var btn = new Button
         {
             Tag = id,
-            MinWidth = GridCellWDip,
-            MinHeight = GridCellHDip,
+            MinWidth = cell,
+            MinHeight = cell,
             Padding = new Thickness(2, 6, 2, 6),
             Background = new SolidColorBrush(Colors.Transparent),
             BorderThickness = new Thickness(0),
@@ -2030,6 +2150,56 @@ public sealed partial class ToolSidebarWindow : Window
         return btn;
     }
 
+    // 格子里图标与短名的字号都按边长等比缩放：60 dip 时是 22 / 10.5（老观感），
+    // 调大调小两边一起走，不会出现"格子变大、字还那么小"的空洞感。
+    private static double GridIconFontSize(int cell) => Math.Round(cell * 22.0 / GridCellDefaultDip, 1);
+
+    private static double GridLabelFontSize(int cell) => Math.Round(cell * 10.5 / GridCellDefaultDip, 1);
+
+    /// <summary>
+    /// 「网格图标大小」改了：把**已经建好**的格子就地改尺寸与字号，然后重新量一遍面板。
+    ///
+    /// <para>
+    /// ⚠️ 不重建格子（不走 <see cref="BuildGridButtons"/>）：滑杆是拖动时连续触发的，
+    /// 重建会拆掉按钮、断掉悬停动画与按住型（放大镜）的指针捕获，拖动过程中一路闪。
+    /// </para>
+    /// </summary>
+    public static void ApplyGridCellSize()
+    {
+        foreach (var w in _pool.Values)
+        {
+            try
+            {
+                w.RefreshGridCellSize();
+                w.SnapToSetting();                        // 尺寸变了要重新量 + 重新贴边
+            }
+            catch { }
+        }
+    }
+
+    /// <summary>把现有格子的边长 / 字号刷成当前设置值（见 <see cref="ApplyGridCellSize"/>）。</summary>
+    private void RefreshGridCellSize()
+    {
+        var cell = GridCellDip;
+        var iconSize = GridIconFontSize(cell);
+        var labelSize = GridLabelFontSize(cell);
+
+        foreach (var control in _gridCells)
+        {
+            if (control is not Button btn) continue;
+            btn.MinWidth = cell;
+            btn.MinHeight = cell;
+
+            if (btn.Content is not StackPanel sp) continue;
+            if (sp.Children.Count > 0 && sp.Children[0] is FontIcon icon) icon.FontSize = iconSize;
+            if (sp.Children.Count > 1 && sp.Children[1] is TextBlock label) label.FontSize = labelSize;
+        }
+
+        // 网格高度是按边长算死的（见 RenderGridPage）：尺寸变了这里也得跟着改，
+        // 否则行高还是老值，格子会被拉扁或被裁。
+        try { RenderGridPageNow(); } catch { }
+    }
+
     /// <summary>网格里那两颗固定格子（主页 / 设置）的动作；其余格子转给经典那套 <see cref="Tool_Click"/>。</summary>
     private void GridCell_Click(object? sender, RoutedEventArgs e)
     {
@@ -2061,7 +2231,7 @@ public sealed partial class ToolSidebarWindow : Window
         }
         catch (Exception ex)
         {
-            Log("网格格子打开失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "网格格子打开", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -2094,7 +2264,7 @@ public sealed partial class ToolSidebarWindow : Window
             // 锁死网格区高度：外层 GridPanel 是竖排 StackPanel，ToolGrid 的期望高取自当前页
             // 格子数 —— 翻到格子少的一页 Star 行塌下去，底下的分页点 / QuickBar 会整体上移。
             // 按行数算死高度，翻页时快捷设置行位置纹丝不动。
-            ToolGrid.Height = rows * GridCellHDip + (rows - 1) * GridGapDip;
+            ToolGrid.Height = rows * GridCellDip + (rows - 1) * GridGapDip;
 
             for (var i = 0; i < per; i++)
             {
@@ -2116,8 +2286,86 @@ public sealed partial class ToolSidebarWindow : Window
         }
         catch (Exception ex)
         {
-            Log("网格翻页失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "网格翻页", ex, Core.LogLevel.Debug);
         }
+    }
+
+    /// <summary>
+    /// 「立刻换页、不走过渡」的入口：主题变更、换展开样式这类**重新渲染**用它。
+    /// 与 <see cref="GoToPage"/> 的区别只在动画 —— 顺带把可能停在半路的透明度归 1。
+    /// </summary>
+    private void RenderGridPageNow()
+    {
+        CancelGridFade();
+        RenderGridPage();
+    }
+
+    /// <summary>
+    /// 把 <c>ToolGrid</c> 的透明度从当前值过渡到 <paramref name="to"/>（翻页淡出 / 淡入共用）。
+    ///
+    /// <para>
+    /// 与 <see cref="FadePanelOpacity"/> 同一套写法（16ms 按帧、线性），但用**独立**计时器：
+    /// 面板自身的展开 / 收起淡入淡出可能同时在跑，共用一个计时器会互相掐断。
+    /// </para>
+    /// </summary>
+    private void FadeGridTo(double to, double ms, Action? done = null)
+    {
+        try
+        {
+            StopGridFade();
+            var from = ToolGrid.Opacity;
+            if (ms <= 0 || Math.Abs(to - from) < 0.001)
+            {
+                ToolGrid.Opacity = to;
+                done?.Invoke();
+                return;
+            }
+
+            var sw = Stopwatch.StartNew();
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
+            timer.Tick += (_, _) =>
+            {
+                var t = Math.Clamp(sw.Elapsed.TotalMilliseconds / ms, 0, 1);
+                ToolGrid.Opacity = from + (to - from) * t;
+                if (t >= 1)
+                {
+                    ToolGrid.Opacity = to;
+                    StopGridFade();
+                    done?.Invoke();
+                }
+            };
+            _gridFadeTimer = timer;
+            timer.Start();
+        }
+        catch (Exception ex)
+        {
+            Core.AppLog.Catch("sidebar", "网格透明度过渡", ex, Core.LogLevel.Debug);
+            ToolGrid.Opacity = to;
+            done?.Invoke();
+        }
+    }
+
+    private void StopGridFade()
+    {
+        _gridFadeTimer?.Stop();
+        _gridFadeTimer = null;
+    }
+
+    /// <summary>
+    /// 取消进行中的翻页过渡，并把网格恢复到不透明。
+    ///
+    /// <para>
+    /// 收起面板、换展开样式、主题变更这类"重新渲染"的场合必须调：否则透明度停在半路，
+    /// 下次展开整块网格是半透明的，看起来像坏了。
+    /// </para>
+    /// </summary>
+    private void CancelGridFade()
+    {
+        _gridFadeEpoch++;                                  // 作废已经排上的那一段收尾
+        _gridFadeTarget = -1;
+        _gridFadingOut = false;
+        StopGridFade();
+        try { ToolGrid.Opacity = 1; } catch { }
     }
 
     /// <summary>
@@ -2172,14 +2420,12 @@ public sealed partial class ToolSidebarWindow : Window
             if (next < 0) next = GridPages - 1;
             if (next >= GridPages) next = 0;
             if (next == _gridPage) return;
-            _gridPage = next;
             e.Handled = true;
-            RenderGridPage();
-            Touch();
+            GoToPage(next);
         }
         catch (Exception ex)
         {
-            Log("网格滚轮翻页失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "网格滚轮翻页", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -2195,14 +2441,51 @@ public sealed partial class ToolSidebarWindow : Window
         GoToPage(next);
     }
 
-    /// <summary>跳到指定页（分页点直接用；其余入口走 <see cref="FlipPage"/>）。</summary>
+    /// <summary>
+    /// 跳到指定页 —— 箭头、分页点、滚轮、触屏滑动都走这一个入口（<see cref="FlipPage"/> 也一样）。
+    ///
+    /// <para>
+    /// 过渡是「当前页淡出 → 换内容 → 新页淡入」（<see cref="GridFadeOutMs"/> + <see cref="GridFadeInMs"/>）。
+    /// 为什么不做交叉淡化：格子是**复用**的 —— <c>_gridCells</c> 里的 Button 只是搬进搬出 <c>ToolGrid</c>，
+    /// 同一颗按钮不可能同时挂在两层上，所以没有"新旧两页并存"的那一帧。
+    /// </para>
+    ///
+    /// <para>
+    /// 淡出期间又来一次请求（连滚、连点下一页）：只改 <see cref="_gridFadeTarget"/>，不重启动画 ——
+    /// 否则每次请求都重新淡出一遍，Opacity 会在 1 和 0 之间来回抖。
+    /// </para>
+    /// </summary>
     private void GoToPage(int page)
     {
         if (page < 0 || page >= GridPages || page == _gridPage) return;
-        _gridPage = page;
-        RenderGridPage();
-        Touch();
-        Log($"网格翻页 → 第 {_gridPage + 1}/{GridPages} 页");
+
+        if (_gridFadingOut && _gridFadeTimer is not null)  // 淡出中：记下目标，由这一段收尾时接上
+        {
+            _gridFadeTarget = page;
+            return;
+        }
+
+        StopGridFade();                                   // 淡入中又来一次：掐掉剩下的淡入，重新走一轮
+        _gridFadingOut = true;
+        _gridFadeTarget = page;
+        var epoch = ++_gridFadeEpoch;
+
+        FadeGridTo(0, GridFadeOutMs, () =>
+        {
+            if (epoch != _gridFadeEpoch) return;           // 被收起 / 换样式 / 新一轮翻页作废
+            _gridFadingOut = false;
+
+            var target = _gridFadeTarget;
+            _gridFadeTarget = -1;
+            if (target >= 0 && target < GridPages && target != _gridPage)
+            {
+                _gridPage = target;
+                RenderGridPage();
+                Touch();
+                Log($"网格翻页｜页={_gridPage + 1}/{GridPages}");
+            }
+            FadeGridTo(1, GridFadeInMs);
+        });
     }
 
     private void GridPrevPage_Click(object? sender, RoutedEventArgs e) => FlipPage(-1);
@@ -2265,7 +2548,7 @@ public sealed partial class ToolSidebarWindow : Window
         }
         catch (Exception ex)
         {
-            Log("网格滑动跟踪失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "网格滑动跟踪", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -2288,7 +2571,7 @@ public sealed partial class ToolSidebarWindow : Window
         }
         catch (Exception ex)
         {
-            Log("网格滑动判定失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "网格滑动判定", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -2317,7 +2600,7 @@ public sealed partial class ToolSidebarWindow : Window
         }
         catch (Exception ex)
         {
-            Log("网格滑动翻页失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "网格滑动翻页", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -2335,12 +2618,12 @@ public sealed partial class ToolSidebarWindow : Window
     {
         try
         {
-            Log("网格「锁定」→ LockWorkStation");
+            Log("网格动作｜动作=锁定｜系统调用=LockWorkStation");
             Platform.NativeMethodsShell.LockWorkStation();
         }
         catch (Exception ex)
         {
-            Log("网格「锁定」失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "网格动作｜动作=锁定", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -2351,7 +2634,7 @@ public sealed partial class ToolSidebarWindow : Window
     {
         try
         {
-            Log("网格快捷行 → " + what);
+            Log("网格动作｜动作=" + what);
             using var p = new System.Diagnostics.Process();
             p.StartInfo = new System.Diagnostics.ProcessStartInfo("shutdown", args)
             {
@@ -2460,7 +2743,7 @@ public sealed partial class ToolSidebarWindow : Window
         }
         catch (Exception ex)
         {
-            Log("打开工具失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "打开工具", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -2476,16 +2759,16 @@ public sealed partial class ToolSidebarWindow : Window
     {
         SuppressAutoCollapse = true;
         SetFlyoutAnchor(this);          // 必须在这之前：浮窗的边/锚点都看它（点左条就贴左边弹）
-        Log("点击「音量」模块 → 开/关主音量浮窗（锚点=" + _edge + "）");
+        Log("模块点击｜模块=音量｜动作=开合音量浮窗｜锚点=" + _edge);
         try
         {
             VolumeWindow.Toggle(VolumeWindow.Target.Volume);
-            Log($"  音量浮窗现在 {(VolumeWindow.IsVisible ? "开着" : "关着")}"
-                + (VolumeWindow.IsVisible ? "" : "（关着且刚才是点击开，说明浮窗没能显示，去看 snip.log）"));
+            Log($"模块结果｜模块=音量｜浮窗可见={(VolumeWindow.IsVisible ? "是" : "否")}"
+                + (VolumeWindow.IsVisible ? "" : "｜提示=点击开但浮窗未显示，详见 app.log"));
         }
         catch (Exception ex)
         {
-            Log("  音量浮窗调用异常: " + ex);
+            Core.AppLog.Catch("sidebar", "开合音量浮窗｜模块=音量", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -2497,16 +2780,16 @@ public sealed partial class ToolSidebarWindow : Window
     {
         SuppressAutoCollapse = true;
         SetFlyoutAnchor(this);          // 同音量：亮度的浮窗也必须贴在被点的那条边条上
-        Log("点击「屏幕亮度」模块 → 开/关亮度栏（锚点=" + _edge + "）");
+        Log("模块点击｜模块=屏幕亮度｜动作=开合亮度栏｜锚点=" + _edge);
         try
         {
             VolumeWindow.Toggle(VolumeWindow.Target.Brightness);
-            Log($"  亮度栏现在 {(VolumeWindow.IsVisible ? "开着" : "关着")}"
-                + (VolumeWindow.IsVisible ? "" : "（关着且刚才是点击开，说明浮窗没能显示，去看 snip.log）"));
+            Log($"模块结果｜模块=屏幕亮度｜浮窗可见={(VolumeWindow.IsVisible ? "是" : "否")}"
+                + (VolumeWindow.IsVisible ? "" : "｜提示=点击开但浮窗未显示，详见 app.log"));
         }
         catch (Exception ex)
         {
-            Log("  亮度浮窗调用异常: " + ex);
+            Core.AppLog.Catch("sidebar", "开合亮度浮窗｜模块=屏幕亮度", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -2583,7 +2866,7 @@ public sealed partial class ToolSidebarWindow : Window
                 {
                     HideSecurityFlyout();
                     try { act(); }
-                    catch (Exception ex) { Log("安全选项执行失败: " + ex.Message); }
+                    catch (Exception ex) { Core.AppLog.Catch("sidebar", "执行安全选项", ex, Core.LogLevel.Debug); }
                 };
                 panel.Children.Add(item);
             }
@@ -2612,11 +2895,11 @@ public sealed partial class ToolSidebarWindow : Window
             SuppressAutoCollapse = true;                // 菜单挂着的时候边条不许自己收
             _securityFlyout = flyout;
             flyout.ShowAt(anchor);
-            Log("安全选项：菜单已弹出");
+            Log("安全选项｜结果=菜单已弹出");
         }
         catch (Exception ex)
         {
-            Log("安全选项菜单弹出失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "安全选项菜单弹出", ex, Core.LogLevel.Debug);
             SuppressAutoCollapse = false;
         }
     }
@@ -2727,13 +3010,13 @@ public sealed partial class ToolSidebarWindow : Window
             {
                 if (ReferenceEquals(_confirmFlyout, flyout)) _confirmFlyout = null;
                 SuppressAutoCollapse = false;            // 面板没了 → 恢复自动收起
-                try { onClosed?.Invoke(); } catch (Exception ex) { Log("确认面板收尾失败: " + ex.Message); }
+                try { onClosed?.Invoke(); } catch (Exception ex) { Core.AppLog.Catch("sidebar", "确认面板收尾", ex, Core.LogLevel.Debug); }
             };
             danger.Click += (_, _) =>
             {
                 // 顺序要紧：先把"确认"做完（onConfirm 会把 confirmed 立起来），再收面板。
                 //    反过来的话，Closed 里的收尾会误当成"用户取消了"而去抢焦点。
-                try { onConfirm(); } catch (Exception ex) { Log("确认动作失败: " + ex.Message); }
+                try { onConfirm(); } catch (Exception ex) { Core.AppLog.Catch("sidebar", "执行确认面板动作", ex, Core.LogLevel.Debug); }
                 flyout.Hide();
             };
 
@@ -2741,7 +3024,7 @@ public sealed partial class ToolSidebarWindow : Window
 
             var target = (Control?)anchor ?? Root;
             flyout.ShowAt(target);
-            Log($"确认面板：原生 Flyout 已弹出（标题={title} 锚点={(target as Control)?.Name} 方位={flyout.Placement}）");
+            Log($"确认面板｜结果=原生 Flyout 已弹出｜标题={title}｜锚点={(target as Control)?.Name}｜方位={flyout.Placement}");
 
             // 兜底：20 秒还没人理就自己收（原生 Flyout 不退的话会一直挂着挡点击）
             _ = System.Threading.Tasks.Task.Delay(20000).ContinueWith(_ =>
@@ -2758,7 +3041,7 @@ public sealed partial class ToolSidebarWindow : Window
         }
         catch (Exception ex)
         {
-            Log("确认面板弹出失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "确认面板弹出", ex, Core.LogLevel.Debug);
             SuppressAutoCollapse = false;            // 面板没弹出来 → 别把"禁止收起"这个旗一直立着
         }
     }
@@ -2812,7 +3095,7 @@ public sealed partial class ToolSidebarWindow : Window
         _lastPos = _pressPos;
         _swipedOpen = false;
 
-        Log($"收起条：按下 device={e.Pointer.Type}");
+        Log($"收起条｜事件=按下｜指针类型={e.Pointer.Type}");
         // 捕获目标**必须是 CollapsedView 自己**（不能用祖先 Root）：
         //    Avalonia 的指针捕获会把后续事件**路由到被捕获的那个控件**
         //    （Root 是 CollapsedView 的祖先，事件只会从 Root 往上冒泡，永远回不到 CollapsedView）——
@@ -2847,14 +3130,14 @@ public sealed partial class ToolSidebarWindow : Window
                 _swipedOpen = true;
                 _pressed = false;
                 try { e.Pointer.Capture(null); } catch { }
-                Log("收起条：向外滑动 → 展开");
+                Log("收起条｜手势=向外滑动｜处置=展开");
                 Expand();
                 e.Handled = true;
             }
         }
         catch (Exception ex)
         {
-            Log("收起条移动处理失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "收起条移动处理", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -2875,12 +3158,12 @@ public sealed partial class ToolSidebarWindow : Window
         var outward = OutwardDelta(e.GetPosition(Root));
         if (outward <= -SwipeThresholdDip)
         {
-            Log($"收起条：向内滑动 {outward:0.#}dip，不展开（要展开请点一下或朝屏幕外滑）");
+            Log($"收起条｜手势=向内滑动｜位移={outward:0.#}dip｜处置=不展开");
             e.Handled = true;
             return;
         }
 
-        Log("收起条：单击/外滑 → 展开");
+        Log("收起条｜手势=单击或外滑｜处置=展开");
         Expand();
         e.Handled = true;
     }
@@ -2898,11 +3181,11 @@ public sealed partial class ToolSidebarWindow : Window
         //    只有"明确朝屏幕里滑"才挡（跟 Released 同一条判据）。
         if (OutwardDelta(_lastPos) <= -SwipeThresholdDip)
         {
-            Log("收起条：捕获丢失，但刚才是向内滑动 → 不展开");
+            Log("收起条｜事件=捕获丢失｜前一手势=向内滑动｜处置=不展开");
             return;
         }
 
-        Log("收起条：捕获丢失 → 当成单击，展开");
+        Log("收起条｜事件=捕获丢失｜处置=按单击处理并展开");
         Expand();
     }
 
@@ -3014,7 +3297,7 @@ public sealed partial class ToolSidebarWindow : Window
         }
         catch (Exception ex)
         {
-            Log("摆热区失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "摆放边缘热区", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -3035,7 +3318,7 @@ public sealed partial class ToolSidebarWindow : Window
         }
         catch (Exception ex)
         {
-            Log("收起条悬停效果失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "收起条悬停效果", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -3095,7 +3378,7 @@ public sealed partial class ToolSidebarWindow : Window
             //   ApplySetting() 按新设置重建实例集合（新的那条建出来、这条藏起来）再贴过去。
             if (edge != _edge)
             {
-                Log("换边: " + _edge + " → " + edge);
+                Log("换边｜原贴边=" + _edge + "｜新贴边=" + edge);
 
                 // 新边上的沿边比例：拖到哪就落在哪（先按旧比例 Present 会"先在下面出现，再突变上去"）
                 var sizeNow = WinSizePx();
@@ -3125,7 +3408,7 @@ public sealed partial class ToolSidebarWindow : Window
         }
         catch (Exception ex)
         {
-            Log("换边失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "切换侧栏贴边方向", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -3150,7 +3433,7 @@ public sealed partial class ToolSidebarWindow : Window
         }
         catch (Exception ex)
         {
-            Log("联动对面失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "联动对面侧栏", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -3246,7 +3529,7 @@ public sealed partial class ToolSidebarWindow : Window
         }
         catch (Exception ex)
         {
-            Log("排版失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "侧栏排版", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -3331,7 +3614,7 @@ public sealed partial class ToolSidebarWindow : Window
         }
         catch (Exception ex)
         {
-            Log("解应用图标失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "解析应用图标", ex, Core.LogLevel.Debug);
         }
         return _appIconImage;
     }
@@ -3475,7 +3758,7 @@ public sealed partial class ToolSidebarWindow : Window
         }
         catch (Exception ex)
         {
-            Log("量展开面板高度失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "测量展开面板高度", ex, Core.LogLevel.Debug);
         }
 
         // 兜底：不 Measure 了，按行数估算（跟按钮实际高度走，别写死数字）
@@ -3549,7 +3832,7 @@ public sealed partial class ToolSidebarWindow : Window
         }
         catch (Exception ex)
         {
-            Log("算滚动范围失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "计算滚动范围", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -3564,7 +3847,7 @@ public sealed partial class ToolSidebarWindow : Window
         }
         catch (Exception ex)
         {
-            Log("改尺寸失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "调整侧栏尺寸", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -3634,6 +3917,12 @@ public sealed partial class ToolSidebarWindow : Window
     /// <para>
     /// <paramref name="anchor"/> = false：按比例重新算（窗口刚出现 / 截图这类面板不在原位的场合）。
     /// </para>
+    /// <para>
+    /// ⚠️ 反推比例必须**校验**：收起紧跟在展开滑入后面发生时，<c>GetWindowRect</c> 有可能仍返回
+    /// 上一次 SetWindowPos 前的几何，或者干脆是 (0,0)。拿这种数据反推出来的比例会贴近 0，
+    /// 表现就是竖线偶发甩到面板左上角。所以量到的尺寸小于竖线尺寸、或比例与 <see cref="_liveRatio"/>
+    /// 差出 0.2 以上时，一律判为不可信，沿用现有比例。
+    /// </para>
     /// </summary>
     private PixelPoint CollapsedPosition(PixelSize size, bool anchor)
     {
@@ -3647,11 +3936,27 @@ public sealed partial class ToolSidebarWindow : Window
                 var flat = Edge is "top" or "bottom";
                 var alongLen = flat ? work.Width : work.Height;
 
-                if (now.Width > 0 && now.Height > 0 && alongLen > 0)
+                var myLen = flat ? now.Width : now.Height;
+                var minLen = flat ? size.Width : size.Height;
+                var plausible = myLen > 0 && alongLen > 0 && myLen >= minLen;
+
+                if (plausible)
                 {
                     var center = flat ? at.X + now.Width / 2.0 : at.Y + now.Height / 2.0;
                     var start = flat ? work.X : work.Y;
-                    _liveRatio = Math.Clamp((center - start) / alongLen, 0, 1);
+                    var derived = Math.Clamp((center - start) / alongLen, 0, 1);
+
+                    // 正常收起时 derived 与 _liveRatio 本来就相等（面板中心就是按它摆的）；
+                    // 差太多说明这次读到的是滑动/缩放中途的临时几何，丢掉。
+                    if (_liveRatio < 0 || Math.Abs(derived - _liveRatio) <= 0.2)
+                        _liveRatio = derived;
+                    else
+                        Log($"收起锚定｜结果=按既有比例落位｜原因=位置不可信｜位置={at.X},{at.Y}｜尺寸={now.Width}x{now.Height}"
+                        + $"｜推算比例={derived:0.###}｜沿用比例={_liveRatio:0.###}");
+                }
+                else
+                {
+                    Log($"收起锚定｜结果=按既有比例落位｜原因=窗口几何未稳定｜位置={at.X},{at.Y}｜尺寸={now.Width}x{now.Height}");
                 }
             }
             catch (Exception ex)
@@ -3685,7 +3990,7 @@ public sealed partial class ToolSidebarWindow : Window
         //    原因：面板与收起条长度差好几倍，按顶端比例算的话，同一比例在两种状态下中心偏差很大 ——
         //    收起时竖线会从面板中间跳到另一处，展开时面板又从竖线上方斜着冒出来。
         //    改成中心对齐后，收起/展开两个方向都围绕同一条竖线对称生长。
-        var ratio = _liveRatio < 0 ? 0.5 : Math.Clamp(_liveRatio, 0, 1);
+        var ratio = double.IsNaN(_liveRatio) || _liveRatio < 0 ? 0.5 : Math.Clamp(_liveRatio, 0, 1);
         var center = (flat ? work.X : work.Y) + ratio * alongLen;
         var offset = Math.Clamp(center - myLen / 2.0 - (flat ? work.X : work.Y), 0, free);
 
@@ -3739,7 +4044,7 @@ public sealed partial class ToolSidebarWindow : Window
         }
         catch (Exception ex)
         {
-            Log("贴边失败: " + ex.Message);
+            Core.AppLog.Catch("sidebar", "侧栏贴边", ex, Core.LogLevel.Debug);
         }
     }
 

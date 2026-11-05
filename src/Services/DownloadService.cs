@@ -75,6 +75,16 @@ public sealed record DownloadedFile(string Path, string FileName, long Bytes)
 public static class DownloadService
 {
     /// <summary>
+    /// 日志用主机名。**只写 host，不写完整 URL** —— 自建加速节点的链接里带签名参数，
+    /// 整串落到日志文件就等于把临时凭证抄了一份。
+    /// </summary>
+    private static string HostOf(string url)
+    {
+        try { return Uri.TryCreate(url, UriKind.Absolute, out var u) ? u.Host : "(无法解析)"; }
+        catch { return "(无法解析)"; }
+    }
+
+    /// <summary>
     /// 默认目录为系统「下载」文件夹（读取注册表 known folder，用户自定义位置同样生效）；
     /// 不自行另建 Downloads 目录。
     /// </summary>
@@ -156,10 +166,10 @@ public static class DownloadService
             }
             catch (Exception ex)
             {
-                Core.AppLog.Warn("download", $"自定义下载文件夹读不了，改用系统下载文件夹：{ex.Message}");
+                Core.AppLog.Catch("download", $"检查自定义下载目录｜目录={custom}", ex, Core.LogLevel.Debug);
             }
 
-            Core.AppLog.Info("download", $"自定义下载文件夹不可用（{custom}），改用 {DefaultDir}");
+            Core.AppLog.Info("download", $"下载目录回退｜自定义={custom}｜原因=目录不可用｜实际=" + DefaultDir);
             return DefaultDir;
         }
     }
@@ -234,8 +244,8 @@ public static class DownloadService
         //    失败必须留有日志，不能只把 ex.Message 弹到界面上。 ──
         var label = string.IsNullOrWhiteSpace(suggestedName) ? fileName : suggestedName!.Trim();
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        Core.AppLog.Begin("download", $"下载「{label}」开始 · 线路={route}");
-        Core.AppLog.Step("download", $"原始链接 {url}");
+        Core.AppLog.Begin("download", $"下载开始｜文件={label}｜线路={route}｜链接=" + url);
+        Core.AppLog.Step("download", $"下载候选｜原始链接={url}");
 
         // 将原始链接翻译为候选链接，按序尝试，一条失败切换下一条（路由语义见 DownloadRoute）。
         // ⛔ 必须保留完整的 DownloadCandidate（而不只是 Url 字符串）：
@@ -275,7 +285,8 @@ public static class DownloadService
                 File.Move(part, target, overwrite: true);
                 progress?.Report(new DownloadProgress(received, received, 0));
                 Core.AppLog.Done("download",
-                    $"下载「{label}」完成 · {Core.AppLog.Size(received)} · {target}", sw.Elapsed);
+                    $"下载完成｜文件={label}｜体积={Core.AppLog.Size(received)}｜候选={i + 1}/{candidates.Count}"
+                    + $"｜主机={HostOf(candidate.Url)}｜落盘={target}", sw.Elapsed);
                 return new DownloadedFile(target, Path.GetFileName(target), received);
             }
             catch (OperationCanceledException)
@@ -295,7 +306,8 @@ public static class DownloadService
                 {
                     // ⚠️ 客气地叫「警告」而不是「错误」：换路是**设计内的正常降级**，
                     //    只有全都试完还不行才是真失败（见循环外那条 Fail）。
-                    Core.AppLog.Warn("download", $"候选 {i + 1}/{candidates.Count} 不可用（{ex.Message}）→ 换下一条");
+                    Core.AppLog.Warn("download", $"候选线路不可用｜候选={i + 1}/{candidates.Count}｜主机={HostOf(candidate.Url)}"
+                        + $"｜原因={ex.GetType().Name}: {ex.Message}｜处置=换下一条");
                     progress?.Report(new DownloadProgress(0, 0, 0));
                 }
                 continue;
@@ -304,7 +316,7 @@ public static class DownloadService
 
         // 所有候选都失败：抛出最后一条错误
         var final = lastError ?? new InvalidOperationException("下载失败。");
-        Core.AppLog.Fail("download", final, $"下载「{label}」失败（{candidates.Count} 条候选全部试过）");
+        Core.AppLog.Fail("download", final, $"下载失败｜文件={label}｜候选={candidates.Count}/{candidates.Count} 全部失败");
         throw final;
     }
 
@@ -336,7 +348,7 @@ public static class DownloadService
 
         if (probe.SupportsRange && segments > 1)
         {
-            Core.AppLog.Info("download", $"并行 {segments} 路 · {DownloadProgress.Size(total)} · {candidate.Url}");
+            Core.AppLog.Step("download", $"下载方式=并行｜连接数={segments}｜总长={DownloadProgress.Size(total)}｜主机={HostOf(candidate.Url)}");
             try
             {
                 return await DownloadParallelAsync(
@@ -346,12 +358,12 @@ public static class DownloadService
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 // 分片失败（服务端限制并发或返回非 206）时，同一候选退回单流继续下载。
-                Core.AppLog.Info("download", "分片失败，退回单流：" + ex.Message);
+                Core.AppLog.Catch("download", "并行分片下载（已退回单流）", ex, Core.LogLevel.Warning);
                 TryDelete(part);
             }
         }
 
-        Core.AppLog.Info("download", $"单流 · {DownloadProgress.Size(total)} · {candidate.Url}");
+        Core.AppLog.Step("download", $"下载方式=单流｜总长={DownloadProgress.Size(total)}｜主机={HostOf(candidate.Url)}");
         return await DownloadSingleAsync(candidate, part, total, progress, ct, Stopwatch.StartNew())
             .ConfigureAwait(false);
     }

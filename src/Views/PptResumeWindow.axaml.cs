@@ -93,7 +93,7 @@ public sealed partial class PptResumeWindow : Window
         var window = _instance;
         _instance = null;
         try { window?.Close(); } catch { }
-        AppLog.Info("exit", "PPT 续播窗口实例已请求 Close");
+        AppLog.Info("window", "窗口关闭请求｜窗口=PPT 续播｜触发=程序化 Close");
     }
 
     // ── 窗口本身 ─────────────────────────────────────────────────────────
@@ -116,7 +116,7 @@ public sealed partial class PptResumeWindow : Window
             ClientSize = new Size(DefaultWidthDip, DefaultHeightDip);
             UpdatePinVisual();
 
-            Closed += (_, _) => AppLog.Info("exit", "PPT 续播窗口 Closed");
+            Closed += (_, _) => AppLog.Info("window", "窗口已关闭｜窗口=PPT 续播");
 
             Closing += (_, args) =>
             {
@@ -144,7 +144,7 @@ public sealed partial class PptResumeWindow : Window
         catch (Exception ex)
         {
             _frame = null;
-            AppLog.Debug("ppt-resume", "自绘窗口框架挂载失败，退回原生标题栏: " + ex.Message);
+            AppLog.Catch("ppt-resume", "挂载自绘窗口框架（已退回原生标题栏）", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -369,7 +369,7 @@ public sealed partial class PptResumeWindow : Window
         {
             if (epoch != _fadeEpoch) return;
             try { NativeMethods.ShowWindow(Backdrop.TryGetHwnd(this), SW_HIDE); }
-            catch (Exception ex) { AppLog.Debug("ppt-resume", "收起失败: " + ex.Message); }
+            catch (Exception ex) { AppLog.Catch("ppt-resume", "收起 PPT 续播窗口", ex, Core.LogLevel.Debug); }
         });
     }
 
@@ -390,7 +390,7 @@ public sealed partial class PptResumeWindow : Window
         }
         catch (Exception ex)
         {
-            AppLog.Debug("ppt-resume", "定位失败: " + ex.Message);
+            AppLog.Catch("ppt-resume", "定位 PPT 续播窗口", ex, Core.LogLevel.Debug);
         }
     }
 

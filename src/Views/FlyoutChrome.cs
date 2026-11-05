@@ -238,7 +238,7 @@ public sealed class FlyoutChrome
             if (NativeMethods.GetForegroundWindow() == Hwnd) return;
 
             _ = NativeMethods.SetForegroundWindow(Hwnd);
-            if (NativeMethods.GetForegroundWindow() == Hwnd) { ScreenCapture.Log("EnsureForeground: 直接管用"); return; }
+            if (NativeMethods.GetForegroundWindow() == Hwnd) { Core.AppLog.Step("ui", "浮窗置前台｜方式=直接激活｜结果=成功"); return; }
 
             // 前台锁拒绝了 → 跟前台线程搭桥再试一次
             var fg = NativeMethods.GetForegroundWindow();
@@ -252,7 +252,7 @@ public sealed class FlyoutChrome
             }
 
             try { _window.Activate(); } catch { }
-            ScreenCapture.Log($"EnsureForeground: 搭桥后前台是自己={NativeMethods.GetForegroundWindow() == Hwnd}");
+            Core.AppLog.Step("ui", $"浮窗置前台｜方式=线程输入桥接｜结果={(NativeMethods.GetForegroundWindow() == Hwnd ? "成功" : "失败")}");
         }
         catch { }
     }
@@ -384,21 +384,21 @@ public sealed class FlyoutChrome
         _dragGrip = grip;
         _dragBlocked = isInteractive;
 
-        ScreenCapture.Log($"浮窗拖动把手已挂上（grip={grip.GetType().Name}, Bubble+handledEventsToo）");
+        Core.AppLog.Step("ui", $"浮窗拖动把手已挂载｜控件={grip.GetType().Name}｜事件阶段=Bubble+handledEventsToo");
 
         grip.AddHandler(InputElement.PointerPressedEvent, OnDragPressed, RoutingStrategies.Bubble, handledEventsToo: true);
     }
 
     private void OnDragPressed(object? sender, PointerPressedEventArgs e)
     {
-        ScreenCapture.Log($"浮窗按下: source={e.Source?.GetType().Name ?? "null"}");
+        Core.AppLog.Step("ui", $"浮窗按下｜来源控件={e.Source?.GetType().Name ?? "null"}");
         try
         {
             if (!e.GetCurrentPoint(_root).Properties.IsLeftButtonPressed) return;
             var blocked = _dragBlocked?.Invoke(e.Source) == true;
             // 每次按下都记一笔（排查"拖不动/全按点击"时，snip.log 里能直接看到
             //    按在了什么控件上、有没有被判定成交给控件）。
-            ScreenCapture.Log($"浮窗按下: source={e.Source?.GetType().Name ?? "null"} blocked={blocked}");
+            Core.AppLog.Step("ui", $"浮窗按下｜来源控件={e.Source?.GetType().Name ?? "null"}｜已拦截={blocked}");
             if (blocked) return;      // 滑块 / 按钮 → 交给它自己
 
             // 拖动走**系统的模态移动循环**：自算位移的实现在真机上不可靠（指针捕获容易丢）。
@@ -412,7 +412,7 @@ public sealed class FlyoutChrome
         }
         catch (Exception ex)
         {
-            ScreenCapture.Log("浮窗拖动启动失败: " + ex.Message);
+            Core.AppLog.Catch("ui", "启动浮窗拖动", ex, Core.LogLevel.Debug);
         }
         finally
         {

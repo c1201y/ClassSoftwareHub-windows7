@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -40,7 +41,7 @@ public static class ToolPackInstaller
 
     public static async Task<ToolPackInstallResult> InstallAsync(CancellationToken ct = default)
     {
-        AppLog.Begin("hubai", "下载 AI 工具包");
+        AppLog.Begin("hubai", "下载 AI 工具包｜来源=内置清单地址");
 
         IReadOnlyList<DownloadCandidate> candidates;
         try
@@ -49,12 +50,17 @@ public static class ToolPackInstaller
         }
         catch (Exception ex)
         {
-            AppLog.Fail("hubai", ex, "生成工具包下载线路");
+            AppLog.Fail("hubai", ex, "生成工具包下载线路｜来源=内置清单地址");
             return new ToolPackInstallResult(false, "无法生成下载线路，请检查网络设置。", null);
         }
 
         if (candidates.Count == 0)
+        {
+            AppLog.Warn("hubai", "候选线路｜数量=0｜处置=中止安装");
             return new ToolPackInstallResult(false, "没有可用的下载线路。", null);
+        }
+
+        AppLog.Step("hubai", $"候选线路｜数量={candidates.Count}｜顺序={string.Join(" > ", candidates.Select(c => GithubRoute.HostOf(c.Url)))}");
 
         var failures = 0;
 
@@ -73,7 +79,7 @@ public static class ToolPackInstaller
 
                 if (text.Length > MaxBytes)
                 {
-                    AppLog.Warn("hubai", $"工具包内容过大（{text.Length} 字符），已拒绝");
+                    AppLog.Warn("hubai", $"校验工具包｜结果=拒绝｜原因=体积超限｜实际={text.Length} 字符｜上限={MaxBytes} 字符｜处置=换下一条");
                     failures++;
                     continue;
                 }
@@ -82,7 +88,7 @@ public static class ToolPackInstaller
                 if (pack is null)
                 {
                     // 常见于线路返回了 404 网页或登录页：不是网络问题，是内容不对，换下一条
-                    AppLog.Warn("hubai", $"线路 {candidate.Url} 返回的内容不是有效的工具包");
+                    AppLog.Warn("hubai", $"校验工具包｜结果=拒绝｜原因=内容不是有效工具包｜主机={GithubRoute.HostOf(candidate.Url)}｜处置=换下一条");
                     failures++;
                     continue;
                 }
@@ -90,7 +96,7 @@ public static class ToolPackInstaller
                 if (!ToolPackStore.Save(text))
                     return new ToolPackInstallResult(false, "下载成功但保存失败，详情见日志。", null);
 
-                AppLog.Done("hubai", $"工具包已安装 v{pack.Version}（{pack.Tools.Count} 个工具）");
+                AppLog.Done("hubai", $"工具包安装完成｜版本={pack.Version}｜工具数={pack.Tools.Count}｜体积={text.Length} 字符");
                 return new ToolPackInstallResult(
                     true,
                     $"已安装 {pack.Tools.Count} 个工具（v{pack.Version}）。",
@@ -102,22 +108,22 @@ public static class ToolPackInstaller
                 //    HttpClient.Timeout 触发的超时 → 记一条、换下一条线路。
                 if (ct.IsCancellationRequested) throw;
 
-                AppLog.Exception("hubai", ex, $"下载工具包超时 {candidate.Url}");
+                AppLog.Exception("hubai", ex, $"下载工具包｜主机={GithubRoute.HostOf(candidate.Url)}｜结果=超时｜超时上限={Http.Timeout.TotalSeconds:0}s");
                 failures++;
             }
             catch (HttpRequestException ex)
             {
-                AppLog.Exception("hubai", ex, $"下载工具包 {candidate.Url}");
+                AppLog.Exception("hubai", ex, $"下载工具包｜主机={GithubRoute.HostOf(candidate.Url)}｜候选处理={failures + 1}/{candidates.Count}");
                 failures++;
             }
             catch (Exception ex)
             {
-                AppLog.Exception("hubai", ex, $"下载工具包 {candidate.Url}");
+                AppLog.Exception("hubai", ex, $"下载工具包｜主机={GithubRoute.HostOf(candidate.Url)}｜候选处理={failures + 1}/{candidates.Count}");
                 failures++;
             }
         }
 
-        AppLog.Fail("hubai", $"所有线路都失败（{failures} 条）");
+        AppLog.Fail("hubai", $"下载 AI 工具包｜结果=失败｜候选数={candidates.Count}｜失败={failures}｜处置=中止安装");
         return new ToolPackInstallResult(
             false,
             "所有线路都未能获取工具包，请稍后重试或检查网络。",
@@ -138,7 +144,7 @@ public static class ToolPackInstaller
         using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseContentRead, ct);
         if (!response.IsSuccessStatusCode)
         {
-            AppLog.Debug("hubai", $"线路 {candidate.Url} 返回 HTTP {(int)response.StatusCode}");
+            AppLog.Debug("hubai", $"候选线路不可用｜主机={GithubRoute.HostOf(candidate.Url)}｜HTTP={(int)response.StatusCode}｜处置=换下一条");
             return null;
         }
 

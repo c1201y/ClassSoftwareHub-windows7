@@ -97,11 +97,11 @@ public sealed class TrayIcon : IDisposable
         _taskbarCreated = NativeMethodsShell.RegisterWindowMessage("TaskbarCreated");
     }
 
-    private static void Log(string message)
+    private static void Log(string message, Core.LogLevel level = Core.LogLevel.Info)
     {
         try
         {
-            Core.AppLog.Info("tray", message);
+            Core.AppLog.Write("tray", level, message);
         }
         catch { }
     }
@@ -121,14 +121,14 @@ public sealed class TrayIcon : IDisposable
                 lpszClassName = _className,
             };
             if (NativeMethodsShell.RegisterClassEx(ref wc) == 0)
-                Log($"RegisterClassEx 失败: {Marshal.GetLastWin32Error()}");
+                Log($"注册托盘窗口类失败｜阶段=RegisterClassEx｜Win32={Marshal.GetLastWin32Error()}", Core.LogLevel.Warning);
 
             // 不可见的顶层窗口（不能用 message-only：那类窗口收不到 TaskbarCreated 广播）
             _hwnd = NativeMethodsShell.CreateWindowEx(0, _className, "ClassSoftwareHub tray", 0,
                 0, 0, 0, 0, IntPtr.Zero, IntPtr.Zero, hInstance, IntPtr.Zero);
             if (_hwnd == IntPtr.Zero)
             {
-                Log($"CreateWindowEx 失败: {Marshal.GetLastWin32Error()}");
+                Log($"创建托盘窗口失败｜阶段=CreateWindowEx｜Win32={Marshal.GetLastWin32Error()}", Core.LogLevel.Warning);
                 return false;
             }
 
@@ -136,7 +136,7 @@ public sealed class TrayIcon : IDisposable
         }
         catch (Exception ex)
         {
-            Log("Setup 异常: " + ex);
+            Core.AppLog.Exception("tray", ex, "初始化托盘");
             return false;
         }
     }
@@ -157,7 +157,7 @@ public sealed class TrayIcon : IDisposable
             //    彻底失联（界面不显示 + 托盘无图标 + 只能去任务管理器）。这种情况必须当失败处理。
             if (_hIcon == IntPtr.Zero)
             {
-                Log("拿不到任何可用图标句柄 → 不挂托盘（宁可不收托盘，也不能让用户找不到程序）");
+                Log("托盘挂载｜结果=放弃｜原因=没有任何可用图标句柄｜影响=托盘不可用（主窗口仍可操作）", Core.LogLevel.Warning);
                 return false;
             }
 
@@ -170,11 +170,11 @@ public sealed class TrayIcon : IDisposable
             {
                 // 重试一次：explorer 托盘服务偶发瞬时无响应（ERROR_TIMEOUT）时，缓一下再挂就能过。
                 System.Threading.Thread.Sleep(300);
-                Log($"NIM_ADD 首次失败（err={DescribeError(LastError)}，调用上下文：{DescribeCaller()}），300ms 后重试");
+                Log($"托盘挂载｜阶段=NIM_ADD 首次｜结果=失败｜错误={DescribeError(LastError)}｜调用方={DescribeCaller()}｜处置=300ms 后重试", Core.LogLevel.Warning);
                 ok = TryAddIcon(full);
                 if (ok)
                 {
-                    Log("重试成功：托盘图标已挂上");
+                    Log("托盘挂载｜结果=重试成功");
                     return true;
                 }
             }
@@ -183,7 +183,7 @@ public sealed class TrayIcon : IDisposable
             // 少数环境（精简系统 / 第三方 shell 替换）对 V3 尺寸的 cbSize 挑食，老版布局是最大公约数。
             // ⚠️ x64 上老版 = V3 全量 - 24（guidItem 16 + hBalloonIcon 8）；带 guidItem 的真 V2 尺寸是 full - 8，别混。
             var legacy = full - 24;
-            Log($"重试仍失败（err={DescribeError(LastError)}），cbSize 退到老版尺寸 {legacy} 再试");
+            Log($"托盘挂载｜阶段=重试｜结果=失败｜错误={DescribeError(LastError)}｜处置=cbSize 降到 {legacy} 再试", Core.LogLevel.Warning);
             if (TryAddIcon(legacy)) return true;
 
             ScheduleRetry();
@@ -191,7 +191,7 @@ public sealed class TrayIcon : IDisposable
         }
         catch (Exception ex)
         {
-            Log("AddIcon 异常: " + ex);
+            Core.AppLog.Exception("tray", ex, "添加托盘图标");
             return false;
         }
     }
@@ -205,7 +205,7 @@ public sealed class TrayIcon : IDisposable
         if (_disposed || _hwnd == IntPtr.Zero || _added) return;
         if (_retries++ >= RetryBudget)
         {
-            Log($"托盘图标重试 {RetryBudget} 次仍未成功，停止自动重试（最后一次 err={DescribeError(LastError)}）");
+            Log($"托盘挂载｜结果=放弃｜已重试={RetryBudget} 次｜最后错误={DescribeError(LastError)}", Core.LogLevel.Warning);
             return;
         }
         // 1s、2s、3s…… 最长 5s 一次，避免在 explorer 真的拒绝时狂刷
@@ -234,13 +234,14 @@ public sealed class TrayIcon : IDisposable
         {
             // ⚠️ 错误码必须**紧跟调用**读：中间插一次日志写盘，LastError 就被刷成 0 了
             LastError = Marshal.GetLastWin32Error();
-            Log($"Shell_NotifyIcon(NIM_ADD) 失败: err={DescribeError(LastError)} cbSize={data.cbSize} hwnd={_hwnd} icon={_hIcon} tip={_tip} {DescribeCaller()}");
+            Log($"托盘挂载失败｜阶段=NIM_ADD｜错误={DescribeError(LastError)}｜cbSize={data.cbSize}"
+                    + $"｜hwnd={_hwnd}｜icon={_hIcon}｜tip={_tip}｜调用方={DescribeCaller()}", Core.LogLevel.Warning);
         }
         else
         {
             LastError = 0;
             NativeMethodsShell.KillTimer(_hwnd, RetryTimerId);
-            Log($"托盘图标已挂上（hwnd={_hwnd}，icon={_hIcon}，来源={_iconSource}，cbSize={data.cbSize}）");
+            Log($"托盘挂载｜结果=成功｜hwnd={_hwnd}｜icon={_hIcon}｜图标来源={_iconSource}｜cbSize={data.cbSize}");
         }
         return _added;
     }
@@ -348,16 +349,17 @@ public sealed class TrayIcon : IDisposable
                     _iconSource = "ico 文件";
                     return h;
                 }
-                Log($"LoadImage 加载 ico 失败（err={Marshal.GetLastWin32Error()}，path={_iconPath}）→ 改用 exe 图标");
+                Log($"加载托盘图标｜阶段=LoadImage｜结果=失败｜Win32={Marshal.GetLastWin32Error()}"
+                    + $"｜文件={_iconPath}｜处置=改用 exe 图标", Core.LogLevel.Warning);
             }
             else
             {
-                Log($"图标文件不可用（path={(string.IsNullOrEmpty(_iconPath) ? "(空)" : _iconPath)}）→ 改用 exe 图标");
+                Log($"加载托盘图标｜结果=跳过｜原因=图标文件不可用｜文件={(string.IsNullOrEmpty(_iconPath) ? "(空)" : _iconPath)}｜处置=改用 exe 图标", Core.LogLevel.Warning);
             }
         }
         catch (Exception ex)
         {
-            Log("LoadImage 异常: " + ex.Message);
+            Core.AppLog.Catch("tray", $"加载托盘图标｜阶段=LoadImage｜文件={_iconPath}", ex);
         }
 
         // ── 2) 宿主 exe 的图标 ───────────────────────────────────────
@@ -376,12 +378,12 @@ public sealed class TrayIcon : IDisposable
                     _iconSource = "exe 内嵌图标";
                     return info.hIcon;
                 }
-                Log("SHGetFileInfo 没掏出 exe 图标 → 退回系统默认图标");
+                Log("取 exe 图标｜结果=未取到｜处置=退回系统默认图标", Core.LogLevel.Warning);
             }
         }
         catch (Exception ex)
         {
-            Log("SHGetFileInfo 异常: " + ex.Message);
+            Core.AppLog.Catch("tray", "读取 exe 内嵌图标", ex);
         }
 
         // ── 3) 系统默认应用图标 ──────────────────────────────────────
@@ -397,7 +399,7 @@ public sealed class TrayIcon : IDisposable
         }
         catch (Exception ex)
         {
-            Log("LoadIcon 异常: " + ex.Message);
+            Core.AppLog.Catch("tray", "加载系统默认应用图标", ex);
         }
 
         return IntPtr.Zero;
@@ -455,11 +457,11 @@ public sealed class TrayIcon : IDisposable
                 //    而本类按老版回调语义解析 lParam（事件码直接在 lParam 里），不该切 V4。
             };
             var ok = NativeMethodsShell.Shell_NotifyIcon(NativeMethodsShell.NIM_MODIFY, ref data);
-            if (!ok) Log($"ShowBalloon 失败: {Marshal.GetLastWin32Error()}");
+            if (!ok) Log($"气泡通知｜结果=失败｜Win32={Marshal.GetLastWin32Error()}", Core.LogLevel.Warning);
         }
         catch (Exception ex)
         {
-            Log("ShowBalloon 异常: " + ex.Message);
+            Core.AppLog.Catch("tray", "显示气泡通知", ex);
         }
     }
 
@@ -494,7 +496,7 @@ public sealed class TrayIcon : IDisposable
                 // 退避重试：成功会 KillTimer + 把 _added 置 true；失败会自己排下一次
                 NativeMethodsShell.KillTimer(_hwnd, RetryTimerId);
                 if (AddIcon(slow: false))
-                    Log("退避重试成功：托盘图标已挂上");
+                    Log("托盘挂载｜结果=退避重试成功");
                 return IntPtr.Zero;
             }
             else if (msg == WM_DESTROY)
@@ -511,7 +513,7 @@ public sealed class TrayIcon : IDisposable
         }
         catch (Exception ex)
         {
-            Log("WndProc 异常: " + ex);
+            Core.AppLog.Exception("tray", ex, $"托盘窗口消息处理｜消息=0x{msg:X4}");
         }
 
         return NativeMethodsShell.DefWindowProc(hWnd, msg, wParam, lParam);
@@ -537,12 +539,12 @@ public sealed class TrayIcon : IDisposable
                     shown = Views.TrayMenuWindow.TryShowAt(items, item =>
                     {
                         try { CommandInvoked?.Invoke(item.Command); }
-                        catch (Exception ex) { Log("托盘菜单命令异常: " + ex); }
+                        catch (Exception ex) { Core.AppLog.Exception("tray", ex, "执行托盘菜单命令"); }
                     });
                 }
                 catch (Exception ex)
                 {
-                    Log("自绘菜单异常，改用原生菜单: " + ex);
+                    Core.AppLog.Catch("tray", "显示自绘托盘菜单（已改用原生菜单）", ex);
                 }
 
                 if (!shown) ShowNativeMenu(items);
@@ -550,7 +552,7 @@ public sealed class TrayIcon : IDisposable
         }
         catch (Exception ex)
         {
-            Log("调度自绘菜单失败，改用原生菜单: " + ex);
+            Core.AppLog.Catch("tray", "调度自绘托盘菜单（已改用原生菜单）", ex);
             ShowNativeMenu(items);
         }
     }
@@ -587,7 +589,7 @@ public sealed class TrayIcon : IDisposable
         }
         catch (Exception ex)
         {
-            Log("ShowNativeMenu 异常: " + ex);
+            Core.AppLog.Exception("tray", ex, "显示原生托盘菜单");
         }
         finally
         {

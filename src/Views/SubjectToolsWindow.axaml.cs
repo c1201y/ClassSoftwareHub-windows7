@@ -129,7 +129,7 @@ public sealed partial class SubjectToolsWindow : Window
         var w = _instance;
         _instance = null;
         try { w?.Close(); } catch { }
-        AppLog.Info("subject-tools", "学科工具窗口实例已请求 Close");
+        AppLog.Info("window", "窗口关闭请求｜窗口=学科工具｜触发=程序化 Close");
     }
 
     // ── 选中工具 ─────────────────────────────────────────────────────────
@@ -197,7 +197,7 @@ public sealed partial class SubjectToolsWindow : Window
         }
         catch (Exception ex)
         {
-            AppLog.Warning("subject-tools", "记录上次使用的工具失败：" + ex.Message);
+            AppLog.Catch("subject-tools", "记录上次使用的工具", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -238,7 +238,7 @@ public sealed partial class SubjectToolsWindow : Window
             }
             catch (Exception ex2)
             {
-                AppLog.Debug("subject-tools", "标题栏定制不可用: " + ex2.Message);
+                AppLog.Catch("subject-tools", "定制标题栏（保持系统默认标题栏）", ex2, Core.LogLevel.Debug);
             }
 
             ThemeCompat.Apply(Root);
@@ -272,7 +272,7 @@ public sealed partial class SubjectToolsWindow : Window
         catch (Exception ex)
         {
             _frame = null;
-            AppLog.Debug("subject-tools", "自绘窗口框架挂载失败，退回原生标题栏: " + ex.Message);
+            AppLog.Catch("subject-tools", "挂载自绘窗口框架（已退回原生标题栏）", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -331,7 +331,7 @@ public sealed partial class SubjectToolsWindow : Window
         }
         catch (Exception ex)
         {
-            AppLog.Warn("subject-tools", "学科工具窗尺寸设置失败：" + ex.Message);
+            AppLog.Catch("subject-tools", "设置窗口尺寸", ex);
         }
     }
 
@@ -353,7 +353,7 @@ public sealed partial class SubjectToolsWindow : Window
         }
         catch (Exception ex)
         {
-            AppLog.Warn("subject-tools", "学科工具窗定位失败：" + ex.Message);
+            AppLog.Catch("subject-tools", "定位学科工具窗口", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -387,7 +387,27 @@ public sealed partial class SubjectToolsWindow : Window
             //    首次 Show 时 Avalonia 的 surface 尺寸还是按"没被吃掉边框"的客户区算的，
             //    WM_NCCALCSIZE 把客户区撑大之后那一圈没人画 —— 无合成的 Win7 上就是一条黑边。
             //    尺寸/位置都定下来之后（再次显示也一样）补一次「非客户区重算 + 整窗重画」。
+            // ⚠️ 顺序不能反：先抖一次让 Avalonia 的渲染表面跟上新的客户区，再补画 ——
+            //    反过来的话内容会先画到旧表面上，等于白画一遍。
+            _frame?.NudgeSurface("学科工具窗显示");
             _frame?.RefreshFrame("学科工具窗显示");
+
+            // ⚠️ 2026-11-02（同一问题二次反馈）：上面那一次**还不够**。
+            //    Show 之后 ThemeCompat.Apply / RoundedCorners.Refresh / ApplySize 还会各自触发
+            //    一轮布局与 surface 重算，紧跟 Show 的这次补画会被它们覆盖掉；
+            //    而 Avalonia 的首次尺寸收敛在**下一帧**才稳定。所以等布局跑完（Loaded 优先级）再补一次。
+            //    两次都是幂等的标脏 + 填底色，重复无害。
+            Dispatcher.UIThread.Post(
+                () =>
+                {
+                    try
+                    {
+                        _frame?.NudgeSurface("学科工具窗首帧");
+                        _frame?.RefreshFrame("学科工具窗首帧补画");
+                    }
+                    catch { }
+                },
+                DispatcherPriority.Loaded);
 
             Activate();
         }

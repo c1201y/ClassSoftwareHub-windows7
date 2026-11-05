@@ -59,7 +59,7 @@ internal static class SubmitClient
                 {
                     // 不是这个接口的响应（回源还没生效时会返回 nginx 错误页）→ 换下一个入口。
                     // ⚠️ 这条是**期望内的回退**（部署期间常出现），所以记「信息」不记「警告」。
-                    Core.AppLog.Step("submit", $"入口 {baseUrl} 回的不是提交服务响应 → 换下一个");
+                    Core.AppLog.Step("submit", $"提交入口响应不符｜入口={baseUrl}｜原因=响应不是提交服务格式｜处置=换下一个");
                     continue;
                 }
 
@@ -88,11 +88,11 @@ internal static class SubmitClient
                 // ⛔ 这里以前是**裸的 `catch {}`** —— 于是"提交失败"在日志里一个字都没有，
                 //    正是一次代码审计里数出的 269 个静默 catch 之一。
                 Core.AppLog.Warn("submit",
-                    $"入口 {baseUrl} 提交失败（{ex.GetType().Name}: {ex.Message}）→ 试下一个");
+                    $"提交入口失败｜入口={baseUrl}｜原因={ex.GetType().Name}: {ex.Message}｜处置=试下一个");
             }
         }
 
-        Core.AppLog.Warn("submit", "所有提交入口都不通（网络或地区限制）");
+        Core.AppLog.Warn("submit", "提交失败｜原因=全部提交入口不可达（网络中断或地区限制）");
         return null;
     }
 

@@ -72,12 +72,12 @@ public sealed partial class HubAiSettingsPage : PageBase
 
 #if DEBUG
             if (!SecretStore.SelfTest())
-                AppLog.Warn("hubai", "DPAPI 自检未通过，保存密钥可能不可用");
+                AppLog.Warn("hubai", "DPAPI 自检｜结果=解密不回原文｜影响=保存密钥可能不可用");
 #endif
         }
         catch (Exception ex)
         {
-            AppLog.Exception("hubai", ex, "初始化 Hub AI 设置页");
+            AppLog.Exception("hubai", ex, "加载 Hub AI 设置页");
         }
         finally
         {
@@ -97,7 +97,7 @@ public sealed partial class HubAiSettingsPage : PageBase
 
         App.Settings.Current.HubAiEnabled = enabled;
         App.Settings.Save();
-        AppLog.Step("hubai", enabled ? "总闸打开" : "总闸关闭");
+        AppLog.Step("hubai", $"总闸｜状态={(enabled ? "开" : "关")}｜已写入设置");
 
         // 打开与关闭都给一个「立即重启」的出口。
         // 说清楚哪些是即时生效的、哪些要重新进入页面才刷新 —— 别一句"请重启"糊过去：
@@ -301,10 +301,12 @@ public sealed partial class HubAiSettingsPage : PageBase
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
 
+        // ⚠️ 这里**不能**写 IsVisible = false（2026-11-02 真机反馈「Hub AI 没有填服务地址的地方」）：
+        //    显隐由外层的 urlField 整块控制，输入框自己再藏一次的话，
+        //    外框露出来了、里面的输入框却永远是隐藏的 —— 用户只看到一条空白，根本没有可填的地方。
         var urlBox = new TextBox
         {
             Watermark = "https://api.example.com/v1",
-            IsVisible = false,
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
 
@@ -391,11 +393,14 @@ public sealed partial class HubAiSettingsPage : PageBase
 
             var provider = AiProviders.ById(providerId);
             var isLocal = providerId == "local";
-            var isCustom = providerId == "custom";
 
             // 本地模型不校验密钥；自定义才需要手填地址
             keyField.IsVisible = !isLocal;
-            urlField.IsVisible = isLocal || isCustom;
+
+            // 服务地址**常显**（2026-11-02 真机反馈「hubai 没有填服务地址的地方」）：
+            // 直营厂商会自动预填预设地址，但允许改成自建代理/镜像；
+            // 自定义与本地模型没有预设，必须自己填。
+            urlField.IsVisible = true;
 
             keyBox.Watermark = isLocal ? "本地模型通常不需要密钥" : "粘贴服务商提供的密钥";
 
@@ -488,7 +493,7 @@ public sealed partial class HubAiSettingsPage : PageBase
             }
             catch (Exception ex)
             {
-                AppLog.Exception("hubai", ex, "对话框连通性测试");
+                AppLog.Exception("hubai", ex, $"对话框连通性测试｜模型={model}");
                 statusText.Text = "测试失败，详情见日志。";
             }
             finally
@@ -592,7 +597,7 @@ public sealed partial class HubAiSettingsPage : PageBase
         {
             App.Settings.Current.HubAiToolsEnabled = false;
             App.Settings.Save();
-            AppLog.Step("hubai", "已关闭 AI 工具");
+            AppLog.Step("hubai", "AI 工具｜状态=已关闭｜影响=工具定义不再交给模型");
             return;
         }
 
@@ -660,7 +665,7 @@ public sealed partial class HubAiSettingsPage : PageBase
         }
         catch (Exception ex)
         {
-            AppLog.Exception("hubai", ex, "下载工具包（界面层）");
+            AppLog.Exception("hubai", ex, "安装工具包｜入口=设置页");
             ShowToolResult(false, "下载失败，详情见日志。");
 
             if (fromToggle)

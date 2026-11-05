@@ -108,10 +108,10 @@ public sealed partial class HubAiPage : PageBase
         {
             HubAiMessages.LayoutUpdated -= DumpLayout;
 
-            AppLog.Info("hubai-layout",
-                $"历史={HistoryPanel.Bounds.Width:0} 侧栏={SidePanel.Bounds.Width:0} " +
-                $"消息区={HubAiMessages.Bounds.Width:0} 输入={ChatInput.Bounds.Width:0} " +
-                $"历史可见={HistoryPanel.IsVisible} 侧栏可见={SidePanel.IsVisible}");
+            AppLog.Info("ui",
+                $"Hub AI 页布局｜历史栏={HistoryPanel.Bounds.Width:0}dip｜侧栏={SidePanel.Bounds.Width:0}dip" +
+                $"｜消息区={HubAiMessages.Bounds.Width:0}dip｜输入区={ChatInput.Bounds.Width:0}dip" +
+                $"｜历史可见={HistoryPanel.IsVisible}｜侧栏可见={SidePanel.IsVisible}");
         }
 
         HubAiMessages.LayoutUpdated += DumpLayout;
@@ -208,7 +208,7 @@ public sealed partial class HubAiPage : PageBase
             var match = _sessions.FirstOrDefault(x => x.Id == id);
             if (match is null)
             {
-                AppLog.Info("hubai", $"要切换的会话 {id} 不在列表里（可能已被删除）");
+                AppLog.Info("hubai", $"切换会话｜结果=跳过｜原因=会话不在列表（可能已删除）｜会话={id}");
                 return;
             }
 
@@ -216,7 +216,7 @@ public sealed partial class HubAiPage : PageBase
         }
         catch (Exception ex)
         {
-            AppLog.Warn("hubai", "切到指定会话失败：" + ex.Message);
+            AppLog.Catch("hubai", $"切换会话｜会话={id}", ex);
         }
     }
 
@@ -291,7 +291,7 @@ public sealed partial class HubAiPage : PageBase
             NewChat_Click(sender, e);
 
         LoadSessions();
-        AppLog.Step("hubai", "删除历史对话");
+        AppLog.Step("hubai", $"删除历史对话｜会话={id}｜结果=已删除并丢弃运行时");
     }
 
     private void SessionList_SelectionChanged(object? sender, SelectionChangedEventArgs e)
@@ -517,7 +517,7 @@ public sealed partial class HubAiPage : PageBase
     {
         ChatSessionStore.SetCurrent(session.Id, session.LeafOf(target.Id));
         LoadSessions();
-        AppLog.Step("hubai", "切换历史分支");
+        AppLog.Step("hubai", $"切换历史分支｜会话={session.Id}｜目标节点={target.Id}｜叶子节点={session.LeafOf(target.Id)}");
     }
 
     /// <summary>
@@ -692,11 +692,12 @@ public sealed partial class HubAiPage : PageBase
 
             // 把"准备发给模型的那段文字"记进调试日志 —— 接模型前唯一能离线核对格式与长度的地方，
             // 排查"回答与本机不符"时先核对这行日志。
-            AppLog.Debug("hubai", "体检单内容：\n" + MachineDigest.ToPrompt(snap));
+            var prompt = MachineDigest.ToPrompt(snap);
+            AppLog.Debug("hubai", $"体检单提示词｜长度={prompt.Length} 字\n{prompt}");
         }
         catch (Exception ex)
         {
-            AppLog.Exception("hubai", ex, "采集本机概况");
+            AppLog.Exception("hubai", ex, "采集本机概况并渲染体检单");
             SnapshotLoading.IsActive = false;
             SnapshotLoading.IsVisible = false;
             SnapshotStatus.Text = "读取失败";
@@ -845,7 +846,7 @@ public sealed partial class HubAiPage : PageBase
         }
         catch (Exception ex)
         {
-            AppLog.Exception("hubai", ex, $"取画刷 {key}");
+            AppLog.Exception("hubai", ex, $"取主题画刷｜键={key}");
             return null;
         }
     }
@@ -949,7 +950,7 @@ public sealed partial class HubAiPage : PageBase
             _loadingPickers = false;
         }
 
-        AppLog.Step("hubai", $"切换模型：{AiModelStore.Active?.Name}");
+        AppLog.Step("hubai", $"切换模型｜条目={AiModelStore.Active?.Name}｜模型={AiModelStore.Active?.Model}");
     }
 
     private void ThinkToggle_Click(object? sender, RoutedEventArgs e)
@@ -1259,7 +1260,7 @@ public sealed partial class HubAiPage : PageBase
         }
         catch (Exception ex)
         {
-            AppLog.Fail("hub-ai", ex, "侧栏动画失败");
+            AppLog.Catch("ui", "播放侧栏动画", ex, LogLevel.Debug);
         }
     }
 
@@ -1323,15 +1324,6 @@ public sealed partial class HubAiPage : PageBase
 
         App.Settings.Current.HubAiHistoryCollapsed = collapse;
         App.Settings.Save();
-    }
-
-    private void Suggestion_Click(object? sender, RoutedEventArgs e)
-    {
-        if (_busy) return;
-        if (sender is not Button { Tag: string prompt }) return;
-
-        HubAiInput.Text = prompt;
-        _ = SendAsync();
     }
 
     private async Task SendAsync()
@@ -1503,7 +1495,7 @@ public sealed partial class HubAiPage : PageBase
     private void FailRun(HubAiRuntime rt, string? sessionId, string? forkParentId, int before,
                          Bubble bubble, Exception ex)
     {
-        AppLog.Exception("hubai", ex, "对话请求");
+        AppLog.Exception("hubai", ex, $"对话请求｜会话={sessionId ?? "(新建)"}｜已有气泡={before}");
 
         var onScreen = ReferenceEquals(rt, _runtime);
 
@@ -1581,7 +1573,7 @@ public sealed partial class HubAiPage : PageBase
             }
             catch (Exception ex)
             {
-                AppLog.Exception("hubai", ex, "工具授权对话框");
+                AppLog.Exception("hubai", ex, "工具授权对话框｜处置=异常按拒绝处理");
                 tcs.TrySetResult(false);
             }
             finally
@@ -2045,7 +2037,7 @@ public sealed partial class HubAiPage : PageBase
         }
         catch (Exception ex)
         {
-            AppLog.Exception("hubai", ex, "复制回答");
+            AppLog.Exception("hubai", ex, $"复制回答｜字符数={text.Length}");
         }
     }
 

@@ -31,7 +31,7 @@ internal static class QqFeedback
             var clipboard = App.MainWindow?.Clipboard;
             if (clipboard is null)
             {
-                ScreenCapture.Log("反馈信息复制失败: 没有可用的剪贴板（主窗口未创建）");
+                Core.AppLog.Warn("submit", "复制反馈信息失败｜原因=剪贴板不可用（主窗口未创建）");
                 return false;
             }
 
@@ -40,7 +40,7 @@ internal static class QqFeedback
         }
         catch (System.Exception ex)
         {
-            ScreenCapture.Log("反馈信息复制失败: " + ex.Message);
+            Core.AppLog.Catch("submit", "复制反馈信息到剪贴板", ex);
             return false;
         }
     }

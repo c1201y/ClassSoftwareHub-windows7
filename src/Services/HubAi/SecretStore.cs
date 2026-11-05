@@ -69,12 +69,13 @@ public static class SecretStore
             Directory.CreateDirectory(AppPaths.DataDir);
             File.WriteAllBytes(PathOf(keyId), cipher);
 
-            AppLog.Step("hubai", "已加密保存模型密钥");
+            AppLog.Step("hubai", $"保存密钥｜方式=DPAPI 当前用户｜条目={keyId}"
+                + $"｜明文={plain.Length} 字节｜密文={cipher.Length} 字节");
             return true;
         }
         catch (Exception ex)
         {
-            AppLog.Exception("hubai", ex, "保存模型密钥");
+            AppLog.Exception("hubai", ex, $"保存模型密钥｜条目={keyId}｜路径={PathOf(keyId)}");
             return false;
         }
     }
@@ -94,8 +95,9 @@ public static class SecretStore
         {
             // 常见原因：换了 Windows 账户、把数据目录从别的机器拷过来。
             // 这不算程序错误，记一条警告就够，界面会当成"未配置"让用户重填。
-            AppLog.Warn("hubai", "密钥无法解密（可能换了账户或从别的机器拷来），需要重新填写");
-            AppLog.Exception("hubai", ex, "解密模型密钥");
+            AppLog.Warn("hubai", $"解密模型密钥｜条目={keyId}｜结果=失败"
+                + $"｜原因={ex.GetType().Name}: {ex.Message}"
+                + "｜常见成因=Windows 账户变更或数据目录来自其他机器｜处置=按未配置处理");
             return "";
         }
     }
@@ -108,11 +110,11 @@ public static class SecretStore
             var path = PathOf(keyId);
             if (File.Exists(path)) File.Delete(path);
 
-            AppLog.Step("hubai", "已清除模型密钥");
+            AppLog.Step("hubai", $"清除密钥｜条目={keyId}｜路径={PathOf(keyId)}");
         }
         catch (Exception ex)
         {
-            AppLog.Exception("hubai", ex, "删除模型密钥");
+            AppLog.Exception("hubai", ex, $"删除模型密钥｜条目={keyId}｜路径={PathOf(keyId)}");
         }
     }
 
@@ -138,12 +140,12 @@ public static class SecretStore
             var back = Unprotect(cipher);
             var ok = back.AsSpan().SequenceEqual(plain);
 
-            if (!ok) AppLog.Warn("hubai", "DPAPI 自检：解密结果与原文不一致");
+            if (!ok) AppLog.Warn("hubai", $"DPAPI 自检｜结果=不一致｜明文={plain.Length} 字节｜解回={back.Length} 字节");
             return ok;
         }
         catch (Exception ex)
         {
-            AppLog.Exception("hubai", ex, "DPAPI 自检");
+            AppLog.Exception("hubai", ex, "DPAPI 自检｜阶段=加密→解密往返");
             return false;
         }
     }

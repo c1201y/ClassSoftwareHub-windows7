@@ -55,12 +55,12 @@ public static class ShotSaver
                 path = Path.Combine(dir, $"截图_{stamp}_{i}.png");
 
             File.WriteAllBytes(path, png);
-            ScreenCapture.Log("截图已自动保存：" + path);
+            ScreenCapture.Log($"截图自动保存｜路径={path}｜体积={Core.AppLog.Size(png.Length)}｜结果=成功");
             return path;
         }
         catch (Exception ex)
         {
-            ScreenCapture.Log("截图自动保存失败: " + ex.Message);
+            Core.AppLog.Catch("snip", "截图自动保存", ex);
             return null;
         }
     }
@@ -84,14 +84,14 @@ public static class ShotSaver
                 }
                 catch (Exception ex)
                 {
-                    ScreenCapture.Log("截图转 PNG 失败: " + ex.Message);
+                    Core.AppLog.Catch("snip", "截图 BMP 转 PNG", ex);
                     return null;
                 }
             });
         }
         catch (Exception ex)
         {
-            ScreenCapture.Log("截图转 PNG 失败: " + ex.Message);
+            Core.AppLog.Catch("snip", "截图 BMP 转 PNG", ex);
             return Task.FromResult<byte[]?>(null);
         }
     }
@@ -109,7 +109,7 @@ public static class ShotSaver
         }
         catch (Exception ex)
         {
-            ScreenCapture.Log("截图自动保存失败: " + ex.Message);
+            Core.AppLog.Catch("snip", "截图自动保存", ex);
             return null;
         }
     }

@@ -99,7 +99,7 @@ internal static class LicenseClient
             }
             catch (Exception ex)
             {
-                AppLog.Warn("license", $"激活入口 {baseUrl} 不可用（{ex.GetType().Name}）→ 试下一个");
+                AppLog.Warn("license", $"激活入口不可用｜入口={baseUrl}｜原因={ex.GetType().Name}｜处置=换下一个入口");
             }
         }
 

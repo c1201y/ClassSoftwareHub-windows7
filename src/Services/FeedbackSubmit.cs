@@ -62,11 +62,11 @@ public static class FeedbackSubmit
         // ── 链路日志：提交失败必须能在日志里查到。
         //    ⛔ 只记标题、**绝不记正文与联系方式**（联系方式是按隐私约定要密文外发的）。
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        Core.AppLog.Begin("submit", $"提交反馈 · 类型={kind}/{subKind} · 标题「{title}」");
+        Core.AppLog.Begin("submit", $"提交反馈｜类型={kind}/{subKind}｜标题={title}｜正文长度={detail.Length}");
 
         if (title.Trim().Length == 0 || detail.Trim().Length == 0)
         {
-            Core.AppLog.Warn("submit", "标题或正文为空，本次没有发出去");
+            Core.AppLog.Warn("submit", "提交反馈｜结果=取消｜原因=标题或正文为空");
             return new Result(false, "内容不完整，无法提交。", null);
         }
 
@@ -79,12 +79,12 @@ public static class FeedbackSubmit
 
         if (reply is null)
         {
-            Core.AppLog.Fail("submit", "提交反馈失败：所有入口都不通（网络或地区限制）");
+            Core.AppLog.Fail("submit", "提交反馈失败｜原因=全部入口不可达（网络中断或地区限制）");
             return new Result(false, "连不上提交服务（网络或地区限制），可改用旁边的方式提交。", null);
         }
 
-        if (reply.Ok) Core.AppLog.Done("submit", $"反馈已提交 · 服务端回应「{reply.Message}」", sw.Elapsed);
-        else Core.AppLog.Fail("submit", $"服务端没有接受这条反馈：{reply.Message}");
+        if (reply.Ok) Core.AppLog.Done("submit", $"提交反馈｜结果=成功｜服务端回应={reply.Message}", sw.Elapsed);
+        else Core.AppLog.Fail("submit", $"提交反馈｜结果=服务端拒绝｜回应={reply.Message}");
 
         return new Result(reply.Ok, reply.Message, reply.Url);
     }

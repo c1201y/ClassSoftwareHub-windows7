@@ -100,7 +100,7 @@ public sealed partial class TrayMenuWindow : Window
         }
         catch (Exception ex)
         {
-            AppLog.Fail("tray", ex, "自绘托盘菜单弹出失败");
+            AppLog.Fail("tray", ex, "显示自绘托盘菜单");
             try { _open?.Close(); } catch { }
             _open = null;
             return false;
@@ -221,7 +221,7 @@ public sealed partial class TrayMenuWindow : Window
 
         if (!EnsureForeground())
         {
-            AppLog.Warn("tray", "自绘菜单没能抢到前台 → 退回原生菜单");
+            AppLog.Warn("tray", "自绘托盘菜单未获得前台焦点｜处置=退回系统原生菜单");
             return false;
         }
 
@@ -230,9 +230,10 @@ public sealed partial class TrayMenuWindow : Window
         StartForegroundWatch();
 
         if (hwnd != IntPtr.Zero && NativeMethods.GetWindowRect(hwnd, out var r))
-            AppLog.Info("tray", $"自绘菜单已弹出：{_itemButtons.Count} 项，{r.Width}×{r.Height}px @ ({r.Left},{r.Top})，缩放 {scale:0.##}");
+            AppLog.Info("tray", $"自绘托盘菜单已弹出｜项数={_itemButtons.Count}｜尺寸={r.Width}×{r.Height}px"
+                    + $"｜位置={r.Left},{r.Top}｜缩放={scale:0.##}");
         else
-            AppLog.Info("tray", $"自绘菜单已弹出：{_itemButtons.Count} 项");
+            AppLog.Info("tray", $"自绘托盘菜单已弹出｜项数={_itemButtons.Count}");
 
         return true;
     }
@@ -411,7 +412,7 @@ public sealed partial class TrayMenuWindow : Window
         try { Close(); } catch { }
 
         try { cb?.Invoke(item); }
-        catch (Exception ex) { AppLog.Fail("tray", ex, $"托盘菜单命令执行失败：{item.Command}"); }
+        catch (Exception ex) { AppLog.Fail("tray", ex, $"执行托盘菜单命令｜命令={item.Command}"); }
     }
 
     private void OnKeyDown(object? sender, KeyEventArgs e)

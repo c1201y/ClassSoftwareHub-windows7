@@ -244,7 +244,7 @@ public sealed partial class AnnouncePage : PageBase
         catch (Exception ex)
         {
             // 剪贴板被别的程序占住是常态，失败不打扰用户（码就在屏幕上）
-            AppLog.Warn("announce", "复制配对码失败：" + ex.Message);
+            AppLog.Catch("announce", "复制配对码到剪贴板", ex);
         }
     }
 
@@ -647,7 +647,7 @@ public sealed partial class AnnouncePage : PageBase
         }
         catch (Exception ex)
         {
-            AppLog.Info("announce", "选择提示音失败：" + ex.Message);
+            AppLog.Catch("announce", "选择提示音文件", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -675,7 +675,7 @@ public sealed partial class AnnouncePage : PageBase
 
     private void Preview(string text, string from, int durationSec)
     {
-        AppLog.Info("announce", "本机预览喊话窗（不联网）");
+        AppLog.Step("announce", "预览喊话窗口｜联网=否");
         AnnounceWindow.Preview(new AnnounceMessage
         {
             Id = "preview-" + Guid.NewGuid().ToString("N")[..6],

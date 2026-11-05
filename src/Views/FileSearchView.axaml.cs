@@ -138,7 +138,7 @@ public sealed partial class FileSearchView : UserControl
         }
         catch (Exception ex)
         {
-            AppLog.Warning("file-search", "搜索失败：" + ex.Message);
+            AppLog.Catch("file-search", "执行文件搜索", ex);
             RefreshStatus();
         }
     }
@@ -233,7 +233,7 @@ public sealed partial class FileSearchView : UserControl
         }
         catch (Exception ex)
         {
-            AppLog.Warning("file-search", "复制路径失败：" + ex.Message);
+            AppLog.Catch("file-search", "复制结果路径", ex);
         }
     }
 

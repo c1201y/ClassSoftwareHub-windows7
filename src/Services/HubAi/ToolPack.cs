@@ -108,7 +108,7 @@ public static class ToolPackStore
         }
         catch (Exception ex)
         {
-            AppLog.Exception("hubai", ex, "读取已安装工具包");
+            AppLog.Exception("hubai", ex, $"读取已安装工具包｜文件={FilePath}");
             return null;
         }
     }
@@ -123,7 +123,7 @@ public static class ToolPackStore
 
             if (pack.SchemaVersion <= 0 || pack.SchemaVersion > ToolPack.SupportedSchema)
             {
-                AppLog.Warn("hubai", $"工具包格式版本 {pack.SchemaVersion} 不受支持（本程序支持 {ToolPack.SupportedSchema}）");
+                AppLog.Warn("hubai", $"解析工具包｜结果=拒绝｜原因=格式版本不受支持｜文件版本={pack.SchemaVersion}｜支持上限={ToolPack.SupportedSchema}");
                 return null;
             }
 
@@ -138,7 +138,7 @@ public static class ToolPackStore
         }
         catch (JsonException ex)
         {
-            AppLog.Exception("hubai", ex, "解析工具包");
+            AppLog.Exception("hubai", ex, "解析工具包｜阶段=JSON 反序列化");
             return null;
         }
     }
@@ -164,7 +164,7 @@ public static class ToolPackStore
         }
         catch (Exception ex)
         {
-            AppLog.Exception("hubai", ex, "保存工具包");
+            AppLog.Exception("hubai", ex, $"保存工具包｜文件={FilePath}");
             return false;
         }
     }
@@ -179,11 +179,11 @@ public static class ToolPackStore
             if (Directory.Exists(Dir) && Directory.GetFileSystemEntries(Dir).Length == 0)
                 Directory.Delete(Dir);
 
-            AppLog.Step("hubai", "已移除工具包");
+            AppLog.Step("hubai", $"移除工具包｜文件={FilePath}｜结果=已删除");
         }
         catch (Exception ex)
         {
-            AppLog.Exception("hubai", ex, "移除工具包");
+            AppLog.Exception("hubai", ex, $"移除工具包｜目录={Dir}");
         }
     }
 }

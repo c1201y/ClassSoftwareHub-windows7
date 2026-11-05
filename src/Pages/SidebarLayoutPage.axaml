@@ -253,6 +253,28 @@
                         </views:SettingsCard>
 
                         <!--
+                          网格图标大小（2026-11-04 用户要求「网格样式也要能调整大小，只调一边，格子是正方形」）：
+                          图标网格样式下每颗格子的边长（dip）。宽高共用这一个数 —— 面板宽 = 列数 × 边长，
+                          面板高 = 行数 × 边长 + 固定条（顶条 / 分页行 / 快捷设置行），所以一根滑杆就够。
+                          拖动即时生效（走 ApplyGridCellSize 的轻路，不重建格子），落盘与「展开面板高度」共用防抖。
+                        -->
+                        <views:SettingsCard Header="网格图标大小"
+                                               Description="「图标网格」样式下每颗格子的边长（48 ~ 96 dip）。格子是正方形的，宽和高用同一个值，整块面板的大小也就跟着变了 —— 所以只调这一边就够了。「工具列表」样式不受此项影响。">
+                            <views:SettingsCard.HeaderIcon>
+                                <fa:FontIcon Glyph="&#xE8A9;" />
+                            </views:SettingsCard.HeaderIcon>
+                            <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                <!-- ⛔ Value 必须显式写：只写 Minimum 时 Slider 初值就是 48（会被当成用户改动） -->
+                                <Slider x:Name="GridCellSizeSlider" Width="190"
+                                        Minimum="48" Maximum="96" Value="60"
+                                        TickFrequency="4" IsSnapToTickEnabled="True"
+                                        ValueChanged="GridCellSize_ValueChanged" />
+                                <TextBlock x:Name="GridCellSizeText" MinWidth="52" VerticalAlignment="Center"
+                                           FontSize="12" Opacity="0.75" />
+                            </StackPanel>
+                        </views:SettingsCard>
+
+                        <!--
                           展开面板高度：交给用户自己拖。
                           滑块 45~95（占工作区高度），拖动即时生效；落盘防抖 350ms（见 HeightRatio_ValueChanged）。
                           ⚠️ 上游此处写「仅对紧凑模式（单列）有效」—— 本移植版工具区本来就是单列（没有「每行三个」），

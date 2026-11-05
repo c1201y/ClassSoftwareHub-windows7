@@ -12,68 +12,6 @@
         <!-- ============ 原生界面（全部页面自绘；只有应用内网页浮层 WebSheet 会用到 WebView2） ============ -->
         <pages:ShellPage x:Name="NativeShell" />
 
-        <!-- ============ 网页内容（只有提交软件页用；默认隐藏） ============ -->
-        <!--
-          ⚠️ 移植说明：Avalonia **没有** WebView2 控件类型（本工程只引了 Microsoft.Web.WebView2 的 Core）。
-             这两处网页宿主改成占位 Panel，真正的网页由 Views/WebSheetHost 用一个子窗口 + CoreWebView2
-             Controller 叠在它上面（见 MainWindow 的移植说明）。占位 Panel 的位置就是网页的落点。
-        -->
-        <Grid x:Name="MainTabContent" Background="{x:Null}" IsVisible="False">
-            <Panel x:Name="Web" />
-
-            <!-- 启动 / 加载过渡 -->
-            <Grid x:Name="LoadingPanel" Background="{x:Null}">
-                <StackPanel Spacing="16" HorizontalAlignment="Center" VerticalAlignment="Center">
-                    <Image x:Name="LoadingIcon" Width="64" Height="64" Opacity="0.9" />
-                    <fa:ProgressRing x:Name="LoadingRing" IsActive="True" Width="28" Height="28" />
-                    <TextBlock x:Name="LoadingText" Text="正在加载" FontSize="12" Opacity="0.65"
-                               HorizontalAlignment="Center" />
-                </StackPanel>
-            </Grid>
-
-            <!-- 网络错误（不加载任何本地页面） -->
-            <Grid x:Name="ErrorPanel" IsVisible="False"
-                  Background="{DynamicResource SolidBackgroundFillColorBaseBrush}">
-                <StackPanel MaxWidth="420" Spacing="14"
-                            HorizontalAlignment="Center" VerticalAlignment="Center">
-                    <fa:FontIcon Glyph="&#xEB5E;" FontSize="34" HorizontalAlignment="Center" />
-                    <TextBlock x:Name="ErrorTitle"
-                               Text="网络出现错误，请稍后重试"
-                               FontSize="20" FontWeight="SemiBold"
-                               TextAlignment="Center" TextWrapping="Wrap" />
-                    <TextBlock x:Name="ErrorTip"
-                               FontSize="12" Opacity="0.6"
-                               TextAlignment="Center" TextWrapping="Wrap" />
-                    <Button x:Name="RetryButton"
-                            Content="重试"
-                            Classes="accent"
-                            HorizontalAlignment="Center"
-                            Click="RetryButton_Click" />
-                </StackPanel>
-            </Grid>
-        </Grid>
-
-        <!-- ============ 缺少 WebView2 运行时（全局最上层） ============ -->
-        <Grid x:Name="RuntimePanel" IsVisible="False"
-              Background="{DynamicResource SolidBackgroundFillColorBaseBrush}">
-            <StackPanel MaxWidth="480" Spacing="14"
-                        HorizontalAlignment="Center" VerticalAlignment="Center">
-                <fa:FontIcon Glyph="&#xE7BA;" FontSize="34" HorizontalAlignment="Center"
-                          Foreground="{DynamicResource SystemFillColorCautionBrush}" />
-                <TextBlock Text="缺少 Microsoft Edge WebView2 运行时"
-                           FontSize="20" FontWeight="SemiBold"
-                           TextAlignment="Center" TextWrapping="Wrap" />
-                <TextBlock FontSize="13" Opacity="0.75" TextAlignment="Center" TextWrapping="Wrap"
-                           Text="ClassSoftwareHub 需要系统安装 WebView2 运行时才能显示网页内容。安装后重新打开本应用即可。" />
-                <CheckBox x:Name="NoPromptCheck" Content="不再提示（记住该选择）" />
-                <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">
-                    <Button Content="立即安装" Classes="accent" Click="InstallRuntime_Click" />
-                    <Button Content="在浏览器中打开" Click="OpenInBrowser_Click" />
-                    <Button Content="退出" Click="ExitApp_Click" />
-                </StackPanel>
-            </StackPanel>
-        </Grid>
-
         <!-- ============ 应用内网页浮层（官网 / 网页版；由下往上淡入的「窗中窗」） ============ -->
         <Grid x:Name="WebSheet" IsVisible="False">
             <Rectangle Fill="#66000000" Tapped="WebSheetScrim_Tapped" />

@@ -124,7 +124,7 @@ public sealed partial class WelcomePage : PageBase
         }
         catch (Exception ex)
         {
-            Core.AppLog.Debug("ui", "[welcome] 更新高亮失败: " + ex.Message);
+            Core.AppLog.Catch("ui", "刷新首页更新高亮", ex, Core.LogLevel.Debug);
         }
     }
 

@@ -64,12 +64,12 @@ public static class TeachingActions
                 // ⚠️ 安全闸在 EasiNoteGuard.RunOnce 里 —— **有可见窗口的一律放过**（老师正开着白板讲课）。
                 case "killseewo": return KillEasiNote();
                 case "shutdown": return PrepareShutdown();
-                default: Log($"不认识的动作: {id}"); break;
+                default: Log($"教学动作｜结果=忽略｜原因=未知动作｜动作={id}", Core.LogLevel.Warning); break;
             }
         }
         catch (Exception ex)
         {
-            Log($"{id} 失败: " + ex.Message);
+            Core.AppLog.Catch("teaching", $"执行教学动作｜动作={id}", ex);
             return "操作失败，详见日志";
         }
 
@@ -155,13 +155,13 @@ public static class TeachingActions
             {
                 var shell = Activator.CreateInstance(type);
                 type.InvokeMember("ToggleDesktop", System.Reflection.BindingFlags.InvokeMethod, null, shell, null);
-                Log("回桌面：COM OK，之后前台=" + ClassNameOf(NativeMethods.GetForegroundWindow()));
+                Log($"回桌面｜方式=COM｜结果=成功｜之后前台窗口类={ClassNameOf(NativeMethods.GetForegroundWindow())}");
                 return;
             }
         }
         catch (Exception ex)
         {
-            Log("回桌面（COM）失败，改用 Win+D: " + ex.Message);
+            Core.AppLog.Catch("teaching", "回桌面｜方式=COM（已改用 Win+D）", ex);
         }
         SendWinChord(VkD);
     }
@@ -181,16 +181,16 @@ public static class TeachingActions
                 Environment.GetFolderPath(Environment.SpecialFolder.System), "taskmgr.exe");
             if (!File.Exists(exe))
             {
-                Log("任务管理器：找不到 " + exe);
+                Log($"启动任务管理器｜结果=跳过｜原因=文件不存在｜路径={exe}", Core.LogLevel.Warning);
                 return;
             }
 
             _ = Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true });
-            Log("任务管理器：已调起");
+            Log("启动任务管理器｜结果=已调起");
         }
         catch (Exception ex)
         {
-            Log("任务管理器失败: " + ex.Message);
+            Core.AppLog.Catch("teaching", "启动任务管理器", ex);
         }
     }
 
@@ -206,7 +206,7 @@ public static class TeachingActions
         // Win7/8 没有剪贴板历史 —— Win+V 发出去不会有任何反应，与其让用户以为按钮坏了，不如直接说明
         if (!OsInfo.SupportsClipboardHistory)
         {
-            Log("剪贴板历史：当前系统不支持（Win10 1809 起才有）");
+            Log("剪贴板历史｜结果=跳过｜原因=系统不提供该面板（Win10 1809 起）", Core.LogLevel.Warning);
             return "当前系统没有剪贴板历史（该功能从 Windows 10 开始提供）";
         }
 
@@ -219,7 +219,8 @@ public static class TeachingActions
             {
                 timer.Stop();
                 var sent = SendWinChord(VkV);
-                Log($"剪贴板历史：SendInput 插入 {sent} 个事件" + (sent == 0 ? $"（被拦了？err={Marshal.GetLastWin32Error()}）" : ""));
+                Log($"剪贴板历史｜阶段=SendInput｜事件数={sent}"
+                + (sent == 0 ? $"｜结果=被拦截｜Win32={Marshal.GetLastWin32Error()}" : "｜结果=已下发"));
             }
             catch { }
         };
@@ -239,7 +240,7 @@ public static class TeachingActions
         var r = Data.EasiNoteGuard.RunOnce(dryRun: false);
 
         // 手动点也留一条日志 —— 翻 easiguard.log 时分得清"是到点自己杀的"还是"我手点的"
-        Log($"杀希沃（侧边栏手点）：{r.Summary}"
+        Log($"结束希沃进程｜触发=侧边栏手动点击｜结果={r.Summary}"
             + (r.KilledNames.Count > 0 ? " 清掉=" + string.Join("、", r.KilledNames) : "")
             + (r.SkippedNames.Count > 0 ? " 放过=" + string.Join("、", r.SkippedNames) : "")
             + (r.Errors.Count > 0 ? " 失败=" + string.Join("；", r.Errors) : ""));
@@ -268,7 +269,7 @@ public static class TeachingActions
         }
         catch (Exception ex)
         {
-            Log("关机失败: " + ex.Message);
+            Core.AppLog.Catch("teaching", "关机", ex);
         }
 
         return null;
@@ -287,11 +288,12 @@ public static class TeachingActions
         try
         {
             var ok = Platform.NativeMethodsShell.LockWorkStation();
-            Log("锁定电脑：" + (ok ? "已下发" : $"失败 err={Marshal.GetLastWin32Error()}"));
+            Log("锁定电脑｜结果=" + (ok ? "已下发" : $"失败｜Win32={Marshal.GetLastWin32Error()}"),
+                ok ? Core.LogLevel.Info : Core.LogLevel.Warning);
         }
         catch (Exception ex)
         {
-            Log("锁定电脑失败: " + ex.Message);
+            Core.AppLog.Catch("teaching", "锁定电脑", ex);
         }
     }
 
@@ -307,16 +309,16 @@ public static class TeachingActions
                 Environment.GetFolderPath(Environment.SpecialFolder.System), "tsdiscon.exe");
             if (!File.Exists(exe))
             {
-                Log("切换用户：找不到 " + exe);
+                Log($"切换用户｜结果=跳过｜原因=文件不存在｜路径={exe}", Core.LogLevel.Warning);
                 return;
             }
 
             _ = Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true });
-            Log("切换用户：已调起 tsdiscon.exe");
+            Log("切换用户｜结果=已调起 tsdiscon.exe");
         }
         catch (Exception ex)
         {
-            Log("切换用户失败: " + ex.Message);
+            Core.AppLog.Catch("teaching", "切换用户", ex);
         }
     }
 
@@ -330,11 +332,12 @@ public static class TeachingActions
         try
         {
             _ = EnableShutdownPrivilege();       // 拿不到也照样试一下（有些账户本来就有）
-            var ok = NativeMethodsShell.ExitWindowsEx(EWX_LOGOFF, 0);            Log("注销：" + (ok ? "已下发" : $"失败 err={Marshal.GetLastWin32Error()}"));
+            var ok = NativeMethodsShell.ExitWindowsEx(EWX_LOGOFF, 0);            Log("注销｜结果=" + (ok ? "已下发" : $"失败｜Win32={Marshal.GetLastWin32Error()}"),
+                ok ? Core.LogLevel.Info : Core.LogLevel.Warning);
         }
         catch (Exception ex)
         {
-            Log("注销失败: " + ex.Message);
+            Core.AppLog.Catch("teaching", "注销当前用户", ex);
         }
 
         return null;
@@ -372,7 +375,8 @@ public static class TeachingActions
     private static void TaskView()
     {
         var sent = SendWinChord(VkTab);
-        Log($"任务视图：SendInput 插入 {sent} 个事件" + (sent == 0 ? $"（被拦了？err={Marshal.GetLastWin32Error()}）" : ""));
+        Log($"任务视图｜阶段=SendInput｜事件数={sent}"
+                + (sent == 0 ? $"｜结果=被拦截｜Win32={Marshal.GetLastWin32Error()}" : "｜结果=已下发"));
     }
 
     /// <summary>
@@ -385,11 +389,11 @@ public static class TeachingActions
         {
             Views.ToolSidebarWindow.CollapseForCapture();
             Views.SnipOverlayWindow.Begin(240);
-            Log("截屏：已请求打开框选层");
+            Log("截屏｜结果=已请求打开框选层");
         }
         catch (Exception ex)
         {
-            Log("截屏启动失败: " + ex.Message);
+            Core.AppLog.Catch("teaching", "启动截屏框选层", ex);
             return "截屏启动失败，详见日志";
         }
 
@@ -425,7 +429,7 @@ public static class TeachingActions
                     catch { }
                     finally { p.Dispose(); }
                 }
-                Log($"系统放大镜：关闭（{ok}/{running.Length} 个窗口收到关闭消息）");
+                Log($"系统放大镜｜动作=关闭｜已处理窗口={ok}/{running.Length}");
                 return;
             }
 
@@ -433,12 +437,12 @@ public static class TeachingActions
                 Environment.GetFolderPath(Environment.SpecialFolder.System), "Magnify.exe");
             if (!System.IO.File.Exists(exe))
             {
-                Log("系统放大镜：找不到 " + exe);
+                Log($"系统放大镜｜结果=跳过｜原因=文件不存在｜路径={exe}", Core.LogLevel.Warning);
                 return;
             }
 
             _ = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exe) { UseShellExecute = true });
-            Log("系统放大镜：已调起（稍后切镜头模式）");
+            Log("系统放大镜｜结果=已调起｜下一步=切换镜头模式");
 
             // 它起来默认可能是"全屏"模式，压屏幕就太野了 → 等它出来按 Ctrl+Alt+L 切"镜头"（跟着鼠标）
             var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(700) };
@@ -448,7 +452,8 @@ public static class TeachingActions
                 {
                     timer.Stop();
                     var sent = SendChord(VkControl, VkMenu, VkL);
-                    Log($"系统放大镜：切镜头模式 SendInput 插入 {sent} 个事件" + (sent == 0 ? "（被拦了？）" : ""));
+                    Log($"系统放大镜｜阶段=切镜头模式 SendInput｜事件数={sent}"
+                + (sent == 0 ? "｜结果=被拦截" : "｜结果=已下发"));
                 }
                 catch { }
             };
@@ -456,7 +461,7 @@ public static class TeachingActions
         }
         catch (Exception ex)
         {
-            Log("系统放大镜失败: " + ex.Message);
+            Core.AppLog.Catch("teaching", "启动系统放大镜", ex);
         }
     }
 
@@ -479,7 +484,7 @@ public static class TeachingActions
 
         if (found.Count == 0)
         {
-            Log("关闭全部：没有可关的窗口");
+            Log("关闭全部窗口｜结果=跳过｜原因=没有可关的窗口");
             return "无可关闭的窗口";
         }
 
@@ -489,7 +494,7 @@ public static class TeachingActions
         var sample = string.Join("、", titles.Take(3));
         if (titles.Count > 3) sample += " 等";
 
-        Log($"关闭全部：待确认 {found.Count} 个 → " + string.Join(" / ", found.Take(12).Select(TitleOf)));
+        Log($"关闭全部窗口｜阶段=盘点待关窗口｜数量={found.Count}｜前 12 个=" + string.Join(" / ", found.Take(12).Select(TitleOf)));
         return $"将关闭 {found.Count} 个窗口\n含最小化的窗口：{sample}";
     }
 
@@ -511,7 +516,7 @@ public static class TeachingActions
             catch { }
         }
 
-        Log($"关闭全部：{ok}/{list.Count} 个窗口收到关闭消息");
+        Log($"关闭全部窗口｜阶段=发送关闭消息｜已发={ok}/{list.Count}");
         return null;
     }
 
@@ -530,7 +535,7 @@ public static class TeachingActions
         }
         catch (Exception ex)
         {
-            Log($"{id} 确认执行失败: " + ex.Message);
+            Core.AppLog.Catch("teaching", $"确认执行教学动作｜动作={id}", ex);
             return null;
         }
     }
@@ -573,7 +578,7 @@ public static class TeachingActions
         var hwnd = ResolveTargetWindow();
         if (hwnd == IntPtr.Zero)
         {
-            Log("关前台：没找到能关的前台窗口");
+            Log("关闭前台窗口｜结果=跳过｜原因=未找到可关的前台窗口");
             return;
         }
 
@@ -583,11 +588,11 @@ public static class TeachingActions
 
         if (!NativeMethodsShell.PostMessage(hwnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero))
         {
-            Log($"关前台：发送失败 err={Marshal.GetLastWin32Error()} → {ttl} [{cls}]");
+            Log($"关闭前台窗口｜结果=发送失败｜Win32={Marshal.GetLastWin32Error()}｜标题={ttl}｜类={cls}", Core.LogLevel.Warning);
             return;
         }
 
-        Log($"关前台：{ttl} [{cls}] pid={pid}");
+        Log($"关闭前台窗口｜结果=已发送｜标题={ttl}｜类={cls}｜pid={pid}");
     }
 
     /// <summary>
@@ -676,7 +681,7 @@ public static class TeachingActions
             return true;
         }, IntPtr.Zero);
 
-        Log($"最小化全部：{count} 个窗口 {detail}");
+        Log($"最小化全部窗口｜数量={count}｜详情={detail}");
     }
 
     /// <summary>点完把焦点还给原来那个窗口（否则老师全屏的 PPT 会"失焦"）。</summary>
@@ -790,13 +795,13 @@ public static class TeachingActions
             if (sent == 0 && !_inputSizeLogged)
             {
                 _inputSizeLogged = true;
-                Log($"模拟按键被拒：INPUT 大小={cb}（x64 应为 40）err={Marshal.GetLastWin32Error()}");
+                Log($"模拟按键｜结果=拒绝｜原因=INPUT 结构尺寸不符｜实际={cb}｜期望=40（x64）｜Win32={Marshal.GetLastWin32Error()}", Core.LogLevel.Warning);
             }
             return sent;
         }
         catch (Exception ex)
         {
-            Log("模拟按键失败: " + ex.Message);
+            Core.AppLog.Catch("teaching", "模拟按键", ex);
             return 0;
         }
     }
@@ -816,13 +821,13 @@ public static class TeachingActions
             if (sent == 0 && !_inputSizeLogged)
             {
                 _inputSizeLogged = true;
-                Log($"模拟按键被拒：INPUT 大小={cb}（x64 应为 40）err={Marshal.GetLastWin32Error()}");
+                Log($"模拟按键｜结果=拒绝｜原因=INPUT 结构尺寸不符｜实际={cb}｜期望=40（x64）｜Win32={Marshal.GetLastWin32Error()}", Core.LogLevel.Warning);
             }
             return sent;
         }
         catch (Exception ex)
         {
-            Log("模拟按键失败: " + ex.Message);
+            Core.AppLog.Catch("teaching", "模拟按键", ex);
             return 0;
         }
     }
@@ -862,11 +867,11 @@ public static class TeachingActions
         }
     };
 
-    private static void Log(string message)
+    private static void Log(string message, Core.LogLevel level = Core.LogLevel.Info)
     {
         try
         {
-            Core.AppLog.Info("teaching", message);
+            Core.AppLog.Write("teaching", level, message);
         }
         catch { }
     }

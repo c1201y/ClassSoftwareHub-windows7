@@ -51,7 +51,7 @@ public partial class OobeScreenshotPage : UserControl
             var r = await FilePickerCompat.PickFolderAsync(top, "选择截图保存目录");
             if (r.Error is not null)
             {
-                AppLog.Warn("oobe", "选截图目录被拒：" + r.Error);
+                AppLog.Warn("oobe", $"选择截图目录｜结果=被拒绝｜原因={r.Error}");
                 return;
             }
             if (r.Files.Count == 0) return;
@@ -61,7 +61,7 @@ public partial class OobeScreenshotPage : UserControl
         }
         catch (Exception ex)
         {
-            AppLog.Warn("oobe", "选择截图目录失败：" + ex.Message);
+            AppLog.Catch("oobe", "选择截图目录", ex);
         }
     }
 
@@ -75,7 +75,7 @@ public partial class OobeScreenshotPage : UserControl
         }
         catch (Exception ex)
         {
-            AppLog.Warn("oobe", "打开截图目录失败：" + ex.Message);
+            AppLog.Catch("oobe", "打开截图目录", ex);
         }
     }
 

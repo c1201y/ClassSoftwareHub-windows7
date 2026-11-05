@@ -81,7 +81,7 @@ public static class QuarantineStore
             catch (Exception ex)
             {
                 // 某条记录读坏了不该连累整个列表
-                AppLog.Exception("quarantine", ex, "读取隔离区记录：" + dir);
+                AppLog.Exception("quarantine", ex, $"读取隔离区记录｜目录={dir}");
             }
         }
 
@@ -123,7 +123,7 @@ public static class QuarantineStore
         }
         catch (Exception ex)
         {
-            AppLog.Exception("quarantine", ex, "打开隔离区目录：" + dir);
+            AppLog.Exception("quarantine", ex, $"打开隔离区目录｜路径={dir}");
             return false;
         }
     }

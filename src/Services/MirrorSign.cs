@@ -107,7 +107,7 @@ public static class MirrorSign
         {
             if (Cache.TryGetValue(githubUrl, out var hit) && hit.Expiry > DateTime.UtcNow.AddMinutes(1))
             {
-                Core.AppLog.Info(LogTag, "自建加速：复用缓存签名（未过期）");
+                Core.AppLog.Info(LogTag, $"自建加速｜步骤=复用缓存签名｜剩余有效期>1 分钟｜主机={NodeBaseUrl}");
                 return hit.Signed;
             }
         }
@@ -132,7 +132,7 @@ public static class MirrorSign
                 }
                 catch (OperationCanceledException) when (!ct.IsCancellationRequested)
                 {
-                    Core.AppLog.Warn(LogTag, $"自建加速：服务端代签第 {attempt} 轮超时（{RequestTimeoutMs}ms）");
+                    Core.AppLog.Warn(LogTag, $"自建加速代签超时｜轮次={attempt}｜超时阈值={RequestTimeoutMs}ms");
                     viaServer = null;
                 }
             }
@@ -177,7 +177,8 @@ public static class MirrorSign
             {
                 Cool();
                 Core.AppLog.Info(LogTag,
-                    $"自建加速：/sign → HTTP {(int)response.StatusCode}{StatusHint((int)response.StatusCode)}，改用公益镜像");
+                    $"自建加速签名失败｜端点=/sign｜HTTP={(int)response.StatusCode}"
+                    + $"{StatusHint((int)response.StatusCode)}｜处置=改用公益镜像");
                 return null;
             }
 
@@ -185,11 +186,11 @@ public static class MirrorSign
             if (signed is null)
             {
                 Cool();
-                Core.AppLog.Info(LogTag, "自建加速：/sign 没返回可用的 url，改用公益镜像");
+                Core.AppLog.Info(LogTag, "自建加速签名失败｜端点=/sign｜原因=响应中无可用 url｜处置=改用公益镜像");
                 return null;
             }
 
-            Core.AppLog.Info(LogTag, $"自建加速：已取得限时签名链接（{NodeBaseUrl}）");
+            Core.AppLog.Info(LogTag, $"自建加速签名成功｜主机={NodeBaseUrl}");
             return signed;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -200,7 +201,8 @@ public static class MirrorSign
         {
             Cool();
             Core.AppLog.Info(LogTag,
-                $"自建加速：未取得签名（{ex.Message}），{FailureCooldown.TotalMinutes:0} 分钟内不再重试，改用公益镜像");
+                $"自建加速不可用｜原因={ex.GetType().Name}: {ex.Message}"
+                + $"｜冷却={FailureCooldown.TotalMinutes:0} 分钟｜处置=改用公益镜像");
             return null;
         }
     }
@@ -213,13 +215,13 @@ public static class MirrorSign
     {
         if (ResolveApiKey() is not null)
         {
-            Core.AppLog.Info(LogTag, $"自建加速：节点密钥已就位（来源：{_keySource}）");
+            Core.AppLog.Info(LogTag, $"自建加速节点密钥已就绪｜来源={_keySource}");
             return;
         }
 
         Core.AppLog.Info(LogTag,
-            $"自建加速：未配置节点密钥（找过环境变量 {KeyEnvVar}、exe 同目录与本机数据目录的 {KeyFileName}）" +
-            "；自建加速不可用，GitHub 下载一律改用公益镜像");
+            $"自建加速未启用｜原因=未配置节点密钥｜已查找=环境变量 {KeyEnvVar}／exe 同目录／数据目录 {KeyFileName}"
+            + "｜处置=GitHub 下载一律改用公益镜像");
     }
 
     /// <summary>
@@ -320,7 +322,7 @@ public static class MirrorSign
                 using var response = await Http.GetAsync(endpoint + query, token).ConfigureAwait(false);
                 if (!response.IsSuccessStatusCode)
                 {
-                    Core.AppLog.Info(LogTag, $"代签 {endpoint} → HTTP {(int)response.StatusCode}，试下一条");
+                    Core.AppLog.Info(LogTag, $"代签入口响应非成功｜入口={endpoint}｜HTTP={(int)response.StatusCode}｜处置=试下一条");
                     continue;
                 }
 
@@ -335,7 +337,7 @@ public static class MirrorSign
                     var signed = u.GetString();
                     if (!string.IsNullOrWhiteSpace(signed))
                     {
-                        Core.AppLog.Info(LogTag, $"自建加速：已通过服务端代签取得链接（{endpoint}）");
+                        Core.AppLog.Info(LogTag, $"自建加速签名成功｜方式=服务端代签｜入口={endpoint}");
                         return signed;
                     }
                 }
@@ -347,7 +349,7 @@ public static class MirrorSign
             catch (OperationCanceledException)
             {
                 Core.AppLog.Info(LogTag,
-                    $"代签 {endpoint} 超过 {SignEndpointTimeoutMs / 1000} 秒未响应，试下一条");
+                    $"代签入口超时｜入口={endpoint}｜阈值={SignEndpointTimeoutMs / 1000} 秒｜处置=试下一条");
             }
             catch (Exception ex)
             {
@@ -359,7 +361,7 @@ public static class MirrorSign
                 for (var inner = ex.InnerException; inner is not null; inner = inner.InnerException)
                     chain.Append(" | ").Append(inner.GetType().Name).Append(": ").Append(inner.Message);
 
-                Core.AppLog.Warn(LogTag, $"代签 {endpoint} 失败：{chain}");
+                Core.AppLog.Warn(LogTag, $"代签入口失败｜入口={endpoint}｜原因链={chain}");
             }
         }
 

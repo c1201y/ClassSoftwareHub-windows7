@@ -229,7 +229,7 @@ public static class AutoShutdown
         }
         catch (Exception ex)
         {
-            Log("启动自动关机巡检失败: " + ex.Message);
+            Core.AppLog.Catch("autoshutdown", "启动自动关机巡检", ex);
         }
     }
 
@@ -264,7 +264,7 @@ public static class AutoShutdown
         }
         catch (Exception ex)
         {
-            Log("巡检出错: " + ex.Message);
+            Core.AppLog.Catch("autoshutdown", "自动关机巡检轮次", ex);
         }
     }
 
@@ -296,7 +296,7 @@ public static class AutoShutdown
         }
         catch (Exception ex)
         {
-            Log("执行关机失败: " + ex.Message);
+            Core.AppLog.Catch("autoshutdown", "执行到点关机", ex);
         }
     }
 
@@ -311,7 +311,7 @@ public static class AutoShutdown
         // 0 = 取消成功；1116 = 没有待中止的关机（点了但压根没排过关机时最常见的就是它）
         if (code == 0)
         {
-            Log("已取消本次自动关机");
+            Log("自动关机｜结果=已取消｜触发=用户操作");
             return "已取消本次自动关机";
         }
 
@@ -332,12 +332,12 @@ public static class AutoShutdown
                     Environment.GetFolderPath(Environment.SpecialFolder.System), "SlideToShutDown.exe");
                 if (!File.Exists(exe))
                 {
-                    Log("滑动关机：找不到 " + exe);
+                    Core.AppLog.Warn("autoshutdown", $"滑动关机｜结果=跳过｜原因=文件不存在｜路径={exe}");
                     return;
                 }
 
                 Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true });
-                Log("已调起滑动关机（手动触发）");
+                Log("滑动关机｜结果=已调起｜触发=用户手动");
                 return;
             }
 
@@ -347,7 +347,7 @@ public static class AutoShutdown
         }
         catch (Exception ex)
         {
-            Log("执行关机失败: " + ex.Message);
+            Core.AppLog.Catch("autoshutdown", "执行到点关机", ex);
         }
     }
 

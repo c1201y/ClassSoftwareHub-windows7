@@ -97,7 +97,7 @@ public sealed class PageContextDoc
         catch (Exception ex)
         {
             // 序列化失败不该让提问发不出去：退回一句最简说明
-            AppLog.Warn("hubai", "页面现场数据序列化失败：" + ex.Message);
+            AppLog.Catch("hubai", "序列化页面现场数据", ex, LogLevel.Debug);
             return $"{{\"page\":\"{Page}\",\"note\":\"现场数据序列化失败\"}}";
         }
     }

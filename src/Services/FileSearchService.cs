@@ -180,7 +180,7 @@ public sealed class FileSearchService
         }
         catch (Exception ex)
         {
-            AppLog.Warning("file-search", "打开失败：" + item.Path + " → " + ex.Message);
+            AppLog.Catch("file-search", $"打开搜索结果｜路径={item.Path}", ex);
             return false;
         }
     }
@@ -211,7 +211,7 @@ public sealed class FileSearchService
         }
         catch (Exception ex)
         {
-            AppLog.Warning("file-search", "定位失败：" + item.Path + " → " + ex.Message);
+            AppLog.Catch("file-search", $"定位搜索结果｜路径={item.Path}", ex);
         }
 
         return false;
@@ -421,10 +421,10 @@ public sealed class FileSearchService
         _phase = PhaseReady;
         Notify(force: true);
 
-        AppLog.Info("file-search", $"索引完成：{entries.Length} 项，用时 {_elapsedMs} ms，范围 {_scope}");
+        AppLog.Info("file-search", $"索引建立完成｜条目={entries.Length}｜耗时={_elapsedMs}ms｜范围={_scope}");
 
         try { SaveCache(signature, entries, token); }
-        catch (Exception ex) { AppLog.Warning("file-search", "保存索引缓存失败：" + ex.Message); }
+        catch (Exception ex) { AppLog.Catch("file-search", "保存索引缓存", ex); }
     }
 
     private void Fail(Exception ex)
@@ -432,7 +432,7 @@ public sealed class FileSearchService
         _phase = PhaseFailed;
         _failure = ex.Message;
         Notify(force: true);
-        AppLog.Exception("file-search", ex, "建立文件索引");
+        AppLog.Exception("file-search", ex, $"建立文件索引｜范围={_scope}");
     }
 
     /// <summary>遍历一个根目录。用显式栈而不是递归：路径极深的目录树不会把线程栈打爆。</summary>
@@ -549,7 +549,7 @@ public sealed class FileSearchService
         }
         catch (Exception ex)
         {
-            AppLog.Warning("file-search", "枚举磁盘失败：" + ex.Message);
+            AppLog.Catch("file-search", "枚举本地磁盘", ex);
         }
 
         return roots;
@@ -619,7 +619,7 @@ public sealed class FileSearchService
         }
         catch (Exception ex)
         {
-            AppLog.Warning("file-search", "读取索引缓存失败：" + ex.Message);
+            AppLog.Catch("file-search", "读取索引缓存", ex);
             return false;
         }
     }

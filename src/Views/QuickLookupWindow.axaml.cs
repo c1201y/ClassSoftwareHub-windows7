@@ -85,7 +85,7 @@ public sealed partial class QuickLookupWindow : Window
         }
         catch (Exception ex)
         {
-            AppLog.Exception("dict-window", ex, "打开查阅单词窗口");
+            AppLog.Exception("dict", ex, "打开查阅单词窗口");
         }
     }
 
@@ -103,7 +103,7 @@ public sealed partial class QuickLookupWindow : Window
         var w = _instance;
         _instance = null;
         try { w?.Close(); } catch { }
-        AppLog.Info("exit", "查阅单词窗口实例已请求 Close");
+        AppLog.Info("window", "窗口关闭请求｜窗口=查阅单词｜触发=程序化 Close");
     }
 
     // ── 窗口本身 ─────────────────────────────────────────────────────────
@@ -127,7 +127,7 @@ public sealed partial class QuickLookupWindow : Window
             ThemeCompat.Apply(Root);
             ClientSize = new Size(DefaultWidthDip, DefaultHeightDip);
 
-            Closed += (_, _) => AppLog.Info("exit", "查阅单词窗口 Closed");
+            Closed += (_, _) => AppLog.Info("window", "窗口已关闭｜窗口=查阅单词");
 
             Closing += (_, args) =>
             {
@@ -141,7 +141,7 @@ public sealed partial class QuickLookupWindow : Window
         }
         catch (Exception ex)
         {
-            AppLog.Exception("dict-window", ex, "初始化查阅单词窗口");
+            AppLog.Exception("dict", ex, "初始化查阅单词窗口");
         }
     }
 
@@ -158,7 +158,7 @@ public sealed partial class QuickLookupWindow : Window
         catch (Exception ex)
         {
             _frame = null;
-            AppLog.Debug("dict-window", "自绘窗口框架挂载失败，退回原生标题栏: " + ex.Message);
+            AppLog.Catch("dict", "挂载自绘窗口框架（已退回原生标题栏）", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -228,7 +228,7 @@ public sealed partial class QuickLookupWindow : Window
         }
         catch (Exception ex)
         {
-            AppLog.Warning("dict-window", "查阅单词窗显示失败：" + ex.Message);
+            AppLog.Catch("dict", "显示查阅单词窗口", ex);
         }
     }
 
@@ -242,7 +242,7 @@ public sealed partial class QuickLookupWindow : Window
         {
             if (epoch != _fadeEpoch) return;
             try { NativeMethods.ShowWindow(Backdrop.TryGetHwnd(this), SW_HIDE); }
-            catch (Exception ex) { AppLog.Debug("dict-window", "收起失败: " + ex.Message); }
+            catch (Exception ex) { AppLog.Catch("dict", "收起查阅单词窗口", ex, Core.LogLevel.Debug); }
         });
     }
 
@@ -271,7 +271,7 @@ public sealed partial class QuickLookupWindow : Window
         }
         catch (Exception ex)
         {
-            AppLog.Warning("dict-window", "查阅单词窗定位失败：" + ex.Message);
+            AppLog.Catch("dict", "定位查阅单词窗口", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -409,7 +409,7 @@ public sealed partial class QuickLookupWindow : Window
         }
         catch (Exception ex)
         {
-            AppLog.Exception("dict-window", ex, "浮窗查询单词");
+            AppLog.Exception("dict", ex, "查询单词");
             ShowNote(WordNotice, "查询时出错：" + ex.Message, InfoBarSeverity.Error);
         }
         finally
@@ -504,7 +504,7 @@ public sealed partial class QuickLookupWindow : Window
         }
         catch (Exception ex)
         {
-            AppLog.Exception("dict-window", ex, "浮窗翻译句子");
+            AppLog.Exception("dict", ex, "翻译句子");
             ShowNote(TransNotice, "翻译时出错：" + ex.Message, InfoBarSeverity.Error);
         }
         finally

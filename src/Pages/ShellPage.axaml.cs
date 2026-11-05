@@ -148,19 +148,6 @@ public sealed partial class ShellPage : PageBase
         }
     }
 
-    /// <summary>符号字体（与 ShellPage.axaml 里 <c>{DynamicResource SymbolThemeFontFamily}</c> 同一个）。</summary>
-    private static Avalonia.Media.FontFamily SymbolFontFamily()
-    {
-        try
-        {
-            if (Avalonia.Application.Current?.TryFindResource("SymbolThemeFontFamily", out var v) == true
-                && v is Avalonia.Media.FontFamily f)
-                return f;
-        }
-        catch { }
-        return new Avalonia.Media.FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets");
-    }
-
     /// <summary>切页淡入用的按帧计时器（重入时作废上一次）。</summary>
     private DispatcherTimer? _contentFade;
 
@@ -703,12 +690,6 @@ public sealed partial class ShellPage : PageBase
         ClassroomToolsNav.IsExpanded = true;
     }
 
-    /// <summary>
-    /// 进 Hub AI 对话页（软件下载页的入口卡、设置页的「去看看」都调它）。
-    /// 2026-10-18 上游新增；2026-10-22 移植。
-    /// </summary>
-    public void NavigateToHubAi() => NavigateTo("hubai");
-
     /// <summary>进 Hub AI 二级设置页（设置 → Hub AI 那张卡）。</summary>
     public void NavigateToHubAiSettings() => NavigateTo("hubai-settings");
 
@@ -953,7 +934,7 @@ public sealed partial class ShellPage : PageBase
     {
         try
         {
-            Core.AppLog.Error("crash", $"导航到「{tag}」失败: {ex}");
+            Core.AppLog.Error("crash", $"页面导航失败｜目标={tag}｜异常={ex}");
         }
         catch
         {

@@ -53,7 +53,7 @@ public static class OnlineDictionary
         }
         catch (Exception ex)
         {
-            AppLog.Warning("dict", $"有道查询失败：{ex.Message}");
+            AppLog.Catch("dict", $"有道词典查询｜单词={word}", ex, LogLevel.Debug);
             note = "有道词典暂时连不上";
         }
 
@@ -67,7 +67,7 @@ public static class OnlineDictionary
         }
         catch (Exception ex)
         {
-            AppLog.Warning("dict", $"Free Dictionary 查询失败：{ex.Message}");
+            AppLog.Catch("dict", $"Free Dictionary 查询｜单词={word}", ex, LogLevel.Debug);
             note = note.Length > 0 ? note + "；英文词典也连不上" : "英文词典暂时连不上";
         }
 
@@ -95,7 +95,7 @@ public static class OnlineDictionary
         }
         catch (Exception ex)
         {
-            AppLog.Warning("dict", $"中译英查询失败：{ex.Message}");
+            AppLog.Catch("dict", $"中译英查询（有道）｜词={word}", ex, LogLevel.Debug);
             note = "词典服务暂时连不上";
         }
 

@@ -134,7 +134,7 @@ public static class FirewallGateway
         catch (Exception ex)
         {
             // 用户点了「否」也走这里（Win32Exception：操作已被用户取消）
-            AppLog.Warn("announce-lan", "修复防火墙未完成：" + ex.Message);
+            AppLog.Catch("announce-lan", "修复防火墙入站规则", ex);
         }
 
         Invalidate();
@@ -142,8 +142,8 @@ public static class FirewallGateway
 
         // 记录**实际结果**而不是「命令跑过了」：否则规则没建/建了但判不出来时，日志毫无线索。
         AppLog.Info("announce-lan", state == FirewallState.Ok
-            ? "防火墙入站规则已就绪（覆盖任何网络，无程序级拦截）"
-            : "防火墙修复后仍未达标：" + Describe(state));
+            ? "防火墙入站规则已就绪｜覆盖=任意网络类型｜程序级拦截=无"
+            : "防火墙修复后仍未达标｜当前状态=" + Describe(state));
 
         return state;
     }
@@ -205,7 +205,7 @@ public static class FirewallGateway
         }
         catch (Exception ex)
         {
-            AppLog.Warn("announce-lan", "读取防火墙规则失败：" + ex.Message);
+            AppLog.Catch("announce-lan", "读取防火墙规则", ex);
             return FirewallState.Unknown;
         }
     }

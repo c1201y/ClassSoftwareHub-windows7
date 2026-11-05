@@ -53,7 +53,7 @@ public partial class OobeAppearancePage : UserControl
         }
         catch (Exception ex)
         {
-            AppLog.Exception("oobe", ex, "外观预览图加载失败");
+            AppLog.Exception("oobe", ex, "加载外观预览图");
         }
     }
 

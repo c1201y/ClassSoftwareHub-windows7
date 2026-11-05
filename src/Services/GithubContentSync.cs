@@ -103,7 +103,7 @@ public static class GithubContentSync
             // ── 链路日志：内容同步是"软件列表是空的 / 数据一直不更新"
             //    这类反馈的唯一线索，失败必须留有日志。 ──
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            Core.AppLog.Begin("content", $"开始同步软件数据 · 仓库 {RepoUrl}");
+            Core.AppLog.Begin("content", $"同步软件数据开始｜仓库={RepoUrl}");
 
             var stamp = Path.Combine(Dir, ".reposha");
             var known = "";
@@ -120,10 +120,10 @@ public static class GithubContentSync
             if (head is null)
             {
                 // ⚠️ 这是"软件列表空 / 一直停在旧数据"最常见的原因 —— 网络出不去或全被拦。
-                Core.AppLog.Warn("content", "取不到仓库分支头（无网络 / 被网络策略拦截）→ 沿用本机数据");
+                Core.AppLog.Warn("content", "同步中止｜步骤=读取仓库分支头｜原因=请求失败（无网络或被网络策略拦截）｜处置=沿用本机数据");
                 return new RepoContentResult(false, false, CountApps(), "暂时无法访问 GitHub 仓库（可能为无网络连接或被网络策略拦截），暂用本机数据。");
             }
-            Core.AppLog.Step("content", $"分支头 {Short(head)}");
+            Core.AppLog.Step("content", $"同步源｜分支头={Short(head)}");
 
             var appsDir = Path.Combine(Dir, "apps");
             var hasApps = Directory.Exists(appsDir) && Directory.EnumerateFiles(appsDir, "*.json").Any();
@@ -132,7 +132,7 @@ public static class GithubContentSync
             if (hasApps && known.Length > 0 && format == SyncFormat
                 && string.Equals(known, head, StringComparison.OrdinalIgnoreCase))
             {
-                Core.AppLog.Step("content", $"与仓库一致，无需更新（本机 {CountApps()} 个软件）");
+                Core.AppLog.Step("content", $"同步结果=无需更新｜原因=分支头与本机记录一致｜本机软件数={CountApps()}");
                 return new RepoContentResult(true, false, CountApps(), $"软件数据已是最新（GitHub 仓库 {Short(head)}）");
             }
 
@@ -140,10 +140,11 @@ public static class GithubContentSync
             var (paths, truncated) = await ListDataFilesAsync(head, ct).ConfigureAwait(false);
             if (paths.Count == 0)
             {
-                Core.AppLog.Warn("content", $"仓库未列出任何软件数据文件（head={Short(head)}）→ 本机数据不动");
+                Core.AppLog.Warn("content", $"同步跳过｜原因=仓库未列出任何软件数据文件｜分支头={Short(head)}｜处置=本机数据不变");
                 return new RepoContentResult(false, false, CountApps(), "GitHub 仓库中未列出软件数据文件，本机数据暂不更新。");
             }
-            Core.AppLog.Step("content", $"待处理 {paths.Count} 个文件" + (truncated ? "（⚠ 列表被 GitHub 截断，本轮不删本地文件）" : ""));
+            Core.AppLog.Step("content", $"待处理文件数={paths.Count}"
+                + (truncated ? "｜注意=列表被 GitHub 截断，本轮不删除本地文件" : ""));
 
             Directory.CreateDirectory(appsDir);
             var keep = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -194,11 +195,11 @@ public static class GithubContentSync
             if (downloaded > 0)
             {
                 AppIconCache.Invalidate();
-                Core.AppLog.Step("content", $"{downloaded} 个数据文件有变化 → 图标缓存已标记为陈旧");
+                Core.AppLog.Step("content", $"变更文件数={downloaded}｜附带动作=图标缓存已标记为陈旧");
             }
 
             var count = CountApps();
-            Core.AppLog.Done("content", $"软件数据已更新到 {Short(head)} · {count} 个软件 · {downloaded} 个文件有变化", sw.Elapsed);
+            Core.AppLog.Done("content", $"同步完成｜分支头={Short(head)}｜软件数={count}｜变更文件数={downloaded}", sw.Elapsed);
             return new RepoContentResult(true, true, count,
                 $"软件数据已从 GitHub 仓库更新到 {Short(head)}（{count} 个软件，{downloaded} 个文件有变化）");
         }
@@ -209,13 +210,13 @@ public static class GithubContentSync
         catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.Forbidden || ex.StatusCode == (HttpStatusCode)429)
         {
             // 限流不算"坏"，但必须留痕：用户看到的是"数据一直不更新"，得知道是撞了 60 次/小时
-            Core.AppLog.Warn("content", "GitHub 接口限流（未登录 60 次/小时）→ 稍后自动重试，沿用本机数据");
+            Core.AppLog.Warn("content", "同步中止｜原因=GitHub 接口限流（未登录上限 60 次/小时）｜处置=稍后自动重试，沿用本机数据");
             return new RepoContentResult(false, false, CountApps(),
                 "GitHub 接口访问次数已达上限（未登录状态每小时 60 次），稍后将自动重试，暂用本机数据。");
         }
         catch (Exception ex)
         {
-            Core.AppLog.Fail("content", ex, "同步软件数据失败");
+            Core.AppLog.Fail("content", ex, $"同步软件数据失败｜仓库={RepoUrl}");
             return new RepoContentResult(false, false, CountApps(), "从 GitHub 读取软件数据失败：" + ex.Message);
         }
         finally
@@ -393,7 +394,7 @@ public static class GithubContentSync
             // ⚠️ 这个函数是**每处理一个文件就会被叫一次**的（入口是"边下边记"），
             //    所以日志必须按「入口真的换了」才记 —— 否则同步 112 个文件就刷 112 行同样的废字。
             if (before != index)
-                Core.AppLog.Info("content", $"{kind} 入口改用：{label}");   // 排查"内容源不对"的第一手依据
+                Core.AppLog.Info("content", $"内容源入口｜类型={kind}｜实际={label}");   // 排查"内容源不对"的第一手依据
         }
         catch { /* 记不住不影响功能 */ }
     }

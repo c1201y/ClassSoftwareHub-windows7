@@ -113,7 +113,7 @@ public sealed partial class MiniClock : UserControl
         }
         catch (Exception ex)
         {
-            Log("浮窗外观渲染失败: " + ex.Message);
+            Core.AppLog.Catch("palette", "渲染迷你时钟外观", ex, Core.LogLevel.Debug);
         }
     }
 

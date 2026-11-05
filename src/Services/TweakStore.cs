@@ -69,13 +69,14 @@ public static class TweakStore
             var value = TweakRules.ParseDword(raw);
 
             if (value is null)
-                AppLog.Warn("tweaks", $"{def.FullPath} 的值类型不认识（{raw.GetType().Name}），按关处理");
+                AppLog.Warn("tweaks", $"优化项值类型不支持｜项目={def.Id}｜位置={def.FullPath}"
+                + $"｜实际类型={raw.GetType().Name}｜处置=按关闭处理");
 
             return value;
         }
         catch (Exception ex)
         {
-            AppLog.Warn("tweaks", $"读取 {def.Id}（{def.FullPath}）失败：{ex.Message}");
+            AppLog.Catch("tweaks", $"读取优化项状态｜项目={def.Id}｜位置={def.FullPath}", ex);
             return null;
         }
     }
@@ -112,13 +113,14 @@ public static class TweakStore
             }
             catch (Exception ex)
             {
-                AppLog.Warn("tweaks", $"写入 {def.Id}（{def.FullPath}）失败：{ex.Message}");
+                AppLog.Catch("tweaks", $"写入优化项｜项目={def.Id}｜位置={def.FullPath}", ex);
                 error ??= ex.Message;
             }
         }
 
         AppLog.Info("tweaks",
-            $"应用 {changes.Count} 项：当前用户 {userChanges.Count} 项、机器级 {systemChanges.Count}（{string.Join("、", changes.Select(c => c.Def.Id))}）");
+            $"应用优化项｜数量={changes.Count}｜当前用户={userChanges.Count}｜机器级={systemChanges.Count}"
+            + $"｜项目={string.Join("、", changes.Select(c => c.Def.Id))}");
 
         // ── ② 机器级：整批一次提权 ──
         if (systemChanges.Count > 0)
@@ -144,7 +146,7 @@ public static class TweakStore
             catch (Exception ex)
             {
                 // 用户点了「否」也走这里（Win32Exception：操作已被用户取消）
-                AppLog.Warn("tweaks", "机器级改动未应用：" + ex.Message);
+                AppLog.Catch("tweaks", "应用机器级优化项", ex);
                 error ??= ex.Message;
             }
             finally
@@ -179,8 +181,9 @@ public static class TweakStore
 
         AppLog.Info("tweaks",
             matched == changes.Count
-                ? $"全部生效（{matched}/{changes.Count}）"
-                : $"有 {failed.Count} 项未生效（{matched}/{changes.Count}）：{string.Join("、", failed)}");
+                ? $"优化项应用｜结果=全部生效｜{matched}/{changes.Count}"
+                : $"优化项应用｜结果=部分未生效｜已生效={matched}/{changes.Count}"
+                  + $"｜未生效项={string.Join("、", failed)}");
 
         return new TweakApplyResult(changes.Count, matched, error, failed);
     }
@@ -222,7 +225,7 @@ public static class TweakStore
     {
         try
         {
-            AppLog.Info("tweaks", "重启资源管理器");
+            AppLog.Info("tweaks", "重启资源管理器｜目的=使优化项生效");
 
             using (var kill = Process.Start(new ProcessStartInfo("taskkill.exe", "/f /im explorer.exe")
                    {

@@ -70,12 +70,12 @@ internal static class OfficeCom
                 var instance = Activator.CreateInstance(type);
                 if (instance is null) continue;
 
-                AppLog.Info("ppt-resume", "已启动演示程序：" + progId);
+                AppLog.Info("ppt-resume", $"启动演示程序｜ProgID={progId}｜结果=成功");
                 return instance;
             }
             catch (Exception ex)
             {
-                AppLog.Debug("ppt-resume", "启动 " + progId + " 失败: " + ex.Message);
+                AppLog.Catch("ppt-resume", $"启动演示程序｜ProgID={progId}", ex, LogLevel.Debug);
             }
         }
 
@@ -165,7 +165,7 @@ internal static class RunningObject
         }
         catch (Exception ex)
         {
-            AppLog.Debug("ppt-resume", "枚举运行中的 Office 失败: " + ex.Message);
+            AppLog.Catch("ppt-resume", "枚举运行中的 Office 进程", ex, LogLevel.Debug);
         }
         finally
         {

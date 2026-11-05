@@ -115,7 +115,7 @@ public static class AiModelStore
         if (settings.HubAiProvider == "deepseek" && settings.HubAiModel == "deepseek-v4-flash")
         {
             settings.HubAiModel = "deepseek-flash";
-            AppLog.Step("hubai", "已把模型 ID 从 deepseek-v4-flash 修正为 deepseek-flash");
+            AppLog.Step("hubai", "模型配置迁移｜动作=修正模型 ID｜原值=deepseek-v4-flash｜新值=deepseek-flash");
         }
 
         var entry = new AiModelEntry
@@ -135,7 +135,7 @@ public static class AiModelStore
         settings.HubAiActiveModelId = entry.Id;
         App.Settings.Save();
 
-        AppLog.Step("hubai", $"已把原有模型配置迁移为列表第一项：{entry.Name}");
+        AppLog.Step("hubai", $"模型配置迁移｜动作=旧字段转列表｜条目={entry.Name}｜位置=1");
     }
 
     /// <summary>
@@ -165,7 +165,7 @@ public static class AiModelStore
         if (!changed) return;
 
         App.Settings.Save();
-        AppLog.Step("hubai", "已修正历史模型条目的 ID 与显示名");
+        AppLog.Step("hubai", "模型配置迁移｜动作=修正历史条目的 ID 与显示名");
     }
 
     /// <summary>从服务商预设新增一条（同一模型重复添加会直接返回已有的那条）。</summary>
@@ -190,7 +190,7 @@ public static class AiModelStore
         App.Settings.Current.HubAiModels.Add(entry);
         App.Settings.Save();
 
-        AppLog.Step("hubai", $"新增模型：{entry.Name}");
+        AppLog.Step("hubai", $"新增模型｜条目={entry.Name}｜服务商={entry.ProviderId}｜模型={entry.Model}｜现有={App.Settings.Current.HubAiModels.Count}");
         return entry;
     }
 
@@ -212,7 +212,7 @@ public static class AiModelStore
         }
 
         App.Settings.Save();
-        AppLog.Step("hubai", $"删除模型：{entry.Name}");
+        AppLog.Step("hubai", $"删除模型｜条目={entry.Name}｜模型={entry.Model}｜剩余={App.Settings.Current.HubAiModels.Count}");
     }
 
     /// <summary>设为当前使用，并把值镜像到旧字段。</summary>

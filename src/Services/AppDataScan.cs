@@ -211,7 +211,8 @@ public static class AppDataScan
         if (cleanable.Count != dedup.Count)
         {
             AppLog.Warning("appdata",
-                $"白名单里有 {dedup.Count - cleanable.Count} 条规则列得出、清不掉（判据不一致），已在列表里隐去："
+                $"白名单规则不一致｜数量={dedup.Count - cleanable.Count}"
+                + $"｜说明=可列出但判定不可清理，已从列表隐藏｜规则="
                 + string.Join("、", dedup.Except(cleanable).Select(e => e.RelPath)));
         }
 
@@ -276,13 +277,13 @@ public static class AppDataScan
                 catch (Exception ex)
                 {
                     // 枚举过程中文件被删/被独占属正常，调试级记一条就够（高频读数走「调试」，见日志契约）
-                    AppLog.Debug("appdata", $"统计单个文件失败（{f.FullName}）：{ex.Message}");
+                    AppLog.Catch("appdata", $"统计单个文件体积｜文件={f.FullName}", ex, Core.LogLevel.Debug);
                 }
             }
         }
         catch (Exception ex)
         {
-            AppLog.Debug("appdata", $"统计目录失败（{path}）：{ex.Message}");
+            AppLog.Catch("appdata", $"统计目录体积｜目录={path}", ex, Core.LogLevel.Debug);
         }
 
         return (bytes, files);
@@ -371,7 +372,7 @@ public static class AppDataScan
         // ① 最后一道闸。**别把这段当冗余**：界面状态可能过期（目录被换成联接点、规则后来改了）。
         if (!IsCleanable(entry.FullPath))
         {
-            AppLog.Warning("appdata", "拒绝清理不在白名单内的路径：" + entry.FullPath);
+            AppLog.Warning("appdata", "清理被拒绝｜原因=路径不在白名单内｜路径=" + entry.FullPath);
             return new CleanOutcome(false, 0, 0, "这个路径不在白名单内，已拒绝执行。");
         }
 
@@ -393,11 +394,11 @@ public static class AppDataScan
         }
         catch (Exception ex)
         {
-            AppLog.Info("appdata", $"清理后重建目录失败（{entry.RelPath}）：{ex.Message}");
+            AppLog.Catch("appdata", $"清理后重建目录｜目录={entry.RelPath}", ex, Core.LogLevel.Debug);
         }
 
-        AppLog.Info("appdata",
-            $"已清理（永久删除 · {entry.RelPath}）：删掉 {deleted} 项，跳过 {skipped} 项");
+        AppLog.Done("appdata",
+            $"清理完成｜方式=永久删除｜目录={entry.RelPath}｜已删除={deleted}｜跳过={skipped}");
 
         return new CleanOutcome(
             skipped == 0, deleted, skipped,
@@ -428,7 +429,7 @@ public static class AppDataScan
             catch (Exception ex)
             {
                 skipped++;
-                AppLog.Debug("appdata", $"跳过目录（{sub}）：{ex.Message}");
+                AppLog.Catch("appdata", $"扫描子目录｜目录={sub}", ex, Core.LogLevel.Debug);
             }
         }
 
@@ -451,7 +452,7 @@ public static class AppDataScan
             catch (Exception ex)
             {
                 skipped++;
-                AppLog.Debug("appdata", $"跳过文件（{file}）：{ex.Message}");
+                AppLog.Catch("appdata", $"扫描文件｜文件={file}", ex, Core.LogLevel.Debug);
             }
         }
     }
@@ -478,7 +479,7 @@ public static class AppDataScan
 
             if (!inside)
             {
-                AppLog.Warning("appdata", "拒绝打开不在 AppData 下的路径：" + full);
+                AppLog.Warning("appdata", "打开目录被拒绝｜原因=路径不在 AppData 下｜路径=" + full);
                 return false;
             }
 
@@ -487,7 +488,7 @@ public static class AppDataScan
         }
         catch (Exception ex)
         {
-            AppLog.Fail("appdata", ex, "打开目录：" + path);
+            AppLog.Fail("appdata", ex, $"打开目录｜路径={path}");
             return false;
         }
     }
@@ -522,7 +523,7 @@ public static class AppDataScan
             }
             catch (Exception ex)
             {
-                AppLog.Debug("appdata", $"查询进程失败（{name}）：{ex.Message}");
+                AppLog.Catch("appdata", $"查询占用进程｜名称={name}", ex, Core.LogLevel.Debug);
             }
         }
 
@@ -542,7 +543,7 @@ public static class AppDataScan
         }
         catch (Exception ex)
         {
-            AppLog.Debug("appdata", $"枚举目录失败（{dir}）：{ex.Message}");
+            AppLog.Catch("appdata", $"枚举目录｜目录={dir}", ex, Core.LogLevel.Debug);
             yield break;
         }
 
@@ -566,7 +567,7 @@ public static class AppDataScan
         }
         catch (Exception ex)
         {
-            AppLog.Debug("appdata", $"枚举文件失败（{dir}）：{ex.Message}");
+            AppLog.Catch("appdata", $"枚举文件｜目录={dir}", ex, Core.LogLevel.Debug);
             yield break;
         }
 

@@ -75,7 +75,7 @@ public static class WindowChrome
     private static void InstallNcCalcSizeHook(IntPtr hwnd)
     {
         var ok = NativeMethodsEx.SetWindowSubclass(hwnd, NcCalcSizeProc, NcCalcSizeSubclassId, IntPtr.Zero);
-        ChromeLog($"subclass hwnd={hwnd} ok={ok}");
+        ChromeLog($"窗口外观｜阶段=子类化｜hwnd={hwnd}｜结果={(ok ? "成功" : "失败")}", ok ? LogLevel.Debug : LogLevel.Warning);
     }
 
     // 必须留字段：委托一旦被 GC，原生回调就指向野指针，下一步直接崩。
@@ -91,7 +91,7 @@ public static class WindowChrome
             if (!_ncProcLogged)
             {
                 _ncProcLogged = true;
-                ChromeLog($"NCCALCSIZE fired hwnd={hWnd} → 返回0（客户区=整个窗口）");
+                ChromeLog($"窗口外观｜阶段=NCCALCSIZE｜hwnd={hWnd}｜返回=0（客户区占满整个窗口）", LogLevel.Debug);
             }
             return IntPtr.Zero;                            // 客户区 = 整个窗口，别给我留框
         }
@@ -104,12 +104,13 @@ public static class WindowChrome
             ? NativeMethodsEx.GetWindowLongPtrW(hwnd, NativeMethodsEx.GWL_STYLE).ToInt64()
             : NativeMethodsEx.GetWindowLongW(hwnd, NativeMethodsEx.GWL_STYLE);
 
-    /// <summary>诊断日志（排查"幻影框架"用，只在出错/首次时写）。</summary>
-    private static void ChromeLog(string message)
+    /// <summary>诊断日志（排查"幻影框架"用，只在出错/首次时写）。
+    /// 失败分支传 <paramref name="level"/> = 警告，便于日志页按级别筛出异常路径。</summary>
+    private static void ChromeLog(string message, LogLevel level = LogLevel.Info)
     {
         try
         {
-            AppLog.Info("chrome", message);
+            AppLog.Write("chrome", level, message);
         }
         catch { }
     }
@@ -198,16 +199,16 @@ public static class WindowChrome
     {
         if (hwnd == IntPtr.Zero) return;
 
-        ChromeLog($"RemoveBorder begin hwnd={hwnd}");
+        ChromeLog($"窗口外观｜阶段=去除边框开始｜hwnd={hwnd}", LogLevel.Debug);
         try
         {
             var borderless = MakeBorderless(hwnd);   // 先把系统框架整个去掉，这是"白边"的根
-            ChromeLog($"  MakeBorderless={borderless} styleAfter=0x{ReadStyle(hwnd):X}");
+            ChromeLog($"窗口外观｜无边框={borderless}｜应用后样式=0x{ReadStyle(hwnd):X}", LogLevel.Debug);
 
             // 客户区=整个窗口，杀掉幻影框架（见 WM_NCCALCSIZE 段注释）。单独兜异常：
             // 它要是炸了不能连累后面的边框色/圆角（更不能悄悄吞掉整段流程）。
             try { InstallNcCalcSizeHook(hwnd); }
-            catch (Exception ex) { ChromeLog("  subclass FAILED: " + ex.GetType().Name + " " + ex.Message); }
+            catch (Exception ex) { ChromeLog($"窗口外观｜阶段=子类化｜结果=异常｜原因={ex.GetType().Name}: {ex.Message}", LogLevel.Warning); }
 
             SetDarkMode(hwnd, dark);
 
@@ -249,11 +250,11 @@ public static class WindowChrome
             //    根本不会闪黑。反过来把类背景刷设成不透明纯色，还会盖掉浮窗的亚克力/透明底 —— 是倒退。
             //    浮窗首帧的兜底色由 Views/FlyoutChrome.PrimeOpaqueBackdrop 负责，主窗口由 SelfDrawnFrame 的擦除负责。
 
-            ChromeLog($"  done style=0x{ReadStyle(hwnd):X} corner={(rounded ? "round" : "square")}");
+            ChromeLog($"窗口外观｜阶段=去除边框完成｜样式=0x{ReadStyle(hwnd):X}｜圆角={(rounded ? "是" : "否")}", LogLevel.Debug);
         }
         catch (Exception ex)
         {
-            ChromeLog("EXCEPTION: " + ex.GetType().Name + " " + ex.Message);
+            ChromeLog($"窗口外观｜阶段=去除边框｜结果=异常｜原因={ex.GetType().Name}: {ex.Message}", LogLevel.Warning);
         }
     }
 
@@ -326,15 +327,15 @@ public static class WindowChrome
 
             // GDI 的区域是**不含右下边界**的：右下各多给 1px，否则会削掉最后一行/一列。
             var rgn = CreateRoundRectRgn(0, 0, widthPx + 1, heightPx + 1, r, r);
-            if (rgn == IntPtr.Zero) { ChromeLog("CreateRoundRectRgn 失败"); return; }
+            if (rgn == IntPtr.Zero) { ChromeLog("窗口外观｜阶段=创建圆角区域｜结果=失败（CreateRoundRectRgn 返回空）", LogLevel.Warning); return; }
 
             // SetWindowRgn 之后这个区域归**系统**所有（文档明确），不要再 DeleteObject —— 二次释放会崩。
             //    再设一次新区域时系统会自己换掉旧的。
-            if (SetWindowRgn(hwnd, rgn, true) == 0) ChromeLog("SetWindowRgn 失败");
+            if (SetWindowRgn(hwnd, rgn, true) == 0) ChromeLog($"窗口外观｜阶段=应用圆角区域｜结果=失败｜hwnd={hwnd}", LogLevel.Warning);
         }
         catch (Exception ex)
         {
-            ChromeLog("圆角区域失败: " + ex.Message);
+            ChromeLog($"窗口外观｜阶段=计算圆角区域｜结果=异常｜原因={ex.GetType().Name}: {ex.Message}", LogLevel.Warning);
         }
     }
 
@@ -348,7 +349,7 @@ public static class WindowChrome
     {
         if (hwnd == IntPtr.Zero) return;
         try { SetWindowRgn(hwnd, IntPtr.Zero, true); }
-        catch (Exception ex) { ChromeLog("清圆角区域失败: " + ex.Message); }
+        catch (Exception ex) { ChromeLog($"窗口外观｜阶段=清除圆角区域｜结果=异常｜原因={ex.GetType().Name}: {ex.Message}", LogLevel.Debug); }
     }
 
     /// <summary>告诉 DWM 这个窗口是深色的（决定系统给它画浅色还是深色的框/材质）。</summary>

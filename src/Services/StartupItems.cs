@@ -145,7 +145,7 @@ public static class StartupItems
             catch (Exception ex)
             {
                 // 一个位置读不动（安全软件挂钩、权限不足）不该拖垮整次扫描
-                AppLog.Exception("startup", ex, $"扫描开机启动项（{src.Label}）");
+                AppLog.Exception("startupitem", ex, $"扫描开机启动项｜来源={src.Label}");
             }
         }
 
@@ -198,7 +198,7 @@ public static class StartupItems
         }
         catch (Exception ex)
         {
-            AppLog.Info("startup", $"列启动文件夹失败（{src.ItemsPath}）：{ex.GetType().Name}");
+            AppLog.Catch("startupitem", $"列启动文件夹｜目录={src.ItemsPath}", ex, LogLevel.Debug);
             return;
         }
 
@@ -250,7 +250,7 @@ public static class StartupItems
         }
         catch (Exception ex)
         {
-            AppLog.Info("startup", $"读启动状态失败（{approvalPath}）：{ex.GetType().Name}");
+            AppLog.Catch("startupitem", $"读取启动审批状态｜文件={approvalPath}", ex, LogLevel.Debug);
         }
 
         return map;
@@ -330,14 +330,14 @@ public static class StartupItems
         }
         catch (Exception ex)
         {
-            AppLog.Exception("startup", ex, $"写启动状态（{name}）");
+            AppLog.Exception("startupitem", ex, $"写启动审批状态｜项目={name}");
             note = ex.Message;
             return false;
         }
     }
 
     private static void Log(StartupSource src, string name, bool enabled)
-        => AppLog.Info("startup", $"{(enabled ? "启用" : "禁用")}开机启动项「{name}」（{src.Label}）");
+        => AppLog.Info("startupitem", $"开机启动项状态变更｜项目={name}｜来源={src.Label}｜目标={(enabled ? "启用" : "禁用")}");
 
     // ── 提权链路（照「应用卸载」页那套：清单进、结果出、跑完即退） ──────────────
 
@@ -364,11 +364,11 @@ public static class StartupItems
             var exe = Environment.ProcessPath;
             if (string.IsNullOrEmpty(exe))
             {
-                AppLog.Warning("startup", "拿不到本程序路径，无法提权");
+                AppLog.Warn("startupitem", "提权未执行｜原因=无法获取本程序路径");
                 return "无法提权：拿不到本程序路径";
             }
 
-            AppLog.Info("startup", $"提权改动启动项：{name}（{src.Label}）");
+            AppLog.Info("startupitem", $"提权变更启动项｜项目={name}｜来源={src.Label}");
 
             var psi = new ProcessStartInfo
             {
@@ -388,7 +388,7 @@ public static class StartupItems
                 try { await p.WaitForExitAsync(timeout.Token); }
                 catch (OperationCanceledException) when (!ct.IsCancellationRequested)
                 {
-                    AppLog.Warning("startup", "提权改动启动项超时（2 分钟）");
+                    AppLog.Warn("startupitem", "提权变更启动项超时｜阈值=2 分钟");
                     return "提权操作超时";
                 }
             }
@@ -403,13 +403,13 @@ public static class StartupItems
         }
         catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223)
         {
-            AppLog.Info("startup", "用户取消了提权");
+            AppLog.Info("startupitem", "提权变更启动项已取消｜触发=用户取消 UAC 授权");
             return "已取消管理员授权";
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
-            AppLog.Exception("startup", ex, "提权改动启动项");
+            AppLog.Exception("startupitem", ex, "提权变更启动项");
             return ex.Message;
         }
     }
@@ -424,7 +424,7 @@ public static class StartupItems
 
         try
         {
-            AppLog.Info("startup", $"提权助手启动，清单：{manifestPath}");
+            AppLog.Info("startupitem", $"提权助手启动｜清单={manifestPath}");
 
             var task = JsonSerializer.Deserialize<AdminTask>(File.ReadAllText(manifestPath));
             if (task is null)
@@ -444,7 +444,7 @@ public static class StartupItems
         }
         catch (Exception ex)
         {
-            AppLog.Exception("startup", ex, "提权助手执行");
+            AppLog.Exception("startupitem", ex, "提权助手执行");
             result = new AdminResult("", "", false, false, ex.Message);
         }
 
@@ -454,14 +454,14 @@ public static class StartupItems
         }
         catch (Exception ex)
         {
-            AppLog.Exception("startup", ex, "写提权结果");
+            AppLog.Exception("startupitem", ex, "写提权结果文件");
         }
     }
 
     private static void TryDelete(string path)
     {
         try { if (File.Exists(path)) File.Delete(path); }
-        catch (Exception ex) { AppLog.Info("startup", $"删旧结果文件失败：{ex.GetType().Name}"); }
+        catch (Exception ex) { AppLog.Catch("startupitem", "删除旧结果文件", ex, LogLevel.Debug); }
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -525,7 +525,7 @@ public static class StartupItems
         }
         catch (Exception ex)
         {
-            AppLog.Info("startup", $"解析快捷方式失败（{lnkPath}）：{ex.GetType().Name}");
+            AppLog.Catch("startupitem", $"解析快捷方式｜文件={lnkPath}", ex, LogLevel.Debug);
             return "";
         }
         finally

@@ -123,7 +123,7 @@ public sealed partial class ToolHostPage : PageBase
             {
                 if (args.ProcessFailedKind != CoreWebView2ProcessFailedKind.BrowserProcessExited) return;
 
-                AppLog.Warn("tool-host", "浏览器进程退出，回退原生页");
+                AppLog.Warn("tool-host", "工具页承载进程已退出｜处置=回退原生页");
                 OnUi(() => Fallback("浏览器进程退出"));
             };
 
@@ -131,24 +131,24 @@ public sealed partial class ToolHostPage : PageBase
             {
                 if (ok)
                 {
-                    AppLog.Step("tool-host", "工具页已就绪");
+                    AppLog.Step("tool-host", "工具页加载完成｜状态=就绪");
                     return;
                 }
 
-                AppLog.Warn("tool-host", "工具页加载失败，回退原生页");
+                AppLog.Warn("tool-host", "工具页加载失败｜处置=回退原生页");
                 OnUi(() => Fallback("加载失败"));
             };
 
             var fileName = System.IO.Path.GetFileName(_request.EntryFile);
             var url = $"https://{ToolCarrier.HostName}/{Uri.EscapeDataString(fileName)}";
-            AppLog.Step("tool-host", $"导航到 {url}（根目录 {_request.Folder}）");
+            AppLog.Step("tool-host", $"工具页导航｜地址={url}｜根目录={_request.Folder}");
 
             host.Navigate(url);
             Reposition();
         }
         catch (Exception ex)
         {
-            AppLog.Exception("tool-host", ex, "初始化工具宿主");
+            AppLog.Exception("tool-host", ex, "初始化工具页承载");
             OnUi(() => Fallback("初始化异常"));
         }
     }
@@ -200,7 +200,7 @@ public sealed partial class ToolHostPage : PageBase
     {
         if (_settled) return;
         _settled = true;
-        AppLog.Step("tool-host", $"回退原生页：{reason}");
+        AppLog.Step("tool-host", $"回退原生页｜原因={reason}");
 
         TeardownHost();
 

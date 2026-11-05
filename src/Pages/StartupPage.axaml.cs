@@ -119,7 +119,7 @@ public partial class StartupPage : Platform.PageBase
         }
         catch (Exception ex)
         {
-            AppLog.Exception("startup", ex, "取消扫描开机启动项");
+            AppLog.Exception("startupitem", ex, "取消扫描开机启动项");
         }
     }
 
@@ -167,7 +167,7 @@ public partial class StartupPage : Platform.PageBase
         }
         catch (Exception ex)
         {
-            AppLog.Exception("startup", ex, "扫描开机启动项");
+            AppLog.Exception("startupitem", ex, "扫描开机启动项");
 
             _ready = true;
             CountLine.Text = "";
@@ -320,7 +320,7 @@ public partial class StartupPage : Platform.PageBase
         }
         catch (Exception ex)
         {
-            AppLog.Exception("startup", ex, "切换开机启动项");
+            AppLog.Exception("startupitem", ex, "切换开机启动项状态");
             toggle.IsChecked = !want;
             await ShowMessageAsync("操作未成功", ex.Message);
         }
@@ -392,7 +392,7 @@ public partial class StartupPage : Platform.PageBase
         }
         catch (Exception ex)
         {
-            AppLog.Info("startup", $"弹窗没弹出来：{ex.GetType().Name}");
+            AppLog.Warn("startupitem", $"确认对话框未能显示｜原因={ex.GetType().Name}");
         }
         finally
         {

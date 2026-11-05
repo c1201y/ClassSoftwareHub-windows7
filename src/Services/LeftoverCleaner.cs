@@ -96,7 +96,7 @@ public static class LeftoverCleaner
         IReadOnlyList<LeftoverItem> items, string appName, CancellationToken ct = default)
     {
         var picked = items.Where(i => i.Selected).ToList();
-        AppLog.Info("cleanup", $"开始清理「{appName}」的残留：勾选 {picked.Count} 条 / 共 {items.Count} 条");
+        AppLog.Begin("cleanup", $"清理残留开始｜应用={appName}｜已选={picked.Count}/{items.Count} 项");
 
         var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
         var dir = Path.Combine(QuarantineRoot, stamp);
@@ -141,12 +141,13 @@ public static class LeftoverCleaner
             catch (OperationCanceledException) { throw; }
             catch (UnauthorizedAccessException ex)
             {
-                AppLog.Info("cleanup", $"权限不足，留待提权补刀：{item.DisplayPath}（{ex.Message}）");
+                AppLog.Info("cleanup", $"需要管理员权限｜路径={item.DisplayPath}"
+                    + $"｜原因={ex.GetType().Name}: {ex.Message}｜处置=留待提权补做");
                 results.Add(new CleanupItemResult(item, CleanStatus.NeedsAdmin, "需要管理员权限"));
             }
             catch (Exception ex)
             {
-                AppLog.Exception("cleanup", ex, $"清理残留（{item.DisplayPath}）");
+                AppLog.Exception("cleanup", ex, $"清理残留项｜路径={item.DisplayPath}");
                 results.Add(new CleanupItemResult(item, CleanStatus.Failed, Trim(ex.Message)));
             }
         }
@@ -191,10 +192,10 @@ public static class LeftoverCleaner
         };
 
         AppLog.Info("cleanup",
-            $"「{appName}」残留清理结束：成功 {report.RemovedTotal} 条" +
-            $"（其中未备份 {report.Count(CleanStatus.RemovedNoBackup)} 条）、" +
-            $"失败 {report.Count(CleanStatus.Failed)} 条、被拦 {report.Count(CleanStatus.Blocked)} 条" +
-            (quarantineOk ? $"，隔离区 {dir}" : "，⚠️ 隔离区不可用，本轮无法还原"));
+            $"清理残留结束｜应用={appName}｜成功={report.RemovedTotal}"
+            + $"（未备份={report.Count(CleanStatus.RemovedNoBackup)}）"
+            + $"｜失败={report.Count(CleanStatus.Failed)}｜受保护跳过={report.Count(CleanStatus.Blocked)}"
+            + (quarantineOk ? $"｜隔离区={dir}" : "｜隔离区=不可用（本轮无法还原）"));
 
         return report;
     }
@@ -208,7 +209,7 @@ public static class LeftoverCleaner
         // ⛔ 第二道闸：进场再判一次禁碰（界面勾过的也不能例外）
         if (LeftoverResolver.IsForbiddenPathPublic(item.Path))
         {
-            AppLog.Warning("cleanup", $"拒绝清理受保护的位置：{item.Path}");
+            AppLog.Warning("cleanup", $"清理项被拒绝｜原因=路径受保护｜路径={item.Path}");
             return new CleanupItemResult(item, CleanStatus.Blocked, "受保护的位置，已跳过");
         }
 
@@ -262,7 +263,7 @@ public static class LeftoverCleaner
                 var size = isDir ? MeasureDir(source) : new FileInfo(source).Length;
                 if (size > CrossVolumeBackupLimit)
                 {
-                    AppLog.Info("cleanup", $"跨盘符且超过备份上限（{size / 1048576} MB），只删不备份：{source}");
+                    AppLog.Info("cleanup", $"备份跳过｜路径={source}｜体积={size / 1048576} MB｜原因=跨盘且超过备份上限｜处置=只删除不备份");
                     return MoveOutcome.CrossVolumeTooBig;
                 }
 
@@ -271,7 +272,7 @@ public static class LeftoverCleaner
             }
             catch (Exception ex)
             {
-                AppLog.Info("cleanup", $"跨盘备份失败，保留原文件（{source}）：{ex.GetType().Name} {ex.Message}");
+                AppLog.Info("cleanup", $"跨盘备份失败｜路径={source}｜原因={ex.GetType().Name}: {ex.Message}｜处置=保留原文件");
 
                 // 复制到一半的残片留在隔离区没有意义，也会让"是否已备份"变得含糊。
                 // ⚠️ 只在**复制本身失败**时清残片；下面的删除源失败不能走这里（那时源可能已被删掉一部分）。
@@ -288,7 +289,7 @@ public static class LeftoverCleaner
                 }
                 catch (Exception cleanupEx)
                 {
-                    AppLog.Info("cleanup", $"清理跨盘备份残片失败（{target}）：{cleanupEx.GetType().Name} {cleanupEx.Message}");
+                    AppLog.Info("cleanup", $"清理备份残片失败｜路径={target}｜原因={cleanupEx.GetType().Name}: {cleanupEx.Message}");
                 }
 
                 return MoveOutcome.Failed;
@@ -302,7 +303,7 @@ public static class LeftoverCleaner
             }
             catch (Exception ex)
             {
-                AppLog.Info("cleanup", $"已备份到隔离区，但原位置未删干净（{source}）：{ex.GetType().Name} {ex.Message}");
+                AppLog.Info("cleanup", $"隔离完成但源位置未删净｜路径={source}｜原因={ex.GetType().Name}: {ex.Message}");
                 return MoveOutcome.Failed;
             }
         }
@@ -312,7 +313,7 @@ public static class LeftoverCleaner
         }
         catch (Exception ex)
         {
-            AppLog.Info("cleanup", $"移入隔离区失败（{source}）：{ex.GetType().Name} {ex.Message}");
+            AppLog.Info("cleanup", $"移入隔离区失败｜路径={source}｜原因={ex.GetType().Name}: {ex.Message}");
             return MoveOutcome.Failed;
         }
     }
@@ -393,7 +394,7 @@ public static class LeftoverCleaner
 
         if (forbidden)
         {
-            AppLog.Warning("cleanup", $"拒绝清理受保护的注册表位置：{item.Path} ▸ {item.ValueName}");
+            AppLog.Warning("cleanup", $"清理项被拒绝｜原因=注册表位置受保护｜项={item.Path} ▸ {item.ValueName}");
             return new CleanupItemResult(item, CleanStatus.Blocked, "受保护的注册表位置，已跳过");
         }
 
@@ -492,14 +493,14 @@ public static class LeftoverCleaner
             }
             catch (Exception ex)
             {
-                AppLog.Exception("cleanup", ex, $"备份注册表项（{item.Path}）");
+                AppLog.Exception("cleanup", ex, $"备份注册表项｜项={item.Path}");
             }
         }
 
         var file = Path.Combine(dir, "registry-backup.reg");
         File.WriteAllText(file, sb.ToString(), new UnicodeEncoding(bigEndian: false, byteOrderMark: true));
 
-        AppLog.Info("cleanup", $"注册表备份已写出：{file}");
+        AppLog.Info("cleanup", $"注册表备份已写出｜文件={file}");
         return file;
     }
 
@@ -521,7 +522,7 @@ public static class LeftoverCleaner
             }
             catch (Exception ex)
             {
-                AppLog.Info("cleanup", $"备份子键失败（{fullPath}\\{sub}）：{ex.GetType().Name}");
+                AppLog.Info("cleanup", $"备份子键失败｜子键={fullPath}\\{sub}｜原因={ex.GetType().Name}");
             }
         }
     }
@@ -544,7 +545,7 @@ public static class LeftoverCleaner
         }
         catch (Exception ex)
         {
-            AppLog.Info("cleanup", $"读取注册表值失败（{key.Name} ▸ {name}）：{ex.GetType().Name}");
+            AppLog.Info("cleanup", $"读取注册表值失败｜项={key.Name} ▸ {name}｜原因={ex.GetType().Name}");
             return "";
         }
 
@@ -657,11 +658,11 @@ public static class LeftoverCleaner
             var exe = Environment.ProcessPath;
             if (string.IsNullOrEmpty(exe))
             {
-                AppLog.Warning("cleanup", "拿不到本程序路径，无法提权补刀");
+                AppLog.Warning("cleanup", "提权补做未执行｜原因=无法获取本程序路径");
                 return items.Select(i => new CleanupItemResult(i, CleanStatus.Failed, "无法提权")).ToList();
             }
 
-            AppLog.Info("cleanup", $"提权补刀：{items.Count} 条需要管理员权限，启动 {exe} {ApplySwitch}");
+            AppLog.Info("cleanup", $"提权补做开始｜待处理={items.Count} 项｜命令={exe} {ApplySwitch}");
 
             var psi = new ProcessStartInfo
             {
@@ -682,14 +683,14 @@ public static class LeftoverCleaner
                 try { await p.WaitForExitAsync(timeout.Token); }
                 catch (OperationCanceledException) when (!ct.IsCancellationRequested)
                 {
-                    AppLog.Warning("cleanup", "提权补刀超时（3 分钟）");
+                    AppLog.Warning("cleanup", "提权补做超时｜阈值=3 分钟｜处置=放弃剩余项目");
                 }
             }
 
             // 读回结果
             if (!File.Exists(outcomeFile))
             {
-                AppLog.Warning("cleanup", "提权补刀没留下结果文件（可能被用户取消了 UAC）");
+                AppLog.Warning("cleanup", "提权补做无结果｜原因=未生成结果文件（用户可能取消了 UAC）");
                 return items.Select(i => new CleanupItemResult(i, CleanStatus.Failed, "提权未完成")).ToList();
             }
 
@@ -713,13 +714,13 @@ public static class LeftoverCleaner
         catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223)
         {
             // 用户在 UAC 上点了"否"
-            AppLog.Info("cleanup", "用户取消了提权补刀");
+            AppLog.Info("cleanup", "提权补做已取消｜触发=用户取消 UAC");
             results.AddRange(items.Select(i => new CleanupItemResult(i, CleanStatus.Failed, "已取消管理员授权")));
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
-            AppLog.Exception("cleanup", ex, "提权补刀");
+            AppLog.Exception("cleanup", ex, "提权补做");
             results.AddRange(items.Select(i => new CleanupItemResult(i, CleanStatus.Failed, Trim(ex.Message))));
         }
 
@@ -741,7 +742,7 @@ public static class LeftoverCleaner
             || !string.Equals(Path.GetFileName(manifestPath), "admin-tasks.json",
                               StringComparison.OrdinalIgnoreCase))
         {
-            AppLog.Warning("cleanup", $"拒绝执行隔离区之外的提权清单：{manifestPath}");
+            AppLog.Warning("cleanup", $"提权清单被拒绝｜原因=清单不在隔离区目录内｜清单={manifestPath}");
             return;
         }
 
@@ -749,7 +750,7 @@ public static class LeftoverCleaner
 
         try
         {
-            AppLog.Info("cleanup", $"提权助手启动，清单：{manifestPath}");
+            AppLog.Info("cleanup", $"提权助手启动｜清单={manifestPath}");
 
             var text = File.ReadAllText(manifestPath);
             var entries = JsonSerializer.Deserialize<List<ManifestEntry>>(text, ManifestJson)
@@ -788,7 +789,7 @@ public static class LeftoverCleaner
                 }
                 catch (Exception ex)
                 {
-                    AppLog.Exception("cleanup", ex, $"提权清理（{e.Path}）");
+                    AppLog.Exception("cleanup", ex, $"提权清理项｜路径={e.Path}");
                     outcome.Add(new ManifestResult
                     {
                         Path = e.Path, ValueName = e.ValueName, Ok = false, Note = Trim(ex.Message),
@@ -809,7 +810,7 @@ public static class LeftoverCleaner
             }
             catch (Exception ex)
             {
-                AppLog.Exception("cleanup", ex, "提权助手写结果");
+                AppLog.Exception("cleanup", ex, "提权助手写结果文件");
             }
         }
     }
@@ -871,7 +872,7 @@ public static class LeftoverCleaner
             }
             catch (Exception ex)
             {
-                AppLog.Info("cleanup", $"复扫失败（{item.DisplayPath}）：{ex.GetType().Name}");
+                AppLog.Info("cleanup", $"复扫残留项失败｜路径={item.DisplayPath}｜原因={ex.GetType().Name}｜处置=按仍存在处理");
                 item.StillThere = true;   // 查不清就算它还在，宁可保守
             }
         }

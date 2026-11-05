@@ -109,11 +109,11 @@ internal static class LicenseStore
             catch (Exception ex)
             {
                 // 写不进去也能用完本次运行，只是下次启动要重新激活
-                AppLog.Warn("license", $"激活凭证保存失败：{ex.Message}");
+                AppLog.Catch("license", "保存激活凭证", ex);
             }
         }
 
-        AppLog.Info("license", $"已激活（凭证 …{record.CodeHint}，设备 {DeviceCode}）");
+        AppLog.Info("license", $"激活状态｜结果=已激活｜凭证尾号={record.CodeHint}｜设备码={DeviceCode}");
     }
 
     internal static void Clear()

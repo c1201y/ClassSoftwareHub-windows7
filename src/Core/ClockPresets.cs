@@ -123,7 +123,7 @@ public static class ClockPresetStore
         catch (Exception ex)
         {
             // 文件坏了就当没存过 —— 不能让一个坏的 json 把工具页卡在启动阶段
-            Log("读取预设失败，按空处理：" + ex.Message);
+            Core.AppLog.Catch("clock-presets", "读取时钟预设（按空处理）", ex);
             return new Data();
         }
     }
@@ -140,7 +140,7 @@ public static class ClockPresetStore
         }
         catch (Exception ex)
         {
-            Log("保存预设失败：" + ex.Message);
+            Core.AppLog.Catch("clock-presets", "保存时钟预设", ex);
         }
     }
 

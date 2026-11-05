@@ -372,7 +372,7 @@ public static class ScreenCapture
 
     private const long WsExToolWindow = 0x00000080;
 
-    /// <summary>「截屏贴图」的自报日志（logs\snip.log）。</summary>
+    /// <summary>「截屏贴图」的自报日志（写入当前会话的 app.log，模块名 <c>snip</c>）。</summary>
     public static void Log(string msg)
     {
         try

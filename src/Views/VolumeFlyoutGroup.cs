@@ -102,7 +102,7 @@ public static class VolumeFlyoutGroup
     /// <summary>把两个浮窗一起收掉（鼠标离开、Esc、边条隐藏等显式收起走这里）。</summary>
     public static void CloseAll()
     {
-        ScreenCapture.Log($"VolumeFlyoutGroup.CloseAll（visible: 主={VolumeWindow.IsVisible} 合成器={VolumeMixerWindow.IsVisible}）");
+        Core.AppLog.Step("ui", $"收起音量浮窗组｜主浮窗可见={VolumeWindow.IsVisible}｜合成器可见={VolumeMixerWindow.IsVisible}");
         VolumeWindow.CloseIfOpen();
         VolumeMixerWindow.CloseIfOpen();
 
@@ -144,7 +144,7 @@ public static class VolumeFlyoutGroup
             }
 
             _awayTicks++;
-            ScreenCapture.Log($"鼠标监视：awayTicks={_awayTicks}（光标不在浮窗/边条上）");
+            Core.AppLog.Debug("ui", $"音量浮窗自动收起计时｜离开计数={_awayTicks}｜光标位置=不在浮窗与边条上");
             if (_awayTicks * TickMs >= CloseAfterMs) CloseAll();
         }
         catch

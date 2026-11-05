@@ -75,7 +75,7 @@ internal static class ClockBackdrop
         }
         catch (Exception ex)
         {
-            AppLog.Info("clock-bg", "铺全屏时钟背景失败：" + ex.Message);
+            AppLog.Catch("clock-bg", "铺设全屏时钟背景", ex);
         }
     }
 }

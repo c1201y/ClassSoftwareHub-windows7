@@ -191,7 +191,7 @@ public sealed partial class MachineCheckPage : PageBase
         }
         catch (Exception ex)
         {
-            Core.AppLog.Exception("machinecheck", ex, "本机核实检测失败");
+            Core.AppLog.Exception("machinecheck", ex, "本机核实检测");
             SummaryHint.Text = "";
             EmptyPanel.IsVisible = true;
             EmptyText.Text = "检测失败：" + ex.Message + "\n可点右上角「重新检测」再试一次。";

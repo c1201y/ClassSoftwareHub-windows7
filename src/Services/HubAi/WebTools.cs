@@ -95,6 +95,7 @@ public static class WebTools
                 return $"检索未成功（HTTP {(int)response.StatusCode}）。请如实告知用户本次没有查到，不要编造。";
 
             var hits = ParseLite(html);
+            AppLog.Debug("hubai-web", $"网页检索｜引擎=DuckDuckGo lite｜结果=成功｜命中={hits.Count}｜关键词长度={query.Length}");
 
             if (hits.Count == 0)
                 return $"没有检索到与「{query}」相关的结果。请如实告知用户，不要编造。";
@@ -122,7 +123,8 @@ public static class WebTools
         }
         catch (Exception ex)
         {
-            AppLog.Warn("hubai-web", "检索失败：" + ex.Message);
+            AppLog.Warn("hubai-web", $"网页检索｜引擎=DuckDuckGo lite｜关键词长度={query.Length}"
+                + $"｜结果=失败｜原因={ex.GetType().Name}: {ex.Message}");
             return "检索失败（网络不可达或被限流）。请如实告知用户本次没有查到，不要编造。";
         }
     }
@@ -201,7 +203,7 @@ public static class WebTools
         //    路由器管理页、只监听 127.0.0.1 的各种后台都会变成可读资料。
         if (IsInternalTarget(uri))
         {
-            AppLog.Warn("hubai-web", $"拒绝抓取内网/本机地址：{uri}");
+            AppLog.Warn("hubai-web", $"抓取网页｜结果=拒绝｜原因=目标指向本机或内网｜主机={uri.Host}");
             return "该地址指向本机或内网，出于安全考虑不能读取。请改用公开网址。";
         }
 
@@ -226,6 +228,9 @@ public static class WebTools
             var html = await ReadLimitedAsync(response.Content, 512 * 1024, ct);
             var text = ToPlainText(html);
 
+            AppLog.Debug("hubai-web", $"抓取网页｜主机={uri.Host}｜HTTP={(int)response.StatusCode}"
+                + $"｜内容类型={contentType}｜正文={text.Length} 字");
+
             if (text.Length == 0)
                 return "页面没有可读正文（可能是纯脚本渲染的页面）。";
 
@@ -240,7 +245,7 @@ public static class WebTools
         }
         catch (Exception ex)
         {
-            AppLog.Warn("hubai-web", "抓取失败：" + ex.Message);
+            AppLog.Warn("hubai-web", $"抓取网页｜主机={uri.Host}｜结果=失败｜原因={ex.GetType().Name}: {ex.Message}");
             return "打开页面失败（网络不可达或站点拒绝访问）。请如实告知用户，不要编造页面内容。";
         }
     }

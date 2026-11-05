@@ -128,7 +128,7 @@ internal static class WindowProbe
         }
         catch (Exception ex)
         {
-            Core.AppLog.Info("single", $"枚举同名进程失败：{ex.GetType().Name} {ex.Message}");            return false;
+            Core.AppLog.Warn("single", $"枚举同名进程失败｜原因={ex.GetType().Name}: {ex.Message}");            return false;
         }
     }
 

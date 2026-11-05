@@ -81,12 +81,12 @@ public static class AiClient
 
             if (response.IsSuccessStatusCode)
             {
-                AppLog.Step("hubai", $"连通性测试通过（{watch.ElapsedMilliseconds}ms）");
+                AppLog.Step("hubai", $"连通性测试｜结果=通过｜HTTP={(int)response.StatusCode}｜耗时={watch.ElapsedMilliseconds}ms");
                 return AiTestResult.Pass($"连接正常（{watch.ElapsedMilliseconds} ms）", watch.ElapsedMilliseconds);
             }
 
             var reason = Explain(response.StatusCode, body);
-            AppLog.Warn("hubai", $"连通性测试失败：{response.StatusCode} {reason}");
+            AppLog.Warn("hubai", $"连通性测试｜结果=失败｜HTTP={(int)response.StatusCode}｜原因={reason}");
             return AiTestResult.Fail(reason, watch.ElapsedMilliseconds);
         }
         catch (OperationCanceledException)
@@ -97,13 +97,13 @@ public static class AiClient
         catch (HttpRequestException ex)
         {
             watch.Stop();
-            AppLog.Exception("hubai", ex, "连通性测试（网络层）");
+            AppLog.Exception("hubai", ex, $"连通性测试｜层=网络｜模型={cfg.Model}｜主机={GithubRoute.HostOf(cfg.BaseUrl)}");
             return AiTestResult.Fail($"无法连接：{ex.Message}", watch.ElapsedMilliseconds);
         }
         catch (Exception ex)
         {
             watch.Stop();
-            AppLog.Exception("hubai", ex, "连通性测试");
+            AppLog.Exception("hubai", ex, $"连通性测试｜模型={cfg.Model}｜主机={GithubRoute.HostOf(cfg.BaseUrl)}");
             return AiTestResult.Fail("测试失败，详情见日志。", watch.ElapsedMilliseconds);
         }
     }
@@ -144,7 +144,7 @@ public static class AiClient
         {
             var body = await response.Content.ReadAsStringAsync(ct);
             var reason = Explain(response.StatusCode, body);
-            AppLog.Warn("hubai", $"流式请求失败：{response.StatusCode} {reason}");
+            AppLog.Warn("hubai", $"流式请求｜结果=失败｜HTTP={(int)response.StatusCode}｜主机={GithubRoute.HostOf(cfg.BaseUrl)}｜原因={reason}");
             throw new InvalidOperationException(reason);
         }
 

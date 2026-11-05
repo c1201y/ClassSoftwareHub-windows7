@@ -315,7 +315,7 @@ public sealed partial class ChangelogPage : PageBase
         catch (Exception ex)
         {
             // 量不到位置就只是不滚，别把页面带崩
-            Core.AppLog.Exception("changelog", ex, "滚动到指定版本");
+            Core.AppLog.Exception("ui", ex, "滚动到指定版本");
         }
     }
 

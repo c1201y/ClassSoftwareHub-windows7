@@ -304,7 +304,7 @@ public sealed partial class HubAiFlyout : UserControl
         }
         catch (Exception ex)
         {
-            AppLog.Warn("hubai", "浮层提问失败：" + ex.Message);
+            AppLog.Catch("hubai", $"浮层提问｜字符数={text.Length}", ex);
             HideThinking();
             ShowStatusLine(null);
             AddBubble("出错了：" + ex.Message, mine: false);
@@ -336,7 +336,7 @@ public sealed partial class HubAiFlyout : UserControl
 
         if (error is not null)
         {
-            AppLog.Warn("hubai", "浮层对话失败：" + error.Message);
+            AppLog.Warn("hubai", $"浮层对话｜结果=失败｜原因={error.GetType().Name}: {error.Message}");
             if (current) AddBubble("出错了：" + error.Message, mine: false);
             return;
         }
@@ -383,7 +383,7 @@ public sealed partial class HubAiFlyout : UserControl
         }
         catch (Exception ex)
         {
-            AppLog.Warn("hubai", "浮层存档失败：" + ex.Message);
+            AppLog.Catch("hubai", "保存浮层会话存档", ex);
         }
     }
 
@@ -403,12 +403,12 @@ public sealed partial class HubAiFlyout : UserControl
             if (doc is null) return null;
 
             var json = doc.ToJson();
-            AppLog.Step("hubai", $"页面现场数据 {doc.Page}：{json.Length} 字符");
+            AppLog.Step("hubai", $"页面现场数据｜页面={doc.Page}｜长度={json.Length} 字");
             return json;
         }
         catch (Exception ex)
         {
-            AppLog.Warn("hubai", "页面现场数据生成失败：" + ex.Message);
+            AppLog.Catch("hubai", "生成页面现场数据", ex, LogLevel.Debug);
             return null;
         }
     }
@@ -632,7 +632,7 @@ public sealed partial class HubAiFlyout : UserControl
         }
         catch (Exception ex)
         {
-            AppLog.Warn("hubai", "浮层配色设置失败：" + ex.Message);
+            AppLog.Catch("hubai", "设置浮层配色", ex, LogLevel.Debug);
         }
     }
 }

@@ -90,7 +90,7 @@ public sealed partial class VolumeMixerWindow : Window
         }
         catch (Exception ex)
         {
-            ScreenCapture.Log("音量合成器开关失败: " + ex.Message);
+            Core.AppLog.Catch("ui", "切换音量合成器", ex);
         }
     }
 
@@ -128,7 +128,7 @@ public sealed partial class VolumeMixerWindow : Window
         }
         catch (Exception ex)
         {
-            ScreenCapture.Log("音量合成器初始化失败: " + ex.Message);
+            Core.AppLog.Catch("ui", "初始化音量合成器", ex);
         }
     }
 
@@ -181,7 +181,7 @@ public sealed partial class VolumeMixerWindow : Window
         }
         catch (Exception ex)
         {
-            ScreenCapture.Log("音量合成器显示失败: " + ex.Message);
+            Core.AppLog.Catch("ui", "显示音量合成器", ex);
         }
     }
 

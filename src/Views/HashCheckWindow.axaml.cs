@@ -119,7 +119,7 @@ public sealed partial class HashCheckWindow : Window
         var w = _instance;
         _instance = null;
         try { w?.Close(); } catch { }
-        AppLog.Info("exit", "哈希校验窗口实例已请求 Close");
+        AppLog.Info("window", "窗口关闭请求｜窗口=哈希校验｜触发=程序化 Close");
     }
 
     // ── 窗口配置 ─────────────────────────────────────────────────────────
@@ -171,7 +171,7 @@ public sealed partial class HashCheckWindow : Window
         catch (Exception ex)
         {
             _frame = null;
-            AppLog.Debug("hash-check", "自绘窗口框架挂载失败，退回原生标题栏: " + ex.Message);
+            AppLog.Catch("hash-check", "挂载自绘窗口框架（已退回原生标题栏）", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -223,7 +223,7 @@ public sealed partial class HashCheckWindow : Window
         }
         catch (Exception ex)
         {
-            AppLog.Warn("hash-check", "哈希校验窗尺寸设置失败：" + ex.Message);
+            AppLog.Catch("hash-check", "设置窗口尺寸", ex);
         }
     }
 
@@ -278,11 +278,11 @@ public sealed partial class HashCheckWindow : Window
             ClientSize = new Size(Math.Min(ClientSize.Width, DefaultWidthDip), h);
             CenterOnScreen();
 
-            AppLog.Step("hash-check", $"窗口按内容定高：内容 {contentHeight:0} → 窗口 {h:0}");
+            AppLog.Step("hash-check", $"窗口按内容定高｜内容高度={contentHeight:0}｜窗口高度={h:0}");
         }
         catch (Exception ex)
         {
-            AppLog.Warn("hash-check", "按内容调整窗口高度失败：" + ex.Message);
+            AppLog.Catch("hash-check", "按内容调整窗口高度", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -303,7 +303,7 @@ public sealed partial class HashCheckWindow : Window
         }
         catch (Exception ex)
         {
-            AppLog.Warn("hash-check", "哈希校验窗定位失败：" + ex.Message);
+            AppLog.Catch("hash-check", "定位哈希校验窗口", ex, Core.LogLevel.Debug);
         }
     }
 
@@ -348,7 +348,7 @@ public sealed partial class HashCheckWindow : Window
         }
         catch (Exception ex)
         {
-            AppLog.Warn("hash-check", "选择文件失败：" + ex.Message);
+            AppLog.Catch("hash-check", "选择待校验文件", ex);
             DropSub.Text = "选择文件失败：" + ex.Message;
         }
     }
@@ -373,7 +373,7 @@ public sealed partial class HashCheckWindow : Window
         }
         catch (Exception ex)
         {
-            AppLog.Warn("hash-check", "拖入文件失败：" + ex.Message);
+            AppLog.Catch("hash-check", "处理拖入的文件", ex);
             DropSub.Text = "拖入的文件读取失败：" + ex.Message;
         }
     }
@@ -410,7 +410,7 @@ public sealed partial class HashCheckWindow : Window
         }
         catch (Exception ex)
         {
-            AppLog.Warn("hash-check", "计算哈希失败：" + ex.Message);
+            AppLog.Catch("hash-check", "计算文件哈希", ex);
             SetRowsEmpty("—");
             FileInfo.Text = "计算失败：" + ex.Message;
         }
@@ -479,11 +479,11 @@ public sealed partial class HashCheckWindow : Window
             if (clipboard is null) return;
 
             await clipboard.SetTextAsync(line.Value);
-            AppLog.Step("hash-check", $"已复制 {line.Name} 值");
+            AppLog.Step("hash-check", $"复制哈希值｜算法={line.Name}");
         }
         catch (Exception ex)
         {
-            AppLog.Warn("hash-check", "复制失败：" + ex.Message);
+            AppLog.Catch("hash-check", "复制哈希值到剪贴板", ex);
         }
     }
 

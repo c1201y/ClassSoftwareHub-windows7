@@ -4,7 +4,6 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
-using Avalonia.Media;
 using ClassSoftwareHub.Desktop.Core;
 using ClassSoftwareHub.Desktop.Services;
 
@@ -27,9 +26,9 @@ namespace ClassSoftwareHub.Desktop.Controls;
 /// 勾选态只驱动**观感**，筛选逻辑走 Click：
 /// 程序里改 IsChecked 不会触发 Click，所以不需要"抑制标志"。
 ///
-/// Avalonia 适配：FontIcon 用 FluentAvalonia；画刷统一经 ThemeBrush.Get 取
-/// （本控件无 XAML 模板，直接以 host 作为主题查找锚点）；
-/// ToolTip 走 ToolTip.SetTip；透明一律用 Brushes.Transparent 现造，不查主题键。
+/// Avalonia 适配：FontIcon 用 FluentAvalonia；芯片画刷统一由 <see cref="ChipLook.Quiet"/>
+/// 按控件自身作锚点查主题键（本控件无 XAML 模板，也不自己写死颜色）；
+/// ToolTip 走 ToolTip.SetTip。
 /// </summary>
 public sealed class LevelChipBar
 {
@@ -45,7 +44,6 @@ public sealed class LevelChipBar
     }
 
     private readonly List<Chip> _chips = new();
-    private readonly StyledElement? _anchor;
 
     /// <summary>勾选状态变了（用户点芯片才会触发）。</summary>
     public event Action? SelectionChanged;
@@ -53,8 +51,6 @@ public sealed class LevelChipBar
     /// <summary>把四个芯片建进 <paramref name="host"/>（它得是横向排列的 Panel）。默认全开。</summary>
     public LevelChipBar(Panel host)
     {
-        _anchor = host;
-
         Add(host, LogLevel.Debug, "调试", "\uE721");    // 放大镜（诊断）
         Add(host, LogLevel.Info, "信息", "\uE946");     // 信息圆标
         Add(host, LogLevel.Warning, "警告", "\uE7BA");  // 警告三角
@@ -200,40 +196,5 @@ public sealed class LevelChipBar
         // 实现收口到 ChipLook（自上游 1.2.0 移植）：
         // 「应用卸载」页的分类芯片与本条筛选栏共用同一套观感，两处不再各写一份。
         ChipLook.Quiet(button);
-    }
-
-    /// <summary>[旧实现保留说明] 曾经在这里就地设一组 ToggleButton 主题资源。</summary>
-    private void QuietLegacy(ToggleButton button)
-    {
-        void Set(string key, IBrush? brush)
-        {
-            if (brush is null) return;
-            try { button.Resources[key] = brush; } catch { }
-        }
-
-        var none = Brushes.Transparent;
-        var hover = ThemeBrush.Get(_anchor, "SubtleFillColorSecondaryBrush");
-        var press = ThemeBrush.Get(_anchor, "SubtleFillColorTertiaryBrush");
-        var onFill = ThemeBrush.Get(_anchor, "ControlFillColorSecondaryBrush");
-        var onEdge = ThemeBrush.Get(_anchor, "CardStrokeColorDefaultBrush");
-        var onText = ThemeBrush.Get(_anchor, "TextFillColorPrimaryBrush");
-        var onTextDim = ThemeBrush.Get(_anchor, "TextFillColorSecondaryBrush");
-
-        Set("ToggleButtonBackground", none);
-        Set("ToggleButtonBackgroundPointerOver", hover);
-        Set("ToggleButtonBackgroundPressed", press);
-        Set("ToggleButtonBorderBrush", none);
-        Set("ToggleButtonBorderBrushPointerOver", none);
-        Set("ToggleButtonBorderBrushPressed", none);
-
-        Set("ToggleButtonBackgroundChecked", onFill);
-        Set("ToggleButtonBackgroundCheckedPointerOver", press);
-        Set("ToggleButtonBackgroundCheckedPressed", press);
-        Set("ToggleButtonForegroundChecked", onText);
-        Set("ToggleButtonForegroundCheckedPointerOver", onText);
-        Set("ToggleButtonForegroundCheckedPressed", onTextDim);
-        Set("ToggleButtonBorderBrushChecked", onEdge);
-        Set("ToggleButtonBorderBrushCheckedPointerOver", onEdge);
-        Set("ToggleButtonBorderBrushCheckedPressed", onEdge);
     }
 }
