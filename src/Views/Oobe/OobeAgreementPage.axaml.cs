@@ -2,6 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using ClassSoftwareHub.Desktop.Data;
+using ClassSoftwareHub.Desktop.Services;
 
 namespace ClassSoftwareHub.Desktop.Views.Oobe;
 
@@ -21,7 +22,12 @@ public partial class OobeAgreementPage : UserControl, IOobeStepGuard
 
     private void BuildBody()
     {
-        var doc = LegalDocs.ByKey("agreement");
+        // ⚠️ 首装走到这里时一定是**内置版**：此时还没有任何条款缓存，网络拉取要等主窗口首帧
+        //    之后才发生（见 Services/LegalTextSource.RefreshAsync）。
+        //    这恰好是对的 —— 安装程序那一页（installer/Legal.rtf）与这里是同一次生成出来的，
+        //    用户从安装到向导看到的是同一个版本，不会出现「刚同意完，进应用发现是另一份」。
+        //    升级后重跑向导（改存档触发）则能读到缓存，显示的就是最新那份。
+        var doc = LegalTextSource.Find("agreement") ?? LegalDocs.ByKey("agreement");
         if (doc is null)
         {
             AgreementBody.Children.Add(Paragraph("条款内容加载失败，请稍后重试。", secondary: true));

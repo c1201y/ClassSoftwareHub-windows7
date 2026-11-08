@@ -28,6 +28,8 @@ internal static class LicenseStore
     private static readonly object Gate = new();
     private static LicenseRecord? _current;
     private static bool _loaded;
+    private static bool _loggedDeviceMismatch;
+    private static bool _loggedExpired;
 
     internal static string FilePath => Path.Combine(AppPaths.DataDir, "license.json");
 
@@ -41,8 +43,29 @@ internal static class LicenseStore
         {
             var record = Current;
             if (record.Token.Length == 0) return "";
-            if (record.Device.Length > 0 && record.Device != DeviceFingerprint.Value) return "";
-            if (record.ExpiresAt > 0 && DateTimeOffset.UtcNow.ToUnixTimeSeconds() >= record.ExpiresAt) return "";
+
+            if (record.Device.Length > 0 && record.Device != DeviceFingerprint.Value)
+            {
+                // 令牌与设备码绑死：换机之后不能一直拿着废令牌去撞 403。
+                // ⚠️ 这条 getter 每个受保护请求都会走一次，日志只记一遍，否则会刷满日志。
+                if (!_loggedDeviceMismatch)
+                {
+                    _loggedDeviceMismatch = true;
+                    AppLog.Info("license", "本机保存的令牌是别的设备签发的，已忽略");
+                }
+                return "";
+            }
+
+            if (record.ExpiresAt > 0 && DateTimeOffset.UtcNow.ToUnixTimeSeconds() >= record.ExpiresAt)
+            {
+                if (!_loggedExpired)
+                {
+                    _loggedExpired = true;
+                    AppLog.Info("license", $"令牌已于 {DateTimeOffset.FromUnixTimeSeconds(record.ExpiresAt).ToLocalTime():yyyy-MM-dd HH:mm} 过期");
+                }
+                return "";
+            }
+
             return record.Token;
         }
     }
@@ -57,6 +80,32 @@ internal static class LicenseStore
             var record = Current;
             if (!IsActivated || record.ExpiresAt <= 0) return null;
             return DateTimeOffset.FromUnixTimeSeconds(record.ExpiresAt).ToLocalTime().ToString("yyyy-MM-dd");
+        }
+    }
+
+    /// <summary>
+    /// 激活时间（本地时间文本，形如 <c>2026-11-08 09:30</c>）。
+    ///
+    /// <para>
+    /// 界面上显示**激活时间**而不是有效期（上游 dv1.2.0-insider1.11）：
+    /// 有效期是服务端签发的令牌属性，对用户没有可操作含义，反而容易被误读成
+    /// 「这软件快到期、到期就不能用了」。激活时间则是一句陈述事实的话。
+    /// </para>
+    /// <para>旧凭证里没有这个字段（历史文件 <c>ActivatedAt</c> 为空）→ 返回 null，界面退化为只报「已激活」。</para>
+    /// </summary>
+    internal static string? ActivatedAtText
+    {
+        get
+        {
+            var record = Current;
+            if (!IsActivated) return null;
+            var raw = (record.ActivatedAt ?? "").Trim();
+            if (raw.Length == 0) return null;
+
+            // 存的是 "yyyy-MM-dd HH:mm:ss"，界面只要到分钟
+            return DateTime.TryParse(raw, out var at)
+                ? at.ToString("yyyy-MM-dd HH:mm")
+                : raw;
         }
     }
 
@@ -97,14 +146,21 @@ internal static class LicenseStore
         {
             _loaded = true;
             _current = record;
+            _loggedDeviceMismatch = false;
+            _loggedExpired = false;
 
             try
             {
                 Directory.CreateDirectory(AppPaths.DataDir);
-                File.WriteAllText(FilePath, JsonSerializer.Serialize(record, new JsonSerializerOptions
+
+                // 写入要原子（上游后端文档的故障表：「官方包偶发 403，重启后恢复 —— 令牌被旧值覆盖」）：
+                // 先写临时文件再整体替换，避免半个 JSON 落盘 / 两次并发保存互相截断。
+                var temp = FilePath + ".tmp";
+                File.WriteAllText(temp, JsonSerializer.Serialize(record, new JsonSerializerOptions
                 {
                     WriteIndented = true,
                 }));
+                File.Move(temp, FilePath, overwrite: true);
             }
             catch (Exception ex)
             {
@@ -139,8 +195,11 @@ internal static class LicenseStore
             if (text.Length == 0) return new LicenseRecord();
             return JsonSerializer.Deserialize<LicenseRecord>(text) ?? new LicenseRecord();
         }
-        catch
+        catch (Exception ex)
         {
+            // 文件坏了不该让整个功能不可用：删掉重来（下次激活会重写），并按未激活处理
+            AppLog.Catch("license", "读取激活凭证", ex);
+            try { if (File.Exists(FilePath)) File.Delete(FilePath); } catch { /* 删不掉就留着，反正按未激活处理 */ }
             return new LicenseRecord();
         }
     }

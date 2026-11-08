@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using Avalonia;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -66,25 +66,6 @@ public sealed partial class ExperimentalPage : PageBase
             Id = "startup", Name = "开机启动项",
             Desc = "列出开机自启项（注册表 Run + 启动文件夹），逐个启用 / 禁用；启用状态与任务管理器同源",
             Glyph = "\uE945", Tag = "startup"
-        },
-        // ── 上游 dv1.2.0-insider1.8 新增（2026-11-01 移植） ──
-        new ExperimentalFeature
-        {
-            Id = "sysfeatures", Name = "系统功能",
-            Desc = "休眠、快速启动、电源计划等系统开关，排队后一次授权写入",
-            Glyph = "\uE7E8", Tag = "sysfeatures"
-        },
-        new ExperimentalFeature
-        {
-            Id = "systemtweaks", Name = "系统优化",
-            Desc = "任务栏、资源管理器这些整机设置，选中后一次授权统一应用",
-            Glyph = "\uE713", Tag = "systemtweaks"
-        },
-        new ExperimentalFeature
-        {
-            Id = "pagefile", Name = "虚拟内存",
-            Desc = "逐个驱动器设置分页文件大小，重启后生效",
-            Glyph = "\uEDA2", Tag = "pagefile"
         },
     };
 

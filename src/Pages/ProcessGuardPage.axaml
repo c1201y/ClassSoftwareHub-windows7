@@ -4,6 +4,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
     xmlns:fa="using:FluentAvalonia.UI.Controls"
+    xmlns:controls="using:ClassSoftwareHub.Desktop.Controls"
     xmlns:views="using:ClassSoftwareHub.Desktop.Views">
 
     <!--
@@ -32,16 +33,7 @@
                 <StackPanel Spacing="6" Margin="0,0,0,20">
                     <StackPanel Orientation="Horizontal" Spacing="10">
                         <TextBlock Text="程序专杀" FontSize="28" FontWeight="Bold" />
-                        <Border CornerRadius="4" Padding="8,3" Margin="0,0,0,6" VerticalAlignment="Bottom"
-                                BorderThickness="1"
-                                BorderBrush="{DynamicResource SystemFillColorCautionBrush}">
-                            <StackPanel Orientation="Horizontal" Spacing="5">
-                                <fa:FontIcon Glyph="&#xEA80;" FontSize="11"
-                                             Foreground="{DynamicResource SystemFillColorCautionBrush}" />
-                                <TextBlock Text="实验性功能" FontSize="12"
-                                           Foreground="{DynamicResource SystemFillColorCautionBrush}" />
-                            </StackPanel>
-                        </Border>
+                        <controls:ExperimentalBadge FeatureId="procguard" />
                     </StackPanel>
                     <TextBlock FontSize="12" Opacity="0.65" TextWrapping="Wrap"
                                Text="为指定的程序单独设定结束时间：到达时间点后，若该程序仍驻留于后台，则结束其进程。每条程序规则各自独立配置，互不影响。" />

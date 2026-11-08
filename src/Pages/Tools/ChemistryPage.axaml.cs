@@ -367,7 +367,39 @@ public partial class ChemistryPage : Platform.PageBase
 
             ResultPanel.Children.Add(row);
         }
+
+        // 离子方程式的核心判据：电荷守恒。左右各算总电荷列出来，
+        // 与元素核对表并列——只核元素是不完整的。
+        if (result.ChargeCheck is { } cc)
+        {
+            var chargeRow = NewCheckGrid();
+            chargeRow.Margin = new Thickness(0, 5, 0, 5);
+
+            chargeRow.Children.Add(new TextBlock
+            {
+                Text = "电荷",
+                FontSize = 13,
+                FontWeight = FontWeight.SemiBold,
+            });
+            chargeRow.Children.Add(Cell(Signed(cc.Left), 1));
+            chargeRow.Children.Add(Cell(Signed(cc.Right), 2));
+
+            var chargeMark = new TextBlock
+            {
+                Text = cc.Left == cc.Right ? "✓" : "✗",
+                FontSize = 13,
+                Opacity = cc.Left == cc.Right ? 0.5 : 1,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            Grid.SetColumn(chargeMark, 3);
+            chargeRow.Children.Add(chargeMark);
+
+            ResultPanel.Children.Add(chargeRow);
+        }
     }
+
+    /// <summary>电荷数带正负号显示：+2 / -1 / 0。</summary>
+    private static string Signed(int v) => v > 0 ? $"+{v}" : v.ToString();
 
     /// <summary>核对表的一行：元素 / 左边 / 右边 / 打勾，四列宽度固定，行与行才对得齐。</summary>
     private static Grid NewCheckGrid()

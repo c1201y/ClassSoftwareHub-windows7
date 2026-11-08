@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using System.Reflection;
 using System.Text;
 
@@ -20,19 +19,20 @@ namespace ClassSoftwareHub.Desktop.Core;
 /// 这一层（防不住有意反编译，这一点不必自欺）。
 /// </para>
 /// <para>
-/// 文件缺失或内容不合法一律视为社区版（本地构建本来就该是这样，不算错误）。
-/// 该标记只影响在线服务，本地工具不受任何影响。
+/// 只有编译期注入程序集元数据的签名会被采信；环境变量与 exe 同目录文件不再作为来源
+/// （用户可写位置不能决定信任判定）。元数据缺失或内容不合法一律视为社区版，
+/// 本地构建本来就该是这样，不算错误。该标记只影响在线服务，本地工具不受任何影响。
 /// </para>
 /// </summary>
 public static class BuildIdentity
 {
-    /// <summary>旧版打包方式留在应用目录的签名文件名（仅作兼容回落）。</summary>
+    /// <summary>旧版打包方式留在应用目录的签名文件名。⚠️ 仅保留常量供识别，运行时不再读取。</summary>
     public const string StampFileName = "build-stamp.txt";
 
     /// <summary>编译期注入的签名在程序集元数据里的键名（见 csproj 的 AssemblyMetadata）。</summary>
     public const string StampMetaKey = "CshBuildStamp";
 
-    /// <summary>优先读取的环境变量（值是签名文件路径，或整行内容本身）。便于 CI / 调试覆盖。</summary>
+    /// <summary>旧版调试用环境变量名。⚠️ 仅保留常量供识别，运行时不再读取。</summary>
     public const string StampEnvVar = "CSH_BUILD_STAMP";
 
     /// <summary>当前文件的格式版本，与签名一并参与计算。</summary>
@@ -81,25 +81,12 @@ public static class BuildIdentity
         return ("", "", "");
     }
 
-    private static string[] Sources()
-    {
-        var result = new System.Collections.Generic.List<string>(3);
-
-        try
-        {
-            var env = Environment.GetEnvironmentVariable(StampEnvVar);
-            if (!string.IsNullOrWhiteSpace(env))
-            {
-                // 环境变量里既可以是路径，也可以直接是整行内容
-                result.Add(env.Contains('|') ? env : TryRead(env) ?? "");
-            }
-        }
-        catch { /* 读环境变量失败按没有处理 */ }
-
-        result.Add(Embedded() ?? "");
-        result.Add(TryRead(Path.Combine(AppContext.BaseDirectory, StampFileName)) ?? "");
-        return result.ToArray();
-    }
+    /// <summary>
+    /// 签名来源**只认编译期嵌入程序集元数据的一份**（见 <see cref="Embedded"/>）。
+    /// 环境变量与 exe 同目录文件都是用户可写位置，不能作为信任判定依据：
+    /// 否则任何人设 <c>CSH_BUILD_STAMP</c> 或放一个十六进制文件即可置 IsOfficial=true 并跳过激活闸门。
+    /// </summary>
+    private static string[] Sources() => new[] { Embedded() ?? "" };
 
     /// <summary>读编译期注入的签名（AssemblyMetadata，值是 base64）。没有注入时返回 null。</summary>
     private static string? Embedded()
@@ -126,18 +113,6 @@ public static class BuildIdentity
         catch { /* 元数据读不到按没有处理 */ }
 
         return null;
-    }
-
-    private static string? TryRead(string path)
-    {
-        try
-        {
-            return File.Exists(path) ? File.ReadAllText(path) : null;
-        }
-        catch
-        {
-            return null;
-        }
     }
 
     private static bool IsHex(string text)

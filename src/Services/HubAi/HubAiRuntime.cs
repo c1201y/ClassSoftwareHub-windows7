@@ -214,6 +214,32 @@ public sealed class HubAiRuntime
             //    （编译器 CS8600 / CS8604 指的就是这里）。
             var usage = AiUsage.Empty;
             Exception? failure = null;
+
+            // 流式刷新节流：每个 SSE chunk 都 ToString + 发通知会让大回答退化成 O(n²)。
+            // 正文与思考段合并到同一节拍刷新（约 70ms 一次），收尾时强制补最后一次。
+            const long FlushIntervalMs = 70;
+            long lastFlush = 0;   // Environment.TickCount64；0 表示本次尚未刷新，让首个 chunk 立刻可见
+
+            void ThrottledRefresh()
+            {
+                var now = Environment.TickCount64;
+                if (now - lastFlush < FlushIntervalMs) return;
+                lastFlush = now;
+                LiveBody = _body.ToString();
+                LiveReasoning = _reasoning.ToString();
+                Changed?.Invoke();
+            }
+
+            void FlushFinal()
+            {
+                // 流结束 / [DONE] / 异常 / 取消都会走到 finally：强制同步一次，
+                // 把节流期间攒下的尾巴补齐，保证 LiveBody / LiveReasoning 不丢最后一段。
+                lastFlush = Environment.TickCount64;
+                LiveBody = _body.ToString();
+                LiveReasoning = _reasoning.ToString();
+                Changed?.Invoke();
+            }
+
             try
             {
                 usage = await Chat.RunAsync(
@@ -221,8 +247,7 @@ public sealed class HubAiRuntime
                     onDelta: chunk =>
                     {
                         _body.Append(chunk);
-                        LiveBody = _body.ToString();
-                        Changed?.Invoke();
+                        ThrottledRefresh();
                     },
                     onStatus: s =>
                     {
@@ -241,8 +266,7 @@ public sealed class HubAiRuntime
                     onReasoning: chunk =>
                     {
                         _reasoning.Append(chunk);
-                        LiveReasoning = _reasoning.ToString();
-                        Changed?.Invoke();
+                        ThrottledRefresh();
                     },
                     onToolDone: note =>
                     {
@@ -262,7 +286,7 @@ public sealed class HubAiRuntime
             {
                 LiveStatus = null;
                 IsRunning = false;
-                Changed?.Invoke();
+                FlushFinal();   // 强制补最后一次，避免丢尾巴
 
                 _cts?.Dispose();
                 _cts = null;

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using Avalonia.Controls;
@@ -446,7 +446,7 @@ public sealed partial class FeedbackFormPage : PageBase
     {
         var rows = new List<Feedback.EnvRow>
         {
-            new("客户端版本", ShellConfig.VersionPrefix + ShellConfig.ShellVersion),
+            new("客户端版本", ShellConfig.DisplayTag),
             new("系统版本", SystemInfo.OsDisplay()),
             new("OS内部版本号", SystemInfo.OsBuildEx()),
             new("CPU型号", SystemInfo.CpuModel()),

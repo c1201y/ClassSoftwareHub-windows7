@@ -32,11 +32,32 @@ public static class ShellConfig
     ///
     /// 基数不随便抬（否则旧包会被强制顶掉）。
     /// </summary>
-    public const string ShellVersion = "1.2.0-insider1.7";
+    public const string ShellVersion = "1.2.0";
 
     /// <summary>当前是不是预览（内测）构建 —— 版本号里带 <c>insider</c> 即为真。</summary>
     public static bool IsInsider =>
         ShellVersion.Contains("insider", System.StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// **界面上**显示的版本号（上游 dv1.2.0-insider1.11）。
+    ///
+    /// <para>
+    /// 预览版把 <c>-insider</c> 显示成 <c>-Pr</c>，正式版原样显示：
+    /// <c>1.2.0-insider1.11</c> → <c>1.2.0-Pr1.11</c>，<c>1.2.0</c> → <c>1.2.0</c>。
+    /// 目的一眼区分预览版和正式版，同时不给用户看内部术语"insider"。
+    /// </para>
+    /// <para>
+    /// ⛔ 只用于**展示**。版本比较、更新判定、缓存目录命名、Release tag 必须继续用
+    /// <see cref="ShellVersion"/> 原文 —— 拿这个显示串去比对会全部失配。
+    /// </para>
+    /// </summary>
+    public static string DisplayVersion =>
+        IsInsider
+            ? ShellVersion.Replace("insider", "Pr", System.StringComparison.OrdinalIgnoreCase)
+            : ShellVersion;
+
+    /// <summary>界面上显示的完整版本号（带 <c>dv</c> 前缀），例如 <c>dv1.2.0-Pr1.11</c>。</summary>
+    public static string DisplayTag => VersionPrefix + DisplayVersion;
 
     /// <summary>桌面版的版本号前缀（<c>dv</c>）。</summary>
     public const string VersionPrefix = "dv";
@@ -168,6 +189,23 @@ public static class ShellConfig
 
     /// <summary>仓库里软件数据所在目录（子目录 apps/ 一个软件一个 json，根上还有 categories.json）。</summary>
     public const string SiteRepoDataDir = "软件数据";
+
+    /// <summary>
+    /// 文档库所在仓库（2026-11-05 与上游同步迁出）。
+    ///
+    /// <para>
+    /// 来历：最早放站点仓库 → 2026-11-02 挪到桌面端仓库（避免每发一篇文章都触发整站部署） →
+    /// 2026-11-05 再挪到**独立的内容仓库**。最后一次是为了拿到仓库的管理权：
+    /// 投稿表单、校验工作流、Issue/PR 这些都要 Actions 权限，挂在组织仓库上不好配。
+    /// </para>
+    /// <para>
+    /// ⚠️ 仓库根下仍然是 <c>文档库/</c> 子目录，跟上游 <c>scripts/validate-docs.mjs</c> 与两个工作流的
+    /// 路径假设保持一致 —— 换仓库只改下面三个常量，客户端与脚本都不用动。
+    /// </para>
+    /// </summary>
+    public const string DocsRepoOwner = "Tiny-Nick";
+    public const string DocsRepoName = "ClassSoftwareHub-Docs";
+    public const string DocsRepoBranch = "main";
 
     // ════════════════════════════════════════════════════════════════
     // 自建提交服务 —— 「提交软件」与「回声洞投稿」共用

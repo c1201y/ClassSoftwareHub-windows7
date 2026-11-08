@@ -415,8 +415,12 @@ public sealed class SelfDrawnFrame
 
             // ── 主题 / 合成状态变化：DWM 与主题引擎会借机重读非客户区策略 ──
             // 2026-10-03（用户第 16 轮「还是偶尔冒出原生小按钮」）：这两个时机各重申一次。
+            // ⚠️ 2026-11-07 收敛：DisableDwmNonClientRendering 已按窗口幂等（只设一次），
+            //    这里显式清标志让策略在主题/合成切换后重申一次，既消除"设一次后 DWM 重置就没人管"
+            //    的回归风险，又不回到 WM_NCACTIVATE 每帧都设的日志刷屏老路。
             case NativeMethodsEx.WM_THEMECHANGED:
             case NativeMethodsEx.WM_DWMCOMPOSITIONCHANGED:
+                _dwmPolicyApplied = false;
                 DisableDwmNonClientRendering(hWnd);
                 break;
 
@@ -488,6 +492,13 @@ public sealed class SelfDrawnFrame
     }
 
     /// <summary>
+    /// 本窗口是否已设置过 DWM 非客户区策略。挂在 SelfDrawnFrame 实例上，而非按 hWnd 的静态集合：
+    /// 窗口销毁后系统可能把同一个 HWND 值分配给新窗口，静态集合会误判成"已设置"而永久跳过；
+    /// 每个窗口对应一个实例，窗口重建时状态自然重置。
+    /// </summary>
+    private bool _dwmPolicyApplied;
+
+    /// <summary>
     /// 让 DWM 别再画这个窗口的非客户区（标题栏 + 边框）。
     ///
     /// <para>
@@ -511,25 +522,22 @@ public sealed class SelfDrawnFrame
     ///    那两个系统本来也没有这个毛病 —— 失败也记一条日志，方便真机上对账。
     /// </para>
     /// </summary>
-    private static readonly HashSet<IntPtr> DwmPolicyLogged = new();
-
-    private static void DisableDwmNonClientRendering(IntPtr hWnd)
+    private void DisableDwmNonClientRendering(IntPtr hWnd)
     {
+        // ⚠️ 这里在 WM_NCACTIVATE 的热路径上（每次切焦点都走一遍）。策略设置本身与
+        //    PortLog.Step 一样按窗口幂等：只做一次，避免反复 P/Invoke 与同步写盘卡 UI（审计 P2 #23）。
+        if (_dwmPolicyApplied) return;
+
         try
         {
             var policy = NativeMethodsEx.DWMNCRP_DISABLED;
             var hr = NativeMethods.DwmSetWindowAttribute(
                 hWnd, NativeMethodsEx.DWMWA_NCRENDERING_POLICY, ref policy, sizeof(int));
+            _dwmPolicyApplied = true;
 
-            // ⚠️ 这里在 WM_NCACTIVATE 的热路径上（每次切焦点都走一遍），
-            //    而 PortLog.Step 是同步写盘 —— 每次都记会把日志刷爆、还卡 UI。
-            //    每个窗口只记第一条即可，真机上对账够用（审计 P2 #23）。
-            if (DwmPolicyLogged.Add(hWnd))
-            {
-                PortLog.Step(hr == 0
-                    ? "窗口框架: 已要求 DWM 不绘制非客户区（DWMNCRP_DISABLED）—— 原生标题栏按钮不会再冒出来"
-                    : $"窗口框架: DWM 非客户区策略设置返回 0x{hr:X8}（该系统不支持/已废弃，属正常）");
-            }
+            PortLog.Step(hr == 0
+                ? "窗口框架: 已要求 DWM 不绘制非客户区（DWMNCRP_DISABLED）—— 原生标题栏按钮不会再冒出来"
+                : $"窗口框架: DWM 非客户区策略设置返回 0x{hr:X8}（该系统不支持/已废弃，属正常）");
         }
         catch
         {
@@ -714,34 +722,6 @@ public sealed class SelfDrawnFrame
 
     private IntPtr OnHitTest(IntPtr hWnd, IntPtr lParam, ref bool handled)
     {
-        // 先听系统的。系统对非客户区有自己的一套判断（系统菜单、滚动条…），照它说的办最稳。
-        var sys = NativeMethodsShell.DefWindowProc(hWnd, NativeMethodsEx.WM_NCHITTEST, IntPtr.Zero, lParam);
-        if (sys != new IntPtr(NativeMethodsEx.HTCLIENT))
-        {
-            // ⚠️ 2026-10-03（用户第 12 轮「有时还会冒出 Win7 原生小按钮」）：
-            //    系统对**原生标题栏按钮**区域的命中（最小化/最大化/关闭/帮助/系统菜单）不能照传 ——
-            //    非客户区像素虽然是 0（WM_NCCALCSIZE 吃掉了），但 DefWindowProc 的命中判定
-            //    还按 WS_CAPTION 的老格子算：鼠标悬到右上角"按钮该在的位置"，它照样报
-            //    HTMAXBUTTON / HTCLOSE，DWM/tooltip 引擎就在那儿画出原生按钮并弹「最大化」提示。
-            //    这些命中一律拦下，交给下面的自绘逻辑：标题栏范围 → HTCAPTION，按钮位置 → HTCLIENT。
-            switch (sys.ToInt32())
-            {
-                case 8:    // HTMINBUTTON
-                case 9:    // HTMAXBUTTON
-                case 13:   // HTSYSMENU
-                case 20:   // HTCLOSE
-                case 21:   // HTHELP
-                    // ⚠️ 2026-10-03 节流日志：真机「金刚点了没反应 / 原生小按钮复发」取证 ——
-                    //    看看系统到底在哪些坐标报按钮命中。命中测试跟着鼠标走，限 500ms 一条。
-                    LogInterceptedButtonHit(hWnd, sys.ToInt32(), lParam);
-                    break;
-
-                default:
-                    handled = true;
-                    return sys;
-            }
-        }
-
         if (!NativeMethods.GetWindowRect(hWnd, out var wr))
         {
             // 矩形都拿不到就别瞎猜，交回默认路径
@@ -781,6 +761,42 @@ public sealed class SelfDrawnFrame
         //    既不画原生按钮，Avalonia 也照常收到点击。
         if (IsInteractive(x, y, scale)) return Hit(NativeMethodsEx.HTCLIENT, ref handled);
 
+        // ── ⓪′ 再听系统的：只照传缩放类 / 中性命中 ──
+        // ⚠️ 这一层以前排在**最前面**（`if (sys != HTCLIENT) return sys;`），
+        //    Win7 路线保留了 WS_CAPTION，DefWindowProc 按系统 caption 高度（96dpi 下
+        //    大致 y ∈ [4,27]）算命中，与 WM_NCCALCSIZE 声明的 0 像素非客户区无关。
+        //    于是 48dip 标题栏里凡是落在上半部的按钮，点下去都被系统当成拖窗口，
+        //    上面的 ⓪ 判定等于永远执行不到。现在 ⓪ 提前，且这里只放行缩放类命中。
+        var sys = NativeMethodsShell.DefWindowProc(hWnd, NativeMethodsEx.WM_NCHITTEST, IntPtr.Zero, lParam);
+        var code = sys.ToInt32();
+        var stale = false;
+        if (code != NativeMethodsEx.HTCLIENT)
+        {
+            if (NativeMethodsEx.IsPassthroughHit(code))
+            {
+                handled = true;
+                return sys;
+            }
+
+            stale = true;   // 陈旧命中：落在自绘逻辑之外的区域时必须显式声明 HTCLIENT
+            switch (code)
+            {
+                // HTCAPTION 每次鼠标经过标题栏都会命中，不记日志（会刷屏）。
+                case NativeMethods.HTCAPTION:
+                    break;
+                case NativeMethodsEx.HTSYSMENU:
+                case NativeMethodsEx.HTMINBUTTON:
+                case NativeMethodsEx.HTMAXBUTTON:
+                case NativeMethodsEx.HTCLOSE:
+                case NativeMethodsEx.HTHELP:
+                    // 节流日志：真机「金刚点了没反应 / 原生小按钮复发」取证。
+                    // 注意 HTSYSMENU 是 3；旧代码写成 13 其实是 HTTOPLEFT（缩放带），
+                    // 既漏了系统菜单，又把左上角缩放命中误记成按钮命中。
+                    LogInterceptedButtonHit(hWnd, code, lParam);
+                    break;
+            }
+        }
+
         // ── ① 四周边缘 → 交给系统的缩放循环（最大化时系统本来也不让拖，就别报）──
         if (ResizeEnabled && !IsMaximized(hWnd))
         {
@@ -812,8 +828,10 @@ public sealed class SelfDrawnFrame
             return Hit(NativeMethods.HTCAPTION, ref handled);
         }
 
-        // 其余都算客户区：不接管，让 Avalonia 自己走默认路径（它本来也不处理这个消息）
-        return IntPtr.Zero;
+        // 其余都算客户区。若这一下是刚拦下的陈旧命中，必须显式返回 HTCLIENT 并置
+        // handled=true：沿用 `return IntPtr.Zero` 时 Avalonia 的默认路径会再问一次
+        // DefWindowProc，把 HTCAPTION / HTCLOSE 原样带回来（等于没拦）。
+        return stale ? Hit(NativeMethodsEx.HTCLIENT, ref handled) : IntPtr.Zero;
     }
 
     private static IntPtr Hit(int value, ref bool handled)

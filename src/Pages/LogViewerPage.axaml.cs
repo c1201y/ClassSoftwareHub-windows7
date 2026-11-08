@@ -458,6 +458,12 @@ public sealed partial class LogViewerPage : PageBase
     /// </summary>
     private async void FilesHelp_Click(object? sender, RoutedEventArgs e)
     {
+        try { await FilesHelp_ClickAsync(sender, e); }
+        catch (Exception ex) { AppLog.Catch("log", "显示日志文件说明", ex); }
+    }
+
+    private async Task FilesHelp_ClickAsync(object? sender, RoutedEventArgs e)
+    {
         var host = new StackPanel { Spacing = 12 };
         var session = SessionBox.SelectedItem as LogSession;
 
@@ -597,6 +603,17 @@ public sealed partial class LogViewerPage : PageBase
 
         CopyEntries(picked, $"已复制选中的 {picked.Count} 行到剪贴板。");
         e.Handled = true;
+    }
+
+    /// <summary>
+    /// 双击一行 → 打开「详细视图」。行内内容为了滚动稳定是单行省略的（见 XAML 里 ListBoxItem 的说明），
+    /// 想看完整消息/堆栈时这就是最短路径 —— 详细视图右侧的原文面板会显示选中行的全文。
+    /// </summary>
+    private void LogList_DoubleTapped(object? sender, TappedEventArgs e)
+    {
+        if (LogList.SelectedItem is not LogEntry) return;
+        e.Handled = true;
+        Detail_Click(sender, e);
     }
 
     private void CopySelected_Click(object? sender, RoutedEventArgs e)

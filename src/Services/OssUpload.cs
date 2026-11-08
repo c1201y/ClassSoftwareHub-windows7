@@ -87,7 +87,8 @@ public static class OssUpload
 
     private const string DefaultContentType = "application/octet-stream";
 
-    /// <summary>大文件上传可能很久，超时交给调用方的 CancellationToken 管。</summary>
+    /// <summary>大文件上传可能很久：总取消交给调用方的 CancellationToken，
+    /// 传输停滞另由 PutAsync 的 60 秒空闲看门狗兜住。</summary>
     private static readonly HttpClient Http = Core.OfficialApi.Create(timeoutSeconds: 0);
 
     private sealed record SignedTarget(string Url, string Key, string ContentType, int OrphanMinutes);
@@ -202,12 +203,15 @@ public static class OssUpload
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(SubmitEndpoint.TimeoutMs);
 
-        HttpResponseMessage response;
+        // ⚠️ response 必须在 try 内 using：ReadAsStringAsync 超时/取消时若把 Dispose 放在
+        //    catch 之后的 using(response)，失败路径会永久泄漏 HttpResponseMessage（含缓冲正文）。
+        int statusCode;
         string text;
         try
         {
             using var content = new StringContent(body, Encoding.UTF8, "application/json");
-            response = await Http.PostAsync(baseUrl + "/api/oss-sign", content, cts.Token).ConfigureAwait(false);
+            using var response = await Http.PostAsync(baseUrl + "/api/oss-sign", content, cts.Token).ConfigureAwait(false);
+            statusCode = (int)response.StatusCode;
             text = await response.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
@@ -223,44 +227,44 @@ public static class OssUpload
             throw new OssUploadException(OssUploadErrorCode.Unreachable, $"{baseUrl} 连不上（{ex.Message}）", 0);
         }
 
-        using (response)
+        JsonElement root;
+        try
         {
-            JsonElement root;
-            try
-            {
-                using var document = JsonDocument.Parse(text);
-                root = document.RootElement.Clone();
-            }
-            catch
-            {
-                // 回的不是提交服务响应（HTML 错误页等）→ 换下一个入口
-                throw new OssUploadException(OssUploadErrorCode.Unreachable,
-                    $"{baseUrl} 返回的不是提交服务响应", (int)response.StatusCode);
-            }
-
-            var ok = root.TryGetProperty("success", out var success) && success.ValueKind == JsonValueKind.True;
-            var url = root.TryGetProperty("url", out var u) && u.ValueKind == JsonValueKind.String ? u.GetString() : null;
-            var key = root.TryGetProperty("key", out var k) && k.ValueKind == JsonValueKind.String ? k.GetString() : null;
-            if (!ok || string.IsNullOrEmpty(url) || string.IsNullOrEmpty(key))
-            {
-                var error = root.TryGetProperty("error", out var e) && e.ValueKind == JsonValueKind.String
-                    ? e.GetString()
-                    : $"签发上传地址失败（HTTP {(int)response.StatusCode}）";
-                throw new OssUploadException(OssUploadErrorCode.SignFailed, error!, (int)response.StatusCode);
-            }
-
-            var signedType = root.TryGetProperty("contentType", out var t) && t.ValueKind == JsonValueKind.String
-                ? t.GetString()
-                : contentType;
-            var orphan = root.TryGetProperty("orphanMinutes", out var m) && m.ValueKind == JsonValueKind.Number
-                ? m.GetInt32()
-                : 0;
-
-            return new SignedTarget(url!, key!, string.IsNullOrWhiteSpace(signedType) ? contentType : signedType!, orphan);
+            using var document = JsonDocument.Parse(text);
+            root = document.RootElement.Clone();
         }
+        catch
+        {
+            // 回的不是提交服务响应（HTML 错误页等）→ 换下一个入口
+            throw new OssUploadException(OssUploadErrorCode.Unreachable,
+                $"{baseUrl} 返回的不是提交服务响应", statusCode);
+        }
+
+        var ok = root.TryGetProperty("success", out var success) && success.ValueKind == JsonValueKind.True;
+        var url = root.TryGetProperty("url", out var u) && u.ValueKind == JsonValueKind.String ? u.GetString() : null;
+        var key = root.TryGetProperty("key", out var k) && k.ValueKind == JsonValueKind.String ? k.GetString() : null;
+        if (!ok || string.IsNullOrEmpty(url) || string.IsNullOrEmpty(key))
+        {
+            var error = root.TryGetProperty("error", out var e) && e.ValueKind == JsonValueKind.String
+                ? e.GetString()
+                : $"签发上传地址失败（HTTP {statusCode}）";
+            throw new OssUploadException(OssUploadErrorCode.SignFailed, error!, statusCode);
+        }
+
+        var signedType = root.TryGetProperty("contentType", out var t) && t.ValueKind == JsonValueKind.String
+            ? t.GetString()
+            : contentType;
+        var orphan = root.TryGetProperty("orphanMinutes", out var m) && m.ValueKind == JsonValueKind.Number
+            ? m.GetInt32()
+            : 0;
+
+        return new SignedTarget(url!, key!, string.IsNullOrWhiteSpace(signedType) ? contentType : signedType!, orphan);
     }
 
-    /// <summary>把文件 PUT 到预签名地址，带上传进度。</summary>
+    /// <summary>上传连续无进度超过这个时长即中断（非整包总超时，慢速上传不会被误杀）。</summary>
+    private static readonly TimeSpan UploadIdleTimeout = TimeSpan.FromSeconds(60);
+
+    /// <summary>把文件 PUT 到预签名地址，带上传进度与 60 秒空闲看门狗。</summary>
     private static async Task PutAsync(
         SignedTarget target,
         string filePath,
@@ -268,7 +272,11 @@ public static class OssUpload
         IProgress<UploadProgress>? progress,
         CancellationToken ct)
     {
-        using var content = new FileUploadContent(filePath, length, progress);
+        // 静态 Http 是 InfiniteTimeSpan：链路掉成半开（教室网 / NAT 超时）时 SendAsync 永不返回。
+        // 这里用「无进度即续期」的联动 CTS 兜住，与 UpdateFlow.RunAsync 的空闲看门狗同一套写法。
+        using var idleCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        idleCts.CancelAfter(UploadIdleTimeout);
+        using var content = new FileUploadContent(filePath, length, new RenewingProgress(progress, idleCts, UploadIdleTimeout));
         if (MediaTypeHeaderValue.TryParse(target.ContentType, out var mediaType))
             content.Headers.ContentType = mediaType;
 
@@ -276,14 +284,14 @@ public static class OssUpload
         try
         {
             using var response = await Http
-                .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+                .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, idleCts.Token).ConfigureAwait(false);
             if (response.IsSuccessStatusCode)
             {
                 progress?.Report(new UploadProgress(length, length));
                 return;
             }
 
-            var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync(idleCts.Token).ConfigureAwait(false);
             throw new OssUploadException(OssUploadErrorCode.Http,
                 OssFailureText((int)response.StatusCode, body), (int)response.StatusCode);
         }
@@ -291,9 +299,35 @@ public static class OssUpload
         {
             throw new OssUploadException(OssUploadErrorCode.Aborted, "aborted");
         }
+        catch (OperationCanceledException)
+        {
+            // 看门狗触发（外部 ct 未取消）：半开连接按传输中断处理，而不是抛一个裸的取消异常
+            throw new OssUploadException(OssUploadErrorCode.Network, "上传停滞（连续 60 秒无进度），已中断");
+        }
         catch (HttpRequestException ex)
         {
             throw new OssUploadException(OssUploadErrorCode.Network, ex.Message);
+        }
+    }
+
+    /// <summary>转发上传进度，同时给空闲看门狗续期（不依赖同步上下文，线程池里也能即时续期）。</summary>
+    private sealed class RenewingProgress : IProgress<UploadProgress>
+    {
+        private readonly IProgress<UploadProgress>? _inner;
+        private readonly CancellationTokenSource _cts;
+        private readonly TimeSpan _idle;
+
+        public RenewingProgress(IProgress<UploadProgress>? inner, CancellationTokenSource cts, TimeSpan idle)
+        {
+            _inner = inner;
+            _cts = cts;
+            _idle = idle;
+        }
+
+        public void Report(UploadProgress value)
+        {
+            try { _cts.CancelAfter(_idle); } catch { /* 已取消 / 已释放 */ }
+            _inner?.Report(value);
         }
     }
 

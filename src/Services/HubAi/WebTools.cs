@@ -37,6 +37,15 @@ public static class WebTools
 {
     private static readonly HttpClient Http = CreateClient();
 
+    /// <summary>
+    /// fetch_url 专用客户端：禁止自动跟随重定向。URL 来自模型（可能已被网页提示注入污染），
+    /// 自动跟随会让「公网 302 → 127.0.0.1:8080/admin」绕过首次内网校验。
+    /// </summary>
+    private static readonly HttpClient FetchHttp = CreateFetchClient();
+
+    /// <summary>手动跟随重定向的最大跳数。</summary>
+    private const int MaxRedirectHops = 5;
+
     /// <summary>单条搜索结果最多多少条。</summary>
     private const int MaxResults = 5;
 
@@ -70,6 +79,17 @@ public static class WebTools
 
         client.DefaultRequestHeaders.TryAddWithoutValidation("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8");
 
+        return client;
+    }
+
+    /// <summary>fetch_url 专用：与搜索客户端相同的请求头，但不自动跟随重定向。</summary>
+    private static HttpClient CreateFetchClient()
+    {
+        var client = new HttpClient(Core.HttpTls.Handler(allowRedirect: false)) { Timeout = TimeSpan.FromSeconds(20) };
+        client.DefaultRequestHeaders.TryAddWithoutValidation(
+            "User-Agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36");
+        client.DefaultRequestHeaders.TryAddWithoutValidation("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8");
         return client;
     }
 
@@ -209,7 +229,11 @@ public static class WebTools
 
         try
         {
-            using var response = await Http.GetAsync(uri, ct);
+            // ⛔ 逐跳校验重定向目标：自动跟随 302 会让公网页面把请求带进本机/内网。
+            var (guarded, guardError) = await FetchGuardedAsync(uri, ct);
+            if (guardError is not null || guarded is null)
+                return guardError ?? "页面无法读取。";
+            using var response = guarded;
 
             if (!response.IsSuccessStatusCode)
                 return $"打开页面失败（HTTP {(int)response.StatusCode}）。请如实告知用户，不要据此推测页面内容。";
@@ -251,6 +275,59 @@ public static class WebTools
     }
 
     /// <summary>
+    /// 手动跟随重定向，并在**每一跳**重新做内网/本机校验（含域名解析后的 IP）。
+    /// 只放行 http/https、限制跳数；返回的最终响应由调用方释放。
+    ///
+    /// <para>
+    /// ⚠️ 校验与实际建连之间仍存在 DNS 重绑定的时间窗；彻底消除需接管
+    /// SocketsHttpHandler.ConnectCallback，本版先堵住「一次 302 直接绕过」这条链。
+    /// </para>
+    /// </summary>
+    private static async Task<(HttpResponseMessage? Response, string? Error)> FetchGuardedAsync(
+        Uri start, CancellationToken ct)
+    {
+        var current = start;
+        HttpResponseMessage? response = null;
+
+        for (var hop = 0; hop <= MaxRedirectHops; hop++)
+        {
+            if (IsInternalTarget(current))
+            {
+                AppLog.Warn("hubai-web", $"抓取网页｜结果=拒绝｜原因=目标指向本机或内网｜主机={current.Host}");
+                response?.Dispose();
+                return (null, "该地址指向本机或内网（含重定向目标），出于安全考虑不能读取。请改用公开网址。");
+            }
+
+            response?.Dispose();
+            response = await FetchHttp.GetAsync(current, HttpCompletionOption.ResponseHeadersRead, ct);
+
+            if ((int)response.StatusCode is not (301 or 302 or 303 or 307 or 308))
+                return (response, null);
+
+            var location = response.Headers.Location;
+            if (location is null) return (response, null);
+
+            Uri next;
+            try { next = location.IsAbsoluteUri ? location : new Uri(current, location); }
+            catch (UriFormatException)
+            {
+                response.Dispose();
+                return (null, "页面返回了非法的重定向地址，已停止读取。");
+            }
+
+            if (next.Scheme != Uri.UriSchemeHttp && next.Scheme != Uri.UriSchemeHttps)
+            {
+                response.Dispose();
+                return (null, "页面重定向到了不支持的协议，已停止读取。");
+            }
+            current = next;
+        }
+
+        response?.Dispose();
+        return (null, "页面重定向次数过多，已停止读取。");
+    }
+
+    /// <summary>
     /// 这个地址是不是指向本机 / 局域网。
     /// ⚠️ 域名也要解析后逐个判：<c>127.0.0.1.nip.io</c> 这类域名直接就是回环地址。
     /// </summary>
@@ -285,8 +362,13 @@ public static class WebTools
         if (ip.IsIPv4MappedToIPv6) ip = ip.MapToIPv4();
 
         if (ip.AddressFamily == AddressFamily.InterNetworkV6)
+        {
+            var v6 = ip.GetAddressBytes();
+            // fc00::/7 唯一本地地址（ULA）：IsIPv6SiteLocal 只覆盖已废弃的 fec0::/10。
+            if ((v6[0] & 0xFE) == 0xFC) return true;
             return ip.IsIPv6LinkLocal || ip.IsIPv6SiteLocal || ip.IsIPv6Multicast
                    || ip.Equals(IPAddress.IPv6Any);
+        }
 
         if (ip.AddressFamily != AddressFamily.InterNetwork) return true;
 
@@ -296,6 +378,11 @@ public static class WebTools
         if (b[0] == 192 && b[1] == 168) return true;
         if (b[0] == 169 && b[1] == 254) return true;                              // link-local
         if (b[0] == 100 && b[1] is >= 64 and <= 127) return true;                 // CGNAT
+        if (b[0] == 192 && b[1] == 0 && b[2] == 0) return true;                   // 192.0.0.0/24
+        if (b[0] == 192 && b[1] == 0 && b[2] == 2) return true;                   // TEST-NET-1
+        if (b[0] == 198 && (b[1] == 18 || b[1] == 19)) return true;               // 198.18.0.0/15
+        if (b[0] == 198 && b[1] == 51 && b[2] == 100) return true;                // TEST-NET-2
+        if (b[0] == 203 && b[1] == 0 && b[2] == 113) return true;                 // TEST-NET-3
         return false;
     }
 

@@ -101,7 +101,11 @@ public static class SidebarModules
         // 桌面留言：跟上面四个一样走「常用工具」浮窗 —— 写一句话就能丢到桌面上或全屏展示。
         // Id 必须和 ToolPaletteWindow 里的 chip Tag 一字不差，否则 side bar 点开的是浮窗默认页。
         new() { Id = "message", Name = "桌面留言", ShortName = "留言", Glyph = "\uE8BD", Kind = SidebarModuleKinds.Palette },
-        new() { Id = "image-color", Name = "图片取色", ShortName = "取色", LongName = "图片取色", Glyph = "\uE790", Kind = SidebarModuleKinds.Page, Page = typeof(Pages.Tools.ImageColorToolPage) },
+        // 图片取色（2026-11-04 改）：这里开的是**小浮窗**（ImageColorWindow），
+        // 不是把主界面那整页拉出来 —— 讲课中途从课件截图里取个配色，不该盖住课件。
+        // 整页入口仍在「内置工具 → 图片取色」，那才是给它留的位置。
+        // ⚠️ 浮窗承载的就是那页本体（embedded: true），取色算法只有一份，别另写。
+        new() { Id = "image-color", Name = "图片取色", ShortName = "取色", LongName = "图片取色", Glyph = "\uE790", Kind = SidebarModuleKinds.Window, WindowTool = "image-color", Note = "弹出小浮窗做取色：拖入图片即提取柔和配色（种子色 + 7 档明暗），单击色块复制色值" },
         // 查阅单词（自上游 dv1.2.0-insider1.8 移植，需求清单第 17 条）：侧边栏上这颗开的是**小浮窗**
         // （QuickLookupWindow），不是把主界面那整页拉出来 —— 讲课中途查一个词，不该盖住课件。
         // 整页入口在左侧导航「查阅单词」（Tag=dictionary）。

@@ -33,6 +33,12 @@ public static class ChemistryBalancer
 
         /// <summary>每种元素的守恒核对：左边总数与右边总数（应当相等）。</summary>
         public List<(string Element, int Left, int Right)> ElementCheck { get; init; } = new();
+
+        /// <summary>
+        /// 电荷守恒核对。只有输入里带电荷（离子方程式）才有值；null = 不涉及电荷。
+        /// ⛔ 离子方程式的核心判据是电荷守恒，只核元素是不完整的。
+        /// </summary>
+        public (int Left, int Right)? ChargeCheck { get; init; }
         /// <summary>需要提醒用户的情况（例如有多组解、忽略了电荷）。</summary>
         public string? Note { get; init; }
     }
@@ -70,19 +76,34 @@ public static class ChemistryBalancer
 
         // ── 解析每种物质的元素构成 ──
         var species = new List<(string Raw, Dictionary<string, int> Atoms)>();
+        var charges = new List<int>();          // 与 species 同序：该物质的电荷数（0 = 中性）
+        var anyCharged = false;
         var note = "";
         foreach (var raw in leftTerms.Concat(rightTerms))
         {
-            var atoms = ParseFormula(raw, out var error, out var chargeIgnored);
+            var atoms = ParseFormula(raw, out var error, out var charge, out var hasCharge);
             if (atoms is null) return Fail(error ?? $"无法识别「{raw}」");
-            if (chargeIgnored) note = "输入中的离子电荷未参与配平（只按元素守恒计算）。";
+            if (hasCharge)
+            {
+                anyCharged = true;
+                charges.Add(charge);
+            }
+            else
+            {
+                charges.Add(0);
+            }
             species.Add((DisplayFormula(raw), atoms!));
         }
 
         // ── 建矩阵：元素 × 物质 ──
         var elements = species.SelectMany(s => s.Atoms.Keys).Distinct().OrderBy(k => k, StringComparer.Ordinal).ToList();
         var cols = species.Count;
-        var matrix = new Rational[elements.Count][];
+
+        // ⛔ 离子方程式必须把电荷也算一行守恒，否则会输出电荷不守恒的"配平成功"
+        //    （例如 Fe^2+ = Fe^3+ 只核元素会判通过）。有电荷时才加这一行，
+        //    避免给普通方程式凭空引出一条全零行。
+        var rows = anyCharged ? elements.Count + 1 : elements.Count;
+        var matrix = new Rational[rows][];
 
         for (var r = 0; r < elements.Count; r++)
         {
@@ -94,6 +115,17 @@ public static class ChemistryBalancer
                 var sign = c < leftTerms.Count ? 1 : -1;
                 matrix[r][c] = new Rational(sign * count, BigInteger.One);
             }
+        }
+
+        if (anyCharged)
+        {
+            var chargeRow = new Rational[cols];
+            for (var c = 0; c < cols; c++)
+            {
+                var sign = c < leftTerms.Count ? 1 : -1;
+                chargeRow[c] = new Rational(sign * charges[c], BigInteger.One);
+            }
+            matrix[elements.Count] = chargeRow;
         }
 
         // ── 求零空间 ──
@@ -128,7 +160,8 @@ public static class ChemistryBalancer
         }
 
         if (basis.Count > 1)
-            note = "该方程式有多组配平系数（存在歧义），以上为最小正整数解。";
+            // 拼接而非覆盖：电荷未参与配平的提示必须保留在最前面。
+            note += (note.Length > 0 ? " " : "") + "该方程式有多组配平系数（存在歧义），以上为最小正整数解。";
 
         // 元素守恒核对：把系数代回去，左右各数一遍（界面上直接列出来，让人一眼确认）
         var check = new List<(string, int, int)>();
@@ -146,11 +179,35 @@ public static class ChemistryBalancer
             check.Add((element, leftSum, rightSum));
         }
 
+        // 电荷守恒核对：左右各算一遍总电荷（离子方程式的核心判据）
+        (int, int)? chargeCheck = null;
+        if (anyCharged)
+        {
+            var chargeLeft = 0;
+            var chargeRight = 0;
+            for (var c = 0; c < cols; c++)
+            {
+                if (c < leftTerms.Count) chargeLeft += charges[c] * ints[c];
+                else chargeRight += charges[c] * ints[c];
+            }
+            chargeCheck = (chargeLeft, chargeRight);
+
+            // 上面已经用电荷行约束过方程组，正常情况这里必然相等；不相等说明
+            // 输入本身电荷就不平衡（且零空间只有一个方向）——必须明确报错，
+            // 绝不能让界面显示"配平成功"。
+            if (chargeLeft != chargeRight)
+            {
+                return Fail($"电荷不守恒：左边总电荷 {chargeLeft:+0;-0;0}，右边 {chargeRight:+0;-0;0}。" +
+                            "离子方程式除了元素守恒，还必须电荷守恒（检查离子电荷是否写对）。");
+            }
+        }
+
         return new Result
         {
             Equation = sb.ToString(),
             Terms = terms,
             ElementCheck = check,
+            ChargeCheck = chargeCheck,
             Note = note.Length > 0 ? note : null,
         };
     }
@@ -173,7 +230,7 @@ public static class ChemistryBalancer
             return false;
         }
 
-        var atoms = ParseFormula(text, out error, out _);
+        var atoms = ParseFormula(text, out error, out _, out _);
         if (atoms is null) return false;
 
         if (atoms.Count == 0)
@@ -289,23 +346,20 @@ public static class ChemistryBalancer
     /// 解析一个化学式，返回元素 → 原子个数。
     /// 支持括号嵌套 Ca(OH)2、结晶水 CuSO4·5H2O、方括号 [Fe(CN)6]。
     /// </summary>
-    private static Dictionary<string, int>? ParseFormula(string raw, out string? error, out bool chargeIgnored)
+    private static Dictionary<string, int>? ParseFormula(string raw, out string? error, out int charge, out bool hasCharge)
     {
         error = null;
-        chargeIgnored = false;
+        charge = 0;
+        hasCharge = false;
 
         var formula = raw.Trim();
         if (formula.Length == 0) { error = "存在空的物质项。"; return null; }
 
-        // 尾部的电荷（如 SO4^2-、Fe3+ / Fe²⁺）不参与配平，剥掉即可
-        var tail = formula[^1];
-        if (tail is '+' or '-')
-        {
-            formula = formula[..^1];
-            chargeIgnored = true;
-            while (formula.Length > 0 && char.IsDigit(formula[^1])) formula = formula[..^1];
-            if (formula.EndsWith('^')) formula = formula[..^1];
-        }
+        // 电荷参与配平（离子方程式必须电荷守恒），但「数字 + 电荷符」存在歧义：
+        // Cr2O7- 的 7 是下标、Fe3+ 的 3 却是电荷数。旧实现一律剥掉尾部数字，会把
+        // Cr2O7 改写成 Cr2O 并输出「元素守恒核对全过」的假方程式。这里只在能明确
+        // 判定电荷数的记法下取值；数字紧贴裸 +/- 时无法区分，直接给可读提示，绝不猜测。
+        if (!StripCharge(raw, ref formula, out error, out charge, out hasCharge)) return null;
 
         if (formula.Length == 0) { error = $"「{raw}」只有一个电荷符号，缺少化学式。"; return null; }
 
@@ -339,6 +393,148 @@ public static class ChemistryBalancer
         if (total.Count == 0) { error = $"无法从「{raw}」中识别出元素。"; return null; }
         return total;
     }
+
+    /// <summary>
+    /// 剥去化学式尾部的电荷记法。仅在数字明确属于电荷时才剥掉数字。
+    ///
+    /// <para>
+    /// 可识别：SO4^2- / Fe^3+ / Cr2O7^2- / Fe³⁺ / SO4²⁻（上标先归一化），以及
+    /// Cl- / Na+ / OH- 这类符号前不是数字的写法。
+    /// </para>
+    /// <para>
+    /// ⛔ 数字紧贴裸 +/- 时存在歧义：Cr2O7- 的 7 是下标，Fe3+ 的 3 却是电荷数。
+    /// 旧实现一律剥掉尾部数字，会把 Cr2O7 改写成 Cr2O 并输出「元素守恒核对全过」的
+    /// 假方程式。此处拒绝猜测，要求用户写成显式上标记法。
+    /// </para>
+    /// </summary>
+    /// <summary>
+    /// 剥去化学式尾部的电荷记法，并解析出电荷数。
+    ///
+    /// <para>
+    /// 可识别：SO4^2- / Fe^3+ / H^+ / OH^- / Cr2O7^2- / Fe³⁺ / SO4²⁻（上标先归一化），
+    /// 以及 Cl- / Na+ / OH- 这类符号前不是数字的写法。
+    /// </para>
+    /// <para>
+    /// ⛔ `^` 与 +/- 之间**没有数字**时是一价离子（H^+、OH^-、NO3^-、NH4^+、Cl^-）——
+    /// 这是中学化学出现频率最高的写法，必须按 ±1 处理。旧实现把空串判为"看不懂"，
+    /// 导致出厂预置的 8 个常用离子根里有 5 个过不了自己的校验。
+    /// </para>
+    /// <para>
+    /// ⛔ 数字紧贴裸 +/- 时存在歧义：Cr2O7- 的 7 是下标，Fe3+ 的 3 却是电荷数。
+    /// 一律剥掉尾部数字会把 Cr2O7 改写成 Cr2O 并输出「元素守恒核对全过」的假方程式。
+    /// 此处拒绝猜测，要求用户写成显式上标记法。
+    /// </para>
+    /// </summary>
+    private static bool StripCharge(string raw, ref string formula, out string? error,
+                                    out int charge, out bool hasCharge)
+    {
+        error = null;
+        charge = 0;
+        hasCharge = false;
+        formula = NormalizeSuperscripts(formula);
+
+        var tail = formula.Length > 0 ? formula[^1] : '\0';
+        if (tail is not '+' and not '-') return true;
+
+        var sign = tail == '+' ? 1 : -1;
+
+        var caret = formula.LastIndexOf('^');
+        if (caret >= 0)
+        {
+            var digits = formula[(caret + 1)..^1];
+
+            // 一价离子：H^+ / OH^- / NO3^- / NH4^+ —— 末尾直接是符号，电荷数按 1 算
+            if (digits.Length == 0)
+            {
+                charge = sign;
+                hasCharge = true;
+                formula = formula[..caret].TrimEnd();
+                if (formula.Length == 0)
+                {
+                    error = $"「{raw}」只有一个电荷符号，缺少化学式。";
+                    return false;
+                }
+                return true;
+            }
+
+            if (digits.All(char.IsDigit))
+            {
+                if (!int.TryParse(digits, out var magnitude) || magnitude > 99)
+                {
+                    error = $"「{raw}」的电荷数过大，请检查写法。";
+                    return false;
+                }
+
+                charge = sign * magnitude;
+                hasCharge = true;
+                formula = formula[..caret].TrimEnd();
+                if (formula.Length == 0)
+                {
+                    error = $"「{raw}」只有一个电荷符号，缺少化学式。";
+                    return false;
+                }
+                return true;
+            }
+
+            error = $"「{raw}」的电荷写法看不懂，请写成 Fe^3+、SO4^2- 或 H^+ 的形式。";
+            return false;
+        }
+
+        var head = formula[..^1];
+        if (head.Length == 0)
+        {
+            error = $"「{raw}」只有一个电荷符号，缺少化学式。";
+            return false;
+        }
+
+        if (char.IsDigit(head[^1]))
+        {
+            error = $"「{raw}」里的电荷有歧义：末尾数字可能是下标，也可能是电荷数。" +
+                    "请把电荷写成显式形式，例如 Cr2O7^2-、Fe^3+（数字写在 ^ 之后）。";
+            return false;
+        }
+
+        // 裸符号且前面不是数字：Cl- / Na+ / OH- 这类，按一价处理
+        charge = sign;
+        hasCharge = true;
+        formula = head.TrimEnd();
+        return true;
+    }
+
+    /// <summary>把连续的上标数字/正负号整体转成 ^数字± 形式，便于与显式记法统一处理。</summary>
+    private static string NormalizeSuperscripts(string s)
+    {
+        var sb = new StringBuilder(s.Length + 4);
+        for (var i = 0; i < s.Length; i++)
+        {
+            if (!IsSuperscript(s[i])) { sb.Append(s[i]); continue; }
+
+            var digits = new StringBuilder();
+            var sign = '\0';
+            while (i < s.Length && IsSuperscript(s[i]))
+            {
+                var d = SuperDigit(s[i]);
+                if (d >= 0) digits.Append((char)('0' + d));
+                else if (s[i] == '⁺') sign = '+';
+                else if (s[i] == '⁻') sign = '-';
+                i++;
+            }
+            i--;
+            sb.Append('^').Append(digits);
+            if (sign != '\0') sb.Append(sign);
+        }
+        return sb.ToString();
+    }
+
+    private static bool IsSuperscript(char ch) =>
+        ch is '⁰' or '¹' or '²' or '³' or '⁴' or '⁵' or '⁶' or '⁷' or '⁸' or '⁹' or '⁺' or '⁻';
+
+    private static int SuperDigit(char ch) => ch switch
+    {
+        '⁰' => 0, '¹' => 1, '²' => 2, '³' => 3, '⁴' => 4,
+        '⁵' => 5, '⁶' => 6, '⁷' => 7, '⁸' => 8, '⁹' => 9,
+        _ => -1,
+    };
 
     /// <summary>括号内递归解析。</summary>
     private static Dictionary<string, int>? ParseGroup(string s, ref int i, out string? error)

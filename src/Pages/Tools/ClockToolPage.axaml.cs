@@ -544,6 +544,12 @@ public sealed partial class ClockToolPage : PageBase
 
     private async void SavePreset_Click(object? sender, RoutedEventArgs e)
     {
+        try { await SavePreset_ClickAsync(sender, e); }
+        catch (Exception ex) { AppLog.Catch("clock", "保存时钟预设", ex); }
+    }
+
+    private async Task SavePreset_ClickAsync(object? sender, RoutedEventArgs e)
+    {
         if (_presets.Count >= MaxPresets)
         {
             Toast.Text = $"预设数量已达上限 {MaxPresets} 套，请先删除一套。";

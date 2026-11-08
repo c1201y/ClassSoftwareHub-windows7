@@ -144,7 +144,13 @@ public static class WindowChrome
 
             _ = NativeMethods.SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0,
                 SwpNoMove | SwpNoSize | SwpNoZOrder | SwpNoActivate | SwpFrameChanged);
-            return true;
+
+            // 回读校验：SetWindowLongPtrW 返回的是**旧样式**，0 既可能是失败、也可能只是旧值
+            // 本身为 0，不能拿返回值判成败。失败时 RemoveBorder 会走「关 NC 渲染」的老路兜底，
+            // 日志也不再谎报「无边框=True」（审计 P2）。
+            var styleNow = unchecked((uint)ReadStyle(hwnd));
+            return (styleNow & unchecked((uint)WsPopup)) != 0
+                   && (styleNow & (uint)WsCaption) == 0;
         }
         catch
         {

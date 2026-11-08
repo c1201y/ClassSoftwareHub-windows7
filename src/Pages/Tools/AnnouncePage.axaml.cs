@@ -180,6 +180,12 @@ public sealed partial class AnnouncePage : PageBase
 
     private async void Lan_Changed(object? sender, RoutedEventArgs e)
     {
+        try { await Lan_ChangedAsync(sender, e); }
+        catch (Exception ex) { AppLog.Catch("announce", "切换局域网通道", ex); }
+    }
+
+    private async Task Lan_ChangedAsync(object? sender, RoutedEventArgs e)
+    {
         if (_loading) return;
 
         // 同上：切走再切回来会重建开关并再抛一次 Toggled，值与设置相同就忽略，
@@ -340,7 +346,11 @@ public sealed partial class AnnouncePage : PageBase
         }
     }
 
-    private async void Firewall_Click(object? sender, RoutedEventArgs e) => await ApplyFirewallRepairAsync();
+    private async void Firewall_Click(object? sender, RoutedEventArgs e)
+    {
+        try { await ApplyFirewallRepairAsync(); }
+        catch (Exception ex) { AppLog.Catch("announce", "修复防火墙", ex); }
+    }
 
     private void RefreshPeers_Click(object? sender, RoutedEventArgs e) => RefreshPeerList();
 
@@ -434,6 +444,12 @@ public sealed partial class AnnouncePage : PageBase
 
     private async void DeleteBinder_Click(object? sender, RoutedEventArgs e)
     {
+        try { await DeleteBinder_ClickAsync(sender, e); }
+        catch (Exception ex) { AppLog.Catch("announce", "删除登记", ex); }
+    }
+
+    private async Task DeleteBinder_ClickAsync(object? sender, RoutedEventArgs e)
+    {
         if (sender is not Button { Tag: string name }) return;
 
         var list = App.Settings.Current.AnnounceBinders;
@@ -456,6 +472,12 @@ public sealed partial class AnnouncePage : PageBase
     }
 
     private async void ClearBinders_Click(object? sender, RoutedEventArgs e)
+    {
+        try { await ClearBinders_ClickAsync(sender, e); }
+        catch (Exception ex) { AppLog.Catch("announce", "清空登记", ex); }
+    }
+
+    private async Task ClearBinders_ClickAsync(object? sender, RoutedEventArgs e)
     {
         var list = App.Settings.Current.AnnounceBinders;
         if (list.Count == 0) return;
@@ -551,6 +573,12 @@ public sealed partial class AnnouncePage : PageBase
     /// 如果这台电脑此刻就在同一局域网里（发现得到），顺手通知它登记一下 —— 它的接收页就能看到「谁保存了我的码」。
     /// </summary>
     private async void SavePeer(string? rawCode, bool notify)
+    {
+        try { await SavePeerAsync(rawCode, notify); }
+        catch (Exception ex) { AppLog.Catch("announce", "保存配对码", ex); }
+    }
+
+    private async Task SavePeerAsync(string? rawCode, bool notify)
     {
         var code = (rawCode ?? "").Trim();
         if (!AnnounceService.IsValidPairCode(code))
@@ -696,6 +724,18 @@ public sealed partial class AnnouncePage : PageBase
     }
 
     private async void Send_Click(object? sender, RoutedEventArgs e)
+    {
+        // async void 中逃逸的异常会直接终止进程，并使发送按钮永久禁用，统一在入口处兜住。
+        try { await Send_ClickAsync(sender, e); }
+        catch (Exception ex)
+        {
+            _sending = false;
+            SendButton.IsEnabled = (ContentBox.Text?.Length ?? 0) > 0;
+            AppLog.Catch("announce", "发送喊话", ex);
+        }
+    }
+
+    private async Task Send_ClickAsync(object? sender, RoutedEventArgs e)
     {
         if (_sending) return;
 

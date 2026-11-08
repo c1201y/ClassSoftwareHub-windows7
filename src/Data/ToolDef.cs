@@ -213,6 +213,50 @@ public static class ToolCatalog
             // E7F1 = 硬盘
             Glyph = "\uE7F1", Page = typeof(ClassSoftwareHub.Desktop.Pages.Tools.DiskMapPage), Group = ToolGroup.System
         },
+
+        // ────────────────────────────────────────────────────────────────
+        // 2026-11-08 自上游 dv1.2.0 转正的五项：
+        //   系统优化 / 系统功能 / 虚拟内存 / 幽灵文件清理 / PowerPoint 触控优化
+        //
+        // ⛔ 上游把它们**退出实验性功能**、移进「系统工具」，理由是本版正式发布、
+        //    这五项已经跑过一个完整的 insider 周期。
+        // ⚠️ 这五项此前只登记在 Data/ExperimentalFeature.cs 的清单里、**不在本表**，
+        //    所以「转正」不能只删实验性清单那一条 —— 必须在这里补上定义，
+        //    否则导航反查不到 Id 会落进 default 打开成首页（见本类注释第 130 行那条教训）。
+        // ⚠️ 页面标题旁那枚「实验性功能」标记由 Data/ExperimentalFeatureCatalog.Find(tag)
+        //    决定，删掉那边对应的条目后标记会自动消失，不用改页面。
+        // ────────────────────────────────────────────────────────────────
+        new ToolDef
+        {
+            Id = "systemtweaks", Name = "系统优化",
+            Desc = "任务栏、资源管理器这些整机设置，选中后一次授权统一应用。",
+            Glyph = "\uE713", Page = typeof(ClassSoftwareHub.Desktop.Pages.SystemTweaksPage), Group = ToolGroup.System
+        },
+        new ToolDef
+        {
+            Id = "sysfeatures", Name = "系统功能",
+            Desc = "休眠、快速启动、电源计划等系统开关，排队后一次授权写入。",
+            Glyph = "\uE7E8", Page = typeof(ClassSoftwareHub.Desktop.Pages.SystemFeaturesPage), Group = ToolGroup.System
+        },
+        new ToolDef
+        {
+            Id = "pagefile", Name = "虚拟内存",
+            Desc = "逐个驱动器设置分页文件大小，重启后生效。",
+            Glyph = "\uEDA2", Page = typeof(ClassSoftwareHub.Desktop.Pages.PageFilePage), Group = ToolGroup.System
+        },
+        new ToolDef
+        {
+            Id = "ghostfile", Name = "幽灵文件清理",
+            Desc = "清理删不掉、双击提示找不到路径的残留条目。",
+            Glyph = "\uE7C4", Page = typeof(ClassSoftwareHub.Desktop.Pages.GhostFilePage), Group = ToolGroup.System
+        },
+        new ToolDef
+        {
+            Id = "ppttouch", Name = "PowerPoint 触控优化",
+            Desc = "放映时轻点屏幕翻到下一页，上下滑动切换页面，长按弹出放映菜单；"
+                   + "用笔、荧光笔、橡皮或激光笔时不触发翻页。",
+            Glyph = "\uE786", Page = typeof(ClassSoftwareHub.Desktop.Pages.PptTouchPage), Group = ToolGroup.System
+        },
         new ToolDef
         {
             Id = "equation", Name = "方程求解",

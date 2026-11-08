@@ -231,6 +231,9 @@ public static class InstallerCleanup
 
     private static bool TryDelete(string path)
     {
+        // File.Delete 对不存在的路径静默成功：先判存在，否则「枚举与删除之间被别的进程删掉」
+        // 也会被计入已删除数，清理日志虚高会误导排障。
+        if (!File.Exists(path)) return false;
         try
         {
             File.Delete(path);

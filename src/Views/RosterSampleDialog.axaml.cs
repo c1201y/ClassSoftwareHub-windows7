@@ -70,10 +70,16 @@ public sealed partial class RosterSampleDialog : ContentDialog
     private void Close_Click(object? sender, RoutedEventArgs e) => Hide();
 
     private async void DownloadExcel_Click(object? sender, RoutedEventArgs e)
-        => await SaveSampleAsync("roster-sample.xlsx", "名单示例.xlsx", "Excel 名单示例");
+    {
+        try { await SaveSampleAsync("roster-sample.xlsx", "名单示例.xlsx", "Excel 名单示例"); }
+        catch (Exception ex) { Core.AppLog.Catch("roster", "下载 Excel 示例名单", ex); }
+    }
 
     private async void DownloadTxt_Click(object? sender, RoutedEventArgs e)
-        => await SaveSampleAsync("roster-sample.txt", "名单示例.txt", "纯文本名单示例");
+    {
+        try { await SaveSampleAsync("roster-sample.txt", "名单示例.txt", "纯文本名单示例"); }
+        catch (Exception ex) { Core.AppLog.Catch("roster", "下载纯文本示例名单", ex); }
+    }
 
     /// <summary>
     /// 把内嵌的示例文件另存到用户挑的位置。

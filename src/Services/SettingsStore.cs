@@ -50,6 +50,20 @@ public sealed class AppSettings
     /// </summary>
     public bool TrayHideHintShown { get; set; }
 
+    /// <summary>
+    /// 导航栏 New / Beta 角标的计时起点：**本版本第一次运行**的时间（UTC，ISO 8601）。
+    /// <para>
+    /// 为什么要有：角标是"刚装上新版本"那段时间的提示，装完十几天还不撤，
+    /// 用户就把它当装饰看了，这条信息等于废掉（2026-11-04 Nick 定：装完 15 天后自动消失）。
+    /// 版本号一变就重新起算，所以升级后新功能还能再提示一轮。
+    /// </para>
+    /// <para>⚠️ 这是存档格式：改字段名等于让所有人重新计时一次，别动。</para>
+    /// </summary>
+    public string BadgeSinceVersion { get; set; } = "";
+
+    /// <summary>见 <see cref="BadgeSinceVersion"/>；跟它成对出现，一个是版本、一个是时间。</summary>
+    public string BadgeSinceUtc { get; set; } = "";
+
     // ── 初次配置（OOBE，自上游 dv1.2.0-insider1.8 移植）──────────────
 
     /// <summary>
@@ -253,6 +267,20 @@ public sealed class AppSettings
     /// ⚠️ 有它才能保证「用户主动删掉的模块不会被下次启动又塞回来」。
     /// </summary>
     public int SidebarModulesRevision { get; set; }
+
+    /// <summary>
+    /// 导航栏里被用户**额外提到一级**的项（tag：页面 tag 或工具 Id）。
+    ///
+    /// <para>
+    /// ⚠️ 与 <see cref="NavSecondLevel"/> 一起只存「与默认不同」的那部分，默认状态下两个都是空数组
+    /// —— 这样以后往工具清单里加新工具，老用户升级后仍然按默认位置看到它，不会被一份旧快照挡住。
+    /// 判定与读写全在 <c>Data/NavLayout.cs</c>，别在别处另算一套。
+    /// </para>
+    /// </summary>
+    public string[] NavTopLevel { get; set; } = Array.Empty<string>();
+
+    /// <summary>导航栏里被用户**收进二级分组**的项（目前是教室喊话 / 查阅单词 / 文档库）。</summary>
+    public string[] NavSecondLevel { get; set; } = Array.Empty<string>();
 
     // ── 虚拟键盘（实验性功能）──────────
     // ⚠️ 总开关默认**关**：它要装全局触摸钩子、跑 UIA 探测，属于"用户明确想要才开"的功能，
@@ -927,7 +955,24 @@ public sealed class SettingsStore
             // 原子替换：先写临时文件，再整体换过去。
             // 直接 File.WriteAllText 会**先截断原文件**，写到一半断电 / 崩溃就留下半截 JSON，
             // 下次启动直接解析失败、设置全丢 —— 这个窗口必须堵掉。
-            var json = JsonSerializer.Serialize(Current, JsonOpts);
+            // 快照式序列化：一次性把 Current 固化成字符串，再写临时文件。
+            // ⚠️ Save 已持有 _saveGate，但改 Current 的 UI 线程不持这把锁；集合恰在遍历期间被改动
+            //    会抛 InvalidOperationException，被外层 catch 吞成「保存设置失败」丢掉本次全部改动。
+            //    这里只在锁内有限重试取快照，绝不等待 UI 线程（Save 可能正由 UI 线程调用，等它会死锁）。
+            string json = "";
+            for (var attempt = 0; attempt < 4; attempt++)
+            {
+                try
+                {
+                    json = JsonSerializer.Serialize(Current, JsonOpts);
+                    break;
+                }
+                catch (InvalidOperationException)
+                {
+                    if (attempt == 3) throw;
+                    System.Threading.Thread.Sleep(10);
+                }
+            }
             var tmp = FilePath + ".tmp";
             File.WriteAllText(tmp, json);
 

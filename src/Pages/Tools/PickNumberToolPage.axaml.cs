@@ -226,6 +226,12 @@ public sealed partial class PickNumberToolPage : PageBase
     /// </summary>
     private async void OpenRoster_Click(object? sender, RoutedEventArgs e)
     {
+        try { await OpenRoster_ClickAsync(sender, e); }
+        catch (Exception ex) { Core.AppLog.Catch("pick", "打开名单编辑", ex); }
+    }
+
+    private async Task OpenRoster_ClickAsync(object? sender, RoutedEventArgs e)
+    {
         HideError();
         var dialog = new Views.RosterEditorDialog(_roster, _rosterSource);
         await dialog.ShowAsync(GetTopLevel());
@@ -1043,6 +1049,12 @@ public sealed partial class PickNumberToolPage : PageBase
     };
 
     private async void SampleRoster_Click(object? sender, RoutedEventArgs e)
+    {
+        try { await SampleRoster_ClickAsync(sender, e); }
+        catch (Exception ex) { Core.AppLog.Catch("pick", "打开示例名单", ex); }
+    }
+
+    private async Task SampleRoster_ClickAsync(object? sender, RoutedEventArgs e)
     {
         HideError();
         var dialog = new Views.RosterSampleDialog(_roster.Count > 0);

@@ -44,16 +44,7 @@
                         <StackPanel Spacing="4">
                         <StackPanel Orientation="Horizontal" Spacing="10">
                             <TextBlock Text="虚拟内存" FontSize="28" FontWeight="Bold" />
-                            <Border CornerRadius="5" Padding="8,3" Margin="0,0,0,5" VerticalAlignment="Bottom"
-                                    BorderThickness="1"
-                                    BorderBrush="{DynamicResource SystemFillColorCautionBrush}">
-                                <StackPanel Orientation="Horizontal" Spacing="5">
-                                    <fa:FontIcon Glyph="&#xEA80;" FontSize="11"
-                                                 Foreground="{DynamicResource SystemFillColorCautionBrush}" />
-                                    <TextBlock Text="实验性功能" FontSize="12"
-                                               Foreground="{DynamicResource SystemFillColorCautionBrush}" />
-                                </StackPanel>
-                            </Border>
+                            <controls:ExperimentalBadge FeatureId="pagefile" />
                         </StackPanel>
                         <TextBlock FontSize="12.5" Opacity="0.65" TextWrapping="Wrap"
                                    Text="逐个驱动器设置分页文件大小。改动先排队，应用时请求一次管理员授权，重启后才生效。" />
@@ -87,6 +78,36 @@
                         <ToggleSwitch x:Name="SwAutomatic" MinWidth="0"
                                       OnContent="已开启" OffContent="已关闭"
                                       IsCheckedChanged="Automatic_Toggled"
+                                      HorizontalAlignment="Right" />
+                    </views:SettingsCard>
+
+                    <!-- ═════════ 系统盘锁定 ═════════ -->
+                    <!--
+                      2026-11-04 加。Nick 反馈：分页文件全设到 D 盘之后，C 盘还是会冒出一个小的
+                      pagefile.sys，设置像是没生效。
+
+                      原因不在本页写的 PagingFiles，而是同一个注册表键下的另一个值
+                      PagefileOnOsVolume：系统启用磁盘加密时会自动把它设成 1，
+                      此时会话管理器**只认系统盘**当分页文件的位置。加密关掉之后这个值也不会自己消失。
+                      微软 KB 929820 有完整说明，那边的建议就是把它改成 0。
+
+                      位置放在「自动管理」下面、逐盘设置上面：它是逐盘设置能不能生效的**前提**，
+                      锁着的时候下面怎么改都没用，先让用户看见。2026-11-04
+
+                      ⚠️ 界面上不写 BitLocker / 注册表键名 / 会话管理器这些词 ——
+                         用户看到的是"设了不算数"，这里就按这个说。
+                    -->
+                    <views:SettingsCard Header="系统盘的分页文件锁定" Margin="0,4,0,0">
+                        <views:SettingsCard.Description>
+                            <TextBlock TextWrapping="Wrap"
+                                       Text="系统启用磁盘加密后会自动打开这一项：此时无论把分页文件设到哪个盘，系统都会在系统盘再建一份。分页文件里是内存内容，放在没有加密的磁盘上会削弱加密的作用。" />
+                        </views:SettingsCard.Description>
+                        <views:SettingsCard.HeaderIcon>
+                            <fa:FontIcon Glyph="&#xE72E;" />
+                        </views:SettingsCard.HeaderIcon>
+                        <ToggleSwitch x:Name="SwOsLock" MinWidth="0"
+                                      OnContent="已锁定" OffContent="已解除"
+                                      IsCheckedChanged="OsLock_Toggled"
                                       HorizontalAlignment="Right" />
                     </views:SettingsCard>
 

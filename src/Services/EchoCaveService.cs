@@ -136,10 +136,10 @@ public static class EchoCaveService
 
     private static HttpClient CreateClient()
     {
-        var client = new HttpClient(Core.HttpTls.Handler())
-        {
-            Timeout = TimeSpan.FromSeconds(20),
-        };
+        // 与上游一致：统一经 OfficialApi 建客户端（挂授权处理器 + Win7 显式 TLS 1.2）。
+        // 回声洞的读取目标是 GitHub / jsDelivr / gh-proxy，不属于自建后端，
+        // 授权处理器会按域名原样放行、不加任何身份头；投稿那条走 SubmitClient。
+        var client = Core.OfficialApi.Create(timeoutSeconds: 20);
         client.DefaultRequestHeaders.UserAgent.ParseAdd($"ClassSoftwareHub/{ShellConfig.ShellVersion} echo-cave");
         return client;
     }

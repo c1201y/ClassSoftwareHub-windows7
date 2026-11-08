@@ -1,7 +1,9 @@
 using System;
 using System.Reflection;
 using Avalonia;
+using Avalonia.Media;
 using Avalonia.Rendering.Composition;
+using Avalonia.Styling;
 
 namespace ClassSoftwareHub.Desktop;
 
@@ -25,6 +27,13 @@ internal static class Program
     /// 正式版也认这个参数（现场排障时不用专门换包）。
     /// </summary>
     private static bool _forceSoftwareRender;
+
+    /// <summary>
+    /// 离屏诊断进程（<c>--resource-check</c>）。这类进程只加载 XAML 资源、不建窗口，
+    /// 因此 <see cref="App"/> 构造函数里必须跳过单实例互斥体，否则会去"叫醒"正在运行的
+    /// 正式实例、甚至抢不到互斥体直接退出，自检还没跑就结束了。
+    /// </summary>
+    internal static bool OffscreenDiagnostic;
 
     /// <summary>
     /// 放行 GPU 渲染链（命令行加 <c>--gpu-render</c>）。
@@ -57,6 +66,16 @@ internal static class Program
         //    理由见 CrashDump.TryHandoff（托管崩溃走 CLR 自己的 FailFast，WER 抓不到）。
         if (Platform.CrashDump.TryHandoff(args)) return;
 
+        // ⛔ 平台分支模拟必须排在**第一次访问 OsInfo 之前**：TryHandoff 之后的
+        //    --mathshot / BuildAvaloniaApp 等路径都会触发静态版本判定，晚一步分支就被冻死。
+        //    与 --simulate-win10 互斥，同时给时以 Win7 为准。
+        Platform.OsInfo.SimulateWin7 =
+            Array.Exists(args, a => a.Equals("--simulate-win7", StringComparison.OrdinalIgnoreCase))
+            || Environment.GetEnvironmentVariable("CSH_SIMULATE_WIN7") == "1";
+        Platform.OsInfo.SimulateWin10 =
+            Array.Exists(args, a => a.Equals("--simulate-win10", StringComparison.OrdinalIgnoreCase))
+            || Environment.GetEnvironmentVariable("CSH_SIMULATE_WIN10") == "1";
+
         // 排障：数学排版离屏自检（--mathshot <输出 png>）。开主界面之前就跑完并退出，
         // 用来核对分数/上标/根号的基线位置（见 Platform/MathShot）。只用于开发验证。
         var shotAt = Array.FindIndex(args, a => a.Equals("--mathshot", StringComparison.OrdinalIgnoreCase));
@@ -65,6 +84,20 @@ internal static class Program
             var outPath = shotAt + 1 < args.Length ? args[shotAt + 1] : "mathshot.png";
             BuildAvaloniaApp().SetupWithoutStarting();
             Platform.MathShot.Run(outPath);
+            ShutdownOffscreen();
+            return;
+        }
+
+        // 排障：静态资源键自检（--resource-check）。不开主界面、不开窗口。
+        // XAML 里的 {StaticResource} 在编译期不校验，键取不到时是**页面加载当场抛异常**；
+        // 这个入口把全局关键键逐一 TryGetResource 一遍，用来在换 FA 版本 / 改 App.axaml
+        // 之后快速确认没有把资源键弄丢（进程返回码 0=全通过，1=有缺失）。
+        if (Array.Exists(args, a => a.Equals("--resource-check", StringComparison.OrdinalIgnoreCase)))
+        {
+            OffscreenDiagnostic = true;   // App 构造函数据此跳过单实例互斥体
+            BuildAvaloniaApp().SetupWithoutStarting();
+            RunResourceCheck();
+            ShutdownOffscreen();
             return;
         }
 
@@ -76,18 +109,6 @@ internal static class Program
 
         _forceGpuRender = Array.Exists(args,
             a => a.Equals("--gpu-render", StringComparison.OrdinalIgnoreCase));
-
-        // 排障：强制按 Win7 分支跑（开发机上复现教室机的代码路径，见 OsInfo.SimulateWin7）。
-        // ⚠️ 必须排在**第一次访问 OsInfo 之前** —— 一旦有代码读过版本判定，再开就晚了。
-        Platform.OsInfo.SimulateWin7 =
-            Array.Exists(args, a => a.Equals("--simulate-win7", StringComparison.OrdinalIgnoreCase))
-            || Environment.GetEnvironmentVariable("CSH_SIMULATE_WIN7") == "1";
-
-        // 排障：强制按 Win10 分支跑（Win11 开发机上验证 Backdrop 的 Win10 亚克力链路，
-        // 见 OsInfo.SimulateWin10）。与 --simulate-win7 互斥，同时给时以 Win7 为准。
-        Platform.OsInfo.SimulateWin10 =
-            Array.Exists(args, a => a.Equals("--simulate-win10", StringComparison.OrdinalIgnoreCase))
-            || Environment.GetEnvironmentVariable("CSH_SIMULATE_WIN10") == "1";
 
         // ⛔ 原生崩溃转储必须在这里注册，排在**任何可能崩的代码之前**。
         //    现场反馈的「程序有时候直接没了」不属于 CLR 的异常通道（访问冲突 / 栈溢出 /
@@ -167,11 +188,182 @@ internal static class Program
 #endif
     }
 
+    /// <summary>
+    /// 离屏自检（<c>--mathshot</c> / <c>--resource-check</c>）跑完后的收尾。
+    ///
+    /// <para>
+    /// 这两条路径用 <c>SetupWithoutStarting()</c> 起 App 后直接 <c>return</c>，
+    /// 不走经典桌面生命周期的正常退出流程，因此 <see cref="Services.LogHome"/> 打的
+    /// <c>session.live</c> 标记不会被摘掉 —— 下次正常启动会把它误判成「上次运行未正常退出」
+    /// 并在 crash.log 里留一条假的异常终止结论。这里主动补上正常退出的收尾。
+    /// </para>
+    /// </summary>
+    private static void ShutdownOffscreen()
+    {
+        try { Services.LogHome.MarkCleanExit(); } catch { }
+        try { Core.AppLog.Shutdown(); } catch { }
+    }
+
+    /// <summary>
+    /// 离屏静态资源键自检（<c>--resource-check</c>）。逐键调用 <c>TryGetResource</c>，
+    /// 任一键取不到就把进程返回码置 1。
+    ///
+    /// <para>
+    /// 为什么值得常驻：XAML 编译器不校验 <c>{StaticResource}</c> 的键，键丢了要等页面
+    /// 加载时才炸；而 <c>App.axaml</c> 的全局资源键被 20+ 个页面引用（例如
+    /// <c>AccentButtonStyle</c>），换 FluentAvalonia 版本最容易踩这一脚。
+    /// </para>
+    /// </summary>
+    private static void RunResourceCheck()
+    {
+        // ⛔ 这份清单**必须覆盖全部被 XAML 引用的全局键**，否则只是假安全感。
+        //    上一版只硬编码了 11 个键，而仓库实际引用了 59 个不同的键 ——
+        //    引用量最大的三个（CardStrokeColorDefaultBrush 94 次、
+        //    TextFillColorSecondaryBrush 78 次、CardBackgroundFillColorDefaultBrush 65 次）
+        //    全都不在自检范围内：它们一旦在 FluentAvalonia 升级时改名，
+        //    104 个 axaml 的卡片边框和次要文字会同时静默消失，而自检仍然绿灯。
+        //    本清单 = 仓库自绘/自补的键 + FluentAvalonia 提供的全局键（按引用量取），
+        //    新增全局键时请一并加到这里。
+        string[] keys =
+        {
+            // ── 仓库自己补的键（FluentAvalonia 不提供）──
+            "AccentButtonStyle",
+            "SystemAccentColorPrimaryBrush",
+            "CshCaptionGlyphBrush",
+            "CshCaptionHoverBrush",
+            "HubAiCardBorder",
+
+            // ── FluentAvalonia 提供的键（Acrylic/Mica 之外的常用全局键）──
+            "SymbolThemeFontFamily",
+            "SystemAccentColor",
+            "AccentButtonBackground",
+            "AccentButtonBackgroundPointerOver",
+            "AccentButtonBackgroundPressed",
+            "AccentButtonBackgroundDisabled",
+            "AccentButtonForeground",
+            "AccentButtonForegroundDisabled",
+            "AccentButtonBorderBrush",
+            "AccentFillColorDefaultBrush",
+            "AccentTextFillColorPrimaryBrush",
+
+            // ── 卡片 / 描边 / 分隔线（引用量最高的三个必须在内）──
+            "CardBackgroundFillColorDefaultBrush",
+            "CardBackgroundFillColorSecondaryBrush",
+            "CardStrokeColorDefaultBrush",
+            "DividerStrokeColorDefaultBrush",
+
+            // ── 填充 / 底色 ──
+            "ControlFillColorDefaultBrush",
+            "ControlFillColorSecondaryBrush",
+            "ControlStrokeColorDefaultBrush",
+            "LayerFillColorDefaultBrush",
+            "SolidBackgroundFillColorBaseBrush",
+            "SolidBackgroundFillColorSecondaryBrush",
+            "SubtleFillColorSecondaryBrush",
+            "ApplicationPageBackgroundThemeBrush",
+            "FlyoutPresenterBackground",
+
+            // ── 文字 ──
+            "TextFillColorPrimaryBrush",
+            "TextFillColorSecondaryBrush",
+            "TextFillColorTertiaryBrush",
+            "TextOnAccentFillColorPrimaryBrush",
+
+            // ── 状态色 ──
+            "SystemFillColorCautionBrush",
+            "SystemFillColorCriticalBrush",
+        };
+
+        // ⛔ 必须两套主题都查：Dark 字典里有若干键只存在于深色分支
+        //    （HubAiTitleForeground、ComboBoxDropDownBackground 等）。
+        //    只查 Light 的话，深色字典漏键永远发现不了 —— 用户切到深色主题
+        //    才会看到"某个文字看不见"这种极难定位的问题。
+        var variants = new[] { ThemeVariant.Light, ThemeVariant.Dark };
+
+        var failed = 0;
+        var total = 0;
+
+        foreach (var variant in variants)
+        {
+            var variantName = variant == ThemeVariant.Dark ? "Dark" : "Light";
+
+            foreach (var key in keys)
+            {
+                total++;
+
+                object? value = null;
+                var ok = false;
+                try
+                {
+                    ok = Application.Current?.TryGetResource(key, variant, out value) == true
+                         && value is not null;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[resource-check] FAIL  {variantName}/{key}  异常={ex.GetType().Name}: {ex.Message}");
+                    failed++;
+                    continue;
+                }
+
+                if (!ok)
+                {
+                    Console.WriteLine($"[resource-check] FAIL  {variantName}/{key}  ← 键不存在，页面加载会抛异常");
+                    failed++;
+                }
+                else
+                {
+                    Console.WriteLine($"[resource-check] PASS  {variantName}/{key}  ({value!.GetType().Name})");
+                }
+            }
+        }
+
+        // 结论行只用 ASCII：诊断输出常被重定向到 cmd / 日志文件，中文在 OEM 代码页下会变乱码。
+        Console.WriteLine($"[resource-check] RESULT {total - failed}/{total} OK, {failed} MISSING");
+        Environment.ExitCode = failed == 0 ? 0 : 1;
+    }
+
     /// <summary>Avalonia 构建器。设计器（Previewer）也会调用它，所以必须是 public static。</summary>
     public static AppBuilder BuildAvaloniaApp()
         => AppBuilder.Configure<App>()
             .UsePlatformDetect()
             .WithInterFont()
+            // ⛔ Win7 关键：**全站默认字体** —— 内嵌 HarmonyOS Sans SC。
+            //
+            //    Windows 7 的中文默认字体是宋体（SimSun），14px 以下带点阵内嵌位图，
+            //    正文呈锯齿/断笔的"老界面"观感；标题加粗还会走 GDI 合成粗体，边缘发糊
+            //    （2026-11-06 用户在教室机截图确认：导航项、对话框标题都像宋体点阵）。
+            //    FluentAvalonia 的字体栈只覆盖英文（Segoe UI），中文一律落到系统默认，
+            //    所以必须在字体管理器这一层声明，而不是逐控件写 FontFamily。
+            //
+            //    字体文件：Assets/Fonts/HarmonyOS_Sans_SC_{Light,Medium,Bold}.ttf，随程序打包
+            //    （见 csproj 里三条 AvaloniaResource）。地址写成**目录 + #族名**：
+            //    Avalonia 会把这个目录下的同族字重全部索引进来，FontWeight=Bold 才能拿到
+            //    真粗体，而不是拿 Medium 做伪粗体。
+            //
+            //    FontFallbacks 是兜底：字体文件读不到、或某个码位（符号/生僻字/emoji）字体里没有时，
+            //    依次退到 Win7 自带的雅黑（有则用）、宋体，至少不会出现豆腐块。
+            .With(new FontManagerOptions
+            {
+                DefaultFamilyName = "avares://ClassSoftwareHub/Assets/Fonts#HarmonyOS Sans SC",
+                FontFallbacks = new[]
+                {
+                    new FontFallback
+                    {
+                        FontFamily = new FontFamily("Microsoft YaHei UI"),
+                        UnicodeRange = UnicodeRange.Parse("0000-10FFFF"),
+                    },
+                    new FontFallback
+                    {
+                        FontFamily = new FontFamily("Microsoft YaHei"),
+                        UnicodeRange = UnicodeRange.Parse("0000-10FFFF"),
+                    },
+                    new FontFallback
+                    {
+                        FontFamily = new FontFamily("SimSun"),
+                        UnicodeRange = UnicodeRange.Parse("0000-10FFFF"),
+                    },
+                },
+            })
             // ⚠️⚠️ 渲染后端降级链 —— 对本移植版是**生死攸关**的一条配置，不是可选优化。
             //
             // 目标机是教室里的 Win7 老机器，显卡驱动经常不支持 D3D11。实机日志已经撞上：

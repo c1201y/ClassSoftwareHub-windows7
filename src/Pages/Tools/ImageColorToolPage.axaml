@@ -11,7 +11,7 @@
          拖放事件用 DragDrop.AllowDrop / DragDrop.DragOver / DragDrop.Drop 附加事件。 -->
     <!-- ⚠️ 2026-10-03：ScrollViewer 提到最外层（滚动条贴窗口右缘），边距改 Padding；
          原来套在中间内容上的那层 ScrollViewer 解开，内容直接铺在行里（外层统一管滚动） -->
-    <ScrollViewer Padding="24,14,24,20" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <ScrollViewer x:Name="PageScroll" Padding="24,14,24,20" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
     <Grid Background="Transparent">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -20,7 +20,9 @@
         </Grid.RowDefinitions>
 
         <!-- ═══ 标题 ═══ -->
-        <StackPanel Spacing="2">
+        <!-- ⚠️ 嵌进浮窗（ImageColorWindow）时整行会被隐藏：窗口自绘标题栏已经写了「图片取色」，
+             再来一个大标题就是重复（2026-11-04）。 -->
+        <StackPanel x:Name="HeaderPanel" Spacing="2">
             <TextBlock Text="图片取色" FontSize="24" FontWeight="Bold" />
             <TextBlock FontSize="12.5" Opacity="0.6" TextWrapping="Wrap"
                        Text="上传一张图片，自动提取一组柔和的配色（类似 Win11 壁纸主题色的取法）。单击色块复制 hex。图片只在本机处理，不会上传。" />
@@ -51,12 +53,16 @@
                                Stroke="{DynamicResource AccentFillColorDefaultBrush}"
                                Fill="{DynamicResource CardBackgroundFillColorDefaultBrush}" />
 
+                    <!-- 空态文案（2026-11-04 同步自上游）：
+                         「拖动」不能只写在底下那行 12px 小字里 —— 太小，多数人根本看不见，
+                         以为只能点。两种入口都放进主标题，副标题只留格式信息。 -->
                     <StackPanel x:Name="EmptyState" VerticalAlignment="Center" HorizontalAlignment="Center"
                                 Spacing="10" Margin="24">
                         <fa:FontIcon Glyph="&#xEB9F;" FontSize="30" HorizontalAlignment="Center"
                                   Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}" />
-                        <TextBlock Text="单击选择图片" FontSize="15" FontWeight="SemiBold" HorizontalAlignment="Center" />
-                        <TextBlock Text="或将图片拖入 · 支持 PNG / JPG / WebP / GIF" FontSize="12" Opacity="0.6"
+                        <TextBlock Text="单击选择图片，或把图片拖到这里" FontSize="15" FontWeight="SemiBold"
+                                   HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center" />
+                        <TextBlock Text="支持 PNG / JPG / WebP / GIF" FontSize="12" Opacity="0.6"
                                    HorizontalAlignment="Center" />
                     </StackPanel>
 

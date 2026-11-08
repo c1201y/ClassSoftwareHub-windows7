@@ -442,6 +442,12 @@ public partial class SystemRepairPage : Platform.PageBase
 
     private async void About_Click(object? sender, RoutedEventArgs e)
     {
+        try { await About_ClickAsync(sender, e); }
+        catch (Exception ex) { AppLog.Catch("repair", "显示系统修复说明", ex); }
+    }
+
+    private async Task About_ClickAsync(object? sender, RoutedEventArgs e)
+    {
         var panel = new StackPanel { Spacing = 14 };
 
         void Item(string title, string body)

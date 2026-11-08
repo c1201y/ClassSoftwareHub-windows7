@@ -125,7 +125,11 @@ public partial class StartupPage : Platform.PageBase
 
     // ── 扫描 ──────────────────────────────────────────────────────────
 
-    private async void Rescan_Click(object? sender, RoutedEventArgs e) => await ScanAsync();
+    private async void Rescan_Click(object? sender, RoutedEventArgs e)
+    {
+        try { await ScanAsync(); }
+        catch (Exception ex) { AppLog.Catch("startupitem", "重新扫描开机启动项", ex); }
+    }
 
     private async Task ScanAsync()
     {
@@ -334,6 +338,12 @@ public partial class StartupPage : Platform.PageBase
     // ── 说明 ──────────────────────────────────────────────────────────
 
     private async void About_Click(object? sender, RoutedEventArgs e)
+    {
+        try { await About_ClickAsync(sender, e); }
+        catch (Exception ex) { AppLog.Catch("startupitem", "显示开机启动项说明", ex); }
+    }
+
+    private async Task About_ClickAsync(object? sender, RoutedEventArgs e)
     {
         var dialog = new ContentDialog
         {

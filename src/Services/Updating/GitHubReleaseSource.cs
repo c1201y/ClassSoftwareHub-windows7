@@ -115,8 +115,11 @@ public sealed class GitHubReleaseSource : IUpdateSource
                 Packages: packages));
         }
 
+        // ⚠️ 先按版本号降序再截断：若先按发布时间 Take，近期补发的一批旧版本构建
+        //    会把版本号最高的那条挤出列表，客户端回「已是最新」，用户永远收不到这次更新。
         return list
-            .OrderByDescending(r => r.PublishedAt ?? DateTimeOffset.MinValue)
+            .OrderByDescending(r => r.Version, new VersionTextComparer())
+            .ThenByDescending(r => r.PublishedAt ?? DateTimeOffset.MinValue)
             .Take(max <= 0 ? 10 : max)
             .ToList();
     }
@@ -184,14 +187,54 @@ public sealed class GitHubReleaseSource : IUpdateSource
             .Where(a => !a.Name.Contains("portable", StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-        // 优先带 setup/installer 关键词的；没有就退而求其次取最大的
+        // 优先带 setup/installer 关键词的；没有就用全部候选
         var prefer = candidates
             .Where(a => InstallerHints.Any(h => a.Name.Contains(h, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+        var pool = prefer.Count > 0 ? prefer : candidates;
+
+        // ⚠️ 先按当前进程架构匹配文件名：一个 Release 同时上传 x64/x86/arm64 时，
+        //    按体积最大挑会下到装不上的那个。体积只作为同架构组内的次级判据。
+        var current = CurrentArch();
+        var sameArch = pool
+            .Where(a => ArchOf(a.Name) == current)
             .OrderByDescending(a => a.Size)
             .ToList();
+        if (sameArch.Count > 0) return sameArch;
 
-        return prefer.Count > 0 ? prefer : candidates.OrderByDescending(a => a.Size).Take(1);
+        // 没有标明架构的单架构发布：优先于「明确是别的架构」的包
+        var neutral = pool
+            .Where(a => ArchOf(a.Name) == PkgArch.Unknown)
+            .OrderByDescending(a => a.Size)
+            .ToList();
+        if (neutral.Count > 0) return neutral;
+
+        // 只剩别的架构的包：退回体积最大者（至少比随机挑一个好）
+        return pool.OrderByDescending(a => a.Size).Take(1);
     }
+
+    private enum PkgArch { Unknown, X86, X64, Arm64 }
+
+    /// <summary>从文件名识别目标架构；识别不出按 Unknown（单架构发布）。</summary>
+    private static PkgArch ArchOf(string name)
+    {
+        var n = name.ToLowerInvariant();
+        if (n.Contains("arm64") || n.Contains("aarch64")) return PkgArch.Arm64;
+        if (n.Contains("x64") || n.Contains("x86_64") || n.Contains("x86-64")
+            || n.Contains("amd64") || n.Contains("win64")) return PkgArch.X64;
+        if (n.Contains("x86") || n.Contains("win32") || n.Contains("i386") || n.Contains("i686"))
+            return PkgArch.X86;
+        return PkgArch.Unknown;
+    }
+
+    /// <summary>当前进程架构（WOW64 下为 X86）。</summary>
+    private static PkgArch CurrentArch() => System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture switch
+    {
+        System.Runtime.InteropServices.Architecture.Arm64 => PkgArch.Arm64,
+        System.Runtime.InteropServices.Architecture.X64 => PkgArch.X64,
+        System.Runtime.InteropServices.Architecture.X86 => PkgArch.X86,
+        _ => PkgArch.Unknown,
+    };
 
     /// <summary>找 MD5：同名的 &lt;安装包&gt;.md5，或常见的校验文件里的一行。</summary>
     private static string FindMd5(List<(string Name, Uri Url, long Size, string Sha256)> all, string installerName)

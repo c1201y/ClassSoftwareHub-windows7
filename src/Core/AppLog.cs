@@ -227,9 +227,13 @@ public static class AppLog
             // 时间戳与格式化放在锁外：持锁时间越短，别的线程（尤其是 UI 线程）排队越少。
             var line = $"[{stamp}] [{TagOf(level)}] [{module}] {message}\r\n";
 
+            // ⚠️ Dir 必须在进 AppLog.Gate 之前求好：Dir → LogHome.SessionDir → Ensure() 会取
+            //    LogHome.Gate。若持 AppLog.Gate 后再求 LogHome.Gate，而 LogHome.Ensure 正持
+            //    LogHome.Gate 回调 AppLog 写日志，即构成 ABBA 锁序反转（启动期可整进程死锁）。
+            var dir = Dir;
             lock (Gate)
             {
-                WriteLine(Path.Combine(Dir, target), line);
+                WriteLine(Path.Combine(dir, target), line);
             }
         }
         catch (Exception ex)

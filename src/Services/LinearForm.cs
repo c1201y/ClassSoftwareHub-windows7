@@ -175,12 +175,20 @@ public sealed class LinearFormParser
         if (Peek() != '^') return basis;
 
         _i++;
-        var start = _i;
+        // ⛔ 必须**先跳过空格再取起点**：旧实现把 start 定在 '^' 之后、
+        //    然后才 SkipSpace()，于是 `x ^ 2` 会截出 " 2" 这种带空格的串，
+        //    int.Parse 直接抛 FormatException —— 而 LinearFormParser 的两个
+        //    catch 只认 LinearParseException，异常会一路穿出 Solve / Validate
+        //    （Validate 是边输边调的，用户打字过程中就白屏）。
         SkipSpace();
+        var start = _i;
         while (_i < _s.Length && char.IsDigit(_s[_i])) _i++;
         if (start == _i) throw new LinearParseException("指数写法有误。");
 
-        var exponent = int.Parse(_s[start.._i]);
+        // ⛔ 必须用 TryParse：`x^999999999999999999999` 会让 int.Parse 抛
+        //    OverflowException，同样是穿出去的类型。
+        if (!int.TryParse(_s[start.._i], out var exponent))
+            throw new LinearParseException("指数太大，无法计算。");
 
         if (exponent == 0)
         {
@@ -211,6 +219,25 @@ public sealed class LinearFormParser
         {
             var start = _i;
             while (_i < _s.Length && (char.IsDigit(_s[_i]) || _s[_i] == '.')) _i++;
+
+            // ⛔ 科学计数法必须在这里整体吃掉：`1e10` 若只读成 `1`，后面那个 `e10`
+            //    会被 ParsePrimary 当成**变量名**（字母开头），于是 `x = 1e10` 变成
+            //    「x = 1 × e10」这种两个未知数的方程，答"无穷多组解"且不报错。
+            //    这是最隐蔽的一类错误：答案结构上看着对，实际完全错。
+            if (_i < _s.Length && (_s[_i] == 'e' || _s[_i] == 'E'))
+            {
+                var expStart = _i;
+                var probe = _i + 1;
+                if (probe < _s.Length && (_s[probe] == '+' || _s[probe] == '-')) probe++;
+                var digitsStart = probe;
+                while (probe < _s.Length && char.IsDigit(_s[probe])) probe++;
+
+                // 只有「e 后面确实跟了指数数字」才算科学计数法；
+                // 否则 `2e` 这种仍应按"系数 2 × 变量 e"处理，保持原语义。
+                if (probe > digitsStart) _i = probe;
+                else _i = expStart;
+            }
+
             var text = _s[start.._i];
             if (!decimal.TryParse(text, System.Globalization.NumberStyles.Float,
                                   System.Globalization.CultureInfo.InvariantCulture, out var value))
@@ -237,19 +264,39 @@ public sealed class LinearFormParser
         throw new LinearParseException($"认不出字符「{c}」。");
     }
 
-    /// <summary>decimal → 分数：按小数点后位数放大，再约分。</summary>
+    /// <summary>
+    /// decimal → 精确分数。
+    ///
+    /// ⛔ 不能走 <c>decimal.ToInt64</c>：科学计数法（1e10、1e20）很容易超出 long 范围，
+    ///    那样一输入大数就抛 OverflowException。直接按字符串拼 BigInteger：
+    ///    整数部分 × 10^小数位数 + 小数部分，分母 10^小数位数，再交给 Rational 约分。
+    /// </summary>
     private static Rational FromDecimal(decimal value)
     {
+        if (value == 0) return Rational.Zero;
+
         var text = value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+        // decimal.ToString 可能给出 "1E+10" 这种（小数值极大或极小时）。先归一成普通写法。
+        if (text.Contains('E') || text.Contains('e'))
+        {
+            text = value.ToString("0.############################", System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        var negative = text.StartsWith("-", StringComparison.Ordinal);
+        if (negative) text = text[1..];
+
         var dot = text.IndexOf('.');
-        if (dot < 0) return new Rational(decimal.ToInt64(value), 1);
+        var intPart = dot < 0 ? text : text[..dot];
+        var fracPart = dot < 0 ? "" : text[(dot + 1)..];
 
-        var decimals = text.Length - dot - 1;
-        var scale = (decimal)Math.Pow(10, decimals);
-        var numerator = (decimal)Math.Round(value * scale);
+        if (intPart.Length == 0) intPart = "0";
 
-        return new Rational(
-            new System.Numerics.BigInteger(numerator),
-            new System.Numerics.BigInteger(scale));
+        var numerator = System.Numerics.BigInteger.Parse(intPart + fracPart,
+                            System.Globalization.CultureInfo.InvariantCulture);
+        if (negative) numerator = -numerator;
+
+        var denominator = System.Numerics.BigInteger.Pow(10, fracPart.Length);
+        return new Rational(numerator, denominator);
     }
 }

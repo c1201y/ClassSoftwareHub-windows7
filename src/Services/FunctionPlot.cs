@@ -112,8 +112,17 @@ public static class FunctionPlot
         // 判"跨过渐近线"的阈值：跳变幅度超过 3 个视口高才算。
         var jumpLimit = (yMax - yMin) * 3;
 
+        // ⛔⛔ 区分「陡但连续」与「真正的不连续」，不能只看跳变幅度：
+        //    y = 2000x 在视口内只占 x∈[-0.15,0.15]，其余采样点全部在视口外，
+        //    旧判据（跳变大 + 同侧越界）会把它们全判成渐近线 → 整条曲线消失。
+        //    真正的不连续（1/x、tan 极点）特征是：**函数值在极窄的 x 邻域内
+        //    跨过整个值域并趋向 ±∞**，即相邻两点的 |Δy| 远大于 |Δx|·|斜率量级|。
+        //    做法：用"前后各一个点"估计局部斜率，若中点处的跳变远大于
+        //    两侧正常斜率所预期，才判为不连续。斜率有限增长（陡直线）不会被误杀。
         List<Point>? current = null;
         var prevY = double.NaN;
+        var prev2Y = double.NaN;
+        var prevX = double.NaN;
 
         for (var i = 0; i < n; i++)
         {
@@ -125,20 +134,42 @@ public static class FunctionPlot
 
             var ok = double.IsFinite(y);
 
-            // ⛔⛔ 渐近线：相邻两点数值跳变极大**且**（分居 0 的两侧 或 两点都在视口外同一侧）。
-            //    光看跳变幅度不行（y=1000x 这种陡直线也会跳很大）。
-            //    跨 0 覆盖 ±∞；而在视口外同一侧的大跳变覆盖 **同号无穷**（1/x² 两侧都是 +∞，
-            //    不切断的话会在顶部画出一条横线，见审计 P2 #1）。
-            var bothAbove = y > yMax && prevY > yMax;
-            var bothBelow = y < yMin && prevY < yMin;
-            if (ok && double.IsFinite(prevY) && Math.Abs(y - prevY) > jumpLimit
-                && ((y > 0) != (prevY > 0) || bothAbove || bothBelow))
-                ok = false;
+            if (ok && double.IsFinite(prevY) && double.IsFinite(prev2Y))
+            {
+                var bigJump = Math.Abs(y - prevY) > jumpLimit;
+
+                if (bigJump)
+                {
+                    // ⛔⛔ 唯一可靠的判据是**在跳变区间内加密采样看函数是否真的中断**：
+                    //    · 陡直线（y=2000x）在两点之间取中点，值必落在两者中间（连续线性）；
+                    //    · 1/x、tan 跨极点时，中点值会偏离线性插值**极远**（趋向 ±∞ 或反向）。
+                    //    曾经试过的"斜率倍数""越界程度"等启发式阈值都会在
+                    //    "陡直线"与"真极点"之间来回误判 —— 只有实测中点才分得清。
+                    var midX = prevX + (x - prevX) * 0.5;
+                    var midY = EvalSafe(f, midX);
+
+                    if (!double.IsFinite(midY))
+                    {
+                        ok = false;                        // 中点算不出来 → 不连续
+                    }
+                    else
+                    {
+                        var linear = (prevY + y) * 0.5;    // 线性插值预期值
+                        var jumpSize = Math.Abs(y - prevY);
+                        // 中点偏离线性插值超过整个跳变的 25% → 曲线在此处不连续。
+                        // 连续函数（含陡直线）的中点必然贴近线性插值。
+                        if (Math.Abs(midY - linear) > jumpSize * 0.25)
+                            ok = false;
+                    }
+                }
+            }
 
             if (!ok)
             {
                 current = null;
+                prev2Y = prevY;
                 prevY = y;
+                prevX = x;
                 continue;
             }
 
@@ -151,12 +182,21 @@ public static class FunctionPlot
             }
 
             current.Add(new Point(frame.Left + i * pxStep, py));
+            prev2Y = prevY;
             prevY = y;
+            prevX = x;
         }
 
         // 单点段画不出线，丢掉
         result.RemoveAll(seg => seg.Count < 2);
         return result;
+    }
+
+    /// <summary>求值并吞掉异常（不连续点附近 f 可能抛）。</summary>
+    private static double EvalSafe(Func<double, double> f, double x)
+    {
+        try { return f(x); }
+        catch { return double.NaN; }
     }
 
     /// <summary>取一个「好看」的刻度步长：1 / 2 / 5 × 10ⁿ。</summary>

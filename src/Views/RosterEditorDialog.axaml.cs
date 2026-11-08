@@ -326,9 +326,17 @@ public sealed partial class RosterEditorDialog : ContentDialog
     }
 
     // ══════════ 导出 ══════════
-    private async void ExportExcel_Click(object? sender, RoutedEventArgs e) => await ExportAsync(excel: true);
+    private async void ExportExcel_Click(object? sender, RoutedEventArgs e)
+    {
+        try { await ExportAsync(excel: true); }
+        catch (Exception ex) { Core.AppLog.Catch("roster", "导出 Excel 名单", ex); }
+    }
 
-    private async void ExportTxt_Click(object? sender, RoutedEventArgs e) => await ExportAsync(excel: false);
+    private async void ExportTxt_Click(object? sender, RoutedEventArgs e)
+    {
+        try { await ExportAsync(excel: false); }
+        catch (Exception ex) { Core.AppLog.Catch("roster", "导出纯文本名单", ex); }
+    }
 
     /// <summary>导的是**当前这一份**（含刚才的手改），不是原来那个文件 —— 这样"改完导出"才有意义。</summary>
     private async Task ExportAsync(bool excel)

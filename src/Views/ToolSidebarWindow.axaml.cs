@@ -2735,6 +2735,8 @@ public sealed partial class ToolSidebarWindow : Window
                     PptResumeWindow.ShowWindow();
                 else if (string.Equals(m.WindowTool, "hash-check", StringComparison.Ordinal))
                     HashCheckWindow.Show();                       // 哈希校验小浮窗（1.8）
+                else if (string.Equals(m.WindowTool, "image-color", StringComparison.Ordinal))
+                    ImageColorWindow.Show();                      // 图片取色小浮窗（1.10）
                 else
                     SubjectToolsWindow.ShowTool(m.WindowTool);   // 单开一扇轻量窗，不碰主界面
             }

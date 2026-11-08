@@ -67,7 +67,12 @@ public static class MirrorSign
     /// <summary>整轮失败后多久内不再重试 —— 否则网络不通时每次下载都要白等 8 秒。</summary>
     private static readonly TimeSpan FailureCooldown = TimeSpan.FromMinutes(5);
 
-    private static readonly HttpClient Http = Core.OfficialApi.Create(timeoutSeconds: 0);
+    // ⚠️ 代签入口含第三方边缘域（sign.*），刻意不挂 ClientAuthHandler：
+    //    请求不带激活凭证，也不会在 401 时弹出激活对话框（见 GetSignedUrlAsync 的注释）。
+    private static readonly HttpClient Http = new HttpClient(Core.HttpTls.Handler())
+    {
+        Timeout = System.Threading.Timeout.InfiniteTimeSpan,
+    };
 
     private static readonly object Gate = new();
 
@@ -114,8 +119,10 @@ public static class MirrorSign
 
         // ── 第一步：**服务端代签** ─────────────────────────
         // Win7 版用的就是这条：`/api/mirror-sign?url=...`，**不带任何认证头**，
-        // 密钥由 Worker 端持有。若只走本地密钥直签（`/sign` + `X-Api-Key`），
-        // 密钥一旦轮换就全面 401，只能退到公益镜像（而公益镜像限并发）。
+        // 密钥由 Worker 端持有。代签客户端刻意不挂 ClientAuthHandler：既不向 sign.* 等
+        // 第三方边缘域发送激活令牌，也不会在 401 时弹出激活对话框（与上方注释一致）。
+        // 若只走本地密钥直签（`/sign` + `X-Api-Key`），密钥一旦轮换就全面 401，
+        // 只能退到公益镜像（而公益镜像限并发）。
         // 先试代签：不依赖本机任何密钥文件，能通就不会再掉进公益镜像。
         // ⚠️ 代签接口会间歇性抽风（TLS 被重置 / 超时），单次失败不代表不可用 —— 重试 2 轮、间隔 300ms。
         // ⚠️ 每轮必须单独掐表：静态 HttpClient 是 InfiniteTimeSpan，不自己限时的话一次 TLS 卡死

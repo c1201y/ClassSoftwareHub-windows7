@@ -7,7 +7,8 @@
 
     <!--
       法律条款页（与网页端「关于 → 法律条款」一致）：用户协议 / 隐私政策 / 免责声明。
-      内容全部取自 Data/LegalDocs.cs（逐字移植自网页端 法律文本.ts，中英双语）。
+      内容由 Services/LegalTextSource 提供：在线优先（站点 public/legal.json） → 本地缓存
+      → Data/LegalDocs.cs 内置兜底（2026-11-01 起，与上游 dv1.2.0-insider1.10 同口径）。
       设置页「关于 → 法律条款」的三个入口各自带 Tag（agreement / privacy / disclaimer），
       经 ShellPage.NavigateToLegal(key) 跳进来，参数就是这份文档的 key。
 
@@ -36,6 +37,15 @@
                 <TextBlock x:Name="DocTitle" FontSize="26" FontWeight="Bold" />
                 <TextBlock x:Name="DocMeta" FontSize="12" Opacity="0.7" />
             </StackPanel>
+
+            <!--
+              拉不到在线条款时才有内容（= 正在显示随程序内置的那份，见 Services/LegalTextSource）。
+              ⚠️ 只在「一次都没拉到过」时出现：正常情况用户不需要知道正文是从哪来的，
+                 写出来反而像推责。它出现时也只陈述事实，不做解释。
+              ⚠️ 关着的 InfoBar 仍占一排高度 → 显式 IsVisible 控制。
+            -->
+            <fa:InfoBar x:Name="SourceBar" IsOpen="False" IsClosable="False" IsVisible="False"
+                        Severity="Informational" Margin="0,4,0,0" />
 
             <TextBlock x:Name="DocIntro" TextWrapping="Wrap" FontSize="13"
                        Foreground="{DynamicResource TextFillColorSecondaryBrush}" />

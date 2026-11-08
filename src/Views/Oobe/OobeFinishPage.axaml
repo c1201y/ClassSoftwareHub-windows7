@@ -1,4 +1,4 @@
-<UserControl xmlns="https://github.com/avaloniaui"
+﻿<UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:fa="using:FluentAvalonia.UI.Controls"
              x:Class="ClassSoftwareHub.Desktop.Views.Oobe.OobeFinishPage">
@@ -11,6 +11,8 @@
       光摆文字太生硬）。前两屏用两张窗口截图叠着摆，最后一屏换成版本大图 dv1.2。
       ⚠️ 截图有深色 / 浅色两套，按本页 ActualTheme 取 —— 深浅色主题下都不会突兀。
     -->
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                  VerticalScrollBarVisibility="Auto">
     <Grid>
         <StackPanel x:Name="ContentRoot" Width="600"
                     HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="4">
@@ -98,4 +100,5 @@
             </StackPanel>
         </StackPanel>
     </Grid>
+</ScrollViewer>
 </UserControl>

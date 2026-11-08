@@ -247,6 +247,12 @@ public sealed partial class MainWindow : Window
         // 启动时查一次更新：**不强制**，有新版就问用户（主窗口没露脸时发系统通知）
         _ = CheckUpdateOnStartupAsync();
 
+        // 条款正文拉一次（2026-11-01，同步自上游 1.10）：站点改完条款提交即生效，不必等下一次发版。
+        // 后台跑、不挡任何界面；所有线路全失败就继续用内置那份，条款窗顶部会说明一句。
+        // ⚠️ 放在首帧之后：它自己的读写都是文件与网络，但拉完要换内存里那份，
+        //    在窗口还没成型时换，用户第一眼看到的是哪一版就说不清了。
+        _ = Services.LegalTextSource.RefreshAsync();
+
         // 本次启动带着链接（csh://…，需求 1:18）：等到这里才处理 —— 首帧之前 Shell 的 Frame
         // 还没就绪，跳转会落到首页。放在更新检查之后：更新提示是"顺带问一句"，跳转是用户刚点的。
         var startupLink = App.TakeStartupLink();
@@ -883,14 +889,6 @@ public sealed partial class MainWindow : Window
     {
         if (msg != NativeMethods.WM_NCHITTEST) return IntPtr.Zero;
 
-        // 先听系统的：四周缩放带、它认定的其它非客户区命中，一概照传
-        var sys = NativeMethodsShell.DefWindowProc(hWnd, NativeMethods.WM_NCHITTEST, IntPtr.Zero, lParam);
-        if (sys != new IntPtr(NativeMethodsEx.HTCLIENT))
-        {
-            handled = true;
-            return sys;
-        }
-
         if (!NativeMethods.GetWindowRect(hWnd, out var wr)) return IntPtr.Zero;
 
         // lParam 是屏幕坐标，高低 16 位各一个有符号 short
@@ -903,14 +901,39 @@ public sealed partial class MainWindow : Window
         if (scale <= 0) scale = 1;
 
         var titlePx = (int)Math.Round(ShellConfig.TitleBarHeight * scale);
-        if (y < 0 || y >= titlePx) return IntPtr.Zero;
-
-        // 三大金刚是系统画的、系统自己处理点击，抢成 HTCAPTION 就点不动了
         var sysZonePx = (int)Math.Round(SystemCaptionZoneWidth * scale);
-        if (x >= wr.Width - sysZonePx) return IntPtr.Zero;
 
-        // 标题栏内的交互控件（搜索框 / 主题键 / 返回键）同理：抢了就会变成拖窗口
-        if (IsOverTitleBarControl(x / scale, y / scale)) return IntPtr.Zero;
+        // ── ⓪ 交互控件优先于一切，且必须排在 DefWindowProc 之前 ──
+        // ⚠️ 老写法是「先问 DefWindowProc，非 HTCLIENT 一律 handled=true; return sys」。
+        //    注释里「实测整条标题栏一律 HTCLIENT」只是开发机（Win11 + 默认主题）的结论：
+        //    Win10 1809 / 21H2、经典配色下 DefWindowProc 仍按 WS_CAPTION 老格子报
+        //    HTCAPTION / HTMINBUTTON / HTMAXBUTTON / HTCLOSE，于是下面这段控件判定
+        //    根本执行不到 —— 搜索框、主题键、返回键点不动，点一下反而去拖窗口。
+        //    与 Win7 的 SelfDrawnFrame 同源，两条路线必须一起按「控件优先」处理。
+        // 三大金刚区（右侧 sysZonePx）由应用自绘，也要显式声明 HTCLIENT，
+        // 不能 handled=false 放回去，否则 DWM 会在那个位置画出原生按钮。
+        if (y >= 0 && y < titlePx && x < wr.Width - sysZonePx &&
+            IsOverTitleBarControl(x / scale, y / scale))
+        {
+            return CaptionHitClient(ref handled);
+        }
+
+        // ── ① 再听系统的：只照传缩放类 / 中性命中 ──
+        var sys = NativeMethodsShell.DefWindowProc(hWnd, NativeMethods.WM_NCHITTEST, IntPtr.Zero, lParam);
+        var code = sys.ToInt32();
+        if (code != NativeMethodsEx.HTCLIENT && NativeMethodsEx.IsPassthroughHit(code))
+        {
+            handled = true;
+            return sys;
+        }
+
+        // 被拦下的陈旧命中：后面凡是「不归我们管」的分支都必须显式返回 HTCLIENT。
+        // 若沿用原来的 `return IntPtr.Zero`（handled=false），Avalonia 的默认路径会
+        // 再问一次 DefWindowProc，把刚拦下的 HTCAPTION / HTCLOSE 原样带回来。
+        var stale = code != NativeMethodsEx.HTCLIENT;
+
+        if (y < 0 || y >= titlePx) return stale ? CaptionHitClient(ref handled) : IntPtr.Zero;
+        if (x >= wr.Width - sysZonePx) return stale ? CaptionHitClient(ref handled) : IntPtr.Zero;
 
         // 顶边留给缩放：扩展客户区之后 DefWindowProc 不再上报顶部缩放带（实测顶端整条报 HTCLIENT），
         // 不补的话顶边既拖不动大小、又变成拖窗口 —— 与原生窗口（顶 10px 报 HTTOP）不一致。
@@ -925,8 +948,18 @@ public sealed partial class MainWindow : Window
             return new IntPtr(NativeMethodsEx.HTTOP);
         }
 
+        // ② 标题栏空白处照旧交给系统的拖动循环（吸附 / 双击最大化 / 右键菜单）。
+        //    即便 DefWindowProc 在这里报的是 HTCAPTION，也不照传：由我们按 48dip 的
+        //    实际标题栏高度重新确认，避免旧 caption 高度把下半截按钮区也算成拖动区。
         handled = true;
         return new IntPtr(NativeMethods.HTCAPTION);
+    }
+
+    /// <summary>显式声明「这里是普通客户区」，阻止系统 / DWM 按旧样式画原生标题栏按钮。</summary>
+    private static IntPtr CaptionHitClient(ref bool handled)
+    {
+        handled = true;
+        return new IntPtr(NativeMethodsEx.HTCLIENT);
     }
 
     private bool IsOverTitleBarControl(double xDip, double yDip)
@@ -2030,6 +2063,15 @@ public sealed partial class MainWindow : Window
     /// </summary>
     public async void ShowWebSheet(string? url, string? title = null)
     {
+        // ⛔ async void 里逃逸的异常会**直接终止进程**（不是抛给调用方）。
+        //    这里整个方法体都包在 try 里：外壳转调 Async 版本，与仓库里
+        //    其它 async void 事件处理器（如 DictionaryPage.WordBox_TextChanged）同一范式。
+        try { await ShowWebSheetAsync(url, title); }
+        catch (Exception ex) { Core.AppLog.Catch("web", "打开网页面板", ex); }
+    }
+
+    private async Task ShowWebSheetAsync(string? url, string? title)
+    {
         if (string.IsNullOrWhiteSpace(url)) return;
         var href = url.Trim();
 
@@ -2488,8 +2530,9 @@ public sealed partial class MainWindow : Window
                     break;
 
                 case Core.AppUriKind.Article:
-                    // 文档库还没做（需求 1:15 在后续批次）。先如实记日志，别假装跳过去了。
-                    Core.AppLog.Info("links", $"链接被忽略｜原因=文章类型暂未支持（文档库未实现）｜目标={target.Target}");
+                    // 文档库正文页（需求 1:15，2026-11-05 自上游 1.10 移植）。
+                    // 找不到这篇文章时由页面自己给出人话提示。
+                    Shell?.NavigateToDocArticle(target.Target);
                     break;
 
                 case Core.AppUriKind.System:
@@ -2586,6 +2629,8 @@ public sealed partial class MainWindow : Window
         try { Views.PptResumeWindow.CloseForExit(); } catch { }      // PPT 续播浮窗（1.4）
         try { Views.QuickLookupWindow.CloseForExit(); } catch { }    // 查阅单词浮窗（1.8）
         try { Views.HashCheckWindow.CloseForExit(); } catch { }      // 哈希校验浮窗（1.8）
+        try { Views.ImageColorWindow.CloseForExit(); } catch { }     // 图片取色浮窗（1.10）
+        try { Views.PptMenuWindow.CloseForExit(); } catch { }        // PPT 触控长按菜单（1.10）
 
         // 兜底扫一遍：其它自建窗口（贴纸 / 音量 / 截图 / 虚拟键盘…）一并收掉，
         // 谁家窗口忘了自己关，这里统一兜住。App.IsExiting 已经置位，拦关闭的窗口会放行。

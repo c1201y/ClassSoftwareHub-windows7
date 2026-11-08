@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    最小回归自检（零 NuGet 依赖、零项目引用）。
+
+    用途：把 2026-11-07 全项目审计里的两条「给出错误教学结论」P0，以及提权脚本
+    TOCTOU 防护的独占锁语义固化成断言，避免同一根因再次回归。
+    运行方式：在本工程目录执行 dotnet run（Debug 配置）。
+
+    说明：主工程是自包含 WinExe，.NET 6 不允许被非自包含工程引用（NETSDK1151）。
+    因此这里直接链接纯计算 / 纯 IO 的独立源文件，闭包只包含 System.*，不启动
+    Avalonia、不触碰网络；提权锁那组用例只在本机临时目录建删自己的文件。
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net6.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>10</LangVersion>
+    <AssemblyName>ClassSoftwareHub.SelfCheck</AssemblyName>
+    <RootNamespace>ClassSoftwareHub.SelfCheck</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="Stubs.cs" />
+    <Compile Include="../../src/Services/ChemistryBalancer.cs" Link="Sources/ChemistryBalancer.cs" />
+    <Compile Include="../../src/Services/PeriodicTable.cs" Link="Sources/PeriodicTable.cs" />
+    <Compile Include="../../src/Services/EquationSolver.cs" Link="Sources/EquationSolver.cs" />
+    <Compile Include="../../src/Services/ExpressionParser.cs" Link="Sources/ExpressionParser.cs" />
+    <Compile Include="../../src/Services/Rational.cs" Link="Sources/Rational.cs" />
+    <Compile Include="../../src/Services/LinearForm.cs" Link="Sources/LinearForm.cs" />
+    <Compile Include="../../src/Services/LinearSolver.cs" Link="Sources/LinearSolver.cs" />
+    <Compile Include="../../src/Services/ElevatedArtifact.cs" Link="Sources/ElevatedArtifact.cs" />
+  </ItemGroup>
+
+</Project>

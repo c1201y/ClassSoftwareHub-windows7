@@ -279,6 +279,13 @@ public sealed partial class QuickLookupWindow : Window
 
     private async void WordBox_TextChanged(object? sender, TextChangedEventArgs e)
     {
+        // async void 中逃逸的异常会直接终止进程，统一在入口处兜住。
+        try { await WordBox_TextChangedAsync(sender, e); }
+        catch (Exception ex) { AppLog.Catch("dict", "候选词更新（速查窗）", ex); }
+    }
+
+    private async Task WordBox_TextChangedAsync(object? sender, TextChangedEventArgs e)
+    {
         if (_settingText) return;
 
         var text = WordBox.Text ?? "";

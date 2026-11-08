@@ -52,6 +52,20 @@ public static class AiClient
     private static readonly TimeSpan IdleReadTimeout = TimeSpan.FromSeconds(120);
 
     /// <summary>
+    /// 回答被 <c>max_tokens</c> 截断时追加在正文末尾的说明。
+    /// <para>
+    /// 直接写进 <see cref="AiTurn.Content"/> 而不只是打日志：① 用户在气泡里立刻看得见，
+    /// 不会把半截结论当成完整答案；② 这句话会跟着这一轮进历史，用户追问"继续"时
+    /// 模型知道自己上次没说完，能接着写而不是重头再来。
+    /// </para>
+    /// <para>
+    /// ⚠️ 措辞不写"错误"：内容本身是有效的，只是没写完，说成错误会让用户以为要重试。
+    /// </para>
+    /// </summary>
+    private const string TruncatedNotice =
+        "\n\n（回答已达到本次输出的长度上限，上面是写到一半的部分。可以回复「继续」让我接着写，或让我分段说明。）";
+
+    /// <summary>
     /// 连通性测试：发一个 <c>max_tokens=1</c> 的最小请求。
     /// ⚠️ 只花一个 token 的钱，但足以分辨"密钥错 / 地址错 / 模型错 / 网络不通"。
     /// </summary>
@@ -153,8 +167,41 @@ public static class AiClient
         var buffers = new Dictionary<int, ToolCallBuffer>();
         var usage = AiUsage.Empty;
 
+        // 服务端给的收尾原因（stop / length / tool_calls / content_filter…）。
+        // ⛔ 必须看它：被 max_tokens 截断时服务端**照样发 [DONE]、照样正常关流**，
+        //    不看这个字段就会把半截结论当成完整回答交给用户，而且没有任何提示。
+        var finishReason = "";
+
         using var stream = await response.Content.ReadAsStreamAsync(ct);
         using var reader = new StreamReader(stream, Encoding.UTF8);
+
+        // 是否收到 SSE 的正常结束标记。干净 EOF 与 [DONE] 必须区分开，否则 CDN 提前关连接时
+        // 半截结论会被当成完整回答直接展示给用户。
+        var done = false;
+
+        // 多行 data: 的暂存区。SSE 规范里**一个事件可以由连续多行 data: 组成**，
+        // 事件边界是空行，不是 data: 行。
+        var eventData = new StringBuilder();
+
+        // 首行标记：BOM 只可能出现在流的最开头，剥一次就够（见下面的 TrimStart）。
+        var firstLine = true;
+
+        // 把一个（可能由多行拼成的）事件解析掉。done 在收到 [DONE] 时置位，
+        // 调用方每发完一条就要检查它 —— 服务商发完 [DONE] 不一定关连接，
+        // 继续 read 会一直等到空闲超时，把一次成功的回答变成 TimeoutException。
+        void DispatchEvent()
+        {
+            if (eventData.Length == 0) return;
+
+            var payload = eventData.ToString();
+            eventData.Clear();
+
+            if (payload == "[DONE]") { done = true; return; }
+
+            var chunk = AccumulateChunk(payload, content, reasoning, buffers, onDelta, onReasoning);
+            if (chunk.Usage is { } chunkUsage) usage = chunkUsage;
+            if (!string.IsNullOrEmpty(chunk.FinishReason)) finishReason = chunk.FinishReason!;
+        }
 
         while (true)
         {
@@ -181,17 +228,68 @@ public static class AiClient
             idle.Cancel();      // 让 idleTask 立即结束，释放定时器
 
             var line = await readTask;
-            if (line is null) break;
+            if (line is null)
+            {
+                // ⚠️ 断流前先把缓冲里那条「没有空行收尾」的事件补发出去：
+                //    有的服务商发完最后一块（甚至 [DONE]）就直接关连接，不补发会丢掉结尾。
+                DispatchEvent();
 
-            // SSE：只关心 data: 行，注释行（以 : 开头）与 event: 行一律跳过
+                // 连接被对端提前关闭且没有 [DONE]：不能把半截回答当作完整结论返回。
+                if (!done)
+                    throw new IOException("模型流式响应被提前关闭（未收到 [DONE]），本次回答不完整，请重试。");
+                break;
+            }
+
+            // ⚠️ UTF-8 BOM：有的服务商在流开头带 BOM，读出来是 "\uFEFFdata:…"，
+            //    而 StartsWith(Ordinal) 不认这个前缀 ⇒ 首块正文**静默丢失**（用户看到回答开头缺一句）。
+            //    StreamReader 只能吃掉"字节级 BOM"（detectEncodingFromByteOrderMarks 默认开，
+            //    这里确实已吃掉），字符级 BOM 得自己剥。只剥首行，正文中间的 \uFEFF 是内容，不能动。
+            if (firstLine)
+            {
+                line = line.TrimStart('\uFEFF');
+                firstLine = false;
+            }
+
+            // 空行 = 一个 SSE 事件结束（规范里唯一的事件边界）
+            if (line.Length == 0)
+            {
+                DispatchEvent();
+                if (done) break;
+                continue;
+            }
+
+            // SSE：只关心 data: 行；注释行（以 : 开头）与 event: / id: / retry: 一律跳过。
+            // ⚠️ 它们夹在事件中间也没关系，事件边界只由空行决定，不能在这里结算。
             if (!line.StartsWith("data:", StringComparison.Ordinal)) continue;
 
             var payload = line.AsSpan(5).Trim().ToString();
             if (payload.Length == 0) continue;
-            if (payload == "[DONE]") break;
 
-            var chunkUsage = AccumulateChunk(payload, content, reasoning, buffers, onDelta, onReasoning);
-            if (chunkUsage is not null) usage = chunkUsage;
+            // ⛔ [DONE] 必须**立刻结算并跳出**：它是完整事件，不必等空行；而服务商发完它
+            //    **不一定关连接**，继续 read 会挂到 120 秒空闲超时，把一次成功的回答变成超时错误。
+            if (payload == "[DONE]")
+            {
+                DispatchEvent();   // 先把可能还没收到空行的最后一块补发掉
+                done = true;
+                break;
+            }
+
+            // ⛔ 多行 data:：一个事件可以由连续多行 data: 组成，按 "\n" 拼起来再整体解析。
+            //    以前逐行独立解析，第二行起必然是半截 JSON → JsonException 被当心跳吞掉，
+            //    那段内容永久丢失（而且完全无声）。
+            // ⚠️ 但缓冲不能无条件累积：有的服务商**一个事件只发一行 data: 且不发空行**，
+            //    那种流在旧代码里是能正常跑的，改成"只认空行"就会把两条 JSON 粘成一条、
+            //    两块正文一起丢（等于修复一个 bug 又造一个新的）。所以这里补一条判定：
+            //    上一段已经是完整的 JSON 对象 ⇒ 它自己就是一个事件，先结算掉再收新的。
+            //    正常服务商（OpenAI / DeepSeek / 通义 / Kimi / GLM）都会发空行，走不到这条。
+            if (eventData.Length > 0 && LooksLikeCompleteJson(eventData))
+            {
+                DispatchEvent();
+                if (done) break;
+            }
+
+            if (eventData.Length > 0) eventData.Append('\n');
+            eventData.Append(payload);
         }
 
         var calls = buffers
@@ -203,7 +301,44 @@ public static class AiClient
             .Where(c => c.Name.Length > 0)
             .ToList();
 
+        if (finishReason == "length")
+        {
+            // ⚠️ AiTurn 定义在 AiProvider.cs（本轮只允许改这个文件与 AiChatService），
+            //    没有能承载"被截断"的字段，所以按 AiTimeBudget.Describe 的既有做法：
+            //    正文末尾补一句说明 + 记一条警告。调用方不用改、界面上立刻看得见、
+            //    这句话也会跟着 turn.Content 进历史，用户追问"继续"时模型知道上次没说完。
+            AppLog.Warn("hubai",
+                $"流式请求｜结果=回答被截断｜原因=finish_reason=length｜已收正文={content.Length} 字｜" +
+                $"工具调用={calls.Count}｜模型={cfg.Model}");
+
+            // 有工具调用时正文不是"结论"，截断点很可能正切在 arguments 的 JSON 中间 ——
+            // 这时候往正文里塞一句话只会更乱，交给上层按工具失败处理。
+            if (calls.Count == 0)
+            {
+                content.Append(TruncatedNotice);
+                onDelta?.Invoke(TruncatedNotice);
+            }
+        }
+
         return new AiTurn(content.ToString(), reasoning.ToString(), calls, usage);
+    }
+
+    /// <summary>
+    /// 缓冲里的内容是否已经是一个**完整**的 JSON 对象。
+    /// 只用于一条兜底：判断"上一条 data: 是不是早就该结算了"（服务商漏发空行时）。
+    /// 正常服务商（OpenAI / DeepSeek / 通义 / Kimi / GLM）都会发空行，走不到这里。
+    /// </summary>
+    private static bool LooksLikeCompleteJson(StringBuilder sb)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(sb.ToString());
+            return doc.RootElement.ValueKind == JsonValueKind.Object;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     /// <summary>流式响应的一块增量：正文字 + 工具调用分片。</summary>
@@ -214,8 +349,26 @@ public static class AiClient
         public StringBuilder Args = new();
     }
 
-    /// <summary>处理一块 SSE 数据。返回本块携带的用量（通常只有最后一块有，其余返回 null）。</summary>
-    private static AiUsage? AccumulateChunk(
+    /// <summary>
+    /// 一块 SSE 数据解析出来的**元信息**（正文/思考/工具分片是直接写进入参缓冲的，不进这里）。
+    /// <para>
+    /// ⚠️ 抽成结构而不是继续返回 <c>AiUsage?</c>：<c>finish_reason</c> 和 <c>usage</c> 可能
+    /// 出现在**不同**的块里（多数服务商把 usage 放在 [DONE] 前那个 choices 为空数组的块，
+    /// 而 finish_reason 在最后一块正常 delta 上），一个返回值槽位装不下两样东西。
+    /// 用 <c>struct</c> + <c>default</c> 表达"这块什么都没有"，不需要可空判断。
+    /// </para>
+    /// </summary>
+    private readonly struct ChunkMeta
+    {
+        /// <summary>本块携带的用量；<c>null</c> = 这块没有。</summary>
+        public AiUsage? Usage { get; init; }
+
+        /// <summary>本块携带的收尾原因（stop / length / tool_calls / content_filter）；<c>null</c> = 这块没有。</summary>
+        public string? FinishReason { get; init; }
+    }
+
+    /// <summary>处理一块 SSE 数据，把正文/思考/工具分片累积进入参缓冲，返回本块的元信息。</summary>
+    private static ChunkMeta AccumulateChunk(
         string json,
         StringBuilder content,
         StringBuilder reasoning,
@@ -239,13 +392,26 @@ public static class AiClient
             }
 
             if (!doc.RootElement.TryGetProperty("choices", out var choices))
-                return usage;
+                return new ChunkMeta { Usage = usage };
 
             if (choices.ValueKind != JsonValueKind.Array || choices.GetArrayLength() == 0)
-                return usage;
+                return new ChunkMeta { Usage = usage };
+
+            // ⛔ finish_reason 必须在取 delta **之前**读：截断/收尾那一块的 delta 常常是
+            //    空对象或干脆没有 delta 字段，先 return 就会把它永久漏掉。
+            //    这正是"回答被 max_tokens 截断却毫无提示"的根因 —— 流照常 [DONE]，
+            //    客户端只认 delta，于是把半截结论当成了完整回答。
+            string? finishReason = null;
+            if (choices[0].TryGetProperty("finish_reason", out var fr) && fr.ValueKind == JsonValueKind.String)
+            {
+                var value = fr.GetString();
+                if (!string.IsNullOrEmpty(value)) finishReason = value;
+            }
+
+            var meta = new ChunkMeta { Usage = usage, FinishReason = finishReason };
 
             if (!choices[0].TryGetProperty("delta", out var delta))
-                return usage;
+                return meta;
 
             // 思考过程（DeepSeek / 通义 / Kimi / GLM 都叫 reasoning_content，字段名是统一的）
             if (delta.TryGetProperty("reasoning_content", out var rc) && rc.ValueKind == JsonValueKind.String)
@@ -295,12 +461,12 @@ public static class AiClient
                 }
             }
 
-            return usage;
+            return meta;
         }
         catch (JsonException)
         {
             // 个别服务商会插非 JSON 的心跳，忽略即可
-            return null;
+            return default;
         }
     }
 

@@ -1,0 +1,78 @@
+<platform:PageBase
+    x:Class="ClassSoftwareHub.Desktop.Pages.DocArticlePage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:fa="using:FluentAvalonia.UI.Controls">
+
+    <!--
+      文档正文页（需求 15）。正文由 Controls/DocView 现场渲染：
+      Markdown / 纯文本 / docx 自己解析；PDF 在 Win7 上没法内嵌预览 → 交给系统默认程序（见 DocView）。
+      正文文件来自本机缓存（无扩展名），首次打开时才下载。
+
+      版式（2026-11-02 上游改）：照 AutoShutdownPage / WelcomePage 的骨架 ——
+      ScrollViewer 在最外层，里面放带 Margin 的 Grid，再用「三列 Grid」把正文钉在中间 960 宽。
+      ⛔ 别写成「Grid 包 ScrollViewer」：那样正文会被 ScrollViewer 居中，宽屏下整块右移；
+        也别给正文 StackPanel 写 HorizontalAlignment="Left"：Left 会把它收缩到内容自然宽度。
+
+      移植适配：Visibility → IsVisible；IsTextSelectionEnabled → SelectableTextBlock；
+               ContentControl 保持原样（Avalonia 有同名控件）。
+    -->
+    <Grid Background="Transparent">
+        <ScrollViewer x:Name="BodyScroll" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <Grid Margin="24,32,24,56">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="24" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="24" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="1" MaxWidth="960">
+                    <SelectableTextBlock x:Name="TitleText" FontSize="28" FontWeight="Bold"
+                                         TextWrapping="Wrap" />
+
+                    <SelectableTextBlock x:Name="MetaText" FontSize="12" Opacity="0.6" Margin="0,8,0,0"
+                                         TextWrapping="Wrap" />
+
+                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,16,0,10">
+                        <Button x:Name="SourceButton" Click="Source_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="7">
+                                <fa:FontIcon Glyph="&#xE8A0;" FontSize="13" />
+                                <TextBlock Text="查看源文件" />
+                            </StackPanel>
+                        </Button>
+
+                        <Button Click="Submit_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="7">
+                                <fa:FontIcon Glyph="&#xE898;" FontSize="13" />
+                                <TextBlock Text="投稿文章" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+
+                    <Border Height="1" Background="{DynamicResource DividerStrokeColorDefaultBrush}"
+                            Margin="0,6,0,18" />
+
+                    <ContentControl x:Name="DocHost" HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Stretch" />
+                </StackPanel>
+            </Grid>
+        </ScrollViewer>
+
+        <StackPanel x:Name="LoadingPanel" Spacing="12" IsVisible="False"
+                    HorizontalAlignment="Center" VerticalAlignment="Center">
+            <fa:ProgressRing IsActive="True" Width="34" Height="34" HorizontalAlignment="Center" />
+            <TextBlock x:Name="LoadingText" Text="正在读取文档正文。" FontSize="12" Opacity="0.7"
+                       HorizontalAlignment="Center" />
+        </StackPanel>
+
+        <StackPanel x:Name="ErrorPanel" Spacing="10" IsVisible="False"
+                    HorizontalAlignment="Center" VerticalAlignment="Center">
+            <fa:FontIcon Glyph="&#xE8A5;" FontSize="30" Opacity="0.4" HorizontalAlignment="Center" />
+            <TextBlock x:Name="ErrorText" MaxWidth="440" TextAlignment="Center"
+                       TextWrapping="Wrap" FontSize="13" Opacity="0.7" />
+            <Button Content="重试" Click="Retry_Click" HorizontalAlignment="Center" />
+        </StackPanel>
+    </Grid>
+</platform:PageBase>

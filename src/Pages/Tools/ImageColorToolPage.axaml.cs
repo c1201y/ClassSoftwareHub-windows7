@@ -67,7 +67,76 @@ public sealed partial class ImageColorToolPage : PageBase
     /// <summary>当前预览位图（换图 / 重置时要 Dispose，否则旧图的原生内存一直挂着）。</summary>
     private Bitmap? _preview;
 
-    public ImageColorToolPage() => InitializeComponent();
+    /// <summary>是不是被浮窗（<c>Views/ImageColorWindow</c>）承载着（2026-11-04，同步自上游 1.10）。</summary>
+    private readonly bool _embedded;
+
+    /// <summary>紧凑模式下的色块高度（整页 60、浮窗里 44，否则一个色块就占掉半屏）。</summary>
+    private double _swatchHeight = 60;
+
+    /// <summary>色块格子尺寸。原版由 VariableSizedWrapGrid 的 ItemWidth/ItemHeight 定格，
+    /// WrapPanel 需要子元素自带尺寸 ⇒ 这里成了可变字段，供紧凑模式改写。</summary>
+    private double _swatchCellWidth = SwatchCellWidth;
+    private double _swatchCellHeight = SwatchCellHeight;
+    private double _hslCellWidth = HslCellWidth;
+
+    public ImageColorToolPage() : this(false) { }
+
+    /// <param name="embedded">
+    /// true = 这页是塞进浮窗里的，不是主界面那整页。
+    /// <para>
+    /// 差别只有三处，都跟"同一份内容换个容器"有关：
+    /// ① 隐藏页面自带的大标题（窗口标题栏已经写了名字）；
+    /// ② 外边距与拖入区高度收紧、色块缩小并改成 4 列，免得在小窗里一路滚到底；
+    /// ③ 选图片的对话框由 <see cref="FilePickerCompat"/> 从**本页自己的** TopLevel 取，
+    ///    主窗口这时可能收在托盘里 —— 不能再用主窗口的句柄。
+    /// </para>
+    /// <para>
+    /// ⚠️ 取色算法一行没动 —— 两个入口共用这一份（Nick 2026-11-04 明确不让抽成独立类）。
+    /// </para>
+    /// </param>
+    public ImageColorToolPage(bool embedded)
+    {
+        InitializeComponent();
+        _embedded = embedded;
+
+        if (embedded) Loaded += (_, _) => ApplyCompact();
+    }
+
+    /// <summary>浮窗听这个：内容从"空"变成"有图"或反过来（窗口据此收放高度）。</summary>
+    public Action<bool>? ContentStateChanged { get; set; }
+
+    /// <summary>只调一次外观（Loaded 之后才有真实布局，这里设的都是常量，但仍等 Loaded）。</summary>
+    private bool _compactApplied;
+
+    private void ApplyCompact()
+    {
+        if (_compactApplied) return;
+        _compactApplied = true;
+
+        try
+        {
+            // ① 大标题整块藏掉（窗口自绘标题栏已经写了「图片取色」）
+            HeaderPanel.IsVisible = false;
+
+            // ② 外边距 / 拖入区 / 预览图收紧
+            if (PageScroll.Padding is { } p)
+                PageScroll.Padding = new Thickness(16, 10, 16, 16);
+            DropZone.MinHeight = 130;
+
+            // ③ 色块：4 列 × 2 行装下 7 档，高度也从 126 收到 96
+            _swatchCellWidth = 120;
+            _swatchCellHeight = 96;
+            _hslCellWidth = 108;
+            _swatchHeight = 44;
+
+            Preview.MaxWidth = 150;
+            Preview.MaxHeight = 80;
+        }
+        catch (Exception ex)
+        {
+            Core.AppLog.Warn("image-color", "浮窗紧凑版式设置失败：" + ex.Message);
+        }
+    }
 
 
 
@@ -327,6 +396,8 @@ public sealed partial class ImageColorToolPage : PageBase
         HslSection.IsVisible = true;
         ActionRow.IsVisible = true;
         Toast.Text = "";
+
+        ContentStateChanged?.Invoke(true);
     }
 
     /// <summary>原版由 VariableSizedWrapGrid 的 ItemWidth/ItemHeight 定格 —— WrapPanel 需要按钮自带尺寸。</summary>
@@ -339,7 +410,7 @@ public sealed partial class ImageColorToolPage : PageBase
     {
         var block = new Border
         {
-            Height = 60,
+            Height = _swatchHeight,
             CornerRadius = new CornerRadius(6),
             BorderThickness = new Thickness(1),
             BorderBrush = new SolidColorBrush(ActualThemeVariant == ThemeVariant.Dark          // 浅色底上用黑边、深色底上用白边
@@ -385,8 +456,8 @@ public sealed partial class ImageColorToolPage : PageBase
             Padding = new Thickness(9),
             CornerRadius = new CornerRadius(8),
             BorderThickness = new Thickness(1),
-            Width = SwatchCellWidth,
-            Height = SwatchCellHeight,
+            Width = _swatchCellWidth,
+            Height = _swatchCellHeight,
             HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
             HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
             VerticalContentAlignment = Avalonia.Layout.VerticalAlignment.Stretch,
@@ -407,7 +478,7 @@ public sealed partial class ImageColorToolPage : PageBase
             Padding = new Thickness(6, 4, 6, 4),
             CornerRadius = new CornerRadius(6),
             BorderThickness = new Thickness(1),
-            Width = HslCellWidth,
+            Width = _hslCellWidth,
             Height = HslCellHeight,
             Background = new SolidColorBrush(Colors.Transparent),
             HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
@@ -448,6 +519,8 @@ public sealed partial class ImageColorToolPage : PageBase
         ActionRow.IsVisible = false;
         Toast.Text = "";
         HideError();
+
+        ContentStateChanged?.Invoke(false);
     }
 
     private void HideResults()
@@ -456,6 +529,8 @@ public sealed partial class ImageColorToolPage : PageBase
         PaletteSection.IsVisible = false;
         HslSection.IsVisible = false;
         ActionRow.IsVisible = false;
+
+        ContentStateChanged?.Invoke(false);
     }
 
     private void ShowError(string message)

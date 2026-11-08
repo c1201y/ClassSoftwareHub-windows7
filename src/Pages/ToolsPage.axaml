@@ -17,7 +17,10 @@
       ⛔ 2026-10-02 否掉的是「卡片随窗口拉伸**铺满整页**」（= 放开 960 上限）—— 那个规矩没变。
     -->
     <platform:PageBase.Resources>
-        <!-- 首页「快速开始」那张卡：左右两列共用同一个模板 -->
+        <!-- 首页「快速开始」那张卡：左右两列共用同一个模板。
+             ⚠️ 绑定的是 NavPlaceable 而不再是 ToolDef（2026-11-04）：本页现在还要显示
+                「被用户收进二级的查阅单词 / 文档库」，它们不是 ToolDef 但字段一一对应。
+             ⚠️ 本工程未启用编译期绑定，{Binding} 走反射，不需要（也不能写）x:DataType。 -->
         <DataTemplate x:Key="NavCardTemplate">
             <Border Classes="cshNavCard"
                     PointerEntered="Card_PointerEntered" PointerExited="Card_PointerExited"
@@ -79,6 +82,13 @@
                     </ItemsControl.ItemsPanel>
                 </ItemsControl>
             </Grid>
+
+            <!-- 空状态（2026-11-04，自上游 1.10 移植）：用户把这一组的项全提到一级之后，两列都是空的。
+                 不用 InfoBar：这里不是提示错误，只是说明"东西都搬上去了"。
+                 ⚠️ 原版 Visibility="Collapsed" → Avalonia 用 IsVisible="False"（见 code-behind 的切换）。 -->
+            <TextBlock x:Name="EmptyHint" Grid.Row="1" IsVisible="False" Margin="0,4,0,0"
+                       FontSize="12.5" Opacity="0.65" TextWrapping="Wrap"
+                       Text="这一组的项目都已经放到导航栏上了，这里没有可显示的条目。" />
 
             <!-- ===== 常用工具窗口：开关就放这儿，跟首页「体验网页版」那张卡一个意思 ===== -->
             <!-- 「常用工具窗口」那块讲的是抽号 / 计时 / 时钟，只属于课堂组（见 code-behind 的 OnNavigatedTo） -->

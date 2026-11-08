@@ -140,17 +140,21 @@ public static class Backdrop
             // ── Acrylic ───────────────────────────────────────────────────
             if (kind == "acrylic" && OsInfo.SupportsAcrylicBlur)
             {
-                // ⛔ Win11 主窗口**别再用 DWMSBT_TRANSIENTWINDOW(3)**（2026-10-30 实机复测）。
-                //    3 是 DWM 给「短命浮窗」的亚克力，拿它喂主窗口属于编外用法：有实时模糊的机器上
-                //    看着是亚克力，可一旦模糊不可用（虚拟机 / 云桌面 / 远程会话 / 省电模式），
-                //    DWM 退回的是**它自己的亚克力兜底色** —— 本机实测浅色 #D3D3D3、深色 #545454；
-                //    同一台机器的 Mica 系列兜底却正好是 Fluent 设计色（浅 #F3F3F3 / 深 #202020）。
-                //    结果就是「选亚克力 → 整窗发灰、比纯色还脏」（用户报的「亚克力整窗发灰」）。
-                //    改用受支持的 DWMSBT_TABBEDWINDOW(4，Mica Alt)：材质更浓、和云母(2)仍可区分，
-                //    兜底色也是设计色。
-                //    别在 Win11 上碰 ACCENT_ENABLE_ACRYLICBLURBEHIND：它**返回成功但根本没有模糊**，
-                //    窗口只是变成一块透明/发黑的脏玻璃（2026-10-29 实测：整窗发黑、内容发灰）。
-                //    ——Win10 没有 DWMWA_SYSTEMBACKDROP_TYPE，那台机器才用 AccentPolicy。
+                // ⚠️ Win11 的「亚克力」**只能用 DWMSBT_TRANSIENTWINDOW(3)**，这一点在 2026-11-06 用
+                //    用户真机反馈纠正过：
+                //    · 4 = DWMSBT_TABBEDWINDOW 是 **Mica Alt**，本质仍是云母（壁纸取色 + 浓一档的色调），
+                //      不采样窗口背后的内容，也带不出亚克力的颗粒感。此前为了让兜底色「好看」而选了 4，
+                //      实机观感就是用户报的「亚克力看起来像 Mica Alt，本质上还是云母」。
+                //    · 3 = DWMSBT_TRANSIENTWINDOW 才是 DWM 的 Acrylic：实时模糊窗口背后的画面（含其它窗口），
+                //      并叠噪点与主题色，与云母一眼可区分。给它喂主窗口确实属于「编外用法定窗口」，
+                //      但它是 22000+ 上唯一能产生真亚克力的系统背板；窗口类型上 DWM 不校验。
+                //    · 旧注释里「3 会让整窗发灰、兜底 #D3D3D3 / #545454」那条结论是在**虚拟显卡云桌面**
+                //      上测的（本文件此前的"本机"）。那种机器上任何系统背板都只会画兜底色 ——
+                //      现在由 <see cref="OsInfo.DwmMaterialsAvailable"/> 在更前面就挡住了（见下方判定），
+                //      真机（硬件显卡 + 透明效果开启）上 3 是能画出模糊的。
+                //    ⛔ 仍然不要在 Win11 上碰 ACCENT_ENABLE_ACRYLICBLURBEHIND：它**返回成功但没有模糊**，
+                //      窗口会变成一块透明/发黑的脏玻璃（2026-10-29 实测）。Win10 没有
+                //      DWMWA_SYSTEMBACKDROP_TYPE，那台机器才用 AccentPolicy（ApplyWin10Acrylic）。
                 if (OsInfo.SupportsMica)
                 {
                     // 系统材质画不出来的环境 → 远程会话走壁纸模糊，其余退纯色。
@@ -162,22 +166,25 @@ public static class Backdrop
                     EnableAvaloniaTransparency(win,
                         WindowTransparencyLevel.Transparent,
                         WindowTransparencyLevel.None);
-                    var a = NativeMethods.DWMSBT_TABBEDWINDOW;
-                    if (NativeMethods.DwmSetWindowAttribute(hwnd, NativeMethods.DWMWA_SYSTEMBACKDROP_TYPE, ref a, sizeof(int)) == 0)
+
+                    // 首选真亚克力；DWM 不认（22000 早期版本 / 精简系统）才退 Mica Alt → 云母，
+                    // 至少是块正常材质，别落进「透明无模糊」。
+                    // ⚠️ 三个分支都返回 "acrylic"：返回值会被 MainWindow 写回设置，退云母时若返回
+                    //    "mica"，「这台机器上选一次亚克力」就会被永久改成云母，环境好转后也不再尝试。
+                    var picked = TrySetDwmBackdrop(hwnd,
+                        NativeMethods.DWMSBT_TRANSIENTWINDOW,
+                        NativeMethods.DWMSBT_TABBEDWINDOW,
+                        NativeMethods.DWMSBT_MAINWINDOW);
+                    if (picked != 0)
                     {
                         win.Background = Brushes.Transparent;
                         if (root is not null) root.Background = null;
+                        Core.AppLog.Info("backdrop", "亚克力材质｜DWM 背板类型="
+                            + DwmBackdropName(picked) + $"({picked})"
+                            + (picked == NativeMethods.DWMSBT_TRANSIENTWINDOW ? "" : "｜真亚克力不可用，已退近邻材质"));
                         return "acrylic";
                     }
-
-                    // DWM 不认（22000 早期版本）→ 退云母，至少是块正常材质，别落进"透明无模糊"
-                    var m = NativeMethods.DWMSBT_MAINWINDOW;
-                    if (NativeMethods.DwmSetWindowAttribute(hwnd, NativeMethods.DWMWA_SYSTEMBACKDROP_TYPE, ref m, sizeof(int)) == 0)
-                    {
-                        win.Background = Brushes.Transparent;
-                        if (root is not null) root.Background = null;
-                        return "mica";
-                    }
+                    Core.AppLog.Info("backdrop", "亚克力材质｜DWM 拒绝了全部背板类型（3/4/2）→ 继续走下方降级");
                 }
                 else
                 {
@@ -227,10 +234,13 @@ public static class Backdrop
                             WindowTransparencyLevel.Transparent,
                             WindowTransparencyLevel.None);
 
-                        // Win11 不认 AccentPolicy 的模糊，按 DWM 亚克力上
-                        // （同样用 4 而不是 3，理由见上面亚克力分支）
-                        var t = NativeMethods.DWMSBT_TABBEDWINDOW;
-                        if (NativeMethods.DwmSetWindowAttribute(hwnd, NativeMethods.DWMWA_SYSTEMBACKDROP_TYPE, ref t, sizeof(int)) == 0)
+                        // Win11 不认 AccentPolicy 的模糊，按 DWM 亚克力上（类型选择同上方亚克力分支：
+                        // 3 才是真亚克力，4 是 Mica Alt）
+                        var picked = TrySetDwmBackdrop(hwnd,
+                            NativeMethods.DWMSBT_TRANSIENTWINDOW,
+                            NativeMethods.DWMSBT_TABBEDWINDOW,
+                            NativeMethods.DWMSBT_MAINWINDOW);
+                        if (picked != 0)
                         {
                             win.Background = Brushes.Transparent;
                             if (root is not null) root.Background = null;
@@ -290,6 +300,12 @@ public static class Backdrop
         if (!OsInfo.DwmMaterialsAvailable)
             return SystemMaterialUnavailable(win, root, hwnd, "acrylic");
 
+        // ⛔ 无 D3D11 的教室机不要再进「透明裸奔」：Avalonia 的 WinUIComposition 合成背板
+        //    只能架在 ANGLE + D3D11 上，缺 D3D11 时 AcrylicBlur 永远兑现不了。此时若仍声明
+        //    透明、清掉根底色，窗口要白等约 1.1 秒的复核才退回纯色。直接走安全分支。
+        if (!GpuInfo.IsD3D11Available)
+            return SystemMaterialUnavailable(win, root, hwnd, "acrylic");
+
         // ⛔⛔ 浮窗不走合成背板（2026-11-03，用户报「Win10 开亚克力后悬浮窗不可见」）。
         //
         //    Win10 这条路的做法是：窗口背景设成**完全透明** + 把根面板底色**清成 null**，
@@ -338,32 +354,31 @@ public static class Backdrop
     private static readonly System.Collections.Generic.HashSet<IntPtr> PendingVerify = new();
 
     /// <summary>
-    /// Win10 合成亚克力的**显示后复核**。
+    /// 透明级别的**显示后复核**通用调度。
     ///
     /// <para>
-    /// <c>TransparencyLevelHint</c> 是"意图"，<c>ActualTransparencyLevel</c> 才是平台兑现的结果。
-    /// Win10 的亚克力只能由 Avalonia 的合成背板（WinUiComposition + <c>BlurEffect.Acrylic</c>）实现，
-    /// 而合成面要等窗口显示之后才存在，所以在构造期读到的一定是旧值。这里等
-    /// <c>Opened</c>（或运行中切换材质时直接排到 UI 队列）再判一次：
-    /// 兑现了就保持透明；没兑现就强制重建一次透明管线再判，仍不行则退纯色
-    /// （不透明成品色，远好过"透明裸奔"那层清晰的壁纸）。
-    /// </para>
-    ///
-    /// <para>
-    /// ⚠️ 不走 <c>AccentPolicy</c>：本项目的窗口是 GPU 渲染下的
-    /// <c>WS_EX_NOREDIRECTIONBITMAP</c>，且自绘边框处理过 <c>WM_NCCALCSIZE</c>，
-    /// 这两点都会让 <c>ACCENT_ENABLE_ACRYLICBLURBEHIND</c> "返回成功但没有模糊"，
-    /// 正是之前"看起来设了、实际只有一层色纱"的来源。
+    /// <c>TransparencyLevelHint</c> 是"意图"，<c>ActualTransparencyLevel</c> 才是平台兑现的结果，
+    /// 且兑现是**异步**的：构造期读到的一定是旧值，必须等 <c>Opened</c>（或已显示后排到 UI 队列）
+    /// 再判。这里统一实现「8 次 × 140ms 复核 + 首次未兑现时强制重建透明管线」的机器，
+    /// Acrylic 与 Translucent 共用，差异（目标级别、重建声明、兑现/兜底处置）交给回调。
     /// </para>
     /// </summary>
-    private static void ScheduleAcrylicVerify(Window win, Panel? root, IntPtr hwnd)
+    /// <param name="expected">兑现时应达到的透明级别。</param>
+    /// <param name="onRebuild">首次未兑现时重新声明提示级别、恢复背景（UI 线程）。</param>
+    /// <param name="onVerified">兑现后的处置（UI 线程）。</param>
+    /// <param name="onFailed">逐次重试仍不兑现后的兜底（UI 线程）。</param>
+    private static void ScheduleTransparencyVerify(
+        Window win, IntPtr hwnd, string label,
+        WindowTransparencyLevel expected,
+        Action onRebuild,
+        Action onVerified,
+        Action onFailed)
     {
         // 同一窗口可能连续 Apply 多次（构造 / 主题 / 设置页），排队一次就够。
         if (!PendingVerify.Add(hwnd)) return;
 
-        // 首次复核失败不立刻退回纯色：合成链（DesktopWindowTarget → 合成面 →
-        // BlurEffect）是异步建立的，真机上窗口显示后往往还要再等一两百毫秒。
-        // 早判会把"马上就好"误判成"不支持"，用户看到的仍是一张白纸。逐次重试后再定论。
+        // 首次复核失败不立刻退回：透明管线（合成面 / Win32 层）是异步建立的，
+        // 真机上窗口显示后往往还要再等一两百毫秒。逐次重试后再定论。
         const int MaxAttempts = 8;
         var attempt = 0;
 
@@ -374,27 +389,17 @@ public static class Backdrop
                 if (win.IsVisible == false) { PendingVerify.Remove(hwnd); return; }
 
                 var actual = win.ActualTransparencyLevel;
-                if (actual == WindowTransparencyLevel.AcrylicBlur)
+                if (actual == expected)
                 {
                     PendingVerify.Remove(hwnd);
-                    PortLog.Step($"背景材质: acrylic → 合成背板已兑现（实际 {actual}，"
+                    PortLog.Step($"背景材质: {label} → 已兑现（实际 {actual}，"
                                  + $"第 {attempt + 1} 次复核，"
                                  + $"D3D11={(GpuInfo.IsD3D11Available ? "可用" : "不可用")}）");
+                    onVerified();
                     return;
                 }
 
-                if (attempt == 0)
-                {
-                    // 平台在显示前那次声明失败了，提示值没变的话它不会重新评估 ——
-                    // 先把提示降到 None 再升回去，强制 Win32 端重建透明管线。
-                    EnableAvaloniaTransparency(win, WindowTransparencyLevel.None);
-                    EnableAvaloniaTransparency(win,
-                        WindowTransparencyLevel.AcrylicBlur,
-                        WindowTransparencyLevel.Transparent,
-                        WindowTransparencyLevel.None);
-                    win.Background = Brushes.Transparent;
-                    if (root is not null) root.Background = null;
-                }
+                if (attempt == 0) onRebuild();
 
                 if (attempt++ < MaxAttempts)
                 {
@@ -413,18 +418,14 @@ public static class Backdrop
                 }
 
                 PendingVerify.Remove(hwnd);
-                PortLog.Step($"背景材质: acrylic → 合成背板不可用（实际 {actual}，"
-                             + $"复核 {attempt} 次，D3D11={(GpuInfo.IsD3D11Available ? "可用" : "不可用")}"
-                             + "；Avalonia 的 WinUIComposition 只能架在 ANGLE 上）→ 纯色");
-
-                // 兜底：远程会话走壁纸模糊，其余退纯色（收掉透明意图由两者内部完成，
-                // 否则平台之后真兑现了亚克力，会和这层底叠在一起）。
-                SystemMaterialUnavailable(win, root, hwnd, "acrylic");
+                PortLog.Step($"背景材质: {label} → 复核 {attempt} 次仍未兑现（实际 {actual}，"
+                             + $"D3D11={(GpuInfo.IsD3D11Available ? "可用" : "不可用")}）");
+                onFailed();
             }
             catch (Exception ex)
             {
                 PendingVerify.Remove(hwnd);
-                Core.AppLog.Catch("backdrop", "复核亚克力材质生效情况", ex, Core.LogLevel.Debug);
+                Core.AppLog.Catch("backdrop", $"复核 {label} 材质生效情况", ex, Core.LogLevel.Debug);
             }
         }
 
@@ -445,6 +446,81 @@ public static class Backdrop
         }
         catch { }
     }
+
+    /// <summary>
+    /// Win10 合成亚克力的**显示后复核**。
+    ///
+    /// <para>
+    /// 合成面（WinUiComposition + <c>BlurEffect.Acrylic</c>）要等窗口显示之后才存在，
+    /// 构造期读到的一定是旧值。兑现了就保持透明；没兑现就强制重建一次透明管线再判，
+    /// 仍不行则退纯色（不透明成品色，远好过"透明裸奔"那层清晰的壁纸）。
+    /// ⚠️ 不走 <c>AccentPolicy</c>：窗口是 <c>WS_EX_NOREDIRECTIONBITMAP</c> 且自绘边框
+    /// 处理过 <c>WM_NCCALCSIZE</c>，会让它"返回成功但没有模糊"。
+    /// </para>
+    /// </summary>
+    private static void ScheduleAcrylicVerify(Window win, Panel? root, IntPtr hwnd)
+    {
+        ScheduleTransparencyVerify(win, hwnd, "acrylic 合成背板",
+            WindowTransparencyLevel.AcrylicBlur,
+            onRebuild: () =>
+            {
+                // 平台在显示前那次声明失败了，提示值没变的话它不会重新评估 ——
+                // 先把提示降到 None 再升回去，强制 Win32 端重建透明管线。
+                EnableAvaloniaTransparency(win, WindowTransparencyLevel.None);
+                EnableAvaloniaTransparency(win,
+                    WindowTransparencyLevel.AcrylicBlur,
+                    WindowTransparencyLevel.Transparent,
+                    WindowTransparencyLevel.None);
+                win.Background = Brushes.Transparent;
+                if (root is not null) root.Background = null;
+            },
+            onVerified: () =>
+            {
+                // 兑现后保持透明：ApplyWin10Acrylic 已把 Background/root 设好，无需再动。
+            },
+            onFailed: () =>
+            {
+                PortLog.Step("背景材质: acrylic → 合成背板不可用；"
+                    + "Avalonia 的 WinUIComposition 只能架在 ANGLE 上 → 纯色");
+                // 兜底：远程会话走壁纸模糊，其余退纯色（收掉透明意图由两者内部完成，
+                // 否则平台之后真兑现了亚克力，会和这层底叠在一起）。
+                SystemMaterialUnavailable(win, root, hwnd, "acrylic");
+            });
+    }
+
+    /// <summary>
+    /// 按顺序把 <c>DWMWA_SYSTEMBACKDROP_TYPE</c> 设成列表里第一个 DWM 接受的类型，
+    /// 返回被接受的那个（<c>DWMSBT_*</c>）；全被拒绝返回 0。
+    /// </summary>
+    /// <remarks>
+    /// DWM 对不认识的枚举值返回 <c>E_INVALIDARG</c>，这是判断「这台系统的 build 到底支持到哪一档」
+    /// 的唯一可靠办法 —— 只能靠试。注意：返回成功只代表 DWM 收下了，不代表画得出来
+    /// （虚拟显卡会照收、然后只画兜底色），那种情况由 <see cref="OsInfo.DwmMaterialsAvailable"/> 先挡。
+    /// </remarks>
+    private static int TrySetDwmBackdrop(IntPtr hwnd, params int[] types)
+    {
+        foreach (var type in types)
+        {
+            try
+            {
+                var v = type;
+                if (NativeMethods.DwmSetWindowAttribute(
+                        hwnd, NativeMethods.DWMWA_SYSTEMBACKDROP_TYPE, ref v, sizeof(int)) == 0)
+                    return type;
+            }
+            catch { /* 下一个 */ }
+        }
+        return 0;
+    }
+
+    /// <summary>背板类型的可读名，只用于日志。</summary>
+    private static string DwmBackdropName(int type) => type switch
+    {
+        2 => "Mica",
+        3 => "Acrylic",
+        4 => "MicaAlt",
+        _ => "Unknown",
+    };
 
     /// <summary>Win7 的「毛玻璃」：blur-behind + 玻璃边框延伸。</summary>
     private static bool TryApplyAeroBlur(IntPtr hwnd)
@@ -623,30 +699,40 @@ public static class Backdrop
     {
         var dark = win.ActualThemeVariant == ThemeVariant.Dark;
 
-        var brush = FrostedGlass.TryCreate(dark);
-        if (brush is null) return Translucent(win, root, hwnd, kind);
+        // ⛔ 不能同步解码：MainWindow 在构造期（UI 线程、首帧之前）调到这里，
+        //    4K 壁纸的解码 + 两次重采样会卡住首帧。先铺不透明成品色占位，
+        //    解码完成后回到 UI 线程替换画刷并刷新。
+        Solid(win, root);
 
-        try
+        FrostedGlass.TryCreateAsync(dark, brush =>
         {
-            win.Background = brush;
-            // 透明拿不到时露出来的是这一层，必须是不透明的成品色
-            win.TransparencyBackgroundFallback = new SolidColorBrush(dark
-                ? Color.FromArgb(255, 32, 32, 32)
-                : Color.FromArgb(255, 243, 243, 243));
-            if (root is not null) root.Background = null;
-        }
-        catch
-        {
-            Solid(win, root);
-            return "solid";
-        }
+            if (brush is null)
+            {
+                // 壁纸不可用（纯色桌面 / 文件丢失）→ 半透明底（其内部同样是延后复核）。
+                Translucent(win, root, hwnd, kind);
+                return;
+            }
 
-        var why = $"（{OsInfo.DescribeDwmMaterials()}，"
-                  + $"D3D11={(GpuInfo.IsD3D11Available ? "可用" : "不可用")}）";
+            try
+            {
+                win.Background = brush;
+                // 透明拿不到时露出来的是这一层，必须是不透明的成品色
+                win.TransparencyBackgroundFallback = new SolidColorBrush(dark
+                    ? Color.FromArgb(255, 32, 32, 32)
+                    : Color.FromArgb(255, 243, 243, 243));
+                if (root is not null) root.Background = null;
+                // 换画刷后主动标脏重绘（Background 变更本身也会触发失效，这里确保立刻刷新一帧）
+                try { win.InvalidateVisual(); } catch { }
+            }
+            catch
+            {
+                Solid(win, root);
+            }
+        });
 
         // 同一条也写进 app.log：这是「为什么没有云母/亚克力」的唯一答案，
         // 以前只在 port.log 里，用户交上来的主日志看不出来。
-        Core.AppLog.Info("backdrop", $"材质降级｜目标={kind}｜实际=壁纸模糊底色｜原因=系统材质不可用"
+        Core.AppLog.Info("backdrop", $"材质降级｜目标={kind}｜实际=壁纸模糊底色（异步生成）｜原因=系统材质不可用"
             + $"｜判据={OsInfo.DescribeDwmMaterials()}｜D3D11={(GpuInfo.IsD3D11Available ? "可用" : "不可用")}");
         return kind;
     }
@@ -674,13 +760,35 @@ public static class Backdrop
             WindowTransparencyLevel.Transparent,
             WindowTransparencyLevel.None);
 
-        // 连透明都拿不到 → 老实退纯色，别留一块"透明无底"的脏玻璃
-        if (win.ActualTransparencyLevel != WindowTransparencyLevel.Transparent)
-        {
-            Solid(win, root);
-            return "solid";
-        }
+        // ⛔ 不能紧接着读 ActualTransparencyLevel 判成败：构造期透明级别还没异步生效，
+        //    Win7 / 浮窗必然读到旧值被误判成失败而落纯色。首帧先铺不透明成品色占位，
+        //    等窗口显示后由共用复核回调换成半透明罩（与 Acrylic 同一套延后复核）。
+        Solid(win, root);
 
+        ScheduleTransparencyVerify(win, hwnd, $"{kind} 半透明底",
+            WindowTransparencyLevel.Transparent,
+            onRebuild: () =>
+            {
+                // 提示值没变时平台不会重新评估，先降到 None 再升回去强制重建透明管线。
+                EnableAvaloniaTransparency(win, WindowTransparencyLevel.None);
+                EnableAvaloniaTransparency(win,
+                    WindowTransparencyLevel.Transparent,
+                    WindowTransparencyLevel.None);
+            },
+            onVerified: () => ApplyTranslucentBrush(win, root, kind),
+            onFailed: () =>
+            {
+                // 连透明都拿不到 → 老实退纯色，别留一块"透明无底"的脏玻璃。
+                Solid(win, root);
+                PortLog.Step($"材质: {kind} 半透明底 → 透明级别未兑现，保持纯色");
+            });
+
+        return kind;
+    }
+
+    /// <summary>复核兑现后，在 UI 线程把窗口底色换成半透明罩。</summary>
+    private static void ApplyTranslucentBrush(Window win, Panel? root, string kind)
+    {
         try
         {
             // 透明度定在 0xE6：没有模糊时，背后的桌面/窗口是**清晰**透上来的，罩子一薄就成重影
@@ -695,11 +803,9 @@ public static class Backdrop
                 ? Color.FromArgb(255, 32, 32, 32)
                 : Color.FromArgb(255, 243, 243, 243));
             if (root is not null) root.Background = null;
-            PortLog.Step($"材质: {kind} 无壁纸可模糊 → 半透明底色");
+            PortLog.Step($"材质: {kind} → 半透明底色（透明级别显示后复核已兑现）");
         }
         catch { }
-
-        return kind;
     }
 
     /// <summary>纯色兜底：与原版同一套色值（深 32,32,32 / 浅 243,243,243）。</summary>

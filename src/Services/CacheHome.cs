@@ -53,6 +53,12 @@ public static class CacheHome
     private static readonly object Gate = new();
     private static string? _instanceName;
 
+    // 初始化失败的可重试状态：瞬时抖动不再一次失败就整会话降级（见 Ensure）。
+    private static int _initFailures;
+    private static DateTime _initRetryAfterUtc;
+    private const int MaxInitFailures = 3;
+    private static readonly TimeSpan InitRetryBackoff = TimeSpan.FromSeconds(2);
+
     /// <summary>缓存根目录：<c>%LOCALAPPDATA%\ClassSoftwareHub\cache</c>。</summary>
     public static string Root => Path.Combine(SettingsStore.Dir, FolderName);
 
@@ -80,6 +86,8 @@ public static class CacheHome
         lock (Gate)
         {
             if (_instanceName is not null) return _instanceName;
+            // 退避：启动期 Ensure 会被高频调用，瞬时失败后短时间内不再反复撞盘
+            if (DateTime.UtcNow < _initRetryAfterUtc) return "";
 
             try
             {
@@ -100,14 +108,27 @@ public static class CacheHome
                 var name = reuse ?? prefix + DateTime.Now.ToString(StampFormat, CultureInfo.InvariantCulture);
                 Directory.CreateDirectory(Path.Combine(Root, name));
                 _instanceName = name;
+                _initFailures = 0;
             }
             catch (Exception ex)
             {
-                AppLog.Catch("cache", "初始化版本缓存目录（已退回 cache 根）", ex);
-                _instanceName = "";   // 兜底：不建目录（素材直接写 cache\ 根），且 Clean 会因此拒绝动手
+                _initFailures++;
+                _initRetryAfterUtc = DateTime.UtcNow + InitRetryBackoff;
+                if (_initFailures >= MaxInitFailures)
+                {
+                    // 连续失败才降级：整会话退回 cache 根（Clean 会因此拒绝动手）
+                    _instanceName = "";
+                    AppLog.Catch("cache", "初始化版本缓存目录（连续失败，已退回 cache 根）", ex);
+                }
+                else
+                {
+                    // 瞬时失败：保持 null + 退避计时，下次调用可重试，不再一次失败就整会话降级
+                    AppLog.Catch("cache", $"初始化版本缓存目录（瞬时失败，稍后重试｜次数={_initFailures}）",
+                        ex, Core.LogLevel.Debug);
+                }
             }
 
-            return _instanceName;
+            return _instanceName ?? "";
         }
     }
 
@@ -226,20 +247,36 @@ public static class CacheHome
     /// <summary>
     /// 应用启动时挂后台清一轮（不阻塞首帧）：按「缓存保留数量」回收更早的版本目录。
     /// </summary>
-    public static void Start() => System.Threading.Tasks.Task.Run(() =>
+    public static void Start()
     {
+        // ⚠️ 设置必须在**调用线程**（UI 线程）上读好再传进 Task.Run：与 UI 线程初始化并发
+        //    读 App.Settings.Current 会撕裂读 / 读到 0，静默把用户设的「保留 N 个版本」
+        //    降成 1，删掉本该留着的缓存目录（与 InstallerCleanup.Start 同一规矩）。
+        int keep;
         try
         {
-            var keep = App.Settings.Current.CacheKeepCount;
-            var removed = Clean(keep);
-            if (removed > 0)
-                AppLog.Info("cache", $"清理过期缓存目录｜已删除={removed}｜保留={Math.Clamp(keep, 1, 10)} 个");
+            keep = App.Settings.Current.CacheKeepCount;
         }
         catch (Exception ex)
         {
-            AppLog.Catch("cache", "清理过期缓存目录", ex);
+            AppLog.Catch("cache", "读取「缓存保留数量」（按默认值 3 处理）", ex, Core.LogLevel.Debug);
+            keep = 3;
         }
-    });
+
+        _ = System.Threading.Tasks.Task.Run(() =>
+        {
+            try
+            {
+                var removed = Clean(keep);
+                if (removed > 0)
+                    AppLog.Info("cache", $"清理过期缓存目录｜已删除={removed}｜保留={Math.Clamp(keep, 1, 10)} 个");
+            }
+            catch (Exception ex)
+            {
+                AppLog.Catch("cache", "清理过期缓存目录", ex);
+            }
+        });
+    }
 
     /// <summary>目标路径确实落在 <c>cache\</c> 之下（删除前的最后一道闸）。</summary>
     private static bool IsInsideRoot(string path)

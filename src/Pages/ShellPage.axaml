@@ -111,7 +111,7 @@
              （1008 = WinUI 系统默认，与 Gallery 同款）：≥1008 展开、700~1008 图标条、<700 全隐 -->
         <fa:NavigationView x:Name="Nav" Grid.Row="1" Background="{x:Null}"
                            IsBackButtonVisible="False" IsSettingsVisible="False"
-                           PaneDisplayMode="Auto" OpenPaneLength="252"
+                           PaneDisplayMode="Auto" OpenPaneLength="296"
                            CompactModeThresholdWidth="700" ExpandedModeThresholdWidth="1008"
                            BackRequested="Nav_BackRequested"
                            ItemInvoked="Nav_ItemInvoked">
@@ -211,7 +211,7 @@
                      并且自动走 ToolCarrier 的载体选择（有 Web 版且本机跑得起来 → 宿主页，否则原生页）。
                      给它单写 case 反而会绕过载体选择。
                 -->
-                <fa:NavigationViewItem Content="函数图像" Tag="function-plot">
+                <fa:NavigationViewItem x:Name="FunctionPlotNav" Content="函数图像" Tag="function-plot">
                     <fa:NavigationViewItem.IconSource>
                         <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xE9D2;" />
                     </fa:NavigationViewItem.IconSource>
@@ -319,14 +319,57 @@
                                 <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xE7EF;" />
                             </fa:NavigationViewItem.IconSource>
                         </fa:NavigationViewItem>
+                        <!--
+                          以下五项自上游 dv1.2.0 正式版从「实验性功能」转正进系统工具（2026-11-08）：
+                          系统优化 / 系统功能 / 虚拟内存 / 幽灵文件清理 / PowerPoint 触控优化。
+                          ⚠️ Tag 与 ToolCatalog 的 Id 一字不差，两处必须同步（改一处会打开成首页）。
+                          ⚠️ 上游把「PowerPoint 触控优化」默认放在一级导航，可在「设置 > 自定义导航栏」调整。
+                        -->
+                        <fa:NavigationViewItem Content="系统优化" Tag="systemtweaks">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xE713;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
+                        <fa:NavigationViewItem Content="系统功能" Tag="sysfeatures">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xE7E8;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
+                        <fa:NavigationViewItem Content="虚拟内存" Tag="pagefile">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xEDA2;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
+                        <fa:NavigationViewItem Content="幽灵文件清理" Tag="ghostfile">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xE7C4;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
+                        <fa:NavigationViewItem Content="PowerPoint 触控优化" Tag="ppttouch">
+                            <fa:NavigationViewItem.IconSource>
+                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xE786;" />
+                            </fa:NavigationViewItem.IconSource>
+                        </fa:NavigationViewItem>
                     </fa:NavigationViewItem.MenuItems>
                 </fa:NavigationViewItem>
-                <fa:NavigationViewItem Content="查阅单词" Tag="dictionary">
+                <!--
+                  查阅单词 / 文档库 / 教室喊话 三项自 2026-11-04（自上游 1.10 移植）起可以由用户在
+                  「设置 → 侧边栏导航」里收进下面两个工具分组，所以都带 x:Name：
+                  ApplyNavLayout 撤下来时要**复用同一个对象**（图标、角标、无障碍名才不会丢）。
+                  文档库（需求 1:15）：与「查阅单词」同属"查资料"这一类的常驻页，紧挨着放。
+                  文章放在站点仓库里，桌面端只缓存清单与读过的正文。
+                -->
+                <fa:NavigationViewItem x:Name="DictionaryNav" Content="查阅单词" Tag="dictionary">
                     <fa:NavigationViewItem.IconSource>
                         <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xE8F1;" />
                     </fa:NavigationViewItem.IconSource>
                 </fa:NavigationViewItem>
-                <fa:NavigationViewItem Content="侧边布局" Tag="sidebar">
+                <fa:NavigationViewItem x:Name="DocsNav" Content="文档库" Tag="docs">
+                    <fa:NavigationViewItem.IconSource>
+                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xE8A5;" />
+                    </fa:NavigationViewItem.IconSource>
+                </fa:NavigationViewItem>
+                <fa:NavigationViewItem x:Name="SidebarNav" Content="侧边布局" Tag="sidebar">
                     <fa:NavigationViewItem.IconSource>
                         <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xE8A0;" />
                     </fa:NavigationViewItem.IconSource>
@@ -337,7 +380,7 @@
                      跟其余「点开用一下就走」的小工具不是一类，塞在工具索引里容易被当成一次性页面。
                   ⚠️ 因此它不参与工具的动态子项与载体选择，tag 与 NavigateTagCore 的 case 单独写。
                 -->
-                <fa:NavigationViewItem Content="教室喊话" Tag="announce">
+                <fa:NavigationViewItem x:Name="AnnounceNav" Content="教室喊话" Tag="announce">
                     <fa:NavigationViewItem.IconSource>
                         <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xE720;" />
                     </fa:NavigationViewItem.IconSource>
@@ -428,28 +471,12 @@
                             </fa:NavigationViewItem.IconSource>
                         </fa:NavigationViewItem>
                         <!--
-                          系统功能（自上游 dv1.2.0-insider1.8 移植，2026-11-01）。
-                          ⚠️ 上游按 ExperimentalFeatureCatalog 动态生成子项；本移植版受 FA 2.4.1
-                             选中竖线限制必须 XAML 声明（见上方「内置工具」长注释），所以这里是手写的第二份 ——
-                             加实验性功能时两处一起改（ShellPage.axaml + ExperimentalPage.All）。
+                          ⛔ 2026-11-08 自上游 dv1.2.0 转正：系统功能 / 系统优化 / 虚拟内存 /
+                             幽灵文件清理 / PowerPoint 触控优化 五项已移出本组，
+                             改登记到上方「系统工具」分组（SystemToolsNav）与 ToolCatalog。
+                             转正后页面标题旁不再显示「实验性功能」标记
+                             （标记由 ExperimentalFeatureCatalog.Find 判定，那边条目已删）。
                         -->
-                        <fa:NavigationViewItem Content="系统功能" Tag="sysfeatures">
-                            <fa:NavigationViewItem.IconSource>
-                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xE7E8;" />
-                            </fa:NavigationViewItem.IconSource>
-                        </fa:NavigationViewItem>
-                        <!-- 系统优化（自上游 dv1.2.0-insider1.8 移植）：HKCU 直写 + 一次提权处理整机组策略键 -->
-                        <fa:NavigationViewItem Content="系统优化" Tag="systemtweaks">
-                            <fa:NavigationViewItem.IconSource>
-                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xE713;" />
-                            </fa:NavigationViewItem.IconSource>
-                        </fa:NavigationViewItem>
-                        <!-- 虚拟内存（自上游 dv1.2.0-insider1.8 移植）：PagingFiles 写 HKLM，重启后生效 -->
-                        <fa:NavigationViewItem Content="虚拟内存" Tag="pagefile">
-                            <fa:NavigationViewItem.IconSource>
-                                <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xEDA2;" />
-                            </fa:NavigationViewItem.IconSource>
-                        </fa:NavigationViewItem>
                     </fa:NavigationViewItem.MenuItems>
                 </fa:NavigationViewItem>
             </fa:NavigationView.MenuItems>

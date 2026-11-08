@@ -345,14 +345,21 @@ public static class UpdateFlow
                 if (!downloaded.Verified)
                     throw new InvalidOperationException("该发布未提供校验值，已拒绝下载安装包（" + downloaded.VerifyNote + "）。");
 
-                // 记入存档：首页横幅与「稍后安装」都认它
-                var settings = App.Settings;
-                settings.Current.UpdatePendingPath = downloaded.FilePath;
-                settings.Current.UpdatePendingTag = release.Tag;
-                // 记下校验值：安装前要据此重新核验（见 VerifyPendingPackageAsync）
-                settings.Current.UpdatePendingMd5 = downloaded.Md5;
-                settings.Current.UpdatePendingSha256 = downloaded.Sha256;
-                settings.Save();
+                // 记入存档：首页横幅与「稍后安装」都认它。
+                // ⚠️ 设置必须回 UI 线程改＋保存：这里跑在 Task.Run 的线程池线程上，直接写 Current
+                //    会与 Save 的序列化并发，集合被改动会让本次全部设置改动一起丢失。
+                RunOnUi(() =>
+                {
+                    var settings = App.Settings;
+                    settings.Current.UpdatePendingPath = downloaded.FilePath;
+                    settings.Current.UpdatePendingTag = release.Tag;
+                    // 记下校验值：安装前要据此重新核验（见 VerifyPendingPackageAsync）
+                    settings.Current.UpdatePendingMd5 = downloaded.Md5;
+                    settings.Current.UpdatePendingSha256 = downloaded.Sha256;
+                    settings.Save();
+                    // 已下好包进入待装流程，清掉「发现新版本」状态（见 UpdateNotice.Clear 约定②）
+                    UpdateNotice.Clear();
+                });
 
                 if (tracked is not null)
                 {
@@ -418,11 +425,9 @@ public static class UpdateFlow
         var path = task.Path;
         if (string.IsNullOrEmpty(path) || !File.Exists(path)) return false;
 
-        // 如果这条任务正好是"待装包"，同样要按下载时记下的校验值复核（见 VerifyPendingPackageAsync）
-        var pendingPath = App.Settings.Current.UpdatePendingPath;
-        if (string.Equals(pendingPath, path, StringComparison.OrdinalIgnoreCase)
-            && !await VerifyPendingPackageAsync(path))
-            return false;
+        // ⚠️ 一律先复核（目录约束 + 与记录哈希比对），不再只有「正好是待装包」才验：
+        //    非待装包没有记录校验值时按旧版本放行并记日志，但绝不允许执行 updates 目录之外的路径。
+        if (!await VerifyPendingPackageAsync(path)) return false;
 
         if (!await TryStartInstallerAsync(path)) return false;
 
@@ -436,17 +441,29 @@ public static class UpdateFlow
     /// ⛔ 下载时校验过，不代表**现在**还是那个文件 —— 落盘之后可能被磁盘错误写坏、
     ///    被同名文件覆盖、被人替换。执行安装包是整条更新链路里破坏性最大的一步，
     ///    不能"文件还在"就直接运行。
-    /// 没有记录校验值的待装标记来自旧版本 → 放行并记日志（否则会凭空作废用户已下好的包）。
+    /// 所有安装入口一律先过目录约束；只有「当前待装包」才有记录校验值可比，
+    /// 其余（任务页里非待装的安装包）无记录时放行并记日志（兼容旧版本行为）。
     /// </summary>
     private static async Task<bool> VerifyPendingPackageAsync(string path)
     {
+        // 目录约束：执行安装包前先确认路径确实落在 updates 目录内。
+        if (!UpdateService.IsInsideUpdatesDir(path))
+        {
+            Core.AppLog.Warn("update", $"安装前复核｜结果=拒绝｜原因=路径不在 updates 目录内｜文件={path}");
+            return false;
+        }
+
         var s = App.Settings.Current;
-        var expectedMd5 = s.UpdatePendingMd5 ?? "";
-        var expectedSha = s.UpdatePendingSha256 ?? "";
+        // 只有「当前待装包」才有记录校验值；任务页里其它安装包沿用旧版本行为：无记录则放行并记日志。
+        var isPending = string.Equals(s.UpdatePendingPath, path, StringComparison.OrdinalIgnoreCase);
+        var expectedMd5 = isPending ? s.UpdatePendingMd5 ?? "" : "";
+        var expectedSha = isPending ? s.UpdatePendingSha256 ?? "" : "";
 
         if (expectedMd5.Length == 0 && expectedSha.Length == 0)
         {
-            Core.AppLog.Info("update", $"安装前复核｜结果=跳过｜原因=待装包未记录校验值（旧版本遗留）｜文件={path}");
+            Core.AppLog.Info("update", isPending
+                ? $"安装前复核｜结果=跳过｜原因=待装包未记录校验值（旧版本遗留）｜文件={path}"
+                : $"安装前复核｜结果=跳过｜原因=非待装包无记录校验值｜文件={path}");
             return true;
         }
 

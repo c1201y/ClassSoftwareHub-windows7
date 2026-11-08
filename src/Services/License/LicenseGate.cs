@@ -31,7 +31,9 @@ internal static class LicenseGate
     /// <summary>已经拿到可用凭证（或本身是官方构建）就返回 true；否则弹窗让用户激活。</summary>
     internal static async Task<bool> EnsureAsync(string? reason = null, string? scope = null)
     {
-        // 官方构建由服务端验签后自动签发令牌，本机没有凭证也不需要打扰用户
+        // 官方构建由服务端验签后自动签发令牌，本机没有凭证也不需要打扰用户。
+        // ⚠️ IsOfficial 只由编译期嵌入程序集的签名决定（见 BuildIdentity），用户可写的
+        //    环境变量 / 同目录文件不再影响该判定，故此处可安全用于免激活。
         if (LicenseStore.IsActivated || BuildIdentity.IsOfficial) return true;
 
         var key = string.IsNullOrEmpty(scope) ? GlobalScope : scope;

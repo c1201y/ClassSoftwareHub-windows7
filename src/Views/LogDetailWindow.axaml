@@ -60,16 +60,16 @@
 
                     <!-- 序号：对照原文用 -->
                     <TextBlock Text="{Binding IndexText}" FontSize="12" FontFamily="Consolas"
-                               VerticalAlignment="Top" Margin="0,2,8,0"
+                               VerticalAlignment="Center" Margin="0,0,8,0"
                                Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
 
                     <!-- 毫秒时间（主页面为了等宽去掉了毫秒，这里保留） -->
                     <TextBlock Grid.Column="1" Text="{Binding Stamp}" FontSize="12" FontFamily="Consolas"
-                               VerticalAlignment="Top" Margin="0,2,8,0" TextTrimming="CharacterEllipsis"
+                               VerticalAlignment="Center" Margin="0,0,8,0" TextTrimming="CharacterEllipsis"
                                Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
 
                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="5"
-                                VerticalAlignment="Top" Margin="0,1,0,0">
+                                VerticalAlignment="Center">
                         <fa:FontIcon Glyph="{Binding LevelGlyph}" FontSize="12"
                                      Foreground="{Binding Level, Converter={StaticResource LevelBrush}}" />
                         <TextBlock Text="{Binding LevelText}" FontSize="12"
@@ -77,12 +77,16 @@
                     </StackPanel>
 
                     <TextBlock Grid.Column="3" Text="{Binding ModuleText}" FontSize="12" FontFamily="Consolas"
-                               VerticalAlignment="Top" Margin="0,2,8,0" TextTrimming="CharacterEllipsis"
+                               VerticalAlignment="Center" Margin="0,0,8,0" TextTrimming="CharacterEllipsis"
                                ToolTip.Tip="{Binding Module}"
                                Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
 
+                    <!-- ⚠️ 单行 + 省略号（配合 ListBoxItem 的固定行高）：详细视图右侧有「原文」面板，
+                         选中哪行就在右边看全文，行内不需要再折行。折行会让行高参差，
+                         虚拟化列表的总高估算随滚动不断修正 ⇒ 滚动条乱跳（见 Styles 里的说明）。 -->
                     <SelectableTextBlock Grid.Column="4" Text="{Binding Message}" FontSize="12"
-                                         TextWrapping="Wrap"
+                                         MaxLines="1" TextTrimming="CharacterEllipsis"
+                                         VerticalAlignment="Center"
                                          Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
                 </Grid>
             </DataTemplate>
@@ -103,8 +107,12 @@
                 <Setter Property="VerticalContentAlignment" Value="Center" />
             </Style>
 
-            <!-- 详细视图的表格行容器（原版 ListView.ItemContainerStyle → ListBoxItem 属性叠加） -->
+            <!-- 详细视图的表格行容器（原版 ListView.ItemContainerStyle → ListBoxItem 属性叠加）
+                 ⚠️ Height 必须**固定**：Avalonia 的 VirtualizingStackPanel 用"已实现行的平均高度"
+                 估算未实现区域的总高；行高不齐时这个估算会随滚动不停修正，Extent 跟着变
+                 ⇒ 滚动条滑块长度/位置乱跳、拖动还会被回弹。固定行高后 Extent 恒等于 行数×24。 -->
             <Style Selector="ListBox#LogList ListBoxItem">
+                <Setter Property="Height" Value="24" />
                 <Setter Property="MinHeight" Value="24" />
                 <Setter Property="Margin" Value="0" />
                 <Setter Property="Padding" Value="12,2" />

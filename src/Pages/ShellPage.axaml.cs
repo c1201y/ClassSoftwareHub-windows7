@@ -1,8 +1,10 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
@@ -12,6 +14,7 @@ using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using ClassSoftwareHub.Desktop.Core;
+using ClassSoftwareHub.Desktop.Data;
 using ClassSoftwareHub.Desktop.Platform;
 using FluentAvalonia.UI.Controls;
 
@@ -42,6 +45,10 @@ public sealed partial class ShellPage : PageBase
     {
         InitializeComponent();
 
+        // 角标只在本版本装好后的头两周出现（见 BadgesAreFresh）。
+        // ⚠️ 必须在 ApplyNavLayout 之前算 —— 那里会调 ApplyNavBadges。
+        _badgesFresh = BadgesAreFresh();
+
         // 全局搜索（2026-10-18 自上游 1.2.0 移植）：结果弹层挂到搜索框下面。
         SearchPopup.PlacementTarget = SearchBox;
         SearchPopup.Placement = Avalonia.Controls.PlacementMode.Bottom;
@@ -52,8 +59,19 @@ public sealed partial class ShellPage : PageBase
         // ⚠️ 对应原版 ActualThemeChanged：Avalonia 里是 StyledElement.ActualThemeVariantChanged
         ActualThemeVariantChanged += (_, _) => UpdateThemeButton();
 
-        // 「内置工具」的导航子项在 ShellPage.axaml 里声明（FA 的选中模型只认 XAML 子项，原因见那里的注释）。
-        // 这里做一次一致性自检：XAML 子项的 Tag 必须与 ToolCatalog.All 的 Id 一一对应。
+        // 导航项右侧的 New / Beta 角标：必须在可移动项与实验性功能子项都就位之后挂。
+        // ⚠️ 放到 Loaded 而不是构造函数里 —— 角标底色来自 ThemeBrush，要等这个控件进了树、
+        //    拿到真实的 ActualThemeVariant 才准（构造期拿到的是系统主题，跟应用主题可能对不上）。
+        Loaded += (_, _) => ApplyNavBadges();
+        ActualThemeVariantChanged += (_, _) => ApplyNavBadges();
+
+        // 「内置工具」分组的子项、以及「查阅单词 / 文档库 / 教室喊话」这三个可变页面，
+        // 全按 Data/NavLayout 摆位（2026-11-04：用户可以在设置里把常用的拎到一级、把不常用的收进分组）。
+        // ⚠️ 本移植版的导航项（含两个工具分组的子项）都是 XAML 里硬写的，不是代码生成 ——
+        //    ApplyNavLayout 会**复用**这些对象本身（按 tag 反查后原样插回去），不重建。
+        ApplyNavLayout();
+
+        // 自检必须放在 ApplyNavLayout 之后：检查的是摆位完成后的实际结果。
         VerifyToolNavItems();
 
         // 下载任务数变了 → 同步「任务进行」上的徽标（在下载就不占着界面，但得让人随时看见有几个在下）
@@ -64,8 +82,20 @@ public sealed partial class ShellPage : PageBase
         // 关的是「服务」而非常量属性，与项容器何时 realize 无关，所以构造期设一次即可。
         DisableNavToolTips();
 
-        // 面板显示模式变了（宽 ↔ 窄）→ 重新算内容区要不要给导航按钮让位
-        Nav.DisplayModeChanged += (_, _) => ApplyPaneInset();
+        // 面板显示模式变了（宽 ↔ 窄）→ 重新算内容区要不要给导航按钮让位；
+        // 顺带把起始页那笔「等内联再钉」的高亮补上（见 SelectTag 里的锚点崩溃说明）。
+        // ⚠️ 补钉必须再推迟一轮：DisplayModeChanged 是在模式刚切完、子项容器还没重建时发的，
+        //    当场设 SelectedItem 会踩到同一处锚点断言。
+        Nav.DisplayModeChanged += (_, _) =>
+        {
+            ApplyPaneInset();
+
+            if (_pendingChildTag is not { } pending) return;
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (_pendingChildTag == pending) SelectTag(pending);
+            }, DispatcherPriority.Loaded);
+        };
         ApplyPaneInset();
 
         // 切页计时（Debug / CSH_PERF=1 才有输出，见 Core/PerfLog.cs）。
@@ -96,6 +126,197 @@ public sealed partial class ShellPage : PageBase
     {
         if (ContentFrame.Content is WelcomePage home) home.RefreshUpdateReadyBar();
     }
+
+    // ══════════════════════════════════════════════════════════════
+    //  导航栏布局自定义（2026-11-04 需求，自上游 dv1.2.0-insider1.10 移植）
+    // ══════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// 按 <see cref="NavLayout"/> 把可移动项摆到该在的位置（2026-11-04 导航自定义）。
+    ///
+    /// <para>
+    /// 可重复调用：设置页改完一项就调一次 <see cref="ReloadNavLayout"/>，导航立刻跟着变。
+    /// 做法是**先全部撤下来再重摆** —— 逐个移动要处理索引漂移，而且「从一个分组换到另一个分组」
+    /// 根本没法用 Remove/Insert 在原对象上表达。
+    /// </para>
+    ///
+    /// <para>
+    /// ⚠️ 撤的是**导航项对象本身**：XAML 里带 x:Name 的那几个（教室喊话 / 查阅单词 / 文档库）
+    /// 撤下来后对象还在，原样插回去即可（图标、角标、无障碍名字都不丢），不必重建；
+    /// 两个工具分组下面的子项同理 —— 它们本来就在 XAML 里声明，这里只是**挪位置**。
+    /// 本移植版从不重建已有项，只有「清单里有、XAML 里没有」的新 tag 才现造一个。
+    /// </para>
+    ///
+    /// <para>
+    /// ⚠️ 顺序规则与上游不同（本移植版的导航顺序本来就与上游不一致，硬要求是"默认状态与改动前逐项一致"）：
+    /// 上游把「查阅单词 / 文档库」插到「课堂工具」之前、把「教室喊话」插到「函数图像」之前；
+    /// 本移植版这三项原本就在两个工具分组**之后**（查阅单词 → 侧边布局 → 教室喊话），
+    /// 所以改成**锚点表**：每一项提到一级时插在它本来就该在的那个固定项之前（见 <see cref="AnchorFor"/>）。
+    /// 这样两个设置数组都为空时，结果与改动前逐项一致：项、顺序、图标、文案全不变。
+    /// </para>
+    /// </summary>
+    private void ApplyNavLayout()
+    {
+        // 0) 默认存档（两个数组都为空）= 用户没改过布局 ⇒ **一律不碰导航树**，直接用 XAML 里那份。
+        //
+        // ⚠️ 2026-11-05 实测出来的坑：这里原本无条件「先全撤下再逐项插回」，结果把
+        //    FluentAvalonia 的 ViewportManager 搞坏了 —— 打开「实验性功能」分组下的任何子页
+        //    （--page=pagefile / ppttouch / ghostfile / machinecheck …）都会在首帧抛
+        //    InvalidOperationException: An anchor control must be a visual descendent of the ScrollContentPresenter，
+        //    整个进程当场退出。选中二级子项时 FA 要拿 NavigationViewItem 的容器去注册滚动锚点，
+        //    而那个容器已经被我们 Remove 过一次、引用悬空了。
+        //    默认状态本来就不需要搬动任何一项（XAML 的顺序就是默认顺序），跳过即可，零风险。
+        var settings = App.Settings.Current;
+        if (settings.NavTopLevel is not { Length: > 0 } && settings.NavSecondLevel is not { Length: > 0 })
+        {
+            ApplyNavBadges();
+            return;
+        }
+
+        // 0.1) 先把"现在导航里有的对象"按 tag 记下来 —— 搬动时复用同一个实例（见方法注释）
+        var existing = new Dictionary<string, NavigationViewItem>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in EnumerateNavItems(Nav.MenuItems))
+        {
+            if (item.Tag is string tag && tag.Length > 0) existing[tag] = item;
+        }
+
+        var managed = new HashSet<string>(
+            NavLayout.All.Select(p => p.Tag), StringComparer.OrdinalIgnoreCase);
+
+        // 1) 把上次摆在一级的可移动项全部撤下来（含 XAML 里那几个静态项）
+        for (var i = Nav.MenuItems.Count - 1; i >= 0; i--)
+        {
+            if (Nav.MenuItems[i] is NavigationViewItem { Tag: string tag } && managed.Contains(tag))
+                Nav.MenuItems.RemoveAt(i);
+        }
+
+        // 2) 两个分组的子项整体摘下来（对象留在 existing 里，第 5 步按新顺序挂回去）
+        ClassroomToolsNav.MenuItems.Clear();
+        SystemToolsNav.MenuItems.Clear();
+
+        // 3) 一级：按 NavLayout 的顺序逐项插到各自锚点前面
+        foreach (var placeable in NavLayout.All.Where(p => NavLayout.IsTopLevel(p.Tag)))
+            InsertTopLevel(placeable, existing);
+
+        // 4) 二级：按分组挂回各自父项。顺序与总览页卡片同源（NavLayout.SecondLevel），两处不会对不上。
+        foreach (var group in new[] { ToolGroup.Classroom, ToolGroup.System })
+        {
+            var parent = group == ToolGroup.System ? SystemToolsNav : ClassroomToolsNav;
+            foreach (var placeable in NavLayout.SecondLevel(group))
+                parent.MenuItems.Add(NavigationItemFor(placeable, existing));
+        }
+
+        // 5) 当前页可能刚被搬了位置（一级 ⇄ 二级）—— 重新点亮，否则高亮会停在已撤下的那一项上。
+        // ⚠️ 先清空再选：上面增删过 MenuItems，NavigationView 里缓存的选中容器可能已经悬空，
+        //    直接重选会在下一帧踩到 ViewportManager 的 anchor 断言（见方法开头那段实测说明）。
+        Nav.SelectedItem = null;
+        SelectTag(CurrentTag);
+
+        // 6) 角标：重建后新造出来的项还没挂（旧对象上的已随对象带走，_navLabels 记着原文，重复调用无害）
+        ApplyNavBadges();
+
+        AppLog.Step("shell", $"导航布局：一级 {Nav.MenuItems.OfType<NavigationViewItem>().Count()} 项，"
+            + $"课堂工具 {ClassroomToolsNav.MenuItems.Count} 项，系统工具 {SystemToolsNav.MenuItems.Count} 项，"
+            + $"提到一级的 {NavLayout.All.Count(p => NavLayout.IsTopLevel(p.Tag))} 项");
+    }
+
+    /// <summary>
+    /// 设置页改完导航项之后调这个，立即生效（不重启、不重开窗口）。
+    /// </summary>
+    public void ReloadNavLayout()
+    {
+        ApplyNavLayout();
+
+        // 正停在工具总览页时，卡片列表也得跟着变：那个页 NavigationCacheMode=Enabled，
+        // 不重新导航一次就不会重算（变化本身在 OnNavigatedTo 里）。
+        if (CurrentTag is "tools-classroom" or "tools-system") NavigateTo(CurrentTag);
+    }
+
+    /// <summary>
+    /// 把一个提到一级的可移动项插到它的锚点之前。
+    /// 锚点认不出来（理论上不会）就追加到末尾 —— 总比整项消失强。
+    /// </summary>
+    private void InsertTopLevel(
+        NavPlaceable placeable, IReadOnlyDictionary<string, NavigationViewItem> existing)
+    {
+        var item = NavigationItemFor(placeable, existing);
+        var anchor = AnchorFor(placeable);
+
+        var index = anchor is null ? -1 : Nav.MenuItems.IndexOf(anchor);
+        if (index < 0) index = Nav.MenuItems.Count;
+
+        Nav.MenuItems.Insert(index, item);
+    }
+
+    /// <summary>
+    /// 这一项提到一级时插在**哪个固定项之前**。
+    ///
+    /// <para>
+    /// ⛔ 不能照抄上游的「课堂类插在课堂工具前、系统类插在系统工具前、教室喊话插在函数图像前」——
+    ///    本移植版的静态导航顺序是「… 函数图像 / 课堂工具 / 系统工具 / 查阅单词 / 侧边布局 / 教室喊话 / 实验性功能」，
+    ///    照抄会让默认状态下三项都换位置（硬要求：默认必须与改动前逐项一致）。
+    /// </para>
+    /// <para>
+    /// 规则：查阅单词与文档库在「侧边布局」之前（文档库紧跟查阅单词，两者同属"查资料"这一类），
+    /// 教室喊话在「实验性功能」之前；工具项则回到自己那一组的父项之前（课堂类在「课堂工具」前、
+    /// 系统类在「系统工具」前）—— 默认状态下没有任何工具提到一级，所以这条只在用户改过之后才生效。
+    /// 同一锚点下多项的先后由 <see cref="NavLayout.All"/> 的顺序决定（页面项在前、工具按工具清单顺序）。
+    /// </para>
+    /// </summary>
+    private NavigationViewItem? AnchorFor(NavPlaceable placeable)
+    {
+        switch (placeable.Tag.ToLowerInvariant())
+        {
+            case "dictionary":
+            case "docs":
+                return SidebarNav;
+            case "announce":
+                return ExperimentalNav;
+            default:
+                return placeable.Group == ToolGroup.System ? SystemToolsNav : ClassroomToolsNav;
+        }
+    }
+
+    /// <summary>
+    /// 可移动项对应的导航项：导航里已经有这个 tag 就复用原对象，没有才现造一个。
+    /// </summary>
+    private NavigationViewItem NavigationItemFor(
+        NavPlaceable placeable, IReadOnlyDictionary<string, NavigationViewItem> existing)
+    {
+        if (existing.TryGetValue(placeable.Tag, out var item)) return item;
+
+        // ⚠️ 走到这里说明「NavLayout 里有、ShellPage.axaml 里没有」—— 加工具时别忘了同步 XAML
+        //    （FA 2.4.1 的选中竖线只认 XAML 声明的子项，代码造的项能显示但高亮会退回父项）。
+        AppLog.Warn("shell", $"导航项 {placeable.Tag} 不在 XAML 里，运行时补建（选中竖线可能不稳）");
+        return new NavigationViewItem
+        {
+            Content = placeable.Name,
+            Tag = placeable.Tag,
+            IconSource = NavIconSource(placeable.Glyph),
+        };
+    }
+
+    /// <summary>
+    /// 代码造导航项时用的图标源（对应 WinUI 的 <c>new FontIcon { Glyph = … }</c> 那一手）。
+    /// ⚠️ FA 里 <c>NavigationViewItem</c> 的图标属性叫 <c>IconSource</c>，且只收 IconSource 家族 ——
+    ///    字体要显式带上 SymbolThemeFontFamily，否则会落到系统默认字体、画出一堆方块。
+    /// </summary>
+    private FontIconSource NavIconSource(string glyph)
+    {
+        var source = new FontIconSource { Glyph = glyph, FontSize = 24 };
+        try
+        {
+            if (this.TryFindResource("SymbolThemeFontFamily", ActualThemeVariant, out var value)
+                && value is FontFamily family)
+                source.FontFamily = family;
+        }
+        catch
+        {
+            // 取不到就交给 FA 的默认模板处理（最坏是图标字体不对，不影响导航）
+        }
+        return source;
+    }
+
 
     /// <summary>
     /// 自检：导航里「内置工具」的子项（在 <c>ShellPage.axaml</c> 里声明）必须与
@@ -217,6 +438,259 @@ public sealed partial class ShellPage : PageBase
         {
             // 动画出岔子不值得影响导航：直接显示出来
             try { ContentFrame.Opacity = 1; } catch { }
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  导航项右侧的 New / Beta 角标（2026-11-04，自上游 dv1.2.0-insider1.10 移植）
+    // ══════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// 导航项右侧的文字角标：tag →（文字，是否用警告色）。
+    ///
+    /// <para>
+    /// 目的：每次更新用户不知道加了什么，靠这个让新入口自己冒出来。三种状态的含义
+    /// （2026-11-03 Nick 定的口径）：
+    /// <list type="bullet">
+    ///   <item><b>New</b>（绿色）＝ 这个版本刚加，用户第一次见；</item>
+    ///   <item><b>Beta</b>（黄色）＝ 功能**已经确定要做**，只是还在打磨；</item>
+    ///   <item><b>实验性功能</b>（页面标题旁的胶囊，<c>Controls/ExperimentalBadge</c>）＝
+    ///         连要不要做都没定，随时可能拿掉 —— 和 Beta 不是一回事，别混用。</item>
+    /// </list>
+    /// </para>
+    ///
+    /// <para>
+    /// ⚠️ 不再需要"每次发版手动改这张表"：角标**只在本版本装好后的 15 天内出现**
+    /// （<see cref="BadgeLifetimeDays"/>），过期自动消失，不用谁去删行（2026-11-04 Nick 定）。
+    /// 换了版本会重新起算，所以新版里的新功能仍然会被提示一轮。
+    /// 表里留着的行 = 这个功能还在"新 / Beta"的语义里，只是平时不显示；功能转正时再删。
+    /// </para>
+    /// </summary>
+    private static readonly Dictionary<string, (string Text, bool Warning)> NavBadges =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["ghostfile"] = ("New", false),
+            ["dictionary"] = ("New", false),
+            ["docs"] = ("New", false),
+            ["ppttouch"] = ("Beta", true),
+        };
+
+    /// <summary>
+    /// 导航角标挂多久（天）：**本版本第一次运行**起算。改这个数就行。
+    /// <para>
+    /// 15 天是 Nick 2026-11-04 定的口径 —— 装完头两周足够注意到，再长就变装饰。
+    /// </para>
+    /// </summary>
+    private const int BadgeLifetimeDays = 15;
+
+    /// <summary>本版本还在角标有效期内（构造时算一次，一次运行中不会变）。</summary>
+    private bool _badgesFresh;
+
+    /// <summary>
+    /// 角标还能不能挂。顺带承担"本版本第一次运行"的打点：版本号跟存档里记的不一样就重新计时。
+    /// <para>
+    /// ⚠️ 记的是**首次运行**时间，不是安装时间 —— 装完隔几天才打开的情况更常见，按运行时间算才准。
+    /// ⚠️ 存档读不出来 / 时间解析失败时返回 true（照常显示）：宁可多提示一次，
+    ///    也别因为一个坏字段把功能提示整个吞掉。
+    /// </para>
+    /// </summary>
+    private static bool BadgesAreFresh()
+    {
+        try
+        {
+            var settings = App.Settings.Current;
+            var version = ShellConfig.ShellVersion;
+
+            if (!string.Equals(settings.BadgeSinceVersion, version, StringComparison.Ordinal))
+            {
+                settings.BadgeSinceVersion = version;
+                settings.BadgeSinceUtc = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+                App.Settings.Save();
+                AppLog.Step("shell", $"导航角标：新版本 {version} 首次运行，{BadgeLifetimeDays} 天计时从这里开始");
+                return true;
+            }
+
+            if (!DateTime.TryParse(settings.BadgeSinceUtc, CultureInfo.InvariantCulture,
+                                   DateTimeStyles.RoundtripKind, out var since))
+                return true;
+
+            // 时钟被往回拨时 age 是负的，仍算"新鲜"（显示），不折腾用户
+            var age = DateTime.UtcNow - since.ToUniversalTime();
+            var fresh = age < TimeSpan.FromDays(BadgeLifetimeDays);
+
+            AppLog.Step("shell", fresh
+                ? $"导航角标：本版本第 {age.TotalDays:0.#} 天，还有 {(BadgeLifetimeDays - age.TotalDays):0.#} 天到期"
+                : $"导航角标：本版本已过 {age.TotalDays:0.#} 天，到期不再显示");
+
+            return fresh;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("shell", "导航角标计时读取失败（照常显示）：" + ex.Message);
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// 导航项原本的文字。角标是把 <see cref="NavigationViewItem.Content"/> 换成「文字 + 角标」的组合，
+    /// 换完就取不到原文了；而主题切换时要重造一次（颜色是代码设的具体值，不会自己跟着变），
+    /// 所以第一次换之前把原文记下来。
+    /// </summary>
+    private readonly Dictionary<NavigationViewItem, string> _navLabels = new();
+
+    /// <summary>把 <see cref="NavBadges"/> 挂到对应的导航项上。必须在导航项都建好之后调用。</summary>
+    private void ApplyNavBadges()
+    {
+        try
+        {
+            foreach (var item in EnumerateNavItems(Nav.MenuItems))
+            {
+                if (item.Tag is not string tag) continue;
+
+                // 记下原文（第一次进来时 Content 还是 XAML 里写的字符串）
+                if (!_navLabels.ContainsKey(item) && item.Content is string label)
+                    _navLabels[item] = label;
+
+                if (!_navLabels.TryGetValue(item, out var text)) continue;
+
+                // _badgesFresh = false（装好超过 15 天）时就当表是空的：一次也不挂，文字原样还原
+                if (_badgesFresh && NavBadges.TryGetValue(tag, out var badge))
+                {
+                    // ⚠️ NavigationViewItem 默认 HorizontalContentAlignment = Left，
+                    //    不改成 Stretch 的话内容不会被撑开，上面 Grid 的 * 列等于没设。
+                    item.HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Stretch;
+                    item.Content = ComposeLabel(text, badge.Text, badge.Warning);
+
+                    // 内容换成组合元素后，列表项自己念不出名字了，
+                    // 显式把名字挂回列表项上（Avalonia 的 AutomationProperties 与 WinUI 同名）。
+                    AutomationProperties.SetName(item, text);
+                }
+                else if (item.Content is not string)
+                {
+                    // 从表里删掉这一行 = 角标自动摘掉，文字原样还原
+                    item.Content = text;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // 角标画不出来不值得影响导航
+            AppLog.Catch("shell", "挂导航角标", ex, LogLevel.Debug);
+        }
+    }
+
+    /// <summary>
+    /// 文字和角标并排。用 <see cref="Grid"/> 而不是水平 <see cref="StackPanel"/>：
+    /// 面板展开宽度 296（<c>OpenPaneLength</c>，2026-11-04 从 252 加宽 —— 252 下
+    /// 「PowerPoint 触控优化」作为子项还多一层缩进，加个 Beta 就撑爆，实测会截成「PowerPoint 触控…」），
+    /// 再长就让 Grid 的 <c>*</c> 列先省略文字，角标永远完整。
+    ///
+    /// <para>
+    /// 角标右对齐到内容区右边缘，所以列与列之间看着有空白 —— 这是刻意的：
+    /// 一列角标对齐成一条竖线，比各自紧贴文字更好扫读。
+    /// ⚠️ 移植差异：WinUI 用 <c>Grid.ColumnSpacing = 8</c> 拉开两列，Avalonia 的 Grid **没有** ColumnSpacing，
+    /// 改成给角标本身留左边距（8），观感一致。
+    /// </para>
+    /// </summary>
+    private Control ComposeLabel(string text, string badgeText, bool warning)
+    {
+        var label = new TextBlock
+        {
+            Text = text,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            TextWrapping = TextWrapping.NoWrap,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+            // 字体不显式设：让它继承导航项自己的字体，跟其它项保持一致
+        };
+
+        var badge = MakeTextBadge(badgeText, warning);
+
+        // 文字列用 *（占满剩余宽度、能省略），角标列 Auto（永远完整）。
+        // ⚠️ 两列都 Auto 时水平布局**不会**约束文字 —— 文本原样画出去被裁掉，角标一起被挤出可视区。
+        var grid = new Grid
+        {
+            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+        };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.Children.Add(label);
+        grid.Children.Add(badge);
+
+        AutomationProperties.SetName(grid, text);
+
+        Grid.SetColumn(label, 0);
+        Grid.SetColumn(badge, 1);
+
+        return grid;
+    }
+
+    /// <summary>
+    /// 文字角标：<see cref="Border"/> + <see cref="TextBlock"/> 两个原生基础控件的组合。
+    ///
+    /// <para>
+    /// ⛔ 不用 <see cref="InfoBadge"/>：它原生只认数字和图标，要塞文字得整个替换 ControlTemplate ——
+    /// 那就是"自己画一个控件"，跟"能原生就原生"这条铁律正相反（2026-11-04 Nick 定）。
+    /// </para>
+    ///
+    /// <para>
+    /// 2026-11-04 第二次调：Nick 对着 WinUI Gallery 的「Experimental」标签说我们这版
+    /// "第三方味道很浓"。差在四处，全部往系统那边靠：
+    /// <list type="bullet">
+    ///   <item><b>字重</b>：SemiBold → Normal。小字加粗是网页 tag 的做法，系统标签一律常规字重；</item>
+    ///   <item><b>内边距</b>：6,1 → 7,1。垂直只留 1 像素容易被压扁，水平给够才不显得挤；</item>
+    ///   <item><b>底色</b>：自己算的"语义色 + 15% 透明" → 系统 <c>SystemFillColor*Background</c> 的**实色**
+    ///         （深色下 Success 是 #393D1B、Caution 是 #433519）—— InfoBar 的严重性底色就是这对资源。
+    ///         叠透明度会跟着窗口背景跑，Mica / 亚克力上发灰，这就是"第三方味"的来源；</item>
+    ///   <item><b>圆角</b>：4，跟 InfoBar / 卡片同一档，⛔ 不要做成胶囊。</item>
+    /// </list>
+    /// 颜色仍取系统语义色（Success / Caution），深浅主题各自适配。
+    /// </para>
+    ///
+    /// ⚠️ 移植说明：WinUI 的 <c>ThemeResource</c> 取法 → 本仓库一律走 <see cref="Services.ThemeBrush.Get"/>
+    /// （它按元素所在那棵树取色；XAML 里才用 DynamicResource）。返回的就是 Brush，直接赋给 Border。
+    /// </summary>
+    private Border MakeTextBadge(string text, bool warning)
+    {
+        var fg = Services.ThemeBrush.Get(this,
+            warning ? "SystemFillColorCautionBrush" : "SystemFillColorSuccessBrush");
+
+        // 底色用系统那对**调好的实色**（Success/Caution Background），⛔ 不是"语义色压透明度"。
+        // 叠透明度会跟着窗口背景走，Mica / 亚克力上发灰发脏 —— 这正是"第三方味"的来源（2026-11-04）。
+        // InfoBar 的严重性底色用的也是同一对资源。
+        var bg = Services.ThemeBrush.Get(this,
+            warning ? "SystemFillColorCautionBackgroundBrush" : "SystemFillColorSuccessBackgroundBrush");
+
+        return new Border
+        {
+            Background = bg,
+            // 4 = InfoBar / 卡片同一档圆角，跟系统控件对齐（3 会更像网页 chip）
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(7, 1, 7, 1),
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+            // 左边 8 = 原版 Grid.ColumnSpacing（Avalonia 没有这一项）；
+            // 右边 2 = 离导航项右边缘留一档，别真的顶到边
+            Margin = new Thickness(8, 0, 2, 0),
+            Child = new TextBlock
+            {
+                Text = text,
+                FontSize = 11,
+                FontWeight = FontWeight.Normal,
+                Foreground = fg,
+            },
+        };
+    }
+
+    /// <summary>连子项一起往下走（实验性功能、课堂工具、系统工具这三组下面都是有子项的）。</summary>
+    private static IEnumerable<NavigationViewItem> EnumerateNavItems(IList<object> items)
+    {
+        foreach (var raw in items)
+        {
+            if (raw is not NavigationViewItem item) continue;
+
+            yield return item;
+
+            foreach (var child in EnumerateNavItems(item.MenuItems)) yield return child;
         }
     }
 
@@ -361,6 +835,10 @@ public sealed partial class ShellPage : PageBase
             "SettingsPage" => "settings",
             "SidebarLayoutPage" => "sidebar",
             "AnnouncePage" => "announce",      // 教室喊话已提为独立功能项（不在 ToolCatalog，必须显式映射）
+            // 自上游 1.10 新增的三项：返回 / GoBack 后高亮要跟着退
+            "DocLibraryPage" => "docs",
+            "PptTouchPage" => "ppttouch",
+            "GhostFilePage" => "ghostfile",
             _ => null,
         };
         if (byName is not null) return byName;
@@ -870,6 +1348,18 @@ public sealed partial class ShellPage : PageBase
                 // 虚拟内存（自上游 dv1.2.0-insider1.8 移植）：PagingFiles 在 HKLM，提权助手写 MULTI_SZ，重启后生效。
                 ContentFrame.Navigate(typeof(PageFilePage));
                 return;
+            case "ppttouch":
+                // PowerPoint 触控优化（自上游 dv1.2.0-insider1.9 移植，2026-11-01；dv1.2.0 正式版转正进系统工具）
+                ContentFrame.Navigate(typeof(PptTouchPage));
+                return;
+            case "ghostfile":
+                // 幽灵文件清理（自上游 dv1.2.0-insider1.10 移植，2026-11-03；dv1.2.0 正式版转正进系统工具）
+                ContentFrame.Navigate(typeof(GhostFilePage));
+                return;
+            case "docs":
+                // 文档库列表页（自上游 dv1.2.0-insider1.10 移植）：正文页走 DocArticlePage，不在导航里出现。
+                ContentFrame.Navigate(typeof(DocLibraryPage));
+                return;
             case "dictionary":
                 // 查阅单词（自上游 dv1.2.0-insider1.8 移植，需求清单第 17 条）：纯原生页，
                 // 词源调度在 Services/Dictionary 里，不经 ToolCarrier —— 它不是可替换的网页小工具。
@@ -954,6 +1444,9 @@ public sealed partial class ShellPage : PageBase
         _inSelectTag = true;
         try
         {
+        // 每次重钉都先作废上一条「暂缓高亮」：走到下面子项分支且不内联时会重新记上。
+        _pendingChildTag = null;
+
         // 「实验性功能」是个分组父项，它**不进 NavigationView 的选中体系**（原因见 ShellPage.axaml 的注释）——
         // 高亮得手动打：先清掉别的选中项，再点亮父项自己。
         // ⚠️ 这里**不碰 IsExpanded**：点父项时 NavigationView 自己会 toggle 展开/收起，
@@ -981,6 +1474,25 @@ public sealed partial class ShellPage : PageBase
             {
                 if ((child.Tag as string) != tag) continue;
 
+                // ⚠️ 2026-11-06：子项**只有在内联铺在面板上时**才能展开分组、才能塞进 SelectedItem。
+                //    窗口还没测量完（显示模式判定还停在 Minimal）、或者面板是图标窄条时，FA 2.4.1 把
+                //    分组子项装在 AttachedFlyout 的 Popup 里：这一下 <c>IsExpanded = true</c> 会把浮层
+                //    打开、子项容器在 Popup 里被 realize，随后浮层被关掉／子项搬回内联；
+                //    Popup 里那个容器早已脱离可视树，而 ViewportManager 还拿它当滚动锚点 ——
+                //    下一次渲染就抛
+                //      InvalidOperationException: An anchor control must be a visual descendent of the
+                //      ScrollContentPresenter.
+                //    整个进程当场退出（只在渲染回调里，托管栈拦不住）。实测：起始页取任何「折叠分组里的
+                //    子项」（--page=pagefile / ppttouch / ghostfile / machinecheck / pick-number）100% 复现，
+                //    起始页是一级页时正常。
+                //    处置：面板没内联就整段不做 —— 只记下待钉的 tag，等 DisplayModeChanged 变成 Expanded
+                //    之后再展开 + 钉高亮（构造函数里挂的那一发）。
+                if (!NavChildrenInline)
+                {
+                    _pendingChildTag = tag;
+                    return;
+                }
+
                 top.IsExpanded = true;
                 Nav.SelectedItem = child;
                 // ⚠️ 2026-10-07：「内置工具」这一组的子项是**代码动态添加**的。FA 在分组尚未 realize 时
@@ -994,6 +1506,9 @@ public sealed partial class ShellPage : PageBase
                 {
                     try
                     {
+                        // 这一发是延后执行的，期间面板可能又切回不内联（窗口被拖窄）——
+                        // 那种情况下再设 SelectedItem 就是上面说的锚点崩溃，直接放弃这次补钉。
+                        if (!NavChildrenInline) return;
                         parent.IsExpanded = true;
                         if (!ReferenceEquals(Nav.SelectedItem, target))
                         {
@@ -1012,6 +1527,22 @@ public sealed partial class ShellPage : PageBase
             _inSelectTag = false;
         }
     }
+
+    /// <summary>
+    /// 分组子项此刻是否**内联铺在导航面板上**（可以安全地展开分组、当 <c>SelectedItem</c> 用）。
+    ///
+    /// <para>判据只认 <c>DisplayMode == Expanded</c>。⚠️ 不要拿 <c>IsPaneOpen</c> 当并集补进来：
+    /// 窗口首次测量之前是 Minimal 且 <c>IsPaneOpen=true</c>，那时候子项其实还挂在 AttachedFlyout 的
+    /// Popup 里，按"面板开着"放行就会踩到 <see cref="SelectTag"/> 里记的那个锚点崩溃（实测）。</para>
+    /// </summary>
+    private bool NavChildrenInline => Nav.DisplayMode == NavigationViewDisplayMode.Expanded;
+
+    /// <summary>
+    /// 因面板不内联而**暂缓**的起始页高亮（见 <see cref="SelectTag"/> 里的实测说明）。
+    /// 非 null = 有子项等着内联之后再钉；<see cref="NavChildrenInline"/> 一旦成立就由
+    /// DisplayModeChanged 补钉并清空。
+    /// </summary>
+    private string? _pendingChildTag;
     /// <summary>
     /// 把导航高亮打在「实验性功能」父项上。
     /// ⚠️ 父项**不能塞进 Nav.SelectedItem**：NavigationView 拿到一个"带子项的分组头"时会把选中
@@ -1215,7 +1746,7 @@ public sealed partial class ShellPage : PageBase
         }
     }
 
-    /// <summary>选中一条结果：软件进详情页，工具 / 页面走导航 tag。</summary>
+    /// <summary>选中一条结果：软件进详情页，文章进正文页，工具 / 页面走导航 tag。</summary>
     private void GoSearchHit(Data.SearchHit hit)
     {
         SearchPopup.IsOpen = false;
@@ -1229,6 +1760,32 @@ public sealed partial class ShellPage : PageBase
             return;
         }
 
+        // 文档库（2026-11-05，自上游 1.10 移植）：文章不是导航项，直接进正文页。
+        if (hit.Kind == Data.SearchHitKind.Doc)
+        {
+            NavigateToDocArticle(hit.Key);
+            return;
+        }
+
         if (hit.Target.Length > 0) NavigateTo(hit.Target);
+    }
+
+    /// <summary>
+    /// 进「文档库」里的一篇文章（列表点击、全局搜索、文章内 <c>csh://article/…</c> 链接共用）。
+    /// 导航高亮停在「文档库」—— 正文页属于这一区，导航里不给每篇文章单独建项。
+    /// </summary>
+    public void NavigateToDocArticle(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id)) return;
+
+        try
+        {
+            SelectTag("docs");
+            ContentFrame.Navigate(typeof(DocArticlePage), id);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn("shell", "打开文档失败：" + ex.Message);
+        }
     }
 }

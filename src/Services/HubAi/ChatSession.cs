@@ -340,7 +340,7 @@ public static class ChatSessionStore
     {
         try
         {
-            var path = Path.Combine(Dir, id + ".json");
+            var path = SafePath(id);
             if (!File.Exists(path)) return null;
 
             var session = JsonSerializer.Deserialize<ChatSession>(File.ReadAllText(path), JsonOpts);
@@ -358,7 +358,7 @@ public static class ChatSessionStore
     {
         try
         {
-            var path = Path.Combine(Dir, id + ".json");
+            var path = SafePath(id);
             if (File.Exists(path)) File.Delete(path);
         }
         catch (Exception ex)
@@ -367,12 +367,62 @@ public static class ChatSessionStore
         }
     }
 
+    /// <summary>
+    /// 校验会话 id 只含允许字符（数字 / 大小写字母 / - / _），拼出安全路径，防路径穿越。
+    /// session.Id 现在是 Guid 前 10 位（十六进制），老存档是 yyyyMMdd-HHmmss，两者都在允许范围内。
+    /// </summary>
+    private static string SafePath(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+            throw new ArgumentException("会话 id 为空", nameof(id));
+
+        foreach (var ch in id)
+        {
+            var ok = (ch >= '0' && ch <= '9')
+                     || (ch >= 'a' && ch <= 'z')
+                     || (ch >= 'A' && ch <= 'Z')
+                     || ch == '-' || ch == '_';
+            if (!ok) throw new ArgumentException($"会话 id 含非法字符：{id}", nameof(id));
+        }
+
+        return Path.Combine(Dir, id + ".json");
+    }
+
     private static void Write(ChatSession session)
     {
+        var path = SafePath(session.Id);
+        var json = JsonSerializer.Serialize(session, JsonOpts);
+        var tmp = path + ".tmp";
+        var backup = path + ".bak";
+
         Directory.CreateDirectory(Dir);
-        File.WriteAllText(
-            Path.Combine(Dir, session.Id + ".json"),
-            JsonSerializer.Serialize(session, JsonOpts));
+        try
+        {
+            // 先写同目录临时文件，再原子替换：进程中途被杀只可能留下完整 tmp，绝不会留下半截 JSON
+            File.WriteAllText(tmp, json);
+
+            if (!File.Exists(path))
+            {
+                File.Move(tmp, path, overwrite: true);
+                return;
+            }
+
+            try
+            {
+                // File.Replace 是原子替换，并保留一份 .bak（出问题时可人工找回）
+                File.Replace(tmp, path, backup, ignoreMetadataErrors: true);
+            }
+            catch
+            {
+                // 部分文件系统 / 权限下 Replace 不可用：回落 Move(overwrite) 兜底
+                File.Move(tmp, path, overwrite: true);
+            }
+        }
+        finally
+        {
+            // 成功时 tmp 已被消耗；失败时清掉残留，避免脏临时文件堆积
+            try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
+        }
     }
 
     private static string MakeTitle(List<SessionEntry> branch, string fallback)

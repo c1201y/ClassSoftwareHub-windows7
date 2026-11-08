@@ -91,6 +91,12 @@ public sealed partial class HubAiSettingsPage : PageBase
 
     private async void EnableToggle_Toggled(object? sender, RoutedEventArgs e)
     {
+        try { await EnableToggle_ToggledAsync(sender, e); }
+        catch (Exception ex) { AppLog.Catch("hubai", "切换 Hub AI 总闸", ex); }
+    }
+
+    private async Task EnableToggle_ToggledAsync(object? sender, RoutedEventArgs e)
+    {
         if (_loading) return;
 
         var enabled = EnableToggle.IsChecked == true;
@@ -404,6 +410,16 @@ public sealed partial class HubAiSettingsPage : PageBase
 
             keyBox.Watermark = isLocal ? "本地模型通常不需要密钥" : "粘贴服务商提供的密钥";
 
+            // ⛔ 编辑已有模型时，密钥框**不显示成空白**（上游 dv1.2.0）。
+            //    空白输入框会让人以为"密钥丢了、要重填"，于是把密钥又粘一遍。
+            //    改成明说已保存：留空 = 不改，要改就覆盖。
+            var hasSecret = existing is not null
+                            && SecretStore.Has(existing.EffectiveSecretId);            if (hasSecret && !isLocal)
+            {
+                keyBox.Text = "";
+                keyBox.Watermark = "密钥已保存（留空表示不修改，重新填写则覆盖）";
+            }
+
             modelCombo.Items.Clear();
             foreach (var model in provider.Models)
             {
@@ -523,6 +539,20 @@ public sealed partial class HubAiSettingsPage : PageBase
         entry.BaseUrl = (urlBox.Text ?? "").Trim().Length > 0 ? urlBox.Text!.Trim() : saveProvider.BaseUrl;
         entry.Model = saveModel;
 
+        // ⛔ 没填密钥的模型不能保存，也不能被设为当前使用（上游 dv1.2.0）。
+        //    否则列表里会出现一条"看着配好了、一问就报错"的模型，用户得自己猜是哪一步漏了。
+        //    ⚠️ 本地模型（Ollama / LM Studio）本来就不要密钥，编辑时留空也允许 —— 沿用已存的即可。
+        var keyInput = (keyBox.Text ?? "").Trim();
+        var isLocalProvider = saveProviderId == "local";
+        var willHaveSecret = keyInput.Length > 0
+                             || (existing is not null && SecretStore.Has(existing.EffectiveSecretId));
+
+        if (!isLocalProvider && !willHaveSecret)
+        {
+            ShowResult(false, "请填写 API 密钥。没有密钥的模型无法使用，保存后也不会被设为当前模型。");
+            return;
+        }
+
         if (!editing || string.IsNullOrWhiteSpace(entry.Name))
             entry.Name = $"{saveProvider.Name} · {AiProviders.ModelLabel(saveProviderId, saveModel)}";
 
@@ -538,8 +568,9 @@ public sealed partial class HubAiSettingsPage : PageBase
         var key = (keyBox.Text ?? "").Trim();
         if (key.Length > 0) SecretStore.Save(key, entry.EffectiveSecretId);
 
-        // 新加的第一条自动设为当前
-        if (!editing) AiModelStore.Activate(entry.Id);
+        // 新加的第一条自动设为当前（⛔ 只在真有密钥时才设 —— 上游 dv1.2.0：
+        // 「未填写密钥的模型不能被设为当前使用」，否则一切换过去就整页报错）
+        if (!editing && (isLocalProvider || willHaveSecret)) AiModelStore.Activate(entry.Id);
 
         RenderModelList();
         ShowResult(true, editing ? "模型已更新。" : "模型已添加。");
@@ -591,6 +622,12 @@ public sealed partial class HubAiSettingsPage : PageBase
 
     private async void ToolsToggle_Toggled(object? sender, RoutedEventArgs e)
     {
+        try { await ToolsToggle_ToggledAsync(sender, e); }
+        catch (Exception ex) { AppLog.Catch("hubai", "切换 AI 工具", ex); }
+    }
+
+    private async Task ToolsToggle_ToggledAsync(object? sender, RoutedEventArgs e)
+    {
         if (_loading || _installingToolPack) return;
 
         if (ToolsToggle.IsChecked != true)
@@ -612,7 +649,10 @@ public sealed partial class HubAiSettingsPage : PageBase
     }
 
     private async void UpdateToolPack_Click(object? sender, RoutedEventArgs e)
-        => await InstallToolPackAsync(fromToggle: false);
+    {
+        try { await InstallToolPackAsync(fromToggle: false); }
+        catch (Exception ex) { AppLog.Catch("hubai", "更新工具包", ex); }
+    }
 
     private void RemoveToolPack_Click(object? sender, RoutedEventArgs e)
     {

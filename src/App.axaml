@@ -216,6 +216,76 @@
             <core:NotNullToCollapsed x:Key="NotNullToCollapsed" />
 
             <!--
+              FA 2.4.1 只提供 Color 型的 SystemAccentColor，没有 Brush 型的
+              SystemAccentColorPrimaryBrush；教室喊话页的配对码用 DynamicResource 绑定后者，
+              取不到时静默退回默认前景色。这里补一个同色画刷，让配对码显示为强调色。
+            -->
+            <SolidColorBrush x:Key="SystemAccentColorPrimaryBrush" Color="{DynamicResource SystemAccentColor}" />
+
+            <!--
+              ═══════════════════════════════════════════════════════════════════════════════
+              AccentButtonStyle —— 从 WinUI 移植时带过来的强调色按钮主题键。
+
+              ⚠️ 2026-11-07 审计核实：FluentAvaloniaUI 2.4.1 **没有**这个键。
+                 FA 的 ButtonStyles.axaml 只提供 AccentButtonBackground /
+                 AccentButtonForeground / AccentButtonBorderBrush 三组画刷，
+                 程序集里 UTF-8 / UTF-16（含奇对齐）全检索不到 "AccentButtonStyle"；
+                 仓库本地资源字典也没有定义。但 20+ 个页面写了
+                 `Theme="{StaticResource AccentButtonStyle}"`，StaticResource 取不到键会
+                 在页面加载时抛异常（或至少丢掉强调色）。这里补一个同名的全局 ControlTheme。
+
+              ⛔ 必须带完整 Template：ControlTheme 会**整体替换**默认主题，只写颜色
+                 Setter 而不写 Template，控件就没有模板 —— 表现为「文字贴着色块左边、
+                 没有内边距/圆角/正常高度」（2026-11-07 真机截图实锤）。
+                 这里照 TrayMenuItemTheme / KbdIconButton 的范式（Border + ContentPresenter，
+                 文字前景靠 ContentPresenter 继承 Button.Foreground），把 FA 视觉还原出来。
+                 画刷全用 DynamicResource，换肤 / 改系统强调色时会跟着变。
+              ═══════════════════════════════════════════════════════════════════════════════
+            -->
+            <ControlTheme x:Key="AccentButtonStyle" TargetType="Button">
+                <Setter Property="Background" Value="{DynamicResource AccentButtonBackground}" />
+                <Setter Property="Foreground" Value="{DynamicResource AccentButtonForeground}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource AccentButtonBorderBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="4" />
+                <Setter Property="Padding" Value="16,6" />
+                <Setter Property="MinHeight" Value="32" />
+                <Setter Property="HorizontalContentAlignment" Value="Center" />
+                <Setter Property="VerticalContentAlignment" Value="Center" />
+                <Setter Property="Template">
+                    <ControlTemplate>
+                        <Border x:Name="AccentBg"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="{TemplateBinding CornerRadius}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter Content="{TemplateBinding Content}"
+                                              ContentTemplate="{TemplateBinding ContentTemplate}"
+                                              HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter>
+
+                <Style Selector="^:pointerover /template/ Border#AccentBg">
+                    <Setter Property="Background" Value="{DynamicResource AccentButtonBackgroundPointerOver}" />
+                    <Setter Property="BorderBrush" Value="{DynamicResource AccentButtonBorderBrushPointerOver}" />
+                </Style>
+                <Style Selector="^:pressed /template/ Border#AccentBg">
+                    <Setter Property="Background" Value="{DynamicResource AccentButtonBackgroundPressed}" />
+                    <Setter Property="BorderBrush" Value="{DynamicResource AccentButtonBorderBrushPressed}" />
+                </Style>
+                <Style Selector="^:disabled">
+                    <Setter Property="Foreground" Value="{DynamicResource AccentButtonForegroundDisabled}" />
+                </Style>
+                <Style Selector="^:disabled /template/ Border#AccentBg">
+                    <Setter Property="Background" Value="{DynamicResource AccentButtonBackgroundDisabled}" />
+                    <Setter Property="BorderBrush" Value="{DynamicResource AccentButtonBorderBrushDisabled}" />
+                </Style>
+            </ControlTheme>
+
+            <!--
               自绘窗口按钮的配色。
               ⚠️ 故意**不用** FluentAvalonia 的 SubtleFillColor*Brush 那一套键：那些键名在 FA 的
                  dll 里搜不到（2026-10-02 核实），取不到值时 DynamicResource 会静默留空、按钮悬停没反应。

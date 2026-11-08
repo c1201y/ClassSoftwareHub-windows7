@@ -71,6 +71,13 @@
                  「已收录 XX 款软件」也不要放这行底下 —— 已整行挪进设置卡片下面的 CollectedBar。 -->
             <TextBlock Text="ClassSoftwareHub - Desktop" FontSize="24" FontWeight="Bold" TextWrapping="Wrap" />
 
+            <!-- ===== 公告（2026-11-05，自上游 1.10 移植）=====
+                 Nick：「之后的版本中如果有公告的话，应用软件首页顶部显示 infobar，每个版本可控，可以显示多条」。
+                 位置就在大标题正下方 —— 进首页第一眼就能看到，又不至于抢大标题。
+                 ⚠️ 条目在 code-behind 的 RenderNotices() 里生成（每条一个 InfoBar），这里只留容器。
+                    没有公告时容器高度为 0，不占任何间距，也不影响下面那块 banner 的位置。 -->
+            <StackPanel x:Name="NoticeHost" Spacing="8" />
+
             <!-- 图片（高 140，宽按比例，圆角 12）+ 版本号（图片右侧·左上）+ 代号（图片右侧·右上）
                  Grid 没有 ColumnSpacing=20 → 第 1 列子元素的左 Margin=20 模拟 -->
             <Grid Margin="0,10,0,0">
@@ -85,15 +92,15 @@
                     <Image x:Name="Banner" Height="140" Stretch="Uniform" />
                 </Border>
 
+                <!-- 版本号 + 应用代号：**上下两行、都靠左**（2026-11-08 对齐上游 dv1.2.0）。
+                     ⛔ 此前本移植版把代号贴到右端、和版本号各占一头 —— 那是早期做法，
+                        上游 2026-10-17 已改成上下两行。代号是版本号的附属信息，分居屏幕两端
+                        读起来像两个不相关的数据，窄窗口下还会顶到一起。 -->
                 <StackPanel Grid.Column="1" Margin="20,0,0,0" VerticalAlignment="Top" Spacing="2" HorizontalAlignment="Left">
                     <!-- 只显示软件自己的版本；"网站版本"行已删：软件是独立发布物，
                          不作为网站版本的附属品展示。 -->
                     <TextBlock x:Name="ShellVersionText" FontSize="28" FontWeight="Bold" />
-                </StackPanel>
-
-                <!-- 应用代号：与左上角的版本号同一水平线、贴右端（左右各占一头，不打架）。
-                     只显示英文代号本身，不加「代号」等中文前缀。 -->
-                <StackPanel Grid.Column="1" Margin="20,0,0,0" VerticalAlignment="Top" HorizontalAlignment="Right">
+                    <!-- 应用代号：只显示英文代号本身，不加「代号」等中文前缀。 -->
                     <TextBlock x:Name="CodeNameText" Text="Synesthesia" FontSize="28" FontWeight="Bold"
                                Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}" />
                 </StackPanel>

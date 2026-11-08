@@ -40,7 +40,12 @@ internal static class NativeMethodsUtil
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool UpdateWindow(IntPtr hWnd);
 
-    /// <summary>最低 Win2000。窗口所在显示器的 DPI（贴纸窗 1:1 物理像素换算用）。</summary>
+    /// <summary>
+    /// 窗口所在显示器的 DPI（贴纸窗 1:1 物理像素换算用）。
+    /// ⚠️ 最低 **Windows 10 1607**，Win7/8/8.1 的 user32.dll 没有这个导出，直接调用会抛
+    ///    <see cref="EntryPointNotFoundException"/>。调用方必须先按 OsInfo 判定系统版本，
+    ///    并保留 try/catch 兜底，回落到 RenderScaling 或 GetDeviceCaps(LOGPIXELSX)。
+    /// </summary>
     [DllImport("user32.dll")]
     internal static extern uint GetDpiForWindow(IntPtr hwnd);
 
@@ -52,4 +57,62 @@ internal static class NativeMethodsUtil
 
     /// <summary>SetWindowPos 的 hWndInsertAfter：把窗口放到最上层（Z 序，不影响激活）。</summary>
     internal static readonly IntPtr HWND_TOPMOST = new(-1);
+
+    /// <summary>GetDpiForWindow 导出探测结果：0=未探测，1=可用，-1=该导出不存在。</summary>
+    private static int _dpiForWindowProbe;
+
+    /// <summary>
+    /// 取 <c>WM_NCHITTEST</c> 命中判定用的缩放（dip → 物理像素），供自绘标题栏与扩展客户区
+    /// 两处共用，把标题栏高度、缩放带宽按**物理像素**换算。
+    ///
+    /// <para>
+    /// ⚠️ 不能用 <c>Window.RenderScaling</c>：它是 Avalonia 按 TopLevel 算的，跨屏拖动
+    ///    （150% ↔ 100%）时滞后于 <c>WM_DPICHANGED</c>，会算错边缘与标题栏命中。
+    ///    Win10 1607+ 用 <see cref="GetDpiForWindow"/> 按窗口所在屏取 DPI；Win7 / 老系统
+    ///    退回 <c>GetDeviceCaps(LOGPIXELSX)</c> 的系统级 DPI（Win7 单系统 DPI，行为不变）。
+    /// </para>
+    /// <para>
+    /// ⛔ <see cref="GetDpiForWindow"/> 是 Win10 1607+ 导出：这里先按
+    ///    <see cref="OsInfo.IsWindows10OrLater"/> 做版本判定，再用探测缓存 + try/catch 兜底，
+    ///    绝不在 Win7 上抛 <c>EntryPointNotFoundException</c>。
+    /// </para>
+    /// </summary>
+    internal static double GetScaleForHitTest(IntPtr hwnd, double renderScaling)
+    {
+        var fallback = renderScaling > 0 ? renderScaling : 1.0;
+
+        if (OsInfo.IsWindows10OrLater && _dpiForWindowProbe >= 0)
+        {
+            try
+            {
+                var dpi = GetDpiForWindow(hwnd);
+                _dpiForWindowProbe = 1;
+                if (dpi > 0) return dpi / 96.0;
+            }
+            catch (DllNotFoundException) { _dpiForWindowProbe = -1; }
+            catch (EntryPointNotFoundException) { _dpiForWindowProbe = -1; }
+            catch { /* 单次失败不缓存结论，下次再试 */ }
+        }
+
+        // Win7 / 兜底：GetDC + GetDeviceCaps(LOGPIXELSX) —— Win2000 起可用，系统级 DPI。
+        var hdc = IntPtr.Zero;
+        try
+        {
+            hdc = NativeMethods.GetDC(hwnd);
+            if (hdc == IntPtr.Zero) return fallback;
+            var dpi = NativeMethodsEx.GetDeviceCaps(hdc, NativeMethodsEx.LOGPIXELSX);
+            return dpi > 0 ? dpi / 96.0 : fallback;
+        }
+        catch
+        {
+            return fallback;
+        }
+        finally
+        {
+            if (hdc != IntPtr.Zero)
+            {
+                try { _ = NativeMethods.ReleaseDC(hwnd, hdc); } catch { }
+            }
+        }
+    }
 }

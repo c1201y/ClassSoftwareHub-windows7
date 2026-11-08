@@ -150,6 +150,11 @@ public partial class App : Application
             return;
         }
 
+        // 离屏诊断（--resource-check）只借 Avalonia 加载 App.axaml 的资源字典，不开窗口。
+        // ⛔ 必须在下面的单实例互斥体**之前**返回：否则这个短命进程会去"叫醒"正式实例，
+        //    或者因为抢不到互斥体直接退出，自检结果根本打不出来。
+        if (Program.OffscreenDiagnostic) return;
+
         // ⚠️ Avalonia 的全局 UI 线程异常事件挂在 Dispatcher 上（Application 本身没有），
         //    见 OnUnhandledException 的移植说明。这里在构造里就挂上，尽早生效。
         Dispatcher.UIThread.UnhandledException += OnUnhandledException;
@@ -739,6 +744,18 @@ public partial class App : Application
         // —— Enabled=false 时 Tick 第一眼就 return（见 Data.AutoShutdown）。
         Data.AutoShutdown.Start();
 
+        // PowerPoint 触控优化（需求 2，2026-11-01；自上游 dv1.2.0-insider1.9 移植）。
+        // Start 内部看开关，默认关 —— 它装的是全局鼠标钩子 + 补真实点击，
+        // 只在用户主动打开后才会上电。
+        try
+        {
+            Services.PptTouch.Start();
+        }
+        catch (Exception ex)
+        {
+            Core.AppLog.Exception("ppttouch", ex, "启动轻点翻页");
+        }
+
         // 日志 / 缓存的保留期巡检（自上游 dv1.1.3 移植）：日志留最近 N 天、缓存留最近 N 个版本；
         // 当前正在用的会话目录 / 版本目录永远不删（见 LogHome.Clean / CacheHome.Clean）。
         Services.CacheHome.Start();
@@ -1112,7 +1129,15 @@ public partial class App : Application
 
         try
         {
-            MessageBoxW(IntPtr.Zero, message, "ClassSoftwareHub",
+            // 给弹窗指定主窗口为 owner：无 owner 的 MessageBox 可能落到主窗口后面，老师看不到。
+            // 句柄取不到时回落到 IntPtr.Zero（MB_SETFOREGROUND 仍会把它提到前台）。
+            IntPtr owner = IntPtr.Zero;
+            try
+            {
+                owner = MainWindow?.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero;
+            }
+            catch { }
+            MessageBoxW(owner, message, "ClassSoftwareHub",
                 MB_OK | MB_ICONWARNING | MB_SETFOREGROUND);
         }
         catch { /* 提示失败也不能再抛 */ }

@@ -44,14 +44,19 @@ public sealed partial class ToolsPage : PageBase
             : ToolGroup.Classroom;
         Group = group;
 
-        // ⚠️ Standalone 的工具已经单独占了导航栏顶层项，索引页里不再重复出卡片（自上游 1.8）。
-        var items = ToolCatalog.All.Where(t => t.Group == group && !t.Standalone).ToList();
+        // ⚠️ 卡片清单与导航子项同源（都走 NavLayout.SecondLevel）：2026-11-04（自上游 1.10 移植）起
+        //    用户可以把「查阅单词 / 文档库」收进分组、也可以把常用工具拎到一级，
+        //    这里显示的就是"当前确实留在本组二级里"的那些。
+        var items = NavLayout.SecondLevel(group).ToList();
 
         // 两列板式（见 .axaml：照搬首页「快速开始」）：偶数序号进左列、奇数进右列。
         CardColumnLeft.ItemsSource = items.Where((_, i) => i % 2 == 0).ToList();
         CardColumnRight.ItemsSource = items.Where((_, i) => i % 2 == 1).ToList();
 
         TitleText.Text = group == ToolGroup.System ? "系统工具" : "课堂工具";
+
+        // 全部提到一级之后就剩下两条空列 —— 给一句说明，别让人以为页面坏了
+        EmptyHint.IsVisible = items.Count == 0;
 
         // 「常用工具窗口」那一块讲的是抽号 / 计时 / 时钟，只属于课堂组
         PaletteBlock.IsVisible = group != ToolGroup.System;
@@ -82,14 +87,14 @@ public sealed partial class ToolsPage : PageBase
 
     /// <summary>
     /// 卡片整张可点 → 进对应工具页。
-    /// ⚠️ 上游 1.2.0 走的是 <c>App.MainWindow?.Shell.NavigateTo(def.Id)</c>（导航栏那套，
-    ///    左侧「内置工具」子项会跟着高亮）—— 那要求 ShellPage 按 ToolCatalog 动态生成导航子项；
-    ///    本移植版的 ShellPage 暂未接入 ToolCatalog，故这里沿用本仓库已有的等价入口
-    ///    <see cref="ShellPage.NavigateToTool(Type)"/>：同样会高亮「内置工具」并把工具列表铺进返回栈。
+    /// 2026-11-04（自上游 1.10 移植）：卡片数据源从 <see cref="ToolDef"/> 换成 <see cref="NavPlaceable"/>，
+    /// 于是回到上游那条路 —— 走 <c>Shell.NavigateTo(tag)</c>（导航栏那一套，左侧子项跟着高亮）。
+    /// ⚠️ NavPlaceable 只有 tag、没有页面类型，载体选择（网页版 / 原生页）在 NavigateTagCore 里统一做，
+    ///    这里别再自己查 ToolCatalog，否则两条路的判定会分叉。
     /// </summary>
     private void Card_Tapped(object? sender, TappedEventArgs e)
     {
-        if ((sender as StyledElement)?.DataContext is ToolDef def && def.Page is not null)
-            App.MainWindow?.Shell.NavigateToTool(def.Page);
+        if ((sender as StyledElement)?.DataContext is NavPlaceable placeable && placeable.Tag.Length > 0)
+            App.MainWindow?.Shell.NavigateTo(placeable.Tag);
     }
 }

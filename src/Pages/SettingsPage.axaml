@@ -86,6 +86,11 @@
                     <TextBlock x:Name="AboutVersion" FontSize="28" FontWeight="Bold" Margin="0,6,0,0"
                                Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}" />
                     <TextBlock x:Name="AboutSiteVersion" FontSize="12" Opacity="0.75" />
+                    <!-- 字体声明：HarmonyOS Sans 的授权协议要求在软件里显著声明「使用了该字体」，
+                         所以放在「关于」区、紧跟版本号，而不是塞进法律条款正文里。
+                         ⚠️ 换字体时这段要跟着改（App.axaml/Program.cs 的 AppFontFamily 同名同源）。 -->
+                    <TextBlock FontSize="12" Opacity="0.65" TextWrapping="Wrap" Margin="0,2,0,0"
+                               Text="界面字体：HarmonyOS Sans（华为 HarmonyOS Sans 字体，依其字体授权协议随程序内嵌分发，仅作界面显示之用）" />
                 </StackPanel>
 
                 <!-- 相关链接（在版本号下面，跟首页那行同款）
@@ -123,13 +128,25 @@
                     </views:SettingsCard>
                 </StackPanel>
 
-                <!-- 授权：官方发布版直接显示已授权；自行编译版在这里输入激活码 -->
-                <TextBlock Text="授权" FontSize="14" FontWeight="SemiBold" Margin="0,20,0,8" />
+                <!--
+                  授权（2026-11-04 自上游 dv1.2.0-insider1.10 移植「授权状态」卡）：
+                  官方发布版不需要用户做任何事；自行编译版在这里输入激活码。
+                  ⚠️ 状态文案里不写令牌、密钥、签名这类词，也不解释服务端怎么判定 ——
+                     用户只需要知道"能不能用、到期没到期、去哪激活"。
+                  ⚠️ 移植说明：原版 card 里 Description 是个 TextBlock（动态文案）+ 右侧按钮，
+                     所以不能再用 IsClickEnabled（整卡可点会和按钮抢点击）。
+                -->
+                <TextBlock x:Name="LicenseSectionHeader" Text="授权" FontSize="14" FontWeight="SemiBold" Margin="0,20,0,8" />
                 <StackPanel Spacing="4">
-                    <views:SettingsCard x:Name="LicenseCard" Header="正版授权" IsClickEnabled="True" Click="License_Click">
+                    <views:SettingsCard x:Name="LicenseCard" Header="授权状态">
                         <views:SettingsCard.HeaderIcon>
                             <fa:FontIcon Glyph="&#xE72E;" />
                         </views:SettingsCard.HeaderIcon>
+                        <views:SettingsCard.Description>
+                            <TextBlock x:Name="LicenseStatus" TextWrapping="Wrap" FontSize="12"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                        </views:SettingsCard.Description>
+                        <Button x:Name="LicenseActionButton" Content="输入激活码" Click="License_Click" />
                     </views:SettingsCard>
                 </StackPanel>
 
@@ -186,6 +203,26 @@
                         </ComboBox>
                     </views:SettingsCard>
 
+                </StackPanel>
+
+                <!-- ================= 侧边栏导航 ================= -->
+                <!--
+                  2026-11-04 Nick（自上游 dv1.2.0-insider1.10 移植）：常用的东西被收在二级菜单里、
+                  不常用的却占着一级。这里只决定"显不显示在一级"，**分类不给改**
+                  （查阅单词永远算课堂、文档库永远算系统），否则两个工具总览页会变成两不像的东西。
+                  判定与写入全在 Data/NavLayout.cs。
+                  ⚠️ 移植说明：原版 header 用 BodyStrongTextBlockStyle，本页一律内联 FontSize/FontWeight
+                     （FA 里没有那套样式键）；SettingsCard 是本工程自建的 views:SettingsCard。
+                -->
+                <TextBlock Text="侧边栏导航" FontSize="14" FontWeight="SemiBold" Margin="0,24,0,8" />
+                <StackPanel Spacing="4">
+                    <views:SettingsCard Header="导航栏项目"
+                                        Description="选择哪些页面单独放在导航栏上，其余的收进「课堂工具」或「系统工具」。">
+                        <views:SettingsCard.HeaderIcon>
+                            <fa:FontIcon Glyph="&#xE8A0;" />
+                        </views:SettingsCard.HeaderIcon>
+                        <Button Content="自定义" Click="CustomizeNav_Click" />
+                    </views:SettingsCard>
                 </StackPanel>
 
                 <!-- ================= 窗口 ================= -->

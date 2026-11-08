@@ -329,7 +329,11 @@ public sealed partial class HashCheckWindow : Window
     // ── 选文件 ───────────────────────────────────────────────────────────
 
     /// <summary>整条都能点：少一层「我到底该点哪个按钮」的犹豫。</summary>
-    private async void DropZone_Tapped(object? sender, TappedEventArgs e) => await ChooseFileAsync();
+    private async void DropZone_Tapped(object? sender, TappedEventArgs e)
+    {
+        try { await ChooseFileAsync(); }
+        catch (Exception ex) { AppLog.Catch("hash-check", "选择待校验文件", ex); }
+    }
 
     private async Task ChooseFileAsync()
     {

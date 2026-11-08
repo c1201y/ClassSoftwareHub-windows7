@@ -12,19 +12,39 @@
       结构照 ClassIsland 的 WelcomeWindow：窗口只留一个装页面的宿主管 + 底部导航条，
       每一步是一个独立 UserControl（见 Views/Oobe），步骤表与前进/后退在 OobeSession 里。
 
-      ⚠️ 移植：原版是自绘标题栏 + Frame；这里保留系统标题栏（Win7 上更稳，见
-         QqFeedbackGuideWindow 的同款取舍），窗口标题就是原版标题栏上那行字。
-         Frame 的 NavigationCacheMode 用 StepHost 里的页面缓存等价实现。
+      ⚠️ 移植：原版是自绘标题栏 + Frame；Frame 的 NavigationCacheMode 用 StepHost 里的页面缓存等价实现。
       主窗口在新装首启时**不显示**，这一屏是唯一窗口；关掉它主界面才出来（见 App）。
+
+      标题栏：Win7 上去掉系统标题栏、改自绘（见 code-behind 的 AttachSelfDrawnCaption，
+         走和主窗口同款的 SelfDrawnFrame —— 只吃非客户区、窗口样式不动，拖动/吸附仍由系统执行）；
+         Win10/11 仍保留系统标题栏，此时下面的 CaptionBar 保持折叠。
     -->
     <Grid x:Name="Root">
         <Grid.RowDefinitions>
+            <!-- 自绘标题栏（仅 Win7 自绘框架启用；Win10/11 保留系统标题栏，这里折叠） -->
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
+        <!--
+          自绘标题栏：仅当 Win7 上挂上 SelfDrawnFrame 后由代码置 IsVisible=true。
+          高度必须与 code-behind 的 CaptionHeightDip（40）一致 —— 这一段正是 SelfDrawnFrame
+          报 HTCAPTION 的拖动区，不在这里画的其余部分就落进页面内容。
+          关闭键走全局 Button.caption close 样式（矢量 Path，不用图标字体，见 App.axaml）。
+        -->
+        <Grid x:Name="CaptionBar" Grid.Row="0" Height="40" IsVisible="False">
+            <TextBlock Text="欢迎使用 ClassSoftwareHub" FontSize="12.5" Opacity="0.85"
+                       VerticalAlignment="Center" Margin="16,0,140,0" />
+            <Button x:Name="CaptionCloseButton" Classes="caption close"
+                    HorizontalAlignment="Right" VerticalAlignment="Center"
+                    Margin="0,0,4,0" Click="CaptionClose_Click" ToolTip.Tip="关闭">
+                <Path Data="M0.5,0.5 L9.5,9.5 M9.5,0.5 L0.5,9.5" />
+            </Button>
+        </Grid>
+
         <!-- 页面宿主：页面实例在这里缓存，往回翻时用户刚填的值还在 -->
-        <Grid x:Name="StepHost" Grid.Row="0" ClipToBounds="True" Background="Transparent" />
+        <Grid x:Name="StepHost" Grid.Row="1" ClipToBounds="True" Background="Transparent" />
 
         <!--
           底部导航条：钉在窗口上、不跟页面内容走 —— 每一步的「上一步 / 下一步」都在同一个位置，
@@ -33,7 +53,7 @@
           不做「跳过设置」：初次配置是必选的，跳过会把用户
              刚才选的主题等设置整批丢掉，看起来就像"选了浅色、进主界面还是深色"。
         -->
-        <StackPanel x:Name="NavHost" Grid.Row="1" Orientation="Horizontal" Spacing="8"
+        <StackPanel x:Name="NavHost" Grid.Row="2" Orientation="Horizontal" Spacing="8"
                     HorizontalAlignment="Center" Margin="0,8">
             <Button x:Name="BackNavButton" Content="上一步" Click="NavBack_Click"
                     MinWidth="96" IsVisible="False" />

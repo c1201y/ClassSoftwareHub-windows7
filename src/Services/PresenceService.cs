@@ -17,7 +17,8 @@ namespace ClassSoftwareHub.Desktop.Services;
 /// </para>
 ///
 /// <para>
-/// 请求经 <see cref="OfficialApi"/> 创建，因此自动带上构建标识、设备码与激活凭证；
+/// ⚠️ 心跳是后台行为，客户端刻意不挂 OfficialApi 的授权闸门：请求不带构建标识 / 设备码 /
+/// 激活凭证，服务端偶发 401/403 也不会在用户毫无操作时弹出模态「激活正版」。
 /// 服务端在请求入口统一登记在线，不区分是否激活 —— 未激活设备同样应当在后台可见。
 /// </para>
 ///
@@ -42,7 +43,12 @@ internal static class PresenceService
     /// <summary>单次请求超时。心跳是后台行为，慢一点没关系，但不能把线程拖住。</summary>
     private const int TimeoutSec = 10;
 
-    private static readonly HttpClient Http = OfficialApi.Create(timeoutSeconds: TimeoutSec);
+    // ⚠️ 心跳是后台行为，绝不能因服务端偶发 401/403 弹出模态「激活正版」：
+    //    这里用不带 ClientAuthHandler 的客户端，请求也不带激活凭证。
+    private static readonly HttpClient Http = new HttpClient(HttpTls.Handler())
+    {
+        Timeout = TimeSpan.FromSeconds(TimeoutSec),
+    };
 
     private static readonly object Gate = new();
     private static CancellationTokenSource? _loopCts;

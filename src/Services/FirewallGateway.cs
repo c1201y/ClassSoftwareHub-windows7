@@ -273,28 +273,29 @@ public static class FirewallGateway
     /// </summary>
     private static void RunElevatedBatch(IReadOnlyList<string> commands)
     {
-        var file = Path.Combine(Path.GetTempPath(), "csh-fw-" + Guid.NewGuid().ToString("N") + ".cmd");
+        // 行级白名单：脚本的每一行都必须逐字等于本次由 RepairCommands() 生成的命令。
+        // 这样即使以后有人把用户输入拼进命令列表，也只会被整体拒绝，不会变成提权注入。
+        var allowed = new HashSet<string>(commands, StringComparer.Ordinal);
+        var content = "@echo off\r\n" + string.Join("\r\n", commands) + "\r\n";
 
-        // 批处理按 OEM 代码页读取；程序路径可能含中文，必须用同一个代码页写文件
-        File.WriteAllText(file, "@echo off\r\n" + string.Join("\r\n", commands) + "\r\n", OemEncoding());
+        // ⚠️ 2026-11-07：以前直接 WriteAllText 到 %TEMP% 的 .cmd，写完到点 UAC 之间
+        //    可被同用户进程覆写。现在原子落盘 + FileShare.Read 持有句柄到提权进程退出，
+        //    并回读校验；句柄随 using 覆盖整个 Process.Start / WaitForExit 区间。
+        //    批处理按 OEM 代码页读取，必须用同一个编码写。
+        using var artifact = ElevatedArtifact.Create(
+            "csh-fw", "cmd", OemEncoding(), content,
+            line => line == "@echo off" || allowed.Contains(line));
 
-        try
+        var psi = new ProcessStartInfo("cmd.exe", "/d /c \"" + artifact.Path + "\"")
         {
-            var psi = new ProcessStartInfo("cmd.exe", "/d /c \"" + file + "\"")
-            {
-                Verb = "runas",
-                UseShellExecute = true,
-                CreateNoWindow = true,
-                WindowStyle = ProcessWindowStyle.Hidden,
-            };
+            Verb = "runas",
+            UseShellExecute = true,
+            CreateNoWindow = true,
+            WindowStyle = ProcessWindowStyle.Hidden,
+        };
 
-            using var proc = Process.Start(psi);
-            proc?.WaitForExit(45_000);
-        }
-        finally
-        {
-            try { File.Delete(file); } catch { /* 文件被占用就留给系统清理 */ }
-        }
+        using var proc = Process.Start(psi);
+        proc?.WaitForExit(45_000);
     }
 
     /// <summary>控制台 / 批处理使用的 OEM 代码页（中文系统 936）；取不到就退回 UTF-8。</summary>

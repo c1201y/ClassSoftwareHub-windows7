@@ -76,6 +76,9 @@ public sealed class RoundedCorners
     /// </summary>
     public static bool Enabled => !OsInfo.SupportsWindowRounding;
 
+    /// <summary>保护 <see cref="Applied"/> / <see cref="Logged"/>：多个窗口可能并发 Apply / Clear。</summary>
+    private static readonly object Gate = new();
+
     /// <summary>每个窗口上次生效的（半径, 宽, 高）。用来挡住重复设置 —— 重复 SetWindowRgn 会闪。</summary>
     private static readonly Dictionary<IntPtr, Entry> Applied = new();
 
@@ -219,8 +222,11 @@ public sealed class RoundedCorners
             var max = Math.Min(width, height) / 2;
             if (radius > max) radius = max;
 
-            if (Applied.TryGetValue(hwnd, out var last) && last.Matches(radius, width, height))
-                return true;                        // 一模一样 —— 别白折腾
+            lock (Gate)
+            {
+                if (Applied.TryGetValue(hwnd, out var last) && last.Matches(radius, width, height))
+                    return true;                        // 一模一样 —— 别白折腾
+            }
 
             var rgn = NativeMethodsEx.CreateRoundRectRgn(0, 0, width, height, radius * 2, radius * 2);
             if (rgn == IntPtr.Zero) return false;
@@ -233,18 +239,24 @@ public sealed class RoundedCorners
             }
 
             // 成功 → **绝不能** DeleteObject（区域已经归系统了）
-            Applied[hwnd] = new Entry(radius, width, height);
-
-            // 句柄会在窗口销毁后被系统回收再用：表只增不减的话既吃内存，
-            //    又可能让新窗口"命中"旧句柄的旧尺寸而跳过裁剪。超过阈值整表重来（最多多裁一轮，肉眼看不见）。
-            if (Applied.Count > 128)
+            bool shouldLog;
+            lock (Gate)
             {
-                Applied.Clear();
-                Logged.Clear();
                 Applied[hwnd] = new Entry(radius, width, height);
+
+                // 句柄会在窗口销毁后被系统回收再用：表只增不减的话既吃内存，
+                //    又可能让新窗口"命中"旧句柄的旧尺寸而跳过裁剪。超过阈值整表重来（最多多裁一轮，肉眼看不见）。
+                if (Applied.Count > 128)
+                {
+                    Applied.Clear();
+                    Logged.Clear();
+                    Applied[hwnd] = new Entry(radius, width, height);
+                }
+
+                shouldLog = Logged.Add(hwnd);
             }
 
-            if (Logged.Add(hwnd))
+            if (shouldLog)
                 PortLog.Step($"圆角裁剪: 半径={radius}px 尺寸={width}x{height}（SetWindowRgn 成功，四角已裁）");
 
             return true;
@@ -263,7 +275,7 @@ public sealed class RoundedCorners
     {
         if (hwnd == IntPtr.Zero) return;
 
-        Applied.Remove(hwnd);
+        lock (Gate) { Applied.Remove(hwnd); }
 
         // 不能用 Enabled 当闸门：那句提前返回会让"表里已删、窗口上的 region 还在"
         //    —— 下次 Apply 看到表里没记录就以为是新窗口，实际却带着旧区域。
@@ -271,7 +283,9 @@ public sealed class RoundedCorners
         try
         {
             _ = NativeMethodsEx.SetWindowRgn(hwnd, IntPtr.Zero, true);
-            if (Logged.Remove(hwnd))
+            bool wasLogged;
+            lock (Gate) { wasLogged = Logged.Remove(hwnd); }
+            if (wasLogged)
                 PortLog.Step("圆角裁剪: 已清除（恢复矩形窗口）");
         }
         catch { }

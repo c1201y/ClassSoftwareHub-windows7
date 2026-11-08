@@ -95,7 +95,11 @@ public sealed partial class TimerToolPage : PageBase
     private void AlarmTest_Click(object? sender, RoutedEventArgs e) => Services.TimerAlarm.Play();
 
     /// <summary>菜单里的「选择自定义铃声…」。</summary>
-    private async void AlarmPick_Click(object? sender, RoutedEventArgs e) => await PickAlarmAsync();
+    private async void AlarmPick_Click(object? sender, RoutedEventArgs e)
+    {
+        try { await PickAlarmAsync(); }
+        catch (Exception ex) { Core.AppLog.Catch("timer", "选择自定义铃声", ex); }
+    }
 
     /// <summary>菜单里的「恢复默认铃声」。</summary>
     private void AlarmReset_Click(object? sender, RoutedEventArgs e)

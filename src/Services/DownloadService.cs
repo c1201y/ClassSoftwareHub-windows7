@@ -53,7 +53,11 @@ public enum DownloadRoute
     /// <summary>强制 GitHub 官方直链，不做任何加速改写（详情页「下载」按钮）。</summary>
     Official,
 
-    /// <summary>强制加速链：自建优先 → 公益镜像测速择优 → 官方直链回退（详情页「加速下载」按钮）。</summary>
+    /// <summary>
+    /// 详情页「加速下载」按钮。⚠️ 当前实现与 <see cref="Setting"/> 一致，均按设置解析候选，
+    /// 并不强制走加速链：设置选「GitHub 源」时，本按钮与「下载」按钮同样走官方直链。
+    /// 文档保留「加速」仅表按钮语义，勿据此假设一定不经官方直链。
+    /// </summary>
     Accelerated,
 }
 
@@ -254,7 +258,8 @@ public static class DownloadService
         IReadOnlyList<DownloadCandidate> candidates = route switch
         {
             DownloadRoute.Official => new[] { DownloadCandidate.Direct(url) },
-            // ⚠️ Accelerated 与 Setting 目前都按设置解析（与改动前 ResolveAcceleratedAsync 的行为一致）
+            // ⚠️ Accelerated 与 Setting 都按设置解析（见 DownloadRoute.Accelerated 的说明）：
+            //    设置选「GitHub 源」时，加速按钮与下载按钮都走官方直链，速度相同。
             _ => await GithubRoute.ResolveAsync(url, ct).ConfigureAwait(false),
         };
 
@@ -324,7 +329,9 @@ public static class DownloadService
 
     /// <summary>
     /// 将 URL 下载到指定文件（覆盖写）：先探测能力，支持区间则并行分片，否则单流。
-    /// 更新包下载（<c>UpdateService</c>）同样经由本方法，两条链路共用同一套策略。
+    /// ⚠️ 本方法当前全仓库无调用点，仅保留作参考实现。更新包下载<b>不</b>经由本方法
+    ///    （<c>UpdateService.FetchPackageAsync</c> 是单流增量哈希的另一条链路），
+    ///    切勿据此假设「两条链路共用同一套策略」而只在这里加限速或校验。
     /// </summary>
     public static async Task<long> DownloadToFileAsync(
         string url, string path, IProgress<DownloadProgress>? progress, CancellationToken ct)

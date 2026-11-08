@@ -1,10 +1,12 @@
-using System;
+﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
@@ -14,6 +16,7 @@ using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using ClassSoftwareHub.Desktop.Controls;
+using ClassSoftwareHub.Desktop.Data;
 using ClassSoftwareHub.Desktop.Views;
 using ClassSoftwareHub.Desktop.Core;
 using ClassSoftwareHub.Desktop.Platform;
@@ -179,7 +182,7 @@ public sealed partial class SettingsPage : PageBase
             Core.Dictionary.DictSourceModes.OnlineOnly => 3,
             _ => 0
         };
-        UpdateCurrent.Text = $"当前版本：{ShellConfig.VersionPrefix}{ShellConfig.ShellVersion}· 更新源：{UpdateService.CreateDefault().Source.DisplayName}";
+        UpdateCurrent.Text = $"当前版本：{ShellConfig.DisplayTag}· 更新源：{UpdateService.CreateDefault().Source.DisplayName}";
 
         // 教室喊话已独立成页（内置工具 → 教室喊话），设置页只剩跳转按钮（AnnouncePageJump_Click）。
 
@@ -334,6 +337,12 @@ public sealed partial class SettingsPage : PageBase
 
     private async void SubmitEchoCaveFallback_Click(object? sender, RoutedEventArgs e)
     {
+        try { await SubmitEchoCaveFallback_ClickAsync(sender, e); }
+        catch (Exception ex) { AppLog.Catch("echo-cave", "打开回声洞网页投稿", ex); }
+    }
+
+    private async Task SubmitEchoCaveFallback_ClickAsync(object? sender, RoutedEventArgs e)
+    {
         if (await EchoCave.OpenSubmitPage()) EchoSubmitButton.Flyout?.Hide();
         else ShowEchoSubmitStatus("无法打开浏览器，请手动访问 GitHub 投稿。");
     }
@@ -421,7 +430,7 @@ public sealed partial class SettingsPage : PageBase
         ContentIssues.IsVisible = c.Issues.Count > 0;
 
         AboutApp.Text = ShellConfig.AppName;
-        AboutVersion.Text = ShellConfig.VersionPrefix + ShellConfig.ShellVersion;
+        AboutVersion.Text = ShellConfig.DisplayTag;
 
         // ⚠️ 移植说明：原版本轮改为**以编译进程序的常量为准**，不再读内容包的 app.version
         //    （内容包的 text/ 不联网更新、装机即冻结，读它会一直显示装机那天那版）。
@@ -1504,6 +1513,12 @@ public sealed partial class SettingsPage : PageBase
 
     private async void DownloadDir_Change_Click(object? sender, RoutedEventArgs e)
     {
+        try { await DownloadDir_Change_ClickAsync(sender, e); }
+        catch (Exception ex) { AppLog.Catch("download", "更改下载目录", ex); }
+    }
+
+    private async Task DownloadDir_Change_ClickAsync(object? sender, RoutedEventArgs e)
+    {
         var picked = await PickFolderAsync(this);
         if (string.IsNullOrEmpty(picked)) return;
 
@@ -1564,6 +1579,13 @@ public sealed partial class SettingsPage : PageBase
     /// <summary>「正版授权」卡片的状态文案：官方构建、已激活、未激活三态。</summary>
     private void RefreshLicenseCard()
     {
+        // ⛔ 官方发布版**不显示**「输入激活码」按钮（上游 dv1.2.0-insider1.11）：
+        //    签名在编译期写进程序集，本来就不需要用户做任何事；摆一个永远点不出东西的
+        //    按钮只会让人以为"这版还要激活"。已用激活码激活的自行编译版同理 —
+        //    按钮留着也没意义（点开只是再念一遍状态），一并隐藏。
+        var hideAction = Core.BuildIdentity.IsOfficial || Services.License.LicenseStore.IsActivated;
+        try { LicenseActionButton.IsVisible = !hideAction; } catch { }
+
         if (Core.BuildIdentity.IsOfficial)
         {
             LicenseCard.Description = "已通过官方激活，永久可用。";
@@ -1572,10 +1594,13 @@ public sealed partial class SettingsPage : PageBase
 
         if (Services.License.LicenseStore.IsActivated)
         {
-            var expiry = Services.License.LicenseStore.ExpiryText;
-            LicenseCard.Description = expiry is null
-                ? $"已激活（长期有效）；设备码 {Services.License.LicenseStore.DeviceCode}"
-                : $"已激活，有效期至 {expiry}；设备码 {Services.License.LicenseStore.DeviceCode}";
+            // ⛔ 激活后只报**激活时间**，不再报有效期（上游 insider1.11）：
+            //    有效期是服务端签发的令牌属性，对老师没有任何可操作含义，
+            //    反而容易被误读成"这个软件快过期了、到期就不能用了"。
+            var activatedAt = Services.License.LicenseStore.ActivatedAtText;
+            LicenseCard.Description = activatedAt is null
+                ? $"已激活；设备码 {Services.License.LicenseStore.DeviceCode}"
+                : $"已于 {activatedAt} 激活；设备码 {Services.License.LicenseStore.DeviceCode}";
             return;
         }
 
@@ -1622,10 +1647,148 @@ public sealed partial class SettingsPage : PageBase
         if (Core.BuildIdentity.IsOfficial)
             return "已通过官方激活，永久可用。\n\n在线服务（投稿、反馈、回声洞、教室喊话、下载加速）全部启用。";
 
-        var expiry = Services.License.LicenseStore.ExpiryText;
-        var text = expiry is null
-            ? "本机已激活正版授权，在线服务可用（长期有效）。"
-            : $"本机已激活正版授权，在线服务可用，有效期至 {expiry}。";
+        // ⛔ 只报激活时间，不报有效期（上游 insider1.11，理由同 RefreshLicenseCard）
+        var activatedAt = Services.License.LicenseStore.ActivatedAtText;
+        var text = activatedAt is null
+            ? "本机已激活正版授权，在线服务可用。"
+            : $"本机已于 {activatedAt} 激活，在线服务可用。";
         return text + "\n\n设备码 " + Services.License.LicenseStore.DeviceCode + "（更换硬件后需要重新激活）";
+    }
+
+    // ── 侧边栏导航自定义（2026-11-04，自上游 dv1.2.0-insider1.10 移植）───────────
+
+    /// <summary>
+    /// 勾选哪些页面单独放在导航栏上。
+    ///
+    /// <para>
+    /// 勾/取消**立即生效**（不是点「完成」才生效）：对话框是模态的，导航栏就在它后面，
+    /// 改一项当场能看见结果，比"改完点完成再回头找变化"直观。
+    /// </para>
+    ///
+    /// <para>
+    /// ⛔ 这里是唯一的写入点 —— 状态与判定都在 <see cref="NavLayout"/>，别在这儿另算一套。
+    /// </para>
+    ///
+    /// <para>⚠️ 移植说明：原版 `Grid.ColumnSpacing` / `FontWeights.SemiBold` / 右侧 16 的滚动条留白，
+    /// 在 Avalonia 里分别是「用 Grid 的列宽 + 子元素 Margin」「FontWeight.SemiBold」「Margin 右侧 16」。</para>
+    /// </summary>
+    private async void CustomizeNav_Click(object? sender, RoutedEventArgs e)
+    {
+        try { await CustomizeNav_ClickAsync(sender, e); }
+        catch (Exception ex) { AppLog.Catch("settings", "调整导航栏项目", ex); }
+    }
+
+    private async Task CustomizeNav_ClickAsync(object? sender, RoutedEventArgs e)
+    {
+        var switches = new List<(NavPlaceable Item, ToggleSwitch Switch)>();
+
+        // 右侧那 16 是留给滚动条的：不预留时「开 / 关」会被滚动条压住
+        var body = new StackPanel { Spacing = 12, Margin = new Thickness(0, 0, 16, 0) };
+
+        body.Children.Add(new TextBlock
+        {
+            Text = "勾选的页面单独放在导航栏上，取消勾选的收进所属分组。首页、软件下载、Hub AI、"
+                 + "侧边布局、函数图像固定显示；实验性功能的页面始终留在分组内。",
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = 12,
+            Opacity = 0.7,
+        });
+
+        foreach (var group in new[] { ToolGroup.Classroom, ToolGroup.System })
+        {
+            body.Children.Add(new TextBlock
+            {
+                Text = group == ToolGroup.System ? "系统工具" : "课堂工具",
+                FontSize = 13,
+                FontWeight = FontWeight.SemiBold,
+                Margin = new Thickness(0, 6, 0, 0),
+            });
+
+            var list = new StackPanel { Spacing = 2 };
+
+            foreach (var item in NavLayout.All.Where(x => x.Group == group))
+            {
+                // ⚠️ 先设好初值再挂事件 —— 否则构造期那一次赋值会当成用户操作写进设置
+                var toggle = new ToggleSwitch
+                {
+                    IsChecked = NavLayout.IsTopLevel(item.Tag),
+                    Tag = item.Tag,
+                    MinWidth = 0,
+                    OnContent = "开",
+                    OffContent = "关",
+                };
+                toggle.IsCheckedChanged += NavSwitch_Toggled;
+
+                var row = new Grid();
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                var label = new TextBlock
+                {
+                    Text = item.Name,
+                    FontSize = 13.5,
+                    VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    Margin = new Thickness(0, 0, 12, 0),
+                };
+                row.Children.Add(label);
+
+                Grid.SetColumn(toggle, 1);
+                row.Children.Add(toggle);
+
+                list.Children.Add(row);
+                switches.Add((item, toggle));
+            }
+
+            body.Children.Add(list);
+        }
+
+        // 组内没有任何可搬动项时给一句说明，免得用户以为对话框坏了
+        if (switches.Count == 0)
+        {
+            body.Children.Add(new TextBlock
+            {
+                Text = "当前没有可以调整的项目。",
+                FontSize = 12,
+                Opacity = 0.7,
+                TextWrapping = TextWrapping.Wrap,
+            });
+        }
+
+        var dialog = new ContentDialog
+        {
+            Title = "导航栏项目",
+            Content = new ScrollViewer
+            {
+                Content = body,
+                MaxHeight = 420,
+                HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
+                VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+            },
+            PrimaryButtonText = "完成",
+            DefaultButton = ContentDialogButton.Primary,
+        };
+
+        var top = TopLevel.GetTopLevel(this);
+        if (top is null) await dialog.ShowAsync();
+        else await dialog.ShowAsync(top);
+    }
+
+    private void NavSwitch_Toggled(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not ToggleSwitch { Tag: string tag } sw) return;
+
+        try
+        {
+            NavLayout.SetTopLevel(tag, sw.IsChecked == true);
+            App.Settings.Save();
+
+            // 立即重建导航（不重启、不重开窗口）
+            App.MainWindow?.Shell.ReloadNavLayout();
+        }
+        catch (Exception ex)
+        {
+            Core.AppLog.Fail("settings", ex, "调整导航栏项目");
+        }
     }
 }

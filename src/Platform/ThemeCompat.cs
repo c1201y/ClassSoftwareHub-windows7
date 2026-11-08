@@ -23,6 +23,9 @@ public static class ThemeCompat
     //   · 外部组件主题（「桌面悬浮窗单独设置外观」+「外部组件外观」）：**只作用于桌面悬浮件** ——
     //     ① 「常用工具」浮窗（随机抽号 / 课堂计时 / 秒表计时 / 全屏时钟）；② 屏幕边缘的工具侧边栏。
     //   其余窗口不能登记成 external，否则分体一开会连文档窗都跟着变深。
+    /// <summary>保护 <see cref="Roots"/>：主题变化可能来自系统事件 / 设置页保存回调（非 UI 线程）。</summary>
+    private static readonly object Gate = new();
+
     private static readonly List<(WeakReference<StyledElement> Ref, bool External)> Roots = new();
 
     /// <summary>设置里的主题（system | light | dark）映射成 Avalonia 的 ThemeVariant。</summary>
@@ -59,8 +62,11 @@ public static class ThemeCompat
         {
             ApplyTheme(root, VariantFor(external));
 
-            Roots.RemoveAll(r => !r.Ref.TryGetTarget(out var t) || t is null);
-            Roots.Add((new WeakReference<StyledElement>(root), external));
+            lock (Gate)
+            {
+                Roots.RemoveAll(r => !r.Ref.TryGetTarget(out var t) || t is null);
+                Roots.Add((new WeakReference<StyledElement>(root), external));
+            }
         }
         catch (Exception ex)
         {
@@ -74,9 +80,16 @@ public static class ThemeCompat
     /// </summary>
     public static void Notify()
     {
-        var alive = new List<(WeakReference<StyledElement> Ref, bool External)>();
+        // 先在锁内取快照：ApplyTheme 会改 RequestedThemeVariant，不适合在锁内做 UI 操作。
+        List<(WeakReference<StyledElement> Ref, bool External)> snapshot;
+        lock (Gate)
+        {
+            Roots.RemoveAll(r => !r.Ref.TryGetTarget(out var t) || t is null);
+            snapshot = new List<(WeakReference<StyledElement> Ref, bool External)>(Roots);
+        }
 
-        foreach (var r in Roots)
+        var alive = new List<(WeakReference<StyledElement> Ref, bool External)>();
+        foreach (var r in snapshot)
         {
             try
             {
@@ -89,8 +102,11 @@ public static class ThemeCompat
             catch { }
         }
 
-        Roots.Clear();
-        Roots.AddRange(alive);
+        lock (Gate)
+        {
+            Roots.Clear();
+            Roots.AddRange(alive);
+        }
     }
 
     /// <summary>

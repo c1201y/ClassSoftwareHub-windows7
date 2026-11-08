@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using ClassSoftwareHub.Desktop.Services.Docs;
 
 namespace ClassSoftwareHub.Desktop.Data;
 
@@ -9,6 +10,7 @@ public enum SearchHitKind
 {
     App,
     Tool,
+    Doc,
     Page,
 }
 
@@ -46,6 +48,7 @@ public sealed class SearchHit
     {
         SearchHitKind.App => "软件",
         SearchHitKind.Tool => "内置工具",
+        SearchHitKind.Doc => "文章",
         _ => "页面",
     };
 
@@ -97,6 +100,7 @@ public sealed class SearchGroup
 /// <list type="number">
 /// <item>软件 —— 软件名 / 一句话简介 / 详细介绍（数据来自 <c>ContentStore</c>，即站点的「软件数据/apps/」）</item>
 /// <item>内置工具 —— 工具名 / 说明（清单只有 <see cref="ToolCatalog.All"/> 一份）</item>
+/// <item>文档库 —— 文章标题 / 简介 / 作者 / 标签（⛔ 不查正文，需求 1:15）</item>
 /// <item>页面 —— 导航栏的各个页面（见下面的页面注册表）</item>
 /// </list>
 /// <para>
@@ -118,6 +122,7 @@ public static class SearchIndex
     {
         SearchHitKind.App => "软件",
         SearchHitKind.Tool => "内置工具",
+        SearchHitKind.Doc => "文档库",
         _ => "页面",
     };
 
@@ -180,7 +185,41 @@ public static class SearchIndex
         return byName.Concat(byDesc).Take(limit).ToList();
     }
 
-    // ── ③ 页面 ────────────────────────────────────────────────────
+    // ── ③ 文档库 ──────────────────────────────────────────────────
+
+    /// <summary>
+    /// 文档库文章：只查**清单里的**标题 / 简介 / 作者 / 标签，⛔ 不读正文
+    /// （需求 1:15 明确要求"应用全局搜索不检索文章正文"）。
+    /// 清单没同步过时这里就是空表 —— 进一次「文档库」才有数据。
+    /// </summary>
+    private static List<SearchHit> SearchDocs(string q, string[] parts, int limit)
+    {
+        var byTitle = new List<SearchHit>();
+        var byMeta = new List<SearchHit>();
+
+        foreach (var article in DocLibrary.Articles)
+        {
+            var hit = new SearchHit
+            {
+                Kind = SearchHitKind.Doc,
+                Key = article.Id,
+                Title = article.Title,
+                Subtitle = Clip(article.Summary),
+                Glyph = "\uE8A5",
+                Target = article.Id,
+            };
+
+            if (Hit(article.Title, q, parts)) byTitle.Add(hit);
+            else if (Hit(article.Summary, q, parts)
+                     || Hit(article.Author, q, parts)
+                     || Hit(string.Join(" ", article.Tags), q, parts))
+                byMeta.Add(hit);
+        }
+
+        return byTitle.Concat(byMeta).Take(limit).ToList();
+    }
+
+    // ── ④ 页面 ────────────────────────────────────────────────────
 
     /// <summary>
     /// 页面：标题 / 说明 / 关键词三处任一命中即可。
@@ -265,7 +304,7 @@ public static class SearchIndex
                 Keywords = "easiguard 白板 专杀 希沃 easinote 进程 后台" },
         new() { Tag = "procguard", Title = "程序专杀", Desc = "按时间点结束指定程序", Glyph = "\uE7E8",
                 Keywords = "procguard 程序 专杀 进程 结束 定时" },
-        new() { Tag = "uninstaller", Title = "应用卸载", Desc = "卸载已安装的应用并清理残留", Glyph = "\uE74D",
+        new() { Tag = "uninstall", Title = "应用卸载", Desc = "卸载已安装的应用并清理残留", Glyph = "\uE74D",
                 Keywords = "uninstaller 卸载 删除 移除 残留 uninstall 清理" },
         new() { Tag = "appdata", Title = "AppData 管理", Desc = "查看并清理 AppData 中的缓存目录", Glyph = "\uE8B7",
                 Keywords = "appdata 缓存 清理 数据 文件夹 cache" },
@@ -273,12 +312,47 @@ public static class SearchIndex
                 Keywords = "startup 开机 启动项 自启 自启动 开机启动 autostart run 关掉" },
         new() { Tag = "repair", Title = "系统修复", Desc = "修复系统文件、组件存储与网络", Glyph = "\uE7EF",
                 Keywords = "repair 系统修复 修复 sfc dism chkdsk 网络重置 组件存储 磁盘 scannow" },
+
+        // 补齐导航栏可直达、但此前未登记全局搜索的页面。TopLevel 保持 false：
+        // 空关键词时只显示原有快捷入口，不把搜索框的默认列表撑长。
+        new() { Tag = "docs", Title = "文档库", Desc = "查看使用教程与帮助文档", Glyph = "\uE81C",
+                Keywords = "docs 文档库 文档 教程 帮助 使用说明 手册 guide" },
+        new() { Tag = "dictionary", Title = "查阅单词", Desc = "查英文单词与翻译句子", Glyph = "\uE7F4",
+                Keywords = "dictionary 单词 词典 查词 翻译 英语 english 速查" },
+        new() { Tag = "hubai", Title = "Hub AI", Desc = "与智能助手对话并使用工具", Glyph = "\uE939",
+                Keywords = "hubai ai 智能助手 对话 聊天 助手 问答 工具" },
+        new() { Tag = "hubai-settings", Title = "Hub AI 设置", Desc = "配置模型、工具包与助手行为", Glyph = "\uE713",
+                Keywords = "hubai-settings 助手设置 模型 工具包 api 密钥 配置" },
+        new() { Tag = "ghostfile", Title = "幽灵文件", Desc = "查找被占用或残留的文件并清理", Glyph = "\uE74D",
+                Keywords = "ghostfile 幽灵文件 占用 残留 删除 清理 文件" },
+        new() { Tag = "ppttouch", Title = "PPT 触控", Desc = "用触摸或手机控制演示翻页", Glyph = "\uE7E8",
+                Keywords = "ppttouch ppt 触控 翻页 演示 幻灯片 遥控器" },
+        new() { Tag = "pagefile", Title = "虚拟内存", Desc = "查看并调整分页文件设置", Glyph = "\uE7F4",
+                Keywords = "pagefile 虚拟内存 分页文件 内存 设置 pagefile.sys" },
+        new() { Tag = "sysfeatures", Title = "系统功能", Desc = "开关系统组件与可选功能", Glyph = "\uE7EF",
+                Keywords = "sysfeatures 系统功能 组件 可选功能 启用 关闭 功能" },
+        new() { Tag = "systemtweaks", Title = "系统优化", Desc = "调整常用系统设置与策略", Glyph = "\uE713",
+                Keywords = "systemtweaks 系统优化 优化 调整 策略 设置 注册表" },
+        new() { Tag = "virtualkeyboard", Title = "虚拟键盘", Desc = "在触屏上使用的屏幕键盘", Glyph = "\uE945",
+                Keywords = "virtualkeyboard 虚拟键盘 屏幕键盘 触屏 软键盘 输入" },
+        new() { Tag = "autoshutdown", Title = "定时关机", Desc = "设定时间自动关机或重启", Glyph = "\uE896",
+                Keywords = "autoshutdown 定时关机 自动关机 关机 重启 定时 倒计时" },
+        new() { Tag = "log-viewer", Title = "运行日志", Desc = "查看程序日志排查问题", Glyph = "\uE81C",
+                Keywords = "log-viewer 日志 运行日志 排查 错误 记录 诊断" },
+        new() { Tag = "mirror", Title = "系统镜像", Desc = "下载系统镜像并使用加速", Glyph = "\uE896",
+                Keywords = "mirror 系统镜像 镜像 下载 windows iso 加速" },
+        new() { Tag = "feedback-form", Title = "提交反馈", Desc = "填写表单提交问题与建议", Glyph = "\uE939",
+                Keywords = "feedback-form 提交反馈 反馈表单 报告问题 建议" },
+        new() { Tag = "tools-classroom", Title = "教学工具", Desc = "课堂用的计时、抽号、时钟等工具", Glyph = "\uEA80",
+                Keywords = "tools-classroom 教学工具 课堂 计时 抽号 点名 时钟" },
+        new() { Tag = "tools-system", Title = "系统工具", Desc = "磁盘、编码、取色等实用工具", Glyph = "\uEA80",
+                Keywords = "tools-system 系统工具 实用工具 磁盘 编码 取色 哈希" },
     };
 
     // ── 汇总 ──────────────────────────────────────────────────────
 
     /// <summary>
-    /// 全局搜索：返回已经分好组的结果（顺序＝软件 → 内置工具 → 页面）。
+    /// 全局搜索：返回已经分好组的结果（顺序＝软件 → 内置工具 → 文档库 → 页面）。
     /// 空关键词只返回页面快捷入口；一条都没有时返回空表（界面据此显示"没找到"）。
     /// </summary>
     public static List<SearchGroup> Query(string query, int limitPerKind = LimitPerKind)
@@ -306,6 +380,7 @@ public static class SearchIndex
         {
             new() { Kind = SearchHitKind.App, Hits = SearchApps(q, parts, limitPerKind) },
             new() { Kind = SearchHitKind.Tool, Hits = SearchTools(q, parts, limitPerKind) },
+            new() { Kind = SearchHitKind.Doc, Hits = SearchDocs(q, parts, limitPerKind) },
             new() { Kind = SearchHitKind.Page, Hits = SearchPages(q, parts, limitPerKind) },
         };
 

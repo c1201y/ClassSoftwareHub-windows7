@@ -1,0 +1,136 @@
+<platform:PageBase
+    x:Class="ClassSoftwareHub.Desktop.Pages.DocLibraryPage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:fa="using:FluentAvalonia.UI.Controls">
+
+    <!--
+      文档库（需求 15）：文章存放在桌面端仓库的「文档库/」目录，桌面端只拉清单；
+      点开某篇时才下载正文，正文落地为无扩展名随机文件（见 Services/Docs/DocLibrary.cs）。
+      版式照更新日志页：标题 → 工具条 → 列表，内容列 960 上限。
+
+      ⚠️ 移植适配（WinUI → Avalonia）：
+        · Grid 的 RowSpacing / ColumnSpacing 不存在 → 逐行逐列用 Margin 模拟，数值照搬（14 / 8 / 10）；
+        · ListView + IsItemClickEnabled → ListBox + SelectionChanged（点一行就开，开完清掉选中，
+          否则回到本页再点同一篇不会触发）；选中底色按 App.axaml 的约定抹平；
+        · Visibility → IsVisible；IsTextSelectionEnabled → SelectableTextBlock。
+    -->
+    <!-- 版式照 ChangelogPage：三列 Grid 把列表钉在中间 960 宽，宽屏下左右留白对称。 -->
+    <Grid Background="Transparent">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="24" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="24" />
+        </Grid.ColumnDefinitions>
+
+        <Grid Grid.Column="1" MaxWidth="960" Margin="0,36,0,44">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <!-- 标题（原版 RowSpacing=14 → 各行自己留 14 的下边距） -->
+            <StackPanel Spacing="5" Margin="0,0,0,14">
+                <TextBlock Text="文档库" FontSize="28" FontWeight="Bold" />
+                <TextBlock Text="电脑优化与使用技巧的图文教程" FontSize="13" Opacity="0.65"
+                           TextWrapping="Wrap" />
+            </StackPanel>
+
+            <!-- 工具条：搜索 + 刷新 + 投稿（原版 ColumnSpacing=8 → 靠右的两颗按钮各留 8 的左边距） -->
+            <Grid Grid.Row="1" Margin="0,0,0,14">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <!-- WinUI 的 PlaceholderText → Avalonia 的 Watermark（同一语义） -->
+                <TextBox x:Name="SearchBox" Watermark="搜索标题、简介或标签"
+                         TextChanged="SearchBox_TextChanged"
+                         VerticalAlignment="Center" />
+
+                <Button x:Name="RefreshButton" Grid.Column="1" Click="Refresh_Click" Padding="8,6"
+                        Margin="8,0,0,0" ToolTip.Tip="重新检查文档库">
+                    <fa:FontIcon Glyph="&#xE72C;" FontSize="13" />
+                </Button>
+
+                <Button Grid.Column="2" Click="Submit_Click" Margin="8,0,0,0">
+                    <StackPanel Orientation="Horizontal" Spacing="7">
+                        <fa:FontIcon Glyph="&#xE898;" FontSize="13" />
+                        <TextBlock Text="投稿文章" />
+                    </StackPanel>
+                </Button>
+            </Grid>
+
+            <TextBlock x:Name="StatusText" Grid.Row="2" FontSize="11.5" Opacity="0.55"
+                       TextWrapping="Wrap" Margin="0,0,0,14" />
+
+            <Grid Grid.Row="3">
+                <ListBox x:Name="ArticleList" SelectionMode="Single"
+                         SelectionChanged="ArticleList_SelectionChanged"
+                         Background="Transparent">
+                    <ListBox.Styles>
+                        <!-- 原版 ListViewItem：内部铺满、无内边距、行间距 8（原 Margin=0,0,0,8） -->
+                        <Style Selector="ListBoxItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            <Setter Property="Padding" Value="0" />
+                            <Setter Property="Margin" Value="0,0,0,8" />
+                            <Setter Property="MinHeight" Value="0" />
+                        </Style>
+                        <!-- 原版 SelectionMode=None：点卡片只是"打开"，不该留下选中底色 -->
+                        <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+                            <Setter Property="Background" Value="Transparent" />
+                        </Style>
+                    </ListBox.Styles>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Border Classes="cshCard" Padding="18,14,18,14">
+                                <StackPanel Spacing="5">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+
+                                        <TextBlock Text="{Binding Title}" FontSize="15.5"
+                                                   FontWeight="SemiBold" TextWrapping="Wrap"
+                                                   TextTrimming="CharacterEllipsis" MaxLines="2" />
+
+                                        <!-- 原版 ColumnSpacing=10 → 类型徽标留 10 的左边距 -->
+                                        <Border Grid.Column="1" CornerRadius="9" Padding="7,1"
+                                                Margin="10,0,0,0"
+                                                VerticalAlignment="Top" BorderThickness="1"
+                                                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}">
+                                            <TextBlock Text="{Binding TypeLabel}" FontSize="11"
+                                                       Opacity="0.75" />
+                                        </Border>
+                                    </Grid>
+
+                                    <TextBlock Text="{Binding Summary}" FontSize="13" Opacity="0.72"
+                                               TextWrapping="Wrap" MaxLines="2"
+                                               TextTrimming="CharacterEllipsis"
+                                               IsVisible="{Binding SummaryVisible}" />
+
+                                    <TextBlock Text="{Binding ByLine}" FontSize="11.5" Opacity="0.5"
+                                               TextWrapping="Wrap"
+                                               IsVisible="{Binding ByLineVisible}" />
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <StackPanel x:Name="EmptyPanel" Spacing="10" IsVisible="False"
+                            HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <fa:FontIcon Glyph="&#xE8A5;" FontSize="30" Opacity="0.4"
+                                 HorizontalAlignment="Center" />
+                    <TextBlock x:Name="EmptyText" MaxWidth="420" TextAlignment="Center"
+                               TextWrapping="Wrap" FontSize="13" Opacity="0.7" />
+                </StackPanel>
+            </Grid>
+        </Grid>
+    </Grid>
+</platform:PageBase>

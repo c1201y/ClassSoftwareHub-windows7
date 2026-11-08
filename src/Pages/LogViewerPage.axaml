@@ -64,14 +64,15 @@
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
 
-                <!-- 时间：等宽且纯 ASCII（不触发字体回退），各列才能对齐 -->
+                <!-- 时间：等宽且纯 ASCII（不触发字体回退），各列才能对齐。
+                     固定行高后各列一律**垂直居中**，别再用 Top + Margin 硬顶（会显得行内偏上）。 -->
                 <TextBlock Text="{Binding Time}" FontSize="12" FontFamily="Consolas"
-                           VerticalAlignment="Top" Margin="0,2,8,0" TextTrimming="CharacterEllipsis"
+                           VerticalAlignment="Center" Margin="0,0,8,0" TextTrimming="CharacterEllipsis"
                            ToolTip.Tip="{Binding Stamp}"
                            Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="5"
-                            VerticalAlignment="Top" Margin="0,1,0,0">
+                            VerticalAlignment="Center">
                     <fa:FontIcon Glyph="{Binding LevelGlyph}" FontSize="12"
                                  Foreground="{Binding Level, Converter={StaticResource LevelBrush}}" />
                     <TextBlock Text="{Binding LevelText}" FontSize="12"
@@ -80,13 +81,16 @@
 
                 <!-- 模块：行内标签，单独一列，方便一眼看出是谁写的 -->
                 <TextBlock Grid.Column="2" Text="{Binding ModuleText}" FontSize="12" FontFamily="Consolas"
-                           VerticalAlignment="Top" Margin="0,2,8,0" TextTrimming="CharacterEllipsis"
+                           VerticalAlignment="Center" Margin="0,0,8,0" TextTrimming="CharacterEllipsis"
                            ToolTip.Tip="{Binding Module}"
                            Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
 
-                <!-- 内容用系统 UI 字体：日志以中文为主，Consolas 没有汉字会触发字体回退，字重字距都会错位 -->
+                <!-- 内容用系统 UI 字体：日志以中文为主，Consolas 没有汉字会触发字体回退，字重字距都会错位。
+                     ⚠️ 必须 **单行 + 省略号**（配合 ListBoxItem 的固定行高），原因见 LogList 上方的注释。 -->
                 <SelectableTextBlock Grid.Column="3" Text="{Binding Message}" FontSize="13"
-                                     TextWrapping="Wrap"
+                                     MaxLines="1" TextTrimming="CharacterEllipsis"
+                                     VerticalAlignment="Center"
+                                     ToolTip.Tip="{Binding Message}"
                                      Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
             </Grid>
         </DataTemplate>
@@ -112,7 +116,15 @@
             <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
 
+        <!-- ⚠️ 行高**必须固定** = 内容 20 + 上下内边距 6。
+             Avalonia 的 VirtualizingStackPanel 按「已实现行的平均高度」估算未实现区域的总高：
+             行程高度参差（内容折行）时，估算值会随滚动不断被修正 ⇒ Extent 一直变
+             ⇒ 滚动条滑块长度/位置乱跳、按住拖动还会被回弹（2026-11-06 用户报「滚动乱跳，
+             拖滚动条也不行」的根因，实测 ext 在 1749→1943 之间反复变）。
+             固定行高后 Extent 恒等于 行数×26，滚轮一格正好 52px（26×2），拖动完全跟手。
+             代价：长内容单行省略 —— 看全文用悬停 ToolTip，或双击该行进「详细视图」。 -->
         <Style Selector="ListBox#LogList ListBoxItem">
+            <Setter Property="Height" Value="26" />
             <Setter Property="MinHeight" Value="26" />
             <Setter Property="Margin" Value="0" />
             <Setter Property="Padding" Value="12,3" />
@@ -263,10 +275,13 @@
                       复制动作走右键菜单 + Ctrl+C，**不再占工具条**。
                       右键菜单同时也是"去详细视图"的第二条入口。
                     -->
+                    <!-- 行内单行显示（见 LogRowTemplate 的说明）：双击任一行 = 去「详细视图」看全文。
+                         详细视图右侧有原文面板，选中就能读到完整消息。 -->
                     <ListBox Grid.Row="2" x:Name="LogList" SelectionMode="Multiple"
                              Background="Transparent"
                              ItemTemplate="{StaticResource LogRowTemplate}"
-                             KeyDown="LogList_KeyDown">
+                             KeyDown="LogList_KeyDown"
+                             DoubleTapped="LogList_DoubleTapped">
                         <ListBox.ContextFlyout>
                             <MenuFlyout>
                                 <MenuItem Header="复制选中行" Click="CopySelected_Click" />

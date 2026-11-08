@@ -3,9 +3,11 @@ using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.Threading;
 
 namespace ClassSoftwareHub.Desktop.Platform;
 
@@ -71,12 +73,73 @@ internal static class FrostedGlass
         var brush = Build(path, dark);
         if (brush is null) return null;
 
+        CachePut(key, brush);
+        return brush;
+    }
+
+    /// <summary>
+    /// 异步取磨砂底色：把最耗时的壁纸文件解码放到后台线程，重采样与画刷创建回到 UI 线程，
+    /// 首帧由调用方先用占位底色，完成后通过 <paramref name="onReady"/> 在 UI 线程替换并刷新。
+    /// 缓存命中或生成失败同样经 UI 线程回调，调用方无需关心线程切换。
+    /// </summary>
+    /// <remarks>
+    /// ⚠️ RenderTargetBitmap 依赖平台渲染接口，Avalonia 不保证其 DrawingContext 可跨线程使用，
+    ///    ImageBrush 与 Window.Background 更必须在 UI 线程创建/赋值；故这里只把
+    ///    new Bitmap(path)（4K 壁纸解码，真正耗时的部分）放进 Task.Run，重采样仍留在 UI 线程。
+    /// </remarks>
+    public static void TryCreateAsync(bool dark, Action<IBrush?> onReady)
+    {
+        void Post(IBrush? brush) => Dispatcher.UIThread.Post(() => onReady(brush));
+
+        _ = Task.Run(() =>
+        {
+            string key = "";
+            Bitmap? decoded = null;
+
+            try
+            {
+                var path = WallpaperPath();
+                if (path.Length == 0) { Post(null); return; }
+
+                var info = new FileInfo(path);
+                if (!info.Exists) { Post(null); return; }
+                key = $"{path}|{info.LastWriteTimeUtc.Ticks}|{(dark ? "dark" : "light")}";
+
+                lock (Gate)
+                {
+                    if (Cache.TryGetValue(key, out var hit)) { Post(hit); return; }
+                }
+
+                decoded = new Bitmap(path);   // 后台线程只做文件解码（最耗时）
+            }
+            catch
+            {
+                decoded?.Dispose();
+                Post(null);
+                return;
+            }
+
+            // 重采样与画刷创建放回 UI 线程，生成的成品进缓存后回调。
+            Dispatcher.UIThread.Post(() =>
+            {
+                IBrush? brush = null;
+                try { brush = BuildCore(decoded!, dark); }
+                catch { }
+                finally { decoded!.Dispose(); }
+
+                if (brush is ImageBrush image && key.Length > 0) CachePut(key, image);
+                onReady(brush);
+            });
+        });
+    }
+
+    private static void CachePut(string key, ImageBrush brush)
+    {
         lock (Gate)
         {
             if (Cache.Count >= CacheLimit) Cache.Clear();
             Cache[key] = brush;
         }
-        return brush;
     }
 
     private static ImageBrush? Build(string path, bool dark)
@@ -84,6 +147,16 @@ internal static class FrostedGlass
         try
         {
             using var src = new Bitmap(path);
+            return BuildCore(src, dark);
+        }
+        catch { return null; }
+    }
+
+    /// <summary>重采样 + 主题色罩 + 生成画刷；须在 UI 线程调用。</summary>
+    private static ImageBrush? BuildCore(Bitmap src, bool dark)
+    {
+        try
+        {
             int w = src.PixelSize.Width;
             int h = src.PixelSize.Height;
             if (w <= 0 || h <= 0) return null;

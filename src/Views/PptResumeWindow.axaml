@@ -43,30 +43,41 @@
             </Button>
         </Grid>
 
-        <Grid Grid.Row="1" Margin="18,8,18,14" RowDefinitions="Auto,Auto,Auto,Auto,*,Auto">
+        <Grid Grid.Row="1" Margin="18,8,18,14" RowDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto">
             <TextBlock x:Name="LessonText" FontSize="12" Opacity="0.62" TextWrapping="Wrap" />
 
-            <TextBlock x:Name="SubjectText" Grid.Row="1" FontSize="26" FontWeight="Bold"
-                       Margin="0,2,0,0" TextTrimming="CharacterEllipsis" />
+            <!--
+              ⛔ 科目必须是**可选**的，不能只显示"程序猜当前是哪节课"。
+              常遇到的场景：上一节数学没讲完，课间想先把数学那一页续上；
+              或者临时调课 / 课表没导入，程序猜的科目跟你要续的不是同一个。
+              下拉里列出「课表科目 + 有记录的科目」的并集，点谁就续谁。
+            -->
+            <ComboBox x:Name="SubjectCombo" Grid.Row="1"
+                      FontSize="21" FontWeight="Bold" MinHeight="40"
+                      Margin="0,2,0,0" HorizontalAlignment="Stretch"
+                      SelectionChanged="SubjectCombo_SelectionChanged"
+                      ToolTip.Tip="选择要续播的科目（不必是当前正在上的那节课）" />
 
             <TextBlock x:Name="FileText" Grid.Row="2" FontSize="12" Opacity="0.68"
                        TextWrapping="Wrap" Margin="0,2,0,0" />
 
-            <StackPanel Grid.Row="3" VerticalAlignment="Top" Spacing="10">
-                <TextBlock x:Name="SlideText" FontSize="14" TextWrapping="Wrap" />
+            <TextBlock x:Name="SlideText" Grid.Row="3" FontSize="14" TextWrapping="Wrap"
+                       Margin="0,4,0,0" />
+
+            <StackPanel Grid.Row="4" VerticalAlignment="Top" Spacing="10" Margin="0,8,0,0">
                 <Button x:Name="ResumeButton" Classes="accent" Content="从上次那一页继续"
                         Height="46" HorizontalAlignment="Stretch"
                         HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
                         FontSize="14" Click="Resume_Click" />
                 <StackPanel Orientation="Horizontal" Spacing="8">
-                    <Button x:Name="PickButton" Content="选择这个科目的课件"
+                    <Button x:Name="PickButton" Content="给这个科目选课件"
                             MinWidth="0" Padding="12,5" Click="Pick_Click" />
                     <Button x:Name="PageButton" Content="更多设置"
                             MinWidth="0" Padding="12,5" Click="OpenPage_Click" />
                 </StackPanel>
             </StackPanel>
 
-            <TextBlock x:Name="StatusText" Grid.Row="5" FontSize="11.5" Opacity="0.68"
+            <TextBlock x:Name="StatusText" Grid.Row="6" FontSize="11.5" Opacity="0.68"
                        TextWrapping="Wrap" MaxHeight="48" />
         </Grid>
     </Grid>

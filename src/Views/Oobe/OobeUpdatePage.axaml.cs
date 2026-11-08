@@ -39,7 +39,11 @@ public partial class OobeUpdatePage : UserControl
         try { _cts?.Cancel(); } catch { /* 已经取消 / 释放过 */ }
     }
 
-    private async void Retry_Click(object? sender, RoutedEventArgs e) => await CheckAsync();
+    private async void Retry_Click(object? sender, RoutedEventArgs e)
+    {
+        try { await CheckAsync(); }
+        catch (Exception ex) { AppLog.Catch("oobe", "重试检查更新", ex); }
+    }
 
     private async Task CheckAsync()
     {

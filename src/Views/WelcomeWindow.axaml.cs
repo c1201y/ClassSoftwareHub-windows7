@@ -229,12 +229,14 @@ public sealed partial class WelcomeWindow : Window
     {
         try
         {
-            // 原版：框架留着（拖动/阴影/圆角靠系统），标题栏内容自己画，不可拉伸、不可最小化/最大化。
-            // Avalonia 版保留系统标题栏，只继承「不可拉伸」这一条；标题就是原版标题栏上那行字。
+            // 固定大小的向导：不可拉伸、不可最小化/最大化。
             CanResize = false;
 
             BackdropTheme.Apply(this, Root, App.Settings.Current.Backdrop);
             ThemeCompat.Apply(Root);
+
+            // Win7 去掉系统标题栏、改自绘。必须排在 ApplySize 之前 —— 窗口高度要按是否自绘做补偿。
+            if (OsInfo.IsWindows7) AttachSelfDrawnCaption();
 
             ApplySize();
         }
@@ -259,8 +261,12 @@ public sealed partial class WelcomeWindow : Window
             var maxW = Math.Max(700, work.Width / scale - 40);
             var maxH = Math.Max(480, work.Height / scale - 40);
 
+            // 自绘标题栏后，标题栏落在客户区内（WM_NCCALCSIZE 归零，非客户区不再占外框）。
+            // 为了不让页面内容净少 40dip，把标题栏高度补进窗口总高；小屏上仍按工作区夹住。
+            var targetH = HeightDip + (_selfDrawnCaption ? CaptionHeightDip : 0);
+
             Width = Math.Clamp(WidthDip, 700, maxW);
-            Height = Math.Clamp(HeightDip, 480, maxH);
+            Height = Math.Clamp(targetH, 480, maxH);
         }
         catch (Exception ex)
         {
@@ -280,6 +286,84 @@ public sealed partial class WelcomeWindow : Window
         }
         catch { }
         return default;
+    }
+
+    // ── Win7 自绘标题栏 ──────────────────────────────────────────────────
+
+    /// <summary>自绘标题栏高度（dip）。必须与 WelcomeWindow.axaml 里 CaptionBar 的 Height 一致。</summary>
+    private const double CaptionHeightDip = 40;
+
+    /// <summary>Win7 上的自绘窗口框架（挂不上时为 null，退回系统标题栏）。</summary>
+    private SelfDrawnFrame? _frame;
+
+    /// <summary>本次是否真的走了自绘标题栏（决定 ApplySize 要不要补标题栏高度）。</summary>
+    private bool _selfDrawnCaption;
+
+    /// <summary>
+    /// Win7：去掉系统标题栏、改自绘。与主窗口同款做法 —— 只吃非客户区（WM_NCCALCSIZE 归零），
+    /// <b>一个字节的窗口样式都不改</b>，所以拖动、Aero 吸附、任务栏右键菜单仍由系统执行；
+    /// 本窗固定大小（CanResize=false），故 ResizeEnabled=false，四周不报缩放命中。
+    /// 挂载失败时保持系统标题栏（CaptionBar 折叠），是完整可用的退路。
+    /// </summary>
+    private void AttachSelfDrawnCaption()
+    {
+        try
+        {
+            ExtendClientAreaToDecorationsHint = false;
+
+            _frame = SelfDrawnFrame.Attach(this);
+            _frame.ResizeEnabled = false;              // 固定大小向导，没有可拖拽的缩放边
+            _frame.TitleBarHeight = CaptionHeightDip;  // 顶部 40dip 报 HTCAPTION（交给系统拖动）
+            _frame.InteractiveRegions = CaptionInteractiveRegions;
+            _frame.EraseColorProvider = SelfDrawnFrame.EraseColorFrom(Root);
+
+            CaptionBar.IsVisible = true;
+            _selfDrawnCaption = true;
+
+            // 显示后让系统重算一次非客户区并整窗重画，避免首个白/黑边（见 SelfDrawnFrame.RefreshFrame）。
+            Opened += (_, _) =>
+            {
+                try { _frame?.RefreshFrame("oobe"); }
+                catch (Exception ex) { AppLog.Catch("oobe", "自绘标题栏首帧重画", ex, Core.LogLevel.Debug); }
+            };
+
+            AppLog.Info("oobe", "已接管非客户区（Win7 自绘标题栏 " + CaptionHeightDip + "dip）");
+        }
+        catch (Exception ex)
+        {
+            _frame = null;
+            _selfDrawnCaption = false;
+            CaptionBar.IsVisible = false;
+            AppLog.Catch("oobe", "挂载自绘标题栏（已退回系统标题栏）", ex, Core.LogLevel.Debug);
+        }
+    }
+
+    /// <summary>标题栏里「点了不该拖动窗口」的区域：关闭键（dip，窗口坐标）。</summary>
+    private IReadOnlyList<Rect> CaptionInteractiveRegions()
+    {
+        var list = new List<Rect>(1);
+        try
+        {
+            var button = CaptionCloseButton;
+            if (button is not null && button.IsVisible && button.Bounds.Width > 0 && button.Bounds.Height > 0)
+            {
+                var origin = button.TranslatePoint(new Point(0, 0), this);
+                if (origin is { } p)
+                    list.Add(new Rect(p.X, p.Y, button.Bounds.Width, button.Bounds.Height));
+            }
+        }
+        catch
+        {
+            // 控件树正在重建时可能取不到坐标：跳过即可，顶多那一下点不动
+        }
+
+        return list;
+    }
+
+    /// <summary>自绘标题栏的关闭键：与系统 × 走同一条收尾（Closed → FinishOobe 会落定设置）。</summary>
+    private void CaptionClose_Click(object? sender, RoutedEventArgs e)
+    {
+        try { Close(); } catch { }
     }
 
     // ── 换页（由 OobeSession 调） ─────────────────────────────────────────

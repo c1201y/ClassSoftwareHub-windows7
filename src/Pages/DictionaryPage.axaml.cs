@@ -83,6 +83,13 @@ public sealed partial class DictionaryPage : PageBase
 
     private async void WordBox_TextChanged(object? sender, TextChangedEventArgs e)
     {
+        // async void 中逃逸的异常会直接终止进程，统一在入口处兜住。
+        try { await WordBox_TextChangedAsync(sender, e); }
+        catch (Exception ex) { AppLog.Catch("dict", "候选词更新", ex); }
+    }
+
+    private async Task WordBox_TextChangedAsync(object? sender, TextChangedEventArgs e)
+    {
         if (_settingText) return;
 
         var text = WordBox.Text ?? "";
@@ -376,7 +383,11 @@ public sealed partial class DictionaryPage : PageBase
 
     // ═══════════════════════ 二、翻译句子 ═══════════════════════
 
-    private async void Translate_Click(object? sender, RoutedEventArgs e) => await TranslateAsync();
+    private async void Translate_Click(object? sender, RoutedEventArgs e)
+    {
+        try { await TranslateAsync(); }
+        catch (Exception ex) { AppLog.Catch("dict", "翻译句子", ex); }
+    }
 
     private async Task TranslateAsync()
     {

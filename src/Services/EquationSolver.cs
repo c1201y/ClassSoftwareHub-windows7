@@ -79,6 +79,13 @@ public static class EquationSolver
         {
             linearError = ex.Message;
         }
+        catch (Exception ex)
+        {
+            // ⛔ 兜住其它意外异常（FormatException / OverflowException / ArgumentOutOfRange…）：
+            //    Validate 是**边输边调**的，任何漏网异常都会冒到 UI 线程把页面打白。
+            //    解析器的两个 catch 只认 LinearParseException，这类异常以前是直接穿出去的。
+            linearError = ex.Message;
+        }
 
         // 一元方程走数值求根这条路，变量只能是 x
         if (ExpressionParser.TryCompile($"({left}) - ({right})", AngleMode.Radians, out var fn, out var numericError)
@@ -132,6 +139,12 @@ public static class EquationSolver
             }
             catch (LinearParseException ex)
             {
+                linearError = ex.Message;
+                break;
+            }
+            catch (Exception ex)
+            {
+                // 同 Validate：任何漏网异常都不能穿出 Solve。
                 linearError = ex.Message;
                 break;
             }
@@ -283,6 +296,15 @@ public static class EquationSolver
 
         if (roots.Count == 0)
         {
+            // ⛔ 区分"真的无解"和"整条曲线都算不出来"（例如 x^999999999 这类
+            //    指数巨大、几乎处处溢出为 ∞ 的式子）。后者必须明确报错，
+            //    否则用户看到的是 `Ok=true` + 空白解列表，以为程序正常但没解。
+            if (!HasFiniteSample(fn))
+            {
+                return Fail("这个方程在实数范围内几乎处处无定义（数值溢出），无法求根。" +
+                            "请检查指数是否过大。");
+            }
+
             return new Result
             {
                 Kind = "一元方程",
@@ -293,6 +315,18 @@ public static class EquationSolver
         // 周期函数有无穷多个解，全列出来没意义：只给靠近原点的那几个，并说明白
         var shown = roots;
         string note;
+
+        if (capped && roots.Count == 1 && roots[0] == 0)
+        {
+            // Scan 里 magnitude == 0 的分支（f 在采样点上恒等于 0，如 x^0 = 1）：
+            // 解集是**全体实数**，不该显示成 "x = 0" 这一个点。
+            return new Result
+            {
+                Kind = "一元方程",
+                Solutions = new List<string> { "x = 任意实数" },
+                Note = "这是一个恒等式：等号两边在实数范围内完全相等，因此**任意实数都是解**。",
+            };
+        }
 
         if (capped || roots.Count > 12)
         {
@@ -308,8 +342,13 @@ public static class EquationSolver
         }
         else
         {
-            note = roots.Count == 1 ? "已按方程本身的性质求根，与窗口大小无关。"
-                                    : $"共 {roots.Count} 个实根。";
+            // ⛔ 旧文案写「已按方程本身的性质求根，与窗口大小无关」—— 这句话是假的：
+            //    能不能找到根、找到几个，完全取决于 FindRoots 的几个固定扫描窗
+            //    （±10 / ±100 / ±1000 / ±1e5 / ±1e6）。跟用户说实话，才不会让人
+            //    以为"只有这一个根"。
+            note = roots.Count == 1
+                ? "在常用范围内找到 1 个实根（已扫描 ±1e6；根非常稀疏或落在更大范围时可能还有其它解）。"
+                : $"共 {roots.Count} 个实根。";
         }
 
         var labels = shown.Select(r => $"x = {FormatRoot(r)}").ToList();
@@ -326,6 +365,21 @@ public static class EquationSolver
     {
         try { return f(x); }
         catch { return double.NaN; }
+    }
+
+    /// <summary>
+    /// 这个函数在常用范围内是否至少有一个有限值。
+    /// 用来区分「真的无实根」和「整条式子数值溢出、处处算不出来」——
+    /// 后者（如 x^999999999）必须明确报错，而不是安静地返回空解列表。
+    /// </summary>
+    private static bool HasFiniteSample(Func<double, double> f)
+    {
+        foreach (var x in new[] { 0.0, 1.0, -1.0, 0.5, 2.0, 10.0, -10.0, 100.0, -100.0 })
+        {
+            var y = Eval(f, x);
+            if (double.IsFinite(y)) return true;
+        }
+        return false;
     }
 
     /// <summary>
@@ -383,6 +437,14 @@ public static class EquationSolver
                 capped = true;
                 return;
             }
+
+            // ⛔ 左端点（i = 0）必须单独判一次"是不是零点"。
+            //    主循环从 i = 1 起（需要 ys[i-1]），因此 ys[0] 永远只作为 prevY 参与
+            //    变号判断，**从不作为 y 被 `y == 0` 检查**；而偶重根分支又要求 i >= 2。
+            //    于是「根恰好落在某一窗的左端点」时会被完整漏掉 ——
+            //    x^2 = 1e10 的负根 -100000 正是最后一个窗 Scan(-100000, 100000) 的左端点，
+            //    结果只返回正根、并谎称"与窗口大小无关"。这里补上端点判定。
+            if (ys[0] == 0) Push(from);
 
             for (var i = 1; i <= steps; i++)
             {
@@ -443,7 +505,15 @@ public static class EquationSolver
         Scan(-1000, 1000, 120_000);
         if (capped) { roots.Sort(); return (roots, true); }
 
-        Scan(-100_000, 100_000, 120_000);  // 大根（x² = 1e10 这种）
+        Scan(-100_000, 100_000, 120_000);   // 大根（x² = 1e10 这种）
+        if (capped) { roots.Sort(); return (roots, true); }
+
+        // 最后一窗放到 ±1e6：x² = 1e12 的根是 ±1e6，正好落在上一窗（±1e5）之外，
+        // 不补这一窗会直接报"没有找到实根"。步长仍是 1e6/1.2e5 ≈ 8.3，
+        // 对连续函数足够（变号检测只看符号，不需要细步长；偶重根那种靠 |f| 谷底
+        // 细化，8 个单位内也够用）。
+        Scan(-1_000_000, 1_000_000, 120_000);
+
         roots.Sort();
         return (roots, capped);
     }
@@ -483,9 +553,20 @@ public static class EquationSolver
         return double.IsNaN(m) || double.IsInfinity(m) ? null : mid;
     }
 
-    /// <summary>二分。⛔ 必须核对"收敛点真的是零点"：tan(x) 的极点也会造成变号，那是假根。</summary>
+    /// <summary>
+    /// 二分。⛔ 必须核对"收敛点真的是零点"：tan(x) 的极点也会造成变号，那是假根。
+    /// 判据改用相对量级：以变号区间两端的 |f| 为基准，要求收敛点残差比它小若干数量级。
+    /// 旧的绝对阈值 1e-6 会误杀大根（x²=1e10 收敛后残差约 1e-4），也会把整体极平坦、
+    /// 仅靠浮点舍入抖动"变号"的函数刷成假根；相对判据同时挡住这两类。
+    /// </summary>
     private static double? Bisect(Func<double, double> f, double a, double b, double fa)
     {
+        // 量级基准取**初始**变号端点的 |f|；收敛后再取会被压小，判据将失去意义。
+        var fb = Eval(f, b);
+        var endpointScale = Math.Max(Math.Abs(fa), Math.Abs(fb));
+        if (double.IsNaN(fb) || double.IsInfinity(fb) || !double.IsFinite(endpointScale) || endpointScale <= 0)
+            return null;
+
         for (var i = 0; i < 200; i++)
         {
             var mid = (a + b) / 2;
@@ -501,8 +582,8 @@ public static class EquationSolver
         var root = (a + b) / 2;
         var value = Eval(f, root);
 
-        // 真根：代入后接近 0；假根（极点）：代入是几万、几亿
-        if (double.IsNaN(value) || Math.Abs(value) > 1e-6) return null;
+        // 真根：|f| 相对端点量级足够小；极点与平坦伪根在 root 处仍与端点同量级，会被挡下。
+        if (!double.IsFinite(value) || Math.Abs(value) > 1e-7 * endpointScale) return null;
         return root;
     }
 
@@ -525,16 +606,26 @@ public static class EquationSolver
     {
         if (Math.Abs(v) < 1e-12) return "0";
 
+        // ⛔ 容差必须**随量级放大**（相对容差）。固定 1e-9 在 1e6 这种大根上等于要求
+        //    12 位有效数字，二分根本收敛不到那么准 —— x²=1e12 会显示成
+        //    `999999.999999996` 而不是 `1000000`，老师会以为算错了。
+        //    这里用 **相对误差** 判断"像不像整数"：
+        //      · x²=1e12 → 收敛值 999999.999999996，相对误差 4e-15 → 认作 1000000 ✅
+        //      · x²=9999999999 → 99999.999995，相对误差 5e-11 > 1e-11 → 保持小数 ✅
+        var scale = Math.Max(1.0, Math.Abs(v));
+        var eps = 1e-11 * scale;
+
         // 整数 / 简单分数
         for (var q = 1; q <= 64; q++)
         {
             var p = v * q;
             var rounded = Math.Round(p);
-            if (Math.Abs(p - rounded) > 1e-9) continue;
+            if (Math.Abs(p - rounded) > eps * q) continue;
 
             var sign = rounded < 0 ? "−" : "";
             var num = Math.Abs(rounded);
-            return q == 1 ? sign + num.ToString("0") : $"{sign}{num:0}/{q}";
+            return q == 1 ? sign + num.ToString("0", CultureInfo.InvariantCulture)
+                          : $"{sign}{num.ToString("0", CultureInfo.InvariantCulture)}/{q}";
         }
 
         // π 的倍数：1/6 π、2π …
@@ -543,22 +634,27 @@ public static class EquationSolver
         {
             var p = k * q;
             var rounded = Math.Round(p);
-            if (Math.Abs(p - rounded) > 1e-9 || rounded == 0) continue;
+            if (Math.Abs(p - rounded) > 1e-9 * Math.Max(1.0, Math.Abs(p)) || rounded == 0) continue;
 
             var sign = rounded < 0 ? "−" : "";
             var num = Math.Abs(rounded);
-            var head = num == 1 ? "π" : $"{num:0}π";
+            var head = num == 1 ? "π" : $"{num.ToString("0", CultureInfo.InvariantCulture)}π";
             return q == 1 ? sign + head : $"{sign}{head}/{q}";
         }
 
         // 平方根：√2、−√3
         var square = v * v;
         var n = Math.Round(square);
-        if (n > 0 && Math.Abs(square - n) < 1e-9 && Math.Abs(Math.Sqrt(n) - Math.Abs(v)) < 1e-9)
+        if (n > 0 && Math.Abs(square - n) < 1e-9 * Math.Max(1.0, Math.Abs(square))
+            && Math.Abs(Math.Sqrt(n) - Math.Abs(v)) < 1e-9 * Math.Max(1.0, Math.Abs(v)))
         {
             var sign = v < 0 ? "−" : "";
-            return n == 1 ? sign + "1" : $"{sign}√{n:0}";
+            return n == 1 ? sign + "1" : $"{sign}√{n.ToString("0", CultureInfo.InvariantCulture)}";
         }
+
+        // 大数的普通小数会拖一串 9：按有效位数格式化，丢掉浮点噪声尾巴。
+        if (Math.Abs(v) >= 1e6)
+            return v.ToString("0.######", CultureInfo.InvariantCulture).Replace("-", "−");
 
         return v.ToString("0.############", CultureInfo.InvariantCulture).Replace("-", "−");
     }

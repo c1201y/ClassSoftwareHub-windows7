@@ -1,4 +1,4 @@
-<UserControl xmlns="https://github.com/avaloniaui"
+﻿<UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:fa="using:FluentAvalonia.UI.Controls"
              xmlns:views="using:ClassSoftwareHub.Desktop.Views"
@@ -37,6 +37,8 @@
         </ControlTheme>
     </UserControl.Resources>
 
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                  VerticalScrollBarVisibility="Auto">
     <Grid>
         <StackPanel x:Name="ContentRoot" Width="600"
                     HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="4">
@@ -156,4 +158,5 @@
             </views:SettingsCard>
         </StackPanel>
     </Grid>
+</ScrollViewer>
 </UserControl>

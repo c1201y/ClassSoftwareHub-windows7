@@ -3,7 +3,8 @@
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
-    xmlns:fa="using:FluentAvalonia.UI.Controls">
+    xmlns:fa="using:FluentAvalonia.UI.Controls"
+    xmlns:controls="using:ClassSoftwareHub.Desktop.Controls">
 
     <!--
       开机启动项（2026-10-18 自上游 1.2.0 移植；WinUI → Avalonia）。
@@ -41,16 +42,7 @@
                 <StackPanel Spacing="4">
                     <StackPanel Orientation="Horizontal" Spacing="10">
                         <TextBlock Text="开机启动项" FontSize="28" FontWeight="Bold" />
-                        <Border CornerRadius="5" Padding="8,3" Margin="0,0,0,6" VerticalAlignment="Bottom"
-                                BorderThickness="1"
-                                BorderBrush="{DynamicResource SystemFillColorCautionBrush}">
-                            <StackPanel Orientation="Horizontal" Spacing="5">
-                                <fa:FontIcon Glyph="&#xEA80;" FontSize="11"
-                                             Foreground="{DynamicResource SystemFillColorCautionBrush}" />
-                                <TextBlock Text="实验性功能" FontSize="12"
-                                           Foreground="{DynamicResource SystemFillColorCautionBrush}" />
-                            </StackPanel>
-                        </Border>
+                        <controls:ExperimentalBadge FeatureId="startup" />
                     </StackPanel>
 
                     <TextBlock x:Name="CountLine" Text="" FontSize="12" Opacity="0.65"

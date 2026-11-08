@@ -1,0 +1,89 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:fa="using:FluentAvalonia.UI.Controls"
+        x:Class="ClassSoftwareHub.Desktop.Views.PptMenuWindow"
+        SystemDecorations="None" ShowInTaskbar="False" CanResize="False" Topmost="True"
+        WindowStartupLocation="Manual" SizeToContent="Manual">
+
+    <!--
+      放映时长按屏幕弹出的菜单（2026-11-03，自上游 dv1.2.0-insider1.9 移植）。
+
+      原版是「1×1 隐形宿主窗口 + 系统 MenuFlyout」：菜单本体交给 WinUI 画。
+      移植版走本仓库既有的**自绘菜单卡片**路线（和托盘右键菜单 TrayMenuWindow 同一套）——
+      原因有两条：
+        ① Win7 上没有逐像素透明，1×1 宿主 + 系统浮层那套定位/遮挡行为不可控
+           （原版注释里也记着「铺满全屏会把幻灯片盖黑」这个坑）；
+        ② 全站菜单语言就是这张圆角卡片（卡片底 + 1px 描边 + 34dip 行高 + 悬停淡底），
+           系统菜单在 Win7 上是灰底 3D 边框，和 Fluent 界面不搭。
+
+      ⚠️ Win7 关键（同 TrayMenuWindow）：不能指望窗口透明 / 亚克力，
+         卡片底色用不透明纯色（#FCFCFC / #202020，代码里按深浅色刷），
+         四角靠 RoundedCorners 的 SetWindowRgn 区域裁剪。
+
+      ⚠️ 尺寸由代码算（行高固定），不要改成 SizeToContent：
+         菜单是从手指位置翻出来的，显示前就必须知道最终尺寸才能一次摆对，
+         否则会先出现在错误位置再跳一下。
+    -->
+    <Window.Resources>
+        <!--
+          菜单行：透明底 + 圆角高亮。
+          ⚠️ 高亮只认代码加的 pptSelected class（下面 Window.Styles 里），
+             不写 ^:pointerover —— 否则「鼠标悬着 + 上下键换行」会同时亮两行。
+        -->
+        <ControlTheme x:Key="PptMenuItemTheme" TargetType="Button">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="5" />
+            <Setter Property="Padding" Value="10,0" />
+            <Setter Property="Height" Value="34" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border x:Name="ItemBg" Background="{TemplateBinding Background}"
+                            CornerRadius="{TemplateBinding CornerRadius}"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter Content="{TemplateBinding Content}"
+                                          ContentTemplate="{TemplateBinding ContentTemplate}"
+                                          HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                          VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+                    </Border>
+                </ControlTemplate>
+            </Setter>
+
+            <Style Selector="^:pressed /template/ Border#ItemBg">
+                <Setter Property="Background" Value="{DynamicResource CshCaptionPressedBrush}" />
+            </Style>
+        </ControlTheme>
+    </Window.Resources>
+
+    <Window.Styles>
+        <Style Selector="Border.pptSeparator">
+            <Setter Property="Height" Value="1" />
+            <Setter Property="Margin" Value="8,4" />
+            <Setter Property="Background" Value="#E8E8E8" />
+        </Style>
+
+        <Style Selector="Button.pptSelected /template/ Border#ItemBg">
+            <Setter Property="Background" Value="{DynamicResource CshCaptionHoverBrush}" />
+        </Style>
+    </Window.Styles>
+
+    <Grid x:Name="Root" Background="Transparent" Focusable="True">
+        <Border x:Name="Card" CornerRadius="8" BorderThickness="1"
+                BorderBrush="#E1E1E1" Background="#FCFCFC">
+            <StackPanel Orientation="Horizontal" Margin="4">
+                <!-- 主菜单 -->
+                <StackPanel x:Name="ItemsHost" Width="208" />
+
+                <!-- 二级菜单（「指针选项」）：原版是 MenuFlyout 的右侧子菜单，
+                     这里做成同一张卡片里的第二列，手指点开后向右展开，少一层独立窗口。 -->
+                <Border x:Name="SubDivider" Width="1" Margin="4,4,4,4" IsVisible="False" Background="#E8E8E8" />
+                <StackPanel x:Name="SubHost" Width="168" IsVisible="False" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

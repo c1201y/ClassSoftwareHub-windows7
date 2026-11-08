@@ -1,0 +1,43 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="ClassSoftwareHub.Desktop.Views.ImageColorWindow">
+
+    <!--
+      图片取色浮窗（自上游 dv1.2.0-insider1.10 移植）。
+
+      来由：侧边栏那颗「取色」以前是 Kind=Page，点一下会把整个主界面拉出来再跳页 ——
+      讲课时想从课件截图里取个配色，为这件事把应用整个调出来太重。
+      现在跟「哈希校验」「查阅单词」同一套：单开一扇小窗，用完关掉，主界面不动。
+
+      · 内容就是 Pages/Tools/ImageColorToolPage 本身（构造参数 embedded: true），
+        ⛔ 不要再抄一份取色界面/算法出来 —— 两个入口必须长得一样、取得一样。
+      · 窗口边框与「文件快搜」「哈希校验」同一套：SelfDrawnFrame 接管非客户区，
+        拖动 / 贴边 / 边缘缩放仍由系统执行，关闭键自己画。
+    -->
+    <Grid x:Name="Root" Background="{DynamicResource ApplicationPageBackgroundThemeBrush}">
+        <Grid.RowDefinitions>
+            <!-- 自绘标题栏 -->
+            <RowDefinition Height="32" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Grid x:Name="TitleBarHost" Grid.Row="0" Height="32">
+            <TextBlock Text="图片取色" FontSize="12" Opacity="0.7"
+                       VerticalAlignment="Center" Margin="16,0,140,0" />
+
+            <Button x:Name="CaptionCloseButton" Classes="caption close"
+                    HorizontalAlignment="Right" VerticalAlignment="Top"
+                    Margin="0,0,4,0" Click="CaptionClose_Click">
+                <Path Data="M0.5,0.5 L9.5,9.5 M9.5,0.5 L0.5,9.5" />
+            </Button>
+        </Grid>
+
+        <!--
+          ⚠️ 这里不再套一层 ScrollViewer：ImageColorToolPage 本身就是「最外层 ScrollViewer + 内容」，
+             再套一层会出现两个滚动条抢滚轮、且父级会把内容纵向拉伸到视口高（窗口就缩不下去了）。
+        -->
+        <ContentControl x:Name="ContentHost" Grid.Row="1"
+                        HorizontalContentAlignment="Stretch"
+                        VerticalContentAlignment="Top" />
+    </Grid>
+</Window>

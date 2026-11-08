@@ -270,10 +270,19 @@ internal static class NativeMethodsEx
     /// <summary>最低 Win2000。系统问"鼠标这一点算什么"（屏幕坐标）。</summary>
     internal const uint WM_NCHITTEST = 0x0084;
 
+    /// <summary>不属于窗口（HTNOWHERE）。</summary>
+    internal const int HTNOWHERE = 0;
+
     /// <summary>属于客户区（内容自己处理）。</summary>
     internal const int HTCLIENT = 1;
 
-    // HTCAPTION(2) 已在 NativeMethods 里定义，不重复；下面这几档共 8 个方向。
+    // HTCAPTION(2) 已在 NativeMethods 里定义，不重复。
+    /// <summary>系统菜单（HTSYSMENU）。注意 13 是 HTTOPLEFT，不是系统菜单。</summary>
+    internal const int HTSYSMENU = 3;
+    internal const int HTMINBUTTON = 8;
+    internal const int HTMAXBUTTON = 9;
+
+    // 下面这几档共 8 个方向。
     internal const int HTLEFT = 10;
     internal const int HTRIGHT = 11;
     internal const int HTTOP = 12;
@@ -282,6 +291,35 @@ internal static class NativeMethodsEx
     internal const int HTBOTTOM = 15;
     internal const int HTBOTTOMLEFT = 16;
     internal const int HTBOTTOMRIGHT = 17;
+
+    /// <summary>缩放边框（HTBORDER）。</summary>
+    internal const int HTBORDER = 18;
+    internal const int HTCLOSE = 20;
+    internal const int HTHELP = 21;
+    internal const int HTTRANSPARENT = -1;
+    internal const int HTERROR = -2;
+
+    /// <summary>
+    /// WM_NCHITTEST 里可以照传 <c>DefWindowProc</c> 结果的命中码：只有缩放类与「无命中」类。
+    ///
+    /// <para>
+    /// ⚠️ 自绘 / 扩展客户区窗口虽然用 <c>WM_NCCALCSIZE</c> 把非客户区声明成 0 像素，
+    /// <c>DefWindowProc</c> 的命中判定却仍按窗口样式（<c>WS_CAPTION</c> + 系统 caption 高度）
+    /// 的老格子算，与我们的客户区声明无关。于是它报的 HTCAPTION / HTMINBUTTON /
+    /// HTMAXBUTTON / HTCLOSE / HTSYSMENU 全是陈旧结果：照传就会把标题栏交互控件整块跳过
+    /// （点按钮变成拖窗口），甚至让 DWM 在 0 像素的「按钮位置」画出原生按钮。
+    /// </para>
+    ///
+    /// <para>
+    /// 这些陈旧命中一律不照传，交给自绘逻辑按实际坐标重新判定；只有四边缩放、
+    /// <c>HTBORDER</c> 以及与样式无关的中性结果可以原样透传。
+    /// </para>
+    /// </summary>
+    internal static bool IsPassthroughHit(int code)
+        => (code >= HTLEFT && code <= HTBORDER)   // HTLEFT(10) .. HTBORDER(18)
+           || code == HTNOWHERE
+           || code == HTTRANSPARENT
+           || code == HTERROR;
 
     /// <summary>最低 Win2000。取窗口所在显示器（最大化时要拿它的工作区）。</summary>
     [DllImport("user32.dll")]

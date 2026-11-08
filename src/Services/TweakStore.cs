@@ -125,14 +125,18 @@ public static class TweakStore
         // ── ② 机器级：整批一次提权 ──
         if (systemChanges.Count > 0)
         {
-            var path = Path.Combine(AppPaths.DataDir, $"tweaks-{DateTime.Now:HHmmss}.reg");
-
             try
             {
-                Directory.CreateDirectory(AppPaths.DataDir);
-                File.WriteAllText(path, BuildRegFile(systemChanges), new UnicodeEncoding(false, true));
+                // ⚠️ 2026-11-07：原来的 tweaks-HHmmss.reg 文件名可预测，且直接 WriteAllText
+                //    到数据目录，写完到点 UAC 之间可被同用户进程覆写 —— 覆写后就是
+                //    「以管理员身份导入任意注册表」。现在改成随机路径 + 原子落盘 +
+                //    FileShare.Read 持有句柄到提权进程退出 + 回读校验 + .reg 行级白名单。
+                //    .reg 必须是带 BOM 的 UTF-16LE，reg.exe 才认得。
+                using var artifact = ElevatedArtifact.Create(
+                    "csh-tweaks", "reg", new UnicodeEncoding(false, true),
+                    BuildRegFile(systemChanges), IsAllowedRegLine);
 
-                var psi = new ProcessStartInfo("reg.exe", $"import \"{path}\"")
+                var psi = new ProcessStartInfo("reg.exe", $"import \"{artifact.Path}\"")
                 {
                     Verb = "runas",              // 只有这一路会弹 UAC
                     UseShellExecute = true,
@@ -148,10 +152,6 @@ public static class TweakStore
                 // 用户点了「否」也走这里（Win32Exception：操作已被用户取消）
                 AppLog.Catch("tweaks", "应用机器级优化项", ex);
                 error ??= ex.Message;
-            }
-            finally
-            {
-                try { if (File.Exists(path)) File.Delete(path); } catch { }
             }
         }
 
@@ -216,6 +216,33 @@ public static class TweakStore
     /// </summary>
     public static string BuildRegFile(IReadOnlyList<(TweakDef Def, int Value)> changes) =>
         TweakRules.BuildRegText(changes);
+
+    /// <summary>
+    /// 提权导入前的 .reg 行级白名单：只认 <c>TweakRules</c> 会生成的四种行。
+    /// 机器级改动一律落在 HKEY_LOCAL_MACHINE；<c>[-HKEY...]</c> 删除节、注释、
+    /// 任意根键、字符串值等都不放行 —— 防止以后有人把用户输入的键路径拼进 TweakDef。
+    /// </summary>
+    private static bool IsAllowedRegLine(string line)
+    {
+        if (line == "Windows Registry Editor Version 5.00") return true;
+
+        if (line.StartsWith("[", StringComparison.Ordinal))
+            return line.StartsWith("[HKEY_LOCAL_MACHINE\\", StringComparison.OrdinalIgnoreCase)
+                   && line.EndsWith("]", StringComparison.Ordinal)
+                   && line.IndexOf(']') == line.Length - 1
+                   && line.IndexOfAny(new[] { '"', '=', ';' }) < 0;
+
+        // 值行："值名"=dword:8 位十六进制 或 "值名"=-（DeleteWhenOff）
+        if (!line.StartsWith("\"", StringComparison.Ordinal)) return false;
+        var eq = line.LastIndexOf("\"=", StringComparison.Ordinal);
+        if (eq < 1) return false;
+
+        var rhs = line[(eq + 2)..];
+        if (rhs == "-") return true;
+        return rhs.StartsWith("dword:", StringComparison.OrdinalIgnoreCase)
+               && rhs.Length == 14
+               && rhs.Skip(6).All(Uri.IsHexDigit);
+    }
 
     /// <summary>
     /// 重启资源管理器（任务栏）。⚠️ 会关掉当前打开的所有资源管理器窗口。

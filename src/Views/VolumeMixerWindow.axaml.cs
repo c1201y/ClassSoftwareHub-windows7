@@ -112,9 +112,9 @@ public sealed partial class VolumeMixerWindow : Window
     {
         try
         {
-            // 分体外观只作用「常用工具」浮窗与侧边栏，
-            //    合成器浮窗跟应用主题（与主音量浮窗同一口径）。
-            ThemeCompat.Apply(Root);
+            // 跟**侧边栏**那套外观（2026-11-04 从上游同步）：合成器是从音量浮窗「展开」出来的，
+            // 和边条、主音量浮窗是一整块，不能一个白一个黑。
+            ThemeCompat.Apply(Root, external: true);
             VolumeFlyoutGroup.MixerHwnd = _chrome.Hwnd;
 
             Deactivated += (_, _) => VolumeFlyoutGroup.EnsureMouseWatch();   // 收窗判据是鼠标不是焦点，见 VolumeFlyoutGroup

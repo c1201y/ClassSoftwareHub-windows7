@@ -92,6 +92,10 @@ public static partial class AnnounceLanService
     private const int MaxBodyBytes = 8192;
     private const int RateLimitMs = 10_000;
 
+    /// <summary>收件并发上限：连接风暴时最多同时处理这么多条，避免无限制起任务打满局域网通道。</summary>
+    private const int MaxConcurrentClients = 12;
+    private static readonly SemaphoreSlim ClientGate = new(MaxConcurrentClients, MaxConcurrentClients);
+
     private static readonly object Gate = new();
     private static readonly Dictionary<string, LanPeer> _peers = new();   // key = pairCode
     private static readonly Dictionary<string, DateTime> _peerSeen = new();
@@ -623,6 +627,18 @@ public static partial class AnnounceLanService
 
         while (!token.IsCancellationRequested)
         {
+            // 并发闸：先占位再接连接。占满时新连接留在监听 backlog 里，不会无限起任务；
+            // WaitAsync 用传入的 token，关闭 / 取消时抛 OperationCanceledException 正常退出，不死锁。
+            try
+            {
+                await ClientGate.WaitAsync(token);
+            }
+            catch (OperationCanceledException)
+            {
+                AppLog.Step("announce-lan", "收件循环退出｜原因=已取消");
+                return;
+            }
+
             Socket client;
             try
             {
@@ -630,16 +646,19 @@ public static partial class AnnounceLanService
             }
             catch (OperationCanceledException)
             {
+                ClientGate.Release();   // 没接到连接，归还占位
                 AppLog.Step("announce-lan", "收件循环退出｜原因=已取消");
                 return;
             }
             catch (ObjectDisposedException)
             {
+                ClientGate.Release();
                 AppLog.Step("announce-lan", "收件循环退出｜原因=监听套接字已关闭");
                 return;
             }
             catch (Exception ex)
             {
+                ClientGate.Release();
                 // 持续抛错时必须记日志并退避，否则循环会静默空转
                 AppLog.Fail("announce-lan", ex, "接受入站连接");
                 try { await Task.Delay(300, token); } catch { return; }
@@ -647,6 +666,7 @@ public static partial class AnnounceLanService
             }
 
             AppLog.Step("announce-lan", $"入站连接｜来源={SafeEndpoint(client)}");
+            // 占位交给处理任务，由 HandleClientAsync 的 finally 归还
             _ = Task.Run(() => HandleClientAsync(client, token));
         }
     }
@@ -751,6 +771,12 @@ public static partial class AnnounceLanService
             catch (Exception ex)
             {
                 AppLog.Catch("announce-lan", "处理收件请求", ex);
+            }
+            finally
+            {
+                // 与 accept 循环里 WaitAsync 配对：无论正常结束 / 异常 / 取消都要归还，
+                // 否则关闭后计数泄漏，下次启动会被旧任务占死。
+                ClientGate.Release();
             }
         }
     }

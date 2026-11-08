@@ -42,6 +42,9 @@ internal static class ScrollGestureFix
     /// <summary>防重入：摘识别器会牵动布局回调，避免重入遍历。</summary>
     private static bool _stripping;
 
+    /// <summary>反射字段取不到的告警只记一次（每个控件都会走到 Fix，避免刷屏）。</summary>
+    private static bool _reflectionWarned;
+
     /// <summary>在某个根上安装（幂等）。调用方：PageBase 构造、MainWindow 构造。</summary>
     public static void Install(InputElement root)
     {
@@ -102,7 +105,19 @@ internal static class ScrollGestureFix
 
             // 内部是 List<GestureRecognizer> _recognizers（公开 API 只有 Count、没有 Remove）
             var field = coll.GetType().GetField("_recognizers", BindingFlags.NonPublic | BindingFlags.Instance);
-            if (field?.GetValue(coll) is not IList items) return;
+            if (field?.GetValue(coll) is not IList items)
+            {
+                // 取不到字段 = Avalonia 改了内部结构，本修复静默失效会让 0xC00000FD 栈溢出
+                // 以「以前修好了、现在又崩」的形式回归。每个控件都会走到这里，只记第一条。
+                if (!_reflectionWarned)
+                {
+                    _reflectionWarned = true;
+                    Core.AppLog.Warn("ui",
+                        "滚动手势修复失效｜原因=私有字段 _recognizers 取不到（Avalonia 版本变化？）"
+                        + "｜影响=0xC00000FD 栈溢出可能回归");
+                }
+                return;
+            }
 
             var removed = 0;
             for (var i = items.Count - 1; i >= 0; i--)

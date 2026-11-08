@@ -251,7 +251,11 @@ public partial class AppDataPage : Platform.PageBase
 
     // ── 扫描 ──────────────────────────────────────────────────────────
 
-    private async void Rescan_Click(object? sender, RoutedEventArgs e) => await ScanAsync();
+    private async void Rescan_Click(object? sender, RoutedEventArgs e)
+    {
+        try { await ScanAsync(); }
+        catch (Exception ex) { AppLog.Catch("appdata", "重新扫描 AppData", ex); }
+    }
 
     private async Task ScanAsync()
     {
@@ -682,6 +686,12 @@ public partial class AppDataPage : Platform.PageBase
 
     private async void CleanSelected_Click(object? sender, RoutedEventArgs e)
     {
+        try { await CleanSelected_ClickAsync(sender, e); }
+        catch (Exception ex) { AppLog.Catch("appdata", "清理选中目录", ex); }
+    }
+
+    private async Task CleanSelected_ClickAsync(object? sender, RoutedEventArgs e)
+    {
         var chosen = ChosenRows();
         if (chosen.Count == 0) return;
         await CleanAsync(chosen);
@@ -1084,6 +1094,12 @@ public partial class AppDataPage : Platform.PageBase
     // ── 说明 ──────────────────────────────────────────────────────────
 
     private async void About_Click(object? sender, RoutedEventArgs e)
+    {
+        try { await About_ClickAsync(sender, e); }
+        catch (Exception ex) { AppLog.Catch("appdata", "显示 AppData 说明", ex); }
+    }
+
+    private async Task About_ClickAsync(object? sender, RoutedEventArgs e)
     {
         var dialog = new ContentDialog
         {

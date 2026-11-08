@@ -45,6 +45,10 @@ public sealed partial class WelcomePage : PageBase
             Populate();
             RefreshUpdateCard();
 
+
+            // 公告：本页是常驻实例，Loaded 会反复触发；间隔与去重都在 NoticeFeed 内部管，这里直接叫就行
+            _ = LoadNoticesAsync();
+
             // 「发现新版本」态：MainWindow 后台检查拿到结果放进 UpdateNotice，
             // 本页订阅它的变化重刷更新卡 —— 否则用户停在首页时卡片不会即时变。
             Services.Updating.UpdateNotice.Changed -= OnUpdateNoticeChanged;
@@ -100,8 +104,22 @@ public sealed partial class WelcomePage : PageBase
     {
         try
         {
-            Avalonia.Media.IBrush Fill(string key) =>
-                Application.Current?.Resources[key] as Avalonia.Media.IBrush ?? Avalonia.Media.Brushes.Transparent;
+            // ⛔ 取画刷必须走**控件自己的**查找链（TryFindResource），不能只查 Application.Resources。
+            //    2026-11-08 实测的 bug：原来写 `Application.Current?.Resources[key]`，
+            //    而 FluentAvalonia 的主题画刷挂在**窗口/页面级**的 Theme 字典里，
+            //    不在 Application.Resources 顶层 —— 查不到就回退成 Transparent，
+            //    于是「查看更新内容」那张卡变成**完全透明但仍可点击**（用户看到右边一片空白）。
+            //    ⚠️ 这也解释了为什么 --resource-check 是绿的：它查的是 Application 查找链，
+            //       与这里的直接索引不是一回事。
+            var probe = (Avalonia.Controls.Control)ChangelogCard;
+
+            // ⛔ 兜底**不能是透明**：卡片取不到画刷就整张消失，用户只看到右边一片空白、
+            //    但还能点（2026-11-08 的实际故障）。改成「浅一层的中性底」——
+            //    即使主题字典整个没加载，卡片也仍然看得见、读得出文字。
+            Avalonia.Media.IBrush Fill(string key, Avalonia.Media.IBrush? fallback = null) =>
+                probe.TryFindResource(key, out var value) && value is Avalonia.Media.IBrush brush
+                    ? brush
+                    : fallback ?? Avalonia.Media.Brushes.SteelBlue;
 
             if (highlight)
             {
@@ -116,16 +134,109 @@ public sealed partial class WelcomePage : PageBase
             {
                 ChangelogCard.Background = Fill("AccentFillColorDefaultBrush");
                 ChangelogIcon.Glyph = "\uE81C";                       // 时钟
-                ChangelogIcon.Foreground = Fill("TextOnAccentFillColorPrimaryBrush");
-                ChangelogCardTitle.Foreground = Fill("TextOnAccentFillColorPrimaryBrush");
-                ChangelogCardSubtitle.Foreground = Fill("TextOnAccentFillColorPrimaryBrush");
-                ChangelogChevron.Foreground = Fill("TextOnAccentFillColorPrimaryBrush");
+                ChangelogIcon.Foreground = Fill("TextOnAccentFillColorPrimaryBrush", Avalonia.Media.Brushes.White);
+                ChangelogCardTitle.Foreground = Fill("TextOnAccentFillColorPrimaryBrush", Avalonia.Media.Brushes.White);
+                ChangelogCardSubtitle.Foreground = Fill("TextOnAccentFillColorPrimaryBrush", Avalonia.Media.Brushes.White);
+                ChangelogChevron.Foreground = Fill("TextOnAccentFillColorPrimaryBrush", Avalonia.Media.Brushes.White);
             }
         }
         catch (Exception ex)
         {
             Core.AppLog.Catch("ui", "刷新首页更新高亮", ex, Core.LogLevel.Debug);
         }
+    }
+
+    // ────────────────────────── 公告（2026-11-05，自上游 1.10 移植）──────────────────────────
+
+    /// <summary>
+    /// 拉首页公告铺到 <see cref="NoticeHost"/>。数据来源见 <see cref="NoticeFeed"/>。
+    ///
+    /// <para>
+    /// ⚠️ 故意先等 1.2 秒：公告要联网，首屏不该等网络。晚一点出现用户察觉不到，
+    ///    让首页卡一下才是真问题（跟上面更新卡那段"零额外网络开销"是同一个道理）。
+    /// </para>
+    /// <para>
+    /// ⚠️ 全程吞异常：拉不到就当没有公告。这条通道是附加信息，出问题绝不能打扰用户。
+    /// </para>
+    /// </summary>
+    private async Task LoadNoticesAsync()
+    {
+        try
+        {
+            await Task.Delay(1200);
+            var items = await NoticeFeed.LoadAsync(ShellConfig.ShellVersion);
+
+            // await 回来不一定还在 UI 线程（服务内部一律 ConfigureAwait(false)）
+            if (!Dispatcher.UIThread.CheckAccess())
+            {
+                Dispatcher.UIThread.Post(() => RenderNotices(items));
+                return;
+            }
+
+            RenderNotices(items);
+        }
+        catch (Exception ex)
+        {
+            // 公告失败静默，不影响首页任何功能 —— 但要留痕，否则"没显示"永远查不出来
+            AppLog.Warn("notice", "分发展示失败：" + ex.GetType().Name + " " + ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// 把公告铺成一条条 InfoBar。没有"关过就不再显示"这回事 —— 见 IsClosable 那段注释。
+    /// 每次先清空：本页是常驻实例，Loaded 会反复触发，不清就会一层层叠上去。
+    /// </summary>
+    private void RenderNotices(IReadOnlyList<NoticeItem> items)
+    {
+        if (NoticeHost is null) return;
+
+        NoticeHost.Children.Clear();
+        foreach (var item in items)
+            NoticeHost.Children.Add(BuildNoticeBar(item));
+    }
+
+    /// <summary>
+    /// 一条公告 = 一个原生 <see cref="InfoBar"/>，就三个属性：<c>Title</c>、<c>Message</c>、<c>ActionButton</c>。
+    ///
+    /// <para>
+    /// ⛔ **不要再往 <c>Content</c> 里塞自己拼的 TextBlock**（2026-11-05 Nick 明确纠正过一次）：
+    /// 严重性配色、图标列、正文换行、上下内边距、深浅主题，模板本来就全管了。
+    /// 自己拼一遍等于把系统的排版拆掉重做 —— 出来是"小卡片"不是系统通知条，而且每改一处都要自己补宽度、补行距、补边距。
+    /// </para>
+    /// </summary>
+    private InfoBar BuildNoticeBar(NoticeItem item) => new()
+    {
+        IsOpen = true,
+        // ⛔ 不提供关闭按钮（2026-11-05 Nick 定）。公告靠 endsAt 到点自动消失，
+        //    或者直接从仓库的 json 里删掉 —— 那是"对所有人失效"，是维护者的动作。
+        IsClosable = false,
+        // ⚠️ 数据层只给字符串级别，映射到 UI 枚举在这里做（NoticeItem 不引 InfoBarSeverity）
+        Severity = item.Level switch
+        {
+            "success" => InfoBarSeverity.Success,
+            "warning" => InfoBarSeverity.Warning,
+            "error" => InfoBarSeverity.Error,
+            _ => InfoBarSeverity.Informational,
+        },
+        Title = item.Title,
+        Message = item.Body,
+        ActionButton = BuildNoticeAction(item),
+    };
+
+    /// <summary>
+    /// 公告带链接时的那颗按钮。Avalonia 的 <see cref="HyperlinkButton"/> 与 WinUI 同名同用：
+    /// 给 <see cref="HyperlinkButton.NavigateUri"/> 就自己会开浏览器，不用另接 Click。
+    /// </summary>
+    private HyperlinkButton? BuildNoticeAction(NoticeItem item)
+    {
+        if (item.Link.Length == 0) return null;
+        if (!Uri.TryCreate(item.Link, UriKind.Absolute, out var uri)) return null;
+
+        return new HyperlinkButton
+        {
+            Content = item.LinkText.Length > 0 ? item.LinkText : "查看详情",
+            NavigateUri = uri,
+        };
     }
 
     private void RefreshUpdateCard()
@@ -189,20 +300,38 @@ public sealed partial class WelcomePage : PageBase
         ChangelogChevron.IsVisible = true;
     }
 
-    /// <summary>「立即更新」：记着的那条可用更新 → 交给更新流程（发起检查/下载）。</summary>
+    private static readonly UpdateService _updater = UpdateService.CreateDefault();
+
+    /// <summary>「立即更新」：按用户在弹窗里的选择分派下载/安装，不能只弹窗不动作。</summary>
     private async void UpdateNow_Click(object? sender, RoutedEventArgs e)
     {
-        var release = Services.Updating.UpdateNotice.Pending;
+        var release = UpdateNotice.Pending;
         if (release is null) return;
 
         try
         {
-            await Services.Updating.UpdateFlow.AskAsync(release, TopLevel.GetTopLevel(this));
+            var owner = TopLevel.GetTopLevel(this);
+            var choice = await UpdateFlow.AskAsync(release, owner);
+
+            // 与设置页 CheckUpdate_Click 的分派保持一致：Later 什么都不做，
+            // Background 转后台下载，Now 走完整的下载→校验→安装流程。
+            if (choice == UpdateFlow.UpdateChoice.Later)
+            {
+                RefreshUpdateCard();
+                return;
+            }
+
+            if (choice == UpdateFlow.UpdateChoice.Background)
+                UpdateFlow.StartBackgroundDownload(_updater, release);
+            else
+                await UpdateFlow.RunAsync(_updater, release, owner: owner);
+
             RefreshUpdateCard();
         }
         catch (Exception ex)
         {
             Core.AppLog.Exception("update", ex, "首页「立即更新」");
+            RefreshUpdateCard();
         }
     }
 
@@ -219,15 +348,28 @@ public sealed partial class WelcomePage : PageBase
     private async void InstallPending_Click(object? sender, RoutedEventArgs e)
     {
         // 防连点：安装会退出应用，多点只会并发起安装器
-        if (sender is Button b) b.IsEnabled = false;
-        await UpdateFlow.InstallPendingNowAsync();
+        if (sender is not Button b) return;
+        b.IsEnabled = false;
+        try
+        {
+            await UpdateFlow.InstallPendingNowAsync();
+        }
+        catch (Exception ex)
+        {
+            Core.AppLog.Exception("update", ex, "首页「立即安装」");
+        }
+        finally
+        {
+            // 安装失败或用户取消时必须恢复按钮，否则会永久停在不可点状态。
+            b.IsEnabled = true;
+        }
     }
 
     private void Populate()
     {
         // 站点名副标题行已整行删除（连同 ui.AppTitle / title 取值），不要补回。
         // 只显示软件自己的版本（前缀 VersionPrefix + ShellVersion）；软件是独立发布物，不显示"网站版本"。
-        ShellVersionText.Text = ShellConfig.VersionPrefix + ShellConfig.ShellVersion;
+        ShellVersionText.Text = ShellConfig.DisplayTag;
 
         RefreshCollectedCount();
 

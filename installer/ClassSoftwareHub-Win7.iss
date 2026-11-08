@@ -1,4 +1,4 @@
-; ══════════════════════════════════════════════════════════════════════
+﻿; ══════════════════════════════════════════════════════════════════════
 ;  ClassSoftwareHub · Windows 7 移植版 — Inno Setup 6 安装脚本
 ;
 ;  编译（在工程根目录）：
@@ -22,7 +22,7 @@
 
 ; ⚠️ 唯一的版本号来源，必须和 Core/ShellConfig.cs 的 ShellVersion 一字不差（写在这里时**不带** dv 前缀）
 #ifndef DesktopVersion
-  #define DesktopVersion "1.2.0-insider1.7"
+  #define DesktopVersion "1.2.0"
 #endif
 
 #define AppName "ClassSoftwareHub"
@@ -112,6 +112,12 @@ Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; F
 const
   WebUrl = '{#AppSite}';
   WebView2Page = 'https://developer.microsoft.com/microsoft-edge/webview2/#download-section';
+  // .NET 6 在 Windows 7 上的硬前提补丁。
+  //   KB3063858 是微软官方文档列给 .NET 6 / Win7 的那一项；它提供 kernel32 的
+  //   SetDefaultDllDirectories / AddDllDirectory 等 API，早期版本号是 KB2533623
+  //   （该补丁已并入后续累积更新，单独下载已下架）。
+  //   两个都指向微软更新目录，用搜索页而不是直链 —— 直链随月度汇总包失效。
+  KbUpdatePage = 'https://www.catalog.update.microsoft.com/Search.aspx?q=KB3063858';
   // WebView2 运行时在注册表里的固定 GUID
   WebView2Client = '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}';
   // 本应用 AppId（与 [Setup] 里的 AppId 一字不差；用于判断是不是升级、找卸载键）
@@ -222,6 +228,44 @@ begin
   Result := True;
 end;
 
+// ── 检查系统有没有 .NET 6 依赖的那组 DLL 目录 API ─────────────────────
+// ⚠️ 为什么必须查、而且**只能**查 API：
+//   .NET 6 的宿主（apphost / hostfxr）用 LoadLibraryEx 的 LOAD_LIBRARY_SEARCH_* 标志
+//   加载 hostfxr.dll / coreclr.dll。这几个标志是 Windows 8 才有的；Windows 7 要靠
+//   KB2533623（已并入 KB3063858 及后续累积更新）给 kernel32 补上
+//   SetDefaultDllDirectories / AddDllDirectory，标志才会被识别。
+//   缺这个补丁时 LoadLibraryEx 返回 ERROR_INVALID_PARAMETER(87)，宿主就抛
+//   「Failed to load the dll from [...hostfxr.dll], HRESULT: 0x80070057」并退出 ——
+//   用户在界面上看到的就是「双击，闪一下，什么都没发生」。
+//   ⇒ 这不是安装包的问题，应用本体（含便携版的启动器）全都跑在这个前提上，
+//     换打包方式绕不过去；能做的只有在装之前把它讲清楚。
+//
+// 为什么查 SetDefaultDllDirectories 而不是 GetProcAddress 探导出表：
+//   Inno 的 Pascal Script 对“函数指针”支持很弱，GetProcAddress 的声明容易编译不过；
+//   而 delayload 是 Inno 文档明确给出的「函数可能不存在」的检测姿势 ——
+//   加载库里没有这个导出时，调用会抛异常，用 try/except 接住即可。
+//   这个 API 一旦调用会改掉**本安装进程**的 DLL 搜索目录（限定为
+//   System32 + 应用目录 + 用户目录），所以放在 InitializeSetup 的**最后**再调，
+//   此时 Setup 自己要用的库都已加载完，不会影响后续解压与建快捷方式。
+function SetDefaultDllDirectories(dwFlags: DWORD): BOOL;
+  external 'SetDefaultDllDirectories@kernel32.dll stdcall delayload';
+
+/// <summary>
+/// kernel32 有没有导出 <c>SetDefaultDllDirectories</c>（= KB2533623 / KB3063858 装没装），
+/// 也就是 .NET 6 在 Windows 7 上能不能启动。
+/// 检测本身出异常时**按「有」处理**：宁可放过，也不要因为检查器自己出错把安装挡下来。
+/// </summary>
+function HasDllDirectoryApi(): Boolean;
+begin
+  Result := True;
+  try
+    // 参数取 LOAD_LIBRARY_SEARCH_DEFAULT_DIRS($1000)：调用能成立就说明补丁在。
+    SetDefaultDllDirectories($00001000);
+  except
+    Result := False;
+  end;
+end;
+
 /// <summary>系统里有没有 Evergreen WebView2 运行时（按机器装 / 按用户装都认）。</summary>
 function HasWebView2(): Boolean;
 var
@@ -275,6 +319,31 @@ begin
       mbConfirmation, MB_YESNO);
     if Choice = IDYES then
       OpenUrl(WebView2Page);
+  end;
+
+  // ── 3. .NET 6 在 Windows 7 上的前提补丁（KB2533623 / KB3063858）──────
+  //    ⚠️ 静默安装直接跳过：更新器走的静默流程，弹框会被 /SUPPRESSMSGBOXES 吞掉；
+  //       而且更新场景下应用本来就已经在运行（能跑 = 补丁早就装了），没必要再拦。
+  //    ⚠️ 这里**只提示、不中止**：补丁要管理员权限装，先让文件到位，
+  //       用户（或管理员）打完补丁开机就能用，不用再装一遍。
+  //    ⚠️ 故意排在最后：HasDllDirectoryApi 会调用 SetDefaultDllDirectories，
+  //       那会改掉本进程的 DLL 搜索目录。放到这个位置，Setup 自己需要的库都已就位。
+  if (not WizardSilent) and (not HasDllDirectoryApi()) then
+  begin
+    Choice := MsgBox(
+      '这台电脑缺少一个 Windows 更新，装上之前应用打不开。' + #13#10 + #13#10 +
+      'ClassSoftwareHub 用的是 .NET 6 运行时，它在 Windows 7 上依赖 KB3063858' +
+      '（早期版本号是 KB2533623，现已并入后续累积更新）。' + #13#10 +
+      '没装这个更新时，双击程序会「闪一下就退出」，事件查看器里能看到' +
+      '「Failed to load the dll from [...hostfxr.dll]」。' + #13#10 + #13#10 +
+      '⚠️ 这不是安装包的问题：重装、换版本、改用便携版都绕不过去，必须先打这个补丁。' + #13#10 +
+      '补丁装完如果提示重启，重启之后再打开本应用。' + #13#10 +
+      '（教室里的机器一般由管理员统一打补丁，可以把这个编号告诉老师。）' + #13#10 + #13#10 +
+      '要现在打开微软更新目录去找这个补丁吗？' + #13#10 +
+      '选「否」仍会继续安装，但装完也打不开。',
+      mbConfirmation, MB_YESNO);
+    if Choice = IDYES then
+      OpenUrl(KbUpdatePage);
   end;
 end;
 

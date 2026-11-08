@@ -1,0 +1,126 @@
+﻿<platform:PageBase
+    x:Class="ClassSoftwareHub.Desktop.Pages.GhostFilePage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:views="using:ClassSoftwareHub.Desktop.Views"
+    xmlns:fa="using:FluentAvalonia.UI.Controls"
+    xmlns:controls="using:ClassSoftwareHub.Desktop.Controls">
+
+    <!--
+      幽灵文件清理（自上游 dv1.2.0-insider1.10 移植，实验性功能 2026-11-03）。
+
+      版式照「PowerPoint 触控优化 / 虚拟内存」那一套：三列 Grid 把内容钉在中间 960 宽。
+      ⚠️ 别用 Stretch + MaxWidth —— 触发上限后会把整列右甩。
+      卡片只用 views:SettingsCard，不手搭 Border（说明块用 Border Classes="cshCard"）。
+
+      移植差异（逐条见 .axaml.cs 的类注释）：
+        · ListView + DataTemplate → 中间 StackPanel 里代码生成行（本仓库动态列表的统一做法）
+        · 勾选汇总 / 全选 / 删除按钮 → 挪到底部常驻条（列表滚起来时也能看见操作）
+        · ProgressRing → fa:ProgressRing，扫描期间显示
+    -->
+    <Grid Background="Transparent">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <Grid Margin="24,36,24,44">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="24" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="24" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="1" MaxWidth="960" Spacing="4">
+
+                    <!-- ── 标题 ── -->
+                    <StackPanel Spacing="6" Margin="0,0,0,20">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <TextBlock Text="幽灵文件清理" FontSize="28" FontWeight="Bold" />
+                            <!-- 「实验性功能」标记：页内自绘（本仓库没有 ExperimentalBadge 控件），样式同虚拟内存页 -->
+                            <controls:ExperimentalBadge FeatureId="ghostfile" />
+                        </StackPanel>
+                        <TextBlock FontSize="12.5" Opacity="0.65" TextWrapping="Wrap"
+                                   Text="文件已经删掉，资源管理器里却还留着图标、双击提示找不到路径时，用这里清理。" />
+                    </StackPanel>
+
+                    <!-- ── 目标目录 ── -->
+                    <views:SettingsCard Header="目标目录">
+                        <views:SettingsCard.HeaderIcon>
+                            <fa:FontIcon Glyph="&#xE8B7;" />
+                        </views:SettingsCard.HeaderIcon>
+                        <views:SettingsCard.Description>
+                            <StackPanel Spacing="8" Margin="0,6,0,2">
+                                <TextBlock FontSize="12" Opacity="0.6" TextWrapping="Wrap"
+                                           Text="填幽灵文件所在的那一级文件夹，只检查这一层，不会往下翻。" />
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <TextBox x:Name="PathBox" Width="400" MinWidth="200"
+                                             Watermark="例如 C:\Users\Public\Desktop" />
+                                    <Button Content="浏览" Click="Browse_Click" />
+                                    <Button x:Name="ScanButton" Content="开始扫描"
+                                            Theme="{StaticResource AccentButtonStyle}"
+                                            Click="Scan_Click" />
+                                    <fa:ProgressRing x:Name="ScanRing" IsActive="False" Width="20" Height="20"
+                                                     VerticalAlignment="Center" />
+                                    <TextBlock x:Name="ScanState" FontSize="12" Opacity="0.65"
+                                               VerticalAlignment="Center" />
+                                </StackPanel>
+                            </StackPanel>
+                        </views:SettingsCard.Description>
+                    </views:SettingsCard>
+
+                    <TextBlock x:Name="ResultTitle" Text="扫描结果" FontSize="14" Margin="0,18,0,2" />
+
+                    <!-- 有结果 -->
+                    <StackPanel x:Name="ResultPanel" Spacing="10" IsVisible="False">
+                        <!--
+                          行内容在代码里构造（BuildRows），不用 ItemTemplate：
+                          移植版所有动态列表都是这个做法（见 PageFilePage / AppDataPage）。
+                          MaxHeight 380 照搬上游 ListView。
+                        -->
+                        <ScrollViewer MaxHeight="380" VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled">
+                            <StackPanel x:Name="RowList" Spacing="2" />
+                        </ScrollViewer>
+
+                        <TextBlock x:Name="DeleteHint" FontSize="12" Opacity="0.6" TextWrapping="Wrap"
+                                   Text="删除优先走回收站；系统关闭回收站或文件过大时可能被直接永久删除，无法保证可还原。" />
+                    </StackPanel>
+
+                    <!-- 没结果 / 出错 / 保护提示 -->
+                    <fa:InfoBar x:Name="MessageBar" IsOpen="False" IsClosable="False" IsVisible="False"
+                                Severity="Informational" Margin="0,8,0,0" />
+
+                    <!-- 显示缓存那一路的出口：扫不到东西时，让资源管理器重读一遍 -->
+                    <StackPanel x:Name="RefreshRow" Orientation="Horizontal" Spacing="8"
+                                Margin="0,4,0,0" IsVisible="False">
+                        <Button Content="刷新资源管理器" Click="Refresh_Click" />
+                    </StackPanel>
+                </StackPanel>
+            </Grid>
+        </ScrollViewer>
+
+        <!-- ── 底部常驻条：勾选汇总 / 全选 / 删除（对应上游结果区里那两颗控件） ── -->
+        <Border Grid.Row="1" x:Name="ActionBar" IsVisible="False"
+                BorderThickness="0,1,0,0"
+                BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+                Background="{DynamicResource LayerFillColorDefaultBrush}">
+            <Grid Margin="24,10,24,10" ColumnDefinitions="*,Auto,Auto" VerticalAlignment="Center">
+                <StackPanel Spacing="4" VerticalAlignment="Center">
+                    <TextBlock x:Name="SelTitle" Text="已选 0 项 / 共 0 项" FontSize="14" FontWeight="SemiBold" />
+                    <TextBlock x:Name="SelSubtitle"
+                               Text="删除优先走回收站；系统关闭回收站或文件过大时可能被直接永久删除，无法保证可还原。"
+                               FontSize="12" Opacity="0.65" TextWrapping="Wrap" />
+                </StackPanel>
+
+                <CheckBox x:Name="SelectAll" Grid.Column="1" Content="全选" IsThreeState="True"
+                          MinWidth="0" Margin="16,0,0,0" VerticalAlignment="Center"
+                          IsCheckedChanged="SelectAll_Changed" />
+                <Button x:Name="DeleteButton" Grid.Column="2" Content="删除选中" Margin="16,0,0,0"
+                        MinWidth="96" Click="Delete_Click" />
+            </Grid>
+        </Border>
+    </Grid>
+</platform:PageBase>

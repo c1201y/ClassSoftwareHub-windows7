@@ -44,16 +44,7 @@
                         <StackPanel Spacing="4">
                         <StackPanel Orientation="Horizontal" Spacing="10">
                             <TextBlock Text="系统功能" FontSize="28" FontWeight="Bold" />
-                            <Border CornerRadius="5" Padding="8,3" Margin="0,0,0,5" VerticalAlignment="Bottom"
-                                    BorderThickness="1"
-                                    BorderBrush="{DynamicResource SystemFillColorCautionBrush}">
-                                <StackPanel Orientation="Horizontal" Spacing="5">
-                                    <fa:FontIcon Glyph="&#xEA80;" FontSize="11"
-                                                 Foreground="{DynamicResource SystemFillColorCautionBrush}" />
-                                    <TextBlock Text="实验性功能" FontSize="12"
-                                               Foreground="{DynamicResource SystemFillColorCautionBrush}" />
-                                </StackPanel>
-                            </Border>
+                            <controls:ExperimentalBadge FeatureId="sysfeatures" />
                         </StackPanel>
                         <TextBlock FontSize="12.5" Opacity="0.65" TextWrapping="Wrap"
                                    Text="修改整台电脑的系统设置（注册表与电源方案），应用时会请求一次管理员授权，部分项要重启才生效。拨动开关只会排队，点底部「应用更改」才会写入。" />

@@ -179,23 +179,27 @@ public static class SystemFeatures
     // ── 写 ───────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// 应用一批改动：拼脚本 → 一次 UAC → 逐项重读核对。
+    /// 应用一批改动：拼脚本 → 独占锁定 → 一次 UAC → 逐项重读核对。
     /// </summary>
     public static async Task<SysApplyResult> ApplyAsync(IReadOnlyList<(SysFeatureDef Def, int Value)> changes)
     {
         if (changes.Count == 0) return new SysApplyResult(0, Array.Empty<string>(), null);
 
-        var script = SysFeatureRules.BuildScript(changes);
-        var path = Path.Combine(Path.GetTempPath(), $"csh-sys-{Guid.NewGuid():N}.cmd");
-
         try
         {
-            // cmd 在中文系统上按 GBK 读脚本最稳；内容本来就全是 ASCII，加不加 BOM 都不影响
-            await File.WriteAllTextAsync(path, script, Encoding.Default);
+            var script = SysFeatureRules.BuildScript(changes);
+
+            // ⚠️ 2026-11-07：以前直接 WriteAllText 到 %TEMP%，同用户进程可在
+            //    「写完 → 点 UAC 是」之间覆写脚本，把 runas 做成公用提权工具。
+            //    现在由 ElevatedArtifact 原子落盘 + FileShare.Read 持有句柄直到
+            //    提权进程退出，并做回读校验与行级白名单；句柄随 using 一直活到执行结束。
+            //    内容本来就全是 ASCII，Encoding.Default 加不加 BOM 都不影响 cmd 解析。
+            using var artifact = ElevatedArtifact.Create(
+                "csh-sys", "cmd", Encoding.Default, script, IsAllowedScriptLine);
 
             AppLog.Step("sysfeatures", $"应用系统功能｜数量={changes.Count}｜项目={string.Join("、", changes.Select(c => c.Def.Id))}");
 
-            var started = await RunElevatedAsync("cmd.exe", $"/c \"{path}\"");
+            var started = await RunElevatedAsync("cmd.exe", $"/c \"{artifact.Path}\"");
             if (!started)
             {
                 return new SysApplyResult(changes.Count, Array.Empty<string>(),
@@ -217,10 +221,33 @@ public static class SystemFeatures
             AppLog.Exception("sysfeatures", ex, "应用系统功能");
             return new SysApplyResult(changes.Count, Array.Empty<string>(), ex.Message);
         }
-        finally
-        {
-            try { if (File.Exists(path)) File.Delete(path); } catch { }
-        }
+    }
+
+    /// <summary>
+    /// 提权脚本的行级白名单：只认规则生成器会产生的那几类命令，并强制全 ASCII。
+    /// 防止以后有人把用户输入的注册表路径 / 值拼进 <c>SysFeatureDef</c> 造成命令注入。
+    /// </summary>
+    private static readonly char[] CmdMetachars = { '&', '|', '^', '%', '!', '<', '>', '`', '"' };
+    private static readonly char[] CmdMetacharsNoQuote = { '&', '|', '^', '%', '!', '<', '>', '`' };
+
+    private static bool IsAllowedScriptLine(string line)
+    {
+        // cmd 代码页随系统语言走，脚本里出现非 ASCII 就会乱码甚至被解释成别的东西。
+        if (line.Any(ch => ch > 0x7E)) return false;
+        if (line == "@echo off" || line == "chcp 437 >nul") return true;
+        if (line == "powercfg /setactive SCHEME_CURRENT") return true;
+
+        if (line.StartsWith("powercfg /setacvalueindex SCHEME_CURRENT ", StringComparison.OrdinalIgnoreCase))
+            return line.IndexOfAny(CmdMetachars) < 0;
+
+        // reg add 的键名必须带一对引号；除此之外任何 cmd 元字符都不放行。
+        if (line.StartsWith("reg add \"HKLM\\", StringComparison.OrdinalIgnoreCase)
+            && line.EndsWith(" /f", StringComparison.OrdinalIgnoreCase)
+            && line.Contains(" /t REG_DWORD /d ")
+            && line.Count(ch => ch == '"') == 2)
+            return line.IndexOfAny(CmdMetacharsNoQuote) < 0;
+
+        return false;
     }
 
     // ── 内部 ─────────────────────────────────────────────────────────────

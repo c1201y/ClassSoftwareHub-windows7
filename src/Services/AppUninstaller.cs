@@ -281,11 +281,24 @@ public static class AppUninstaller
             if (end > 1) return (s[1..end], s[(end + 1)..].Trim());
         }
 
-        // 没引号：一路吃到 .exe 结尾。用**懒惰**匹配认第一个 .exe，
-        // 这样"路径里带 .exe 字样的目录名"也不会被吃过头。
-        var m = Regex.Match(s, @"^(?<exe>.+?\.exe)(?:\s+(?<args>.*))?$",
-                            RegexOptions.IgnoreCase | RegexOptions.Singleline);
-        if (m.Success) return (m.Groups["exe"].Value.Trim(), m.Groups["args"].Value.Trim());
+        // 没引号：按「后面紧跟空白或行尾的 .exe」切分，并优先取一个真实存在的路径。
+        // ⛔ 不能用懒惰匹配认第一个 .exe：C:\Program Files\MyApp.exe Folder\uninst.exe /S
+        //    会被截成启动 MyApp.exe。同理单纯贪婪匹配又会把参数里的 .exe 吃进来，
+        //    所以用 File.Exists 从后往前挑第一个有效可执行文件。
+        var boundaries = Regex.Matches(s, @"\.exe(?=\s|$)", RegexOptions.IgnoreCase);
+        if (boundaries.Count > 0)
+        {
+            for (var k = boundaries.Count - 1; k >= 0; k--)
+            {
+                var end = boundaries[k].Index + boundaries[k].Length;
+                var candidate = s[..end].Trim().Trim('"');
+                if (File.Exists(candidate)) return (s[..end].Trim(), s[end..].Trim());
+            }
+            // 都不存在（相对路径 / 环境变量 / 远端卸载串）时退回最后一个 .exe 边界，
+            // 仍比取第一个 .exe 更接近真实可执行文件。
+            var last = boundaries[^1].Index + boundaries[^1].Length;
+            return (s[..last].Trim(), s[last..].Trim());
+        }
 
         // 最后手段：按第一个空格拆（有些卸载命令是 `cmd /c ...` 这类）
         var i = s.IndexOf(' ');

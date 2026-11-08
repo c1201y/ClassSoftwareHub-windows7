@@ -14,7 +14,7 @@ namespace ClassSoftwareHub.Desktop.Services;
 /// 为什么要有这个：卸载前后求差集，只能说明"这条是这次卸载过程中新出现的"，
 /// **不等于**"它就是被卸载的那个软件留下的"（卸载器可能写入了其他内容，
 /// 甚至别的程序恰好在同一时间启动了）。所以还要过一遍名字/路径比对，
-/// 按证据强弱分三档 —— 强/中默认勾上，弱默认**不勾**（宁可少清，不可错清）。
+/// 按证据强弱分三档 —— 全部只显示、不预勾选，由用户逐项确认（宁可少清，不可错清）。
 /// </summary>
 public enum LeftoverEvidence
 {
@@ -301,16 +301,20 @@ public static class LeftoverResolver
         // —— 那太松了，它们的名字其实完全吻合。
         var nStem = InstalledApps.Normalize(Path.GetFileNameWithoutExtension(leaf));
 
-        // ── 强证据（默认勾选）：名字**完全一致** ──
+        // ── 强证据：名字**完全一致** ──
         //  ⛔⛔ 只认"完全一致"，不认"包含"。宽松的包含判据会把名字相似的用户目录
-        //     （如 `%USERPROFILE%\ClassSoftwareHub-Mobile`）误判成残留并**默认勾上**。
+        //     （如 `%USERPROFILE%\ClassSoftwareHub-Mobile`）误判成残留。
         if (Exact(n, profile.NameKey, 4) || Exact(nStem, profile.NameKey, 4))
         {
             Set(item, LeftoverEvidence.Strong, "名称与软件名一致");
             return;
         }
 
-        if (Exact(n, profile.FolderKey, 3) || Exact(nStem, profile.FolderKey, 3) ||
+        // ── 目录名 / 程序名**完全一致** ──
+        //  ⛔⛔ FolderKey 是安装目录末段，短名或通用词（Tencent / Games / Software…）
+        //     会把大量不相干的同名目录误判为残留，故门槛提到 ≥6 且先过通用词黑名单。
+        var folderUsable = UsableFolderKey(profile.FolderKey);
+        if ((folderUsable && (Exact(n, profile.FolderKey, 6) || Exact(nStem, profile.FolderKey, 6))) ||
             Exact(n, profile.ExeKey, 3) || Exact(nStem, profile.ExeKey, 3))
         {
             Set(item, LeftoverEvidence.Strong, "名称与程序目录名一致");
@@ -349,7 +353,8 @@ public static class LeftoverResolver
 
         // ── 中证据（摆出来，但**不勾**）：只是"像"，要人自己看一眼 ──
         if (Contains(n, profile.NameKey, 0.4, 4) || Contains(nStem, profile.NameKey, 0.4, 4) ||
-            Contains(n, profile.FolderKey, 0.5, 4) || Contains(nStem, profile.FolderKey, 0.5, 4))
+            (folderUsable &&
+             (Contains(n, profile.FolderKey, 0.5, 4) || Contains(nStem, profile.FolderKey, 0.5, 4))))
         {
             Set(item, LeftoverEvidence.Medium, "名称与软件名相似");
             return;
@@ -530,6 +535,21 @@ public static class LeftoverResolver
         => candidate.Length >= require && key.Length >= require &&
            candidate.Equals(key, StringComparison.Ordinal);
 
+    /// <summary>通用目录名黑名单：安装目录末段命中这些词时不足以判定残留归属。</summary>
+    private static readonly HashSet<string> GenericFolderKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "tencent", "google", "microsoft", "games", "software", "softwares", "tools",
+        "common", "data", "program", "programs", "programfiles", "apps", "cache",
+        "config", "desktop", "documents", "download", "downloads", "temp", "tmp",
+        "users", "public", "shared", "system", "systems", "install", "setup",
+        "update", "updates", "library", "libraries", "resources", "assets",
+        "media", "commonfiles", "windowsapps", "my documents", "新建文件夹",
+    };
+
+    /// <summary>安装目录末段可否作为归属依据：长度 ≥6 且不是通用词。</summary>
+    private static bool UsableFolderKey(string key)
+        => key.Length >= 6 && !GenericFolderKeys.Contains(key);
+
     /// <summary>
     /// 名字"**像**"（一方包含另一方，且被包含的那截占容器 <paramref name="ratio"/> 以上）。
     /// ⛔ 这一档只用于 <see cref="LeftoverEvidence.Medium"/>（摆出来给人看、**默认不勾**），
@@ -570,15 +590,15 @@ public static class LeftoverResolver
 
     /// <summary>
     /// 打档并且**决定默认勾不勾**。
-    /// ⛔⛔ 只有"确定"（<see cref="LeftoverEvidence.Strong"/>）才默认勾上。
-    ///    「很可能」和「不确定」都摆出来给人看，但**不勾** ——
-    ///    它们是"名字像"和"新出现"这两种推测，勾上就等于替用户做了他没做的判断。
+    /// ⛔⛔ 批次 A 硬要求：此处所有证据等级均由「位置 / 目录名」等推测得出，一律
+    ///    **只显示、不预勾选**，由用户逐项确认后再动手，彻底消除"默认勾选宽目录"
+    ///    引发的不可逆数据丢失（见代码审计报告第 1 节第 37 行）。
     /// </summary>
     private static void Set(LeftoverItem item, LeftoverEvidence level, string reason)
     {
         item.Evidence = level;
         item.Reason = reason;
-        item.Selected = level == LeftoverEvidence.Strong;
+        item.Selected = false;
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -634,7 +654,7 @@ public static class LeftoverResolver
             if (prefix.Length > 0 && IsInsideOrEqual(full, prefix)) return true;
 
         // ②.5 盘根 / 用户目录本体 / 用户目录的祖先：
-        //     只要这些路径被当成「安装目录」，整盘或整个 profile 都会变成强证据默认勾选。
+        //     只要这些路径被当成「安装目录」，整盘或整个 profile 都会被当成强证据残留。
         var trimmed = full.TrimEnd('\\');
         if (Path.GetPathRoot(full)?.TrimEnd('\\').Equals(trimmed, StringComparison.OrdinalIgnoreCase) == true)
             return true;
@@ -647,6 +667,22 @@ public static class LeftoverResolver
             // full 是 profile 的祖先（C:\、C:\Users）同样禁止
             if (IsInsideOrEqual(profile, full)) return true;
         }
+
+        // ②.6 AppData 三个本体目录（Local / Roaming / LocalLow）：
+        //     卸载登记若把它们写成安装目录，其下整片目录都会被当成强证据残留。
+        //     ⚠️ 只做「精确等于」匹配，不使用前缀 —— 否则会把本体之下所有残留扫描
+        //        一并挡死（与 ② 故意不列 %USERPROFILE%\AppData 同理）。
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var roamingAppData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        var localLow = localAppData.Length > 0
+            ? Path.Combine(Path.GetDirectoryName(localAppData) ?? "", "LocalLow")
+            : "";
+        if (localAppData.Length > 0 &&
+            string.Equals(trimmed, localAppData.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase)) return true;
+        if (roamingAppData.Length > 0 &&
+            string.Equals(trimmed, roamingAppData.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase)) return true;
+        if (localLow.Length > 0 &&
+            string.Equals(trimmed, localLow.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase)) return true;
 
         // ③ 叶子名命中禁碰名单（不管它在哪）
         var leaf = Path.GetFileName(full.TrimEnd('\\'));
@@ -838,7 +874,8 @@ public static class LeftoverResolver
     {
         "Windows", "Microsoft", "Common Files", "WindowsApps", "WinSxS",
         "System32", "SysWOW64", "System", "Assembly", "Fonts", "Inf",
-        "AppData", "ProgramData", "Users", "Program Files", "Program Files (x86)",
+        "AppData", "Local", "Roaming", "LocalLow",
+        "ProgramData", "Users", "Program Files", "Program Files (x86)",
         "ClassSoftwareHub", "Package Cache", "Packages", "Temp", "Tmp",
         "desktop.ini", "ntuser.dat", "ntuser.ini", "NTUSER.DAT.LOG1", "NTUSER.DAT.LOG2",
         "bootmgr", "BOOTNXT", "pagefile.sys", "swapfile.sys", "hiberfil.sys", "DumpStack.log.tmp",

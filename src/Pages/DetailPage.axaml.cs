@@ -91,6 +91,8 @@ public sealed partial class DetailPage : PageBase
             HeroMeta.IsVisible = false;
             IntroTitle.IsVisible = false;
             AppDescription.IsVisible = false;
+            OssBar.IsOpen = false;
+            OssBar.IsVisible = false;
             InfoTitle.IsVisible = false;
             DownloadsTitle.IsVisible = false;
             Rail.IsVisible = false;
@@ -122,6 +124,24 @@ public sealed partial class DetailPage : PageBase
         AppDescription.IsVisible = app.Description.Length > 0;
         IntroTitle.IsVisible = AppDescription.IsVisible;
 
+        // ── 来源说明（文件存在本站对象存储时）──
+        // 只有 `oss://` 那种「文件真的在咱们机器上」的才需要：其余都是官方直链或网盘跳转，
+        // 用户点下去看到的是官方域名，本来就清楚文件从哪来（2026-11-01）。
+        if (app.HasOssDownload)
+        {
+            OssBar.Title = ui.T("detail.oss-title", "来源说明");
+            OssBar.Message = ui.T("detail.oss-notice",
+                "文件由投稿者上传，本站未作修改，请自行核对来源与安全性。");
+            OssBar.IsOpen = true;
+            OssBar.IsVisible = true;
+        }
+        else
+        {
+            // ⛔ 关着的 InfoBar 仍会占掉一排高度，必须显式收起
+            OssBar.IsOpen = false;
+            OssBar.IsVisible = false;
+        }
+
         // ── 小提示 ──
         if (app.Notice.Length > 0)
         {
@@ -144,6 +164,10 @@ public sealed partial class DetailPage : PageBase
         AddInfoRow(ui.T("detail.system", "系统限制"), app.System);
         AddLinkRow(ui.T("detail.website", "官方网站"), app.Website);
         AddLinkRow(ui.T("detail.github", "GitHub"), app.Github);
+        // 开发者 / 开源协议：选填字段，⛔ 不能用 AddInfoRow（它会给空值补一句「待补充」，
+        // 而这两个字段没有就是没有，补占位反而像漏填）。
+        AddOptionalRow(ui.T("detail.author", "开发者"), app.Author);
+        AddOptionalRow(ui.T("detail.license", "开源协议"), app.License);
         FinishInfoRows();   // 行与行之间补细分割线（末行不画）
 
         // ── 下载 ──
@@ -340,6 +364,30 @@ public sealed partial class DetailPage : PageBase
         InfoList.Children.Add(row);
     }
 
+    /// <summary>
+    /// 选填的一行（开发者 / 开源协议）。没值就整行不出现。
+    ///
+    /// ⚠️ 跟 <see cref="AddInfoRow"/> 的唯一区别就在这里：版本 / 体积 / 系统是必有信息，
+    /// 空着要补一句「待补充」才不显得像坏了；而作者和协议本来就是选填，补占位反而像漏填。
+    /// </summary>
+    private void AddOptionalRow(string label, string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return;
+
+        var row = NewInfoRow(label);
+        // 与原版 TextBlock.IsTextSelectionEnabled 对齐 → Avalonia 用 SelectableTextBlock（同 AddInfoRow）
+        var text = new SelectableTextBlock
+        {
+            Text = value.Trim(),
+            TextWrapping = TextWrapping.Wrap,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(12, 0, 0, 0),
+        };
+        Grid.SetColumn(text, 1);
+        row.Children.Add(text);
+        InfoList.Children.Add(row);
+    }
+
     private void AddLinkRow(string label, string url)
     {
         if (string.IsNullOrWhiteSpace(url)) return;
@@ -418,6 +466,13 @@ public sealed partial class DetailPage : PageBase
 
     private async void Store_Click(object? sender, RoutedEventArgs e)
     {
+        // async void 中逃逸的异常会直接终止进程，统一在入口处兜住。
+        try { await Store_ClickAsync(); }
+        catch (Exception ex) { Core.AppLog.Catch("ui", "打开微软商店", ex); }
+    }
+
+    private async Task Store_ClickAsync()
+    {
         if (_storeUrl.Length == 0) return;
 
         // 微软商店本体 → 特例（能顺带把商店装回来）
@@ -451,6 +506,12 @@ public sealed partial class DetailPage : PageBase
 
     /// <summary>「下载到其他文件夹…」：这一次换地方存，不改默认位置。</summary>
     private async void DownloadTo_Click(object? sender, RoutedEventArgs e)
+    {
+        try { await DownloadTo_ClickAsync(sender, e); }
+        catch (Exception ex) { AppLog.Catch("download", "下载到其他文件夹", ex); }
+    }
+
+    private async Task DownloadTo_ClickAsync(object? sender, RoutedEventArgs e)
     {
         var url = (sender as Control)?.Tag as string ?? "";
         if (url.Length == 0) return;

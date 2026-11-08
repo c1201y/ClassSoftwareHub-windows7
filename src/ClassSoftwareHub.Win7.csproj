@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <!--
     ClassSoftwareHub · Windows 7 移植版（代号 csh-win7）
@@ -22,8 +22,12 @@
     <AssemblyName>ClassSoftwareHub</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>..\Assets\AppIcon.ico</ApplicationIcon>
-    <Platforms>x64</Platforms>
+    <Platforms>x64;x86</Platforms>
+    <!-- 默认仍按 win-x64 发布：dotnet publish -r win-x64（以及不带 -r）的产物路径与行为一字不变 -->
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <!-- 同时让 restore 为 win-x86 备好 assets，支持 dotnet publish -r win-x86 产出 32 位包；
+         代码里 NativeMethodsEx 的 IntPtr.Size == 4 分支已就绪，补的只是构建配置 -->
+    <RuntimeIdentifiers>win-x64;win-x86</RuntimeIdentifiers>
 
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -35,10 +39,10 @@
     <ApplicationResourceIncludeAssetsFromPackages>true</ApplicationResourceIncludeAssetsFromPackages>
 
     <!-- 版本号规则见 Core/ShellConfig.cs（ShellVersion 是唯一来源，这里只是写进 exe 的元数据） -->
-    <Version>1.2.0-insider1.7</Version>
+    <Version>1.2.0</Version>
     <AssemblyVersion>1.2.0.0</AssemblyVersion>
     <FileVersion>1.2.0.0</FileVersion>
-    <InformationalVersion>1.2.0-insider1.7</InformationalVersion>
+    <InformationalVersion>1.2.0</InformationalVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Product>ClassSoftwareHub</Product>
     <AssemblyTitle>ClassSoftwareHub</AssemblyTitle>
@@ -60,7 +64,26 @@
     -->
     <PublishReadyToRun>true</PublishReadyToRun>
     <PublishReadyToRunComposite>false</PublishReadyToRunComposite>
-    <!-- 抑制 Win7 目标下的平台兼容性噪音（我们明确知道哪些 API 只在更高系统存在，均已在代码里做版本判定） -->
+    <!--
+      CA1416 = 「平台兼容性」分析器。
+
+      ⛔⛔ 实测结论（2026-11-07，务必先读完再决定要不要动这一行）：
+        本仓库**无法**靠 CA1416 发现 Win7 缺失的 API。原因不是没开，而是
+        CA1416 只认 .NET 自己带 [SupportedOSPlatform] 标注的 BCL 成员；
+        本项目的 Win32 调用全部是**自己写的 [DllImport] 声明**，
+        分析器无从得知它们的最低系统版本。
+        验证方式：`dotnet build -t:Rebuild -p:NoWarn="" -p:EnableNETAnalyzers=true`
+        → CA1416 输出 **0 条**，与 Win7 兼容性相关的真实风险一条都没被指出。
+
+      所以这里**保留压制**不是为了掩盖存量（那部分已被 §0 警告统计如实暴露），
+      而是因为开着它只会让人误以为"平台兼容性有自动检查"。
+      真正的护栏是：
+        · Platform/OsInfo 的版本判定（IsWindows7 / IsWindows10OrLater / DwmMaterialsAvailable…）
+        · 每个 P/Invoke 调用点的 try/catch（EntryPointNotFoundException / DllNotFoundException）
+        · Platform/NativeMethods*.cs 里逐条标注的「最低 WinXxx」注释
+      并且 —— 32/64 位导出差异（GetWindowLongPtr vs GetWindowLongW）必须靠
+      按 IntPtr.Size 路由，分析器同样查不出来（见 NativeMethods.cs 的包装方法）。
+    -->
     <NoWarn>$(NoWarn);CA1416</NoWarn>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
@@ -128,6 +151,11 @@
                       Link="Assets\Fonts\HarmonyOS_Sans_SC_Medium.ttf" />
     <AvaloniaResource Include="..\Assets\Fonts\HarmonyOS_Sans_SC_Light.ttf"
                       Link="Assets\Fonts\HarmonyOS_Sans_SC_Light.ttf" />
+    <!-- 粗体单独一份：全站默认字体走 HarmonyOS Sans SC（见 App.axaml 的 AppFontFamily），
+         FontWeight=Bold 的字（标题、卡片名）需要真粗体，缺这一份只能拿 Medium 做伪粗体，
+         Win7 的 GDI 合成粗体边缘会糊。 -->
+    <AvaloniaResource Include="..\Assets\Fonts\HarmonyOS_Sans_SC_Bold.ttf"
+                      Link="Assets\Fonts\HarmonyOS_Sans_SC_Bold.ttf" />
   </ItemGroup>
 
   <ItemGroup>

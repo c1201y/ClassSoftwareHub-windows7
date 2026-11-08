@@ -93,6 +93,15 @@ internal static class PopupSurfaceFix
     /// </remarks>
     private static bool PopupIsOpaque => OsInfo.IsWindows7 || !OsInfo.IsDwmCompositionEnabled;
 
+    /// <summary>
+    /// Win7 开着 Aero / DWM 合成时跳过「整窗实心打底 + 硬边区域裁剪」：
+    /// 那会在本可平滑合成的机器上留下 1px 锯齿方角（审计 P2）。
+    /// ⚠️ 仍保留 <c>TransparencyBackgroundFallback</c> 同色兜底（见 Apply 里的说明）——
+    ///    Win7 上 Avalonia 的逐像素透明并非总能兑现，落到 None 时不刷会重新露白角。
+    /// Aero 关闭 / 无 DWM 时维持完整的同色打底 + 裁剪。
+    /// </summary>
+    private static bool AeroSkipHardClip => OsInfo.IsWindows7 && OsInfo.IsDwmCompositionEnabled;
+
     /// <summary>在 <c>App.OnFrameworkInitializationCompleted</c> 里调一次。</summary>
     public static void Install()
     {
@@ -139,16 +148,22 @@ internal static class PopupSurfaceFix
             //    PopupRoot 也是 TopLevel，Win7 上它的实际 TransparencyLevel 同样是 None
             //    （Avalonia 在 Win7 上没有透明窗口能力，见 Platform/Backdrop.cs 类注释），
             //    此时窗口底由回退底色决定，而它默认是**白色** —— 只设 Background 兜不住月牙。
+            //
+            //    ⚠️ Win7 开着 Aero / DWM 合成时不再做「整窗实心打底 + SetWindowRgn 硬边裁剪」：
+            //       那会在本可平滑合成的机器上留下 1px 锯齿方角（审计 P2）。
+            //       但 fallback 仍须刷成同色 —— 平台一旦没兑现逐像素透明，窗口底由它决定，
+            //       不刷会重新露出深色弹层四角的白色月牙（这正是本文件早先修掉的问题）。
             var surface = ResolveSurfaceColor(root);
             if (surface is { } c)
             {
                 var brush = new SolidColorBrush(c);
-                root.Background = brush;
+                if (!AeroSkipHardClip) root.Background = brush;
                 root.TransparencyBackgroundFallback = brush;
             }
 
-            // ② 裁剪：按内容同样的圆角半径把窗口形状裁掉四角
-            _ = RoundedCorners.Apply(hwnd, radiusDip, scale);
+            // ② 裁剪：Aero 关闭 / 无 DWM 时才按内容圆角把窗口形状裁掉四角
+            if (!AeroSkipHardClip)
+                _ = RoundedCorners.Apply(hwnd, radiusDip, scale);
 
             // 只记第一条：排障时"白边到底还在不在"就看这行 —— 底色/圆角/窗口都在这
             if (!_loggedFirst)

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -150,7 +150,7 @@ public partial class OobeWelcomeIntro : UserControl
     {
         InitializeComponent();
 
-        VersionLine.Text = $"Desktop({(SystemInfo.IsWin11 ? "Win11" : "Win10")}) {ShellConfig.ShellVersion}";
+        VersionLine.Text = $"Desktop({(SystemInfo.IsWin11 ? "Win11" : "Win10")}) {ShellConfig.DisplayVersion}";
         LoadLogo();
 
         Loaded += (_, _) =>

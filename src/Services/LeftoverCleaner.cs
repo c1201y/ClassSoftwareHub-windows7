@@ -84,6 +84,20 @@ public static class LeftoverCleaner
     /// <summary>跨盘符时"复制+删除"能接受的体积上限。超过就只删不备份，并在汇报里标明。</summary>
     private const long CrossVolumeBackupLimit = 2L * 1024 * 1024 * 1024;
 
+    /// <summary>
+    /// 递归枚举统一口径：跳过重解析点 / 隐藏 / 系统条目。
+    /// ⚠️ 默认 <c>SearchOption.AllDirectories</c> 不跳过 ReparsePoint，会顺着 junction
+    ///    跟到目录外改属性、复制或统计（见代码审计报告第 1 节复核说明）；
+    ///    实测递归删除本身不跟随，故此处只收紧枚举，不改删除逻辑。
+    /// </summary>
+    private static readonly EnumerationOptions DeepEnum = new()
+    {
+        RecurseSubdirectories = true,
+        AttributesToSkip = FileAttributes.ReparsePoint | FileAttributes.Hidden | FileAttributes.System,
+        IgnoreInaccessible = true,
+        ReturnSpecialDirectories = false,
+    };
+
     // ══════════════════════════════════════════════════════════════════════════
     //  主流程
     // ══════════════════════════════════════════════════════════════════════════
@@ -113,15 +127,23 @@ public static class LeftoverCleaner
         }
 
         // ① 注册表备份 —— 必须在删之前，而且**一次写全**
+        //    ⛔ 铁律：注册表删除不可逆，备份没写成就一律不删（与文件侧「备份失败不硬删」同口径）。
+        //    WriteRegistryBackup 在无注册表项时返回空串属正常；有注册表项却拿到空串才算失败。
+        var hasRegistryItems = picked.Any(i => i.Kind != FootprintKind.Path);
         var backup = "";
+        var backupOk = false;
         try
         {
             backup = WriteRegistryBackup(dir, picked, appName);
+            backupOk = !hasRegistryItems || backup.Length > 0;
         }
         catch (Exception ex)
         {
             AppLog.Exception("cleanup", ex, "写注册表备份");
+            backupOk = !hasRegistryItems;
         }
+        if (!backupOk)
+            AppLog.Warning("cleanup", "注册表备份未写出｜处置=跳过本轮全部注册表删除（备份为不可逆删除的前提）");
 
         var results = new List<CleanupItemResult>();
 
@@ -131,6 +153,14 @@ public static class LeftoverCleaner
         {
             ct.ThrowIfCancellationRequested();
             index++;
+
+            // ⛔ 备份失败 ⇒ 跳过该注册表删除，并如实标注，绝不谎报「已备份至 .reg」。
+            if (item.Kind != FootprintKind.Path && !backupOk)
+            {
+                AppLog.Warning("cleanup", $"清理项被跳过｜原因=注册表备份失败｜项={item.DisplayPath}");
+                results.Add(new CleanupItemResult(item, CleanStatus.Failed, "备份失败，未删除"));
+                continue;
+            }
 
             try
             {
@@ -327,10 +357,10 @@ public static class LeftoverCleaner
     {
         if (!isDir) { ClearReadOnly(path); File.Delete(path); return; }
 
-        foreach (var f in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
+        foreach (var f in Directory.EnumerateFiles(path, "*", DeepEnum))
             ClearReadOnly(f);
 
-        foreach (var d in Directory.EnumerateDirectories(path, "*", SearchOption.AllDirectories))
+        foreach (var d in Directory.EnumerateDirectories(path, "*", DeepEnum))
         {
             try { File.SetAttributes(d, FileAttributes.Directory); }
             catch { /* 某些目录改不了属性，删的时候再报 */ }
@@ -353,7 +383,7 @@ public static class LeftoverCleaner
     private static long MeasureDir(string dir)
     {
         long total = 0;
-        foreach (var f in Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories))
+        foreach (var f in Directory.EnumerateFiles(dir, "*", DeepEnum))
         {
             try { total += new FileInfo(f).Length; }
             catch { /* 单个文件量不到就跳过 */ }
@@ -364,9 +394,9 @@ public static class LeftoverCleaner
     private static void CopyDir(string source, string target)
     {
         Directory.CreateDirectory(target);
-        foreach (var d in Directory.EnumerateDirectories(source, "*", SearchOption.AllDirectories))
+        foreach (var d in Directory.EnumerateDirectories(source, "*", DeepEnum))
             Directory.CreateDirectory(Path.Combine(target, Path.GetRelativePath(source, d)));
-        foreach (var f in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
+        foreach (var f in Directory.EnumerateFiles(source, "*", DeepEnum))
             File.Copy(f, Path.Combine(target, Path.GetRelativePath(source, f)), overwrite: false);
     }
 
@@ -652,8 +682,18 @@ public static class LeftoverCleaner
                 Probe = i.Probe,
             }).ToList();
 
-            await File.WriteAllTextAsync(manifest,
-                JsonSerializer.Serialize(payload, ManifestJson), ct);
+            // 原子写：先写同目录临时文件并以独占句柄刷盘，再原子替换目标，
+            // 使提权助手只会读到完整清单（旧或新），不会读到半截 JSON；
+            // 写入期间 FileShare.None 也缩小"写完 → 点 UAC 是"之间被同用户进程覆写的窗口。
+            // ⚠️ 原子写不能杜绝 TOCTOU，助手侧仍须对每一项做全量重校验（见 ApplyManifestElevated）。
+            var tmp = manifest + ".tmp";
+            var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(payload, ManifestJson));
+            using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                await fs.WriteAsync(bytes, 0, bytes.Length, ct);
+                await fs.FlushAsync(ct);
+            }
+            File.Move(tmp, manifest, overwrite: true);
 
             var exe = Environment.ProcessPath;
             if (string.IsNullOrEmpty(exe))
@@ -756,15 +796,25 @@ public static class LeftoverCleaner
             var entries = JsonSerializer.Deserialize<List<ManifestEntry>>(text, ManifestJson)
                           ?? new List<ManifestEntry>();
 
+            // 内容白名单：条目数设上限，避免清单被换成超长数组拖垮提权进程。
+            if (entries.Count > MaxManifestEntries)
+            {
+                AppLog.Warning("cleanup", $"提权清单被拒绝｜原因=条目数超限｜数量={entries.Count}");
+                entries.Clear();
+            }
+
             foreach (var e in entries)
             {
-                // 文件路径必须是绝对路径：相对路径会按「提权进程的当前目录」解析，
-                // 结果完全不可预测（清单是普通权限写的，不能信它的相对语义）。
-                if (e.Kind == (int)FootprintKind.Path && !Path.IsPathRooted(e.Path))
+                // ⛔⛔ 清单落在用户可写目录，来源不可信（TOCTOU）。助手以管理员身份
+                //    执行前必须对每一项**全量重校验**：内容白名单（合法 Kind / 字段形态）、
+                //    绝对路径、禁碰名单复核；不复用普通进程那一轮的任何判断。
+                if (!ValidateManifestEntry(e, out var reason))
                 {
+                    AppLog.Warning("cleanup", $"提权清单项被拒绝｜原因={reason}｜路径={e?.Path}");
                     outcome.Add(new ManifestResult
                     {
-                        Path = e.Path, ValueName = e.ValueName, Ok = false, Note = "相对路径已拒绝",
+                        Path = e?.Path ?? "", ValueName = e?.ValueName ?? "",
+                        Ok = false, Note = "清单项校验未通过：" + reason,
                     });
                     continue;
                 }
@@ -831,6 +881,61 @@ public static class LeftoverCleaner
 
         ForceDelete(item.Path, isDir);
         return new CleanupItemResult(item, CleanStatus.Removed, "管理员权限下已删除");
+    }
+
+    /// <summary>提权清单条目数上限（内容白名单的一部分）。</summary>
+    private const int MaxManifestEntries = 512;
+
+    /// <summary>
+    /// 提权清单的内容白名单 + 全量重校验。清单位于用户可写目录，存在被同用户进程
+    /// 覆写（TOCTOU）的风险；助手以管理员身份执行前必须对每一项独立复核，
+    /// 只放行合法且不在禁碰名单里的条目。
+    /// </summary>
+    private static bool ValidateManifestEntry(ManifestEntry? e, out string reason)
+    {
+        reason = "";
+        if (e is null) { reason = "空条目"; return false; }
+
+        // ① Kind 白名单：只接受本程序会产生的三类，杜绝任意整数被强转成枚举。
+        if (e.Kind != (int)FootprintKind.Path &&
+            e.Kind != (int)FootprintKind.RegistryKey &&
+            e.Kind != (int)FootprintKind.RegistryValue)
+        { reason = "条目类型不受支持"; return false; }
+
+        if (string.IsNullOrWhiteSpace(e.Path)) { reason = "路径为空"; return false; }
+
+        // ② 字段形态：不允许控制字符与异常长度，避免借清单传入畸形路径 / 注入内容。
+        if (!SafeManifestText(e.Path) || !SafeManifestText(e.Probe) || !SafeManifestText(e.ValueName))
+        { reason = "字段含非法字符或过长"; return false; }
+
+        // ③ 路径类：绝对路径 + 禁碰名单（与界面勾选无关的独立复核）。
+        if (e.Kind == (int)FootprintKind.Path)
+        {
+            if (!Path.IsPathRooted(e.Path)) { reason = "相对路径"; return false; }
+            if (LeftoverResolver.IsForbiddenPathPublic(e.Path)) { reason = "路径受保护"; return false; }
+            return true;
+        }
+
+        // ④ 注册表类：路径可解析 + 禁碰名单（删整条键 / 删值分别判）。
+        if (!RegistryPath.TryParse(e.Path, out _, out _))
+        { reason = "注册表路径无法解析"; return false; }
+
+        var forbidden = e.Kind == (int)FootprintKind.RegistryKey
+            ? LeftoverResolver.IsForbiddenKeyPublic(e.Probe, e.Path)
+            : LeftoverResolver.IsForbiddenRegistryPublic(e.Probe, e.Path, e.ValueName);
+        if (forbidden) { reason = "注册表位置受保护"; return false; }
+
+        return true;
+    }
+
+    /// <summary>清单字段是否合规：非空、长度有界、不含控制字符。</summary>
+    private static bool SafeManifestText(string? s)
+    {
+        if (s == null || s.Length == 0) return true;
+        if (s.Length > 4096) return false;
+        foreach (var c in s)
+            if (c < 0x20) return false;   // 控制字符（含 NUL / 换行 / 回车）
+        return true;
     }
 
     private sealed class ManifestEntry

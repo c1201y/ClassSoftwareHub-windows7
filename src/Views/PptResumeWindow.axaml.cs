@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Selection;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
@@ -42,6 +43,17 @@ public sealed partial class PptResumeWindow : Window
     private bool _visible;
     private int _fadeEpoch;
     private string _subject = "";
+
+    /// <summary>
+    /// 用户在下拉里**手动选过**的科目。
+    /// ⛔ 一旦手动选过，就不能再被「自动识别的当前课表科目」覆盖 ——
+    ///    否则课间想续上一节的数学，浮窗却每 30 秒自己跳回当前这节语文，
+    ///    用户点了没效果，会以为程序坏了。
+    /// </summary>
+    private string _manualSubject = "";
+
+    /// <summary>正在重建下拉项时压住 SelectionChanged，避免自己触发自己。</summary>
+    private bool _rebuildingCombo;
 
     private readonly string _backdropPrefer;
 
@@ -179,17 +191,27 @@ public sealed partial class PptResumeWindow : Window
         {
             var snapshot = PptResumeService.Current.Snapshot();
 
-            var subject = snapshot.Lesson?.Subject ?? "";
-            if (subject.Length == 0) subject = snapshot.Live.Subject;
-            if (subject.Length == 0)
+            // ── 决定当前该续哪个科目 ──
+            // 优先级：① 用户手动选过的（最高，不许被覆盖）
+            //        ② 课表里当前/临近的这一节
+            //        ③ 正在放映的那份课件识别出来的科目
+            //        ④ 最近一次记录过进度的科目
+            var auto = snapshot.Lesson?.Subject ?? "";
+            if (auto.Length == 0) auto = snapshot.Live.Subject;
+            if (auto.Length == 0)
             {
-                subject = snapshot.Subjects
+                auto = snapshot.Subjects
                     .Where(s => s.HasRecord)
                     .OrderByDescending(s => s.SavedAt, StringComparer.Ordinal)
                     .Select(s => s.Name)
                     .FirstOrDefault() ?? "";
             }
+
+            var subject = _manualSubject.Length > 0 ? _manualSubject : auto;
             _subject = subject;
+
+            // ── 填充下拉：课表科目 + 有记录的科目，去重并排序 ──
+            RebuildSubjectCombo(snapshot, subject);
 
             var view = snapshot.Subjects.FirstOrDefault(s =>
                 string.Equals(s.Name, subject, StringComparison.OrdinalIgnoreCase));
@@ -201,12 +223,10 @@ public sealed partial class PptResumeWindow : Window
                     ? "正在放映"
                     : "当前没有排课";
 
-            SubjectText.Text = subject.Length > 0 ? subject : "未识别科目";
-
             FileText.Text = view is { HasRecord: true }
                 ? view.FileName
                 : subject.Length > 0
-                    ? "还没有这个科目的课件记录"
+                    ? "还没有这个科目的课件记录，点下面「给这个科目选课件」"
                     : "导入课表或打开需要续播的 PPT，程序会自动识别科目";
 
             SlideText.Text = view is { HasRecord: true }
@@ -235,6 +255,85 @@ public sealed partial class PptResumeWindow : Window
             StatusText.Text = "刷新失败：" + ex.Message;
         }
     }
+
+    /// <summary>
+    /// 重建科目下拉项。
+    ///
+    /// <para>
+    /// 列表 = 课表科目 ∪ 有记录的科目。
+    /// ⛔ 不能只列课表科目：用户可能想续一节当天没排的课（调课、补课），
+    ///    也可能根本没导入课表，只手工给几个科目配过课件。
+    /// </para>
+    /// <para>
+    /// 只有内容真的变了才重建 —— 每 30 秒刷新重建一次会让下拉在用户操作时闪。
+    /// </para>
+    /// </summary>
+    private void RebuildSubjectCombo(PptResumeSnapshot snapshot, string selected)
+    {
+        try
+        {
+            var names = new List<string>();
+
+            foreach (var row in snapshot.Subjects)
+            {
+                var name = (row.Name ?? "").Trim();
+                if (name.Length > 0 && !names.Contains(name, StringComparer.OrdinalIgnoreCase))
+                    names.Add(name);
+            }
+
+            // 手动选过一个连记录都没有的科目时，也要能显示出来
+            if (selected.Length > 0 && !names.Contains(selected, StringComparer.OrdinalIgnoreCase))
+                names.Add(selected);
+
+            if (names.Count == 0)
+            {
+                _rebuildingCombo = true;
+                try
+                {
+                    SubjectCombo.ItemsSource = new[] { "未识别科目" };
+                    SubjectCombo.SelectedIndex = 0;
+                    SubjectCombo.IsEnabled = false;
+                }
+                finally { _rebuildingCombo = false; }
+                return;
+            }
+
+            // 内容没变就不动，避免打断用户正在操作的下拉
+            var current = SubjectCombo.ItemsSource as IReadOnlyList<string>;
+            var same = current is not null && current.Count == names.Count
+                       && current.Select((v, i) => string.Equals(v, names[i], StringComparison.Ordinal)).All(ok => ok);
+
+            _rebuildingCombo = true;
+            try
+            {
+                SubjectCombo.IsEnabled = true;
+
+                if (!same) SubjectCombo.ItemsSource = names;
+
+                var index = names.FindIndex(n => string.Equals(n, selected, StringComparison.OrdinalIgnoreCase));
+                if (index < 0) index = 0;
+                if (SubjectCombo.SelectedIndex != index) SubjectCombo.SelectedIndex = index;
+            }
+            finally { _rebuildingCombo = false; }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Catch("ppt-resume", "重建科目下拉", ex, Core.LogLevel.Debug);
+        }
+    }
+
+    /// <summary>用户在下拉里换了科目：记成手动选择，并立刻刷新这一科的进度。</summary>
+    private void SubjectCombo_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_rebuildingCombo) return;
+
+        var picked = SubjectCombo.SelectedItem as string ?? "";
+        if (picked.Length == 0 || picked == "未识别科目") return;
+
+        _manualSubject = picked;
+        Refresh();
+    }
+
 
     // ── 按钮 ─────────────────────────────────────────────────────────────
 

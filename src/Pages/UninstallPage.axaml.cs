@@ -994,6 +994,12 @@ public partial class UninstallPage : Platform.PageBase
 
     private async void About_Click(object? sender, RoutedEventArgs e)
     {
+        try { await About_ClickAsync(sender, e); }
+        catch (Exception ex) { AppLog.Catch("uninstall", "显示卸载说明", ex); }
+    }
+
+    private async Task About_ClickAsync(object? sender, RoutedEventArgs e)
+    {
         var inLeftover = LeftoverHost.IsVisible;
 
         var dialog = new ContentDialog

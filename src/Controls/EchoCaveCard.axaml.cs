@@ -86,6 +86,12 @@ public sealed partial class EchoCaveCard : UserControl
 
     private async void OnLoaded(object? sender, RoutedEventArgs e)
     {
+        try { await OnLoadedAsync(sender, e); }
+        catch (Exception ex) { Core.AppLog.Catch("echo-cave", "载入回声洞卡片", ex); }
+    }
+
+    private async Task OnLoadedAsync(object? sender, RoutedEventArgs e)
+    {
         _loaded = true;
         await ReloadAsync(force: false);
     }
@@ -204,6 +210,12 @@ public sealed partial class EchoCaveCard : UserControl
     /// 打字期间 / 没有数据时不动作。
     /// </summary>
     public async void ShowNext()
+    {
+        try { await ShowNextAsync(); }
+        catch (Exception ex) { Core.AppLog.Catch("echo-cave", "切换回声洞字条", ex); }
+    }
+
+    private async Task ShowNextAsync()
     {
         // 打字期间不接受新的点击 —— 跟 ClassIsland 用 IsBusy 挡住重复点击同理
         if (_isTyping || _messages.Count == 0) return;

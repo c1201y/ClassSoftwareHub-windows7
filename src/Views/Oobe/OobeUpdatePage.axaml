@@ -1,4 +1,4 @@
-<UserControl xmlns="https://github.com/avaloniaui"
+﻿<UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:fa="using:FluentAvalonia.UI.Controls"
              x:Class="ClassSoftwareHub.Desktop.Views.Oobe.OobeUpdatePage">
@@ -9,6 +9,8 @@
       用户可以「立即更新」，也可以什么都不动直接点底部「下一步」—— 更新全程自愿。
       ⚠️ 移植：ProgressRing 用 FluentAvalonia 的 fa:ProgressRing（IsActive）；WinUI 的重排过渡没有对应物，删掉。
     -->
+    <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+                  VerticalScrollBarVisibility="Auto">
     <Grid>
         <StackPanel x:Name="ContentRoot" Width="600"
                     HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="4">
@@ -55,4 +57,5 @@
             </Border>
         </StackPanel>
     </Grid>
+</ScrollViewer>
 </UserControl>

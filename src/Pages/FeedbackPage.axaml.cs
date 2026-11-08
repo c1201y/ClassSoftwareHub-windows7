@@ -195,6 +195,12 @@ public sealed partial class FeedbackPage : PageBase
     /// </summary>
     private async void DraftBar_Close(InfoBar sender, EventArgs args)
     {
+        try { await DraftBar_CloseAsync(sender, args); }
+        catch (Exception ex) { AppLog.Catch("feedback", "丢弃反馈草稿", ex); }
+    }
+
+    private async Task DraftBar_CloseAsync(InfoBar sender, EventArgs args)
+    {
         // ⚠️ 原版 ContentDialog.XamlRoot = XamlRoot；FA 的 ContentDialog 没有 XamlRoot，
         //    直接收 TopLevel（与 FeedbackPage 之外的页面同一套写法）。
         var dialog = new ContentDialog

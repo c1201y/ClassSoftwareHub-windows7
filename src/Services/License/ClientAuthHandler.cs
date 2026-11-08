@@ -46,7 +46,11 @@ internal sealed class ClientAuthHandler : DelegatingHandler
         var response = await base.SendAsync(request, ct).ConfigureAwait(false);
         Capture(response);
 
-        var challenge = await ReadChallengeAsync(response, ct).ConfigureAwait(false);
+        // ⚠️ HttpClient.Timeout 从请求发起即计时，而激活对话框可能要几十秒才输完；
+        //    届时外层 ct 已被超时取消。挑战判定与重放都不再沿用这个 ct：
+        //    读响应用 CancellationToken.None（响应已到达），重放也用独立令牌，
+        //    避免「刚激活成功就报超时 / 任务已取消」。弹窗耗时因此不占本次请求的超时预算。
+        var challenge = await ReadChallengeAsync(response, CancellationToken.None).ConfigureAwait(false);
         if (challenge is null) return response;
 
         AppLog.Warn("license", $"服务端要求激活｜状态码={challenge.Value.Code}｜路径={request.RequestUri?.AbsolutePath}");
@@ -60,13 +64,14 @@ internal sealed class ClientAuthHandler : DelegatingHandler
         try
         {
             Authorize(retry);
-            var second = await base.SendAsync(retry, ct).ConfigureAwait(false);
+            var second = await base.SendAsync(retry, CancellationToken.None).ConfigureAwait(false);
             Capture(second);
-            await ReadChallengeAsync(second, ct).ConfigureAwait(false);
+            await ReadChallengeAsync(second, CancellationToken.None).ConfigureAwait(false);
             return second;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        catch (Exception ex)
         {
+            // 重放失败一律返回原「需要激活」响应，由业务层显示服务端原因，不把异常抛给调用方
             AppLog.Fail("license", ex, $"激活后重放请求｜路径={request.RequestUri?.AbsolutePath}");
             return response;
         }

@@ -1,0 +1,111 @@
+﻿<platform:PageBase
+    x:Class="ClassSoftwareHub.Desktop.Pages.PptTouchPage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:fa="using:FluentAvalonia.UI.Controls"
+    xmlns:controls="using:ClassSoftwareHub.Desktop.Controls"
+    xmlns:views="using:ClassSoftwareHub.Desktop.Views">
+
+    <!--
+      PowerPoint 触控优化（需求清单第 2 条，自上游 dv1.2.0-insider1.9 移植）。
+
+      版式照「白板专杀」/「系统功能」那一套：三列 Grid 把内容钉在中间 960 宽。
+      ⚠️ 别用 Stretch + MaxWidth —— 触发上限后会把整列右甩。
+      卡片只用 views:SettingsCard，不手搭 Border。
+
+      移植差异（WinUI → Avalonia）：
+        · 上游的 ui:ExperimentalBadge 自绘控件本仓库没有 → 用各页统一的「实验性功能」徽标（Border + FontIcon）；
+        · SettingsCard / SettingsExpander 都是 CommunityToolkit 类型 → 换成自建 SettingsCard + FA SettingsExpander；
+        · 上游 SettingsExpander.HeaderIcon → 这里叫 IconSource + FontIconSource；
+        · ToggleSwitch.Toggled → IsCheckedChanged；IsOn → IsChecked。
+    -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <Grid Margin="24,36,24,44">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="24" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="24" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="1" MaxWidth="960" Spacing="4">
+
+                <!-- ── 标题 ── -->
+                <StackPanel Spacing="6" Margin="0,0,0,20">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <TextBlock Text="PowerPoint 触控优化" FontSize="28" FontWeight="Bold" />
+                        <TextBlock Text="实验性功能" FontSize="12" Foreground="{DynamicResource SystemFillColorCautionBrush}" VerticalAlignment="Bottom" />
+                    </StackPanel>
+                    <TextBlock FontSize="12" Opacity="0.65" TextWrapping="Wrap"
+                               Text="放映时轻点屏幕：点在空白处翻页，点在视频、音频或链接上则按它自身的方式响应。上下滑动切换页面，长按弹出操作菜单。" />
+                </StackPanel>
+
+                <views:SettingsCard Header="触控手势">
+                    <views:SettingsCard.Description>
+                        <TextBlock FontSize="12" Opacity="0.6" TextWrapping="Wrap"
+                                   Text="只对 PowerPoint 的幻灯片放映生效。" />
+                    </views:SettingsCard.Description>
+                    <views:SettingsCard.HeaderIcon>
+                        <fa:FontIcon Glyph="&#xE786;" />
+                    </views:SettingsCard.HeaderIcon>
+                    <ToggleSwitch x:Name="EnableSwitch" MinWidth="0"
+                                  OnContent="已开启" OffContent="已关闭"
+                                  IsCheckedChanged="EnableSwitch_Toggled" />
+                </views:SettingsCard>
+
+                <views:SettingsCard Header="长按菜单">
+                    <views:SettingsCard.Description>
+                        <TextBlock FontSize="12" Opacity="0.6" TextWrapping="Wrap"
+                                   Text="长按屏幕后松手，弹出本程序的菜单，用于翻页、指针、暂停与结束放映。" />
+                    </views:SettingsCard.Description>
+                    <views:SettingsCard.HeaderIcon>
+                        <fa:FontIcon Glyph="&#xE8A7;" />
+                    </views:SettingsCard.HeaderIcon>
+                    <ToggleSwitch x:Name="MenuSwitch" MinWidth="0"
+                                  OnContent="已开启" OffContent="已关闭"
+                                  IsCheckedChanged="MenuSwitch_Toggled" />
+                </views:SettingsCard>
+
+                <!-- 额外菜单项：清单来自 PptMenu.Extras（唯一真源），这里只负责铺出来。 -->
+                <fa:SettingsExpander x:Name="ExtraExpander" Header="菜单项目"
+                                     Description="长按菜单默认只放最常用的几项，其余可以在这里单独打开。"
+                                     IsExpanded="False">
+                    <fa:SettingsExpander.IconSource>
+                        <fa:FontIconSource FontFamily="{DynamicResource SymbolThemeFontFamily}" Glyph="&#xE8FD;" />
+                    </fa:SettingsExpander.IconSource>
+                    <fa:SettingsExpander.Items>
+                        <views:SettingsCard Header="可加入菜单的项目">
+                            <views:SettingsCard.Description>
+                                <StackPanel x:Name="ExtraHost" Spacing="0" Margin="0,6,0,2" />
+                            </views:SettingsCard.Description>
+                        </views:SettingsCard>
+                    </fa:SettingsExpander.Items>
+                </fa:SettingsExpander>
+
+                <TextBlock Text="当前状态" FontSize="14" Margin="0,18,0,2" />
+
+                <views:SettingsCard Header="运行状态">
+                    <views:SettingsCard.Description>
+                        <StackPanel Spacing="2">
+                            <TextBlock x:Name="RunStateText" FontSize="12" TextWrapping="Wrap" />
+                            <TextBlock x:Name="ShowStateText" FontSize="12" Opacity="0.6" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </views:SettingsCard.Description>
+                    <TextBlock x:Name="TapCountText" FontSize="13" Opacity="0.75"
+                               VerticalAlignment="Center" />
+                </views:SettingsCard>
+
+                <views:SettingsCard Header="适用说明">
+                    <views:SettingsCard.Description>
+                        <TextBlock FontSize="12" Opacity="0.6" TextWrapping="Wrap"
+                                   Text="以上手势与菜单只在幻灯片放映时生效，程序未运行时不会生效。菜单里的动作作用于当前放映的演示文稿。" />
+                    </views:SettingsCard.Description>
+                    <views:SettingsCard.HeaderIcon>
+                        <fa:FontIcon Glyph="&#xE946;" />
+                    </views:SettingsCard.HeaderIcon>
+                </views:SettingsCard>
+
+            </StackPanel>
+        </Grid>
+    </ScrollViewer>
+</platform:PageBase>

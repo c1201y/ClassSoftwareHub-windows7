@@ -135,11 +135,45 @@ internal static class NativeMethods
     [DllImport("user32.dll", SetLastError = true)]
     internal static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
 
-    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtr", SetLastError = true)]
-    internal static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
+    /// <summary>64 位进程用。⚠️ <b>必须</b>带 W 后缀：64 位 user32 里没有裸露的
+    /// <c>GetWindowLongPtr</c>，只有 <c>GetWindowLongPtrW</c> / <c>...A</c>，写裸名会
+    /// <c>EntryPointNotFoundException</c>。</summary>
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
+    private static extern IntPtr GetWindowLongPtrW(IntPtr hWnd, int nIndex);
 
-    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtr", SetLastError = true)]
-    internal static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
+    private static extern IntPtr SetWindowLongPtrW(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+    /// <summary>32 位进程用。SysWOW64 的 user32 导出表里<b>根本没有</b> <c>*LongPtrW</c>，
+    /// 只有 <c>*LongW</c>，所以必须按位宽分流。</summary>
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongW", SetLastError = true)]
+    private static extern int GetWindowLongW(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongW", SetLastError = true)]
+    private static extern int SetWindowLongW(IntPtr hWnd, int nIndex, int dwNewLong);
+
+    /// <summary>
+    /// 读写窗口样式/扩展样式，按进程位宽路由到正确的 user32 导出。
+    /// <para>
+    /// ⚠️ 这是 <b>Windows API 的位宽差异，不是笔误</b>：32 位 user32 只导出
+    /// <c>GetWindowLongW</c> / <c>SetWindowLongW</c>（返回/接受 32 位 int）；64 位 user32 只导出
+    /// <c>GetWindowLongPtrW</c> / <c>SetWindowLongPtrW</c>（指针宽）。两边都没有对方那个名字，
+    /// 写死任一分支都会在另一半平台抛 <c>EntryPointNotFoundException</c>。
+    /// </para>
+    /// <para>最低 Win2000。</para>
+    /// </summary>
+    internal static IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex)
+        => IntPtr.Size == 8
+            ? GetWindowLongPtrW(hWnd, nIndex)
+            // 32 位导出只返回 int，符号扩展交给调用方（样式位都在低 32 位内）。
+            : new IntPtr(GetWindowLongW(hWnd, nIndex));
+
+    /// <summary>见 <see cref="GetWindowLongPtr"/>：32/64 位各走各的导出。</summary>
+    internal static IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong)
+        => IntPtr.Size == 8
+            ? SetWindowLongPtrW(hWnd, nIndex, dwNewLong)
+            // 32 位下 dwNewLong 必须截断成 int，否则 IntPtr 宽度对不上封送。
+            : new IntPtr(SetWindowLongW(hWnd, nIndex, dwNewLong.ToInt32()));
 
     internal const int GWL_EXSTYLE = -20;
     internal const int WS_EX_TOOLWINDOW = 0x00000080;

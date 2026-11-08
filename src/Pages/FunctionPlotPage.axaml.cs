@@ -1037,6 +1037,12 @@ public partial class FunctionPlotPage : Platform.PageBase
 
     private async void Basis_Click(object? sender, RoutedEventArgs e)
     {
+        try { await Basis_ClickAsync(sender, e); }
+        catch (Exception ex) { AppLog.Catch("plot", "显示分析依据", ex); }
+    }
+
+    private async Task Basis_ClickAsync(object? sender, RoutedEventArgs e)
+    {
         var dialog = new ContentDialog
         {
             Title = "分析依据",

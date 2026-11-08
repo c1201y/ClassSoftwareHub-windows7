@@ -459,8 +459,12 @@ public sealed class AiChatService
 
         var hasTools = tools is { Count: > 0 };
 
+        // 需求 27 的按钮工具：提示词里必须**确有其事**才提它（联网开着但总闸关着时它不在清单里）
+        var hasActions = tools?.Any(t => t.Id == "suggest_actions") == true;
+
         // 摘要要拼在**原始提示**之后，所以先把原始提示记下来（见 ApplySummary）
-        var prompt = BuildSystemPrompt(MachineDigest.ToPrompt(snapshot), App.Settings.Current.UserDisplayName, hasTools);
+        var prompt = BuildSystemPrompt(MachineDigest.ToPrompt(snapshot), App.Settings.Current.UserDisplayName,
+                                       hasTools, hasActions);
         _baseSystemPrompt = prompt;
 
         _messages.Insert(0, AiMessage.System(prompt));
@@ -484,14 +488,24 @@ public sealed class AiChatService
     /// </list>
     /// 除此之外：**什么问题都可以答，想答多细就答多细**。
     /// </para>
+    /// <para>
+    /// ⚠️ 2026-11-01（需求 27）：模型还能调 <c>suggest_actions</c> 在回答末尾放按钮。
+    /// 这不破坏上面第一条 —— 按钮是给**用户**点的，点了才算用户自己的操作；模型本身仍然什么都不改。
+    /// </para>
     /// </summary>
-    private static string BuildSystemPrompt(string digest, string? userName, bool hasTools)
+    private static string BuildSystemPrompt(string digest, string? userName, bool hasTools, bool hasActions)
     {
         // ⚠️ 移植：上游用 C# 11 的原始字符串（$"""..."""），net6 + LangVersion 10 不支持 ⇒
         //    改成逐字字符串（@"..."）拼接；换行与缩进语义保持与上游一致。
         var toolLine = hasTools
-            ? "- 需要更细的数据时（磁盘明细、已装软件清单、开机启动项等），可以调用工具查询。\n- 可以检索站内软件库，帮用户挑选软件。"
+            ? "- 需要更细的数据时（磁盘明细、已装软件清单、开机启动项等），可以调用工具查询。\n- 可以检索站内软件库，帮用户挑选软件。\n- 应用内有「文档库」教程文章：用户问到具体操作步骤时，可以先用 list_documents 找、再用 read_document 读正文，转述时注明文章标题。"
             : "- ⛔ 工具当前没有启用：不要声称要调用工具，不要输出任何 `<tool_call>`、XML 或 JSON 形式的调用语句，也不要描述你打算怎么调用。本机数据只有下面这一份，缺什么就直说没有。\n- ⛔ 无法联网检索、无法打开网页。";
+
+        // 需求 27：只有 suggest_actions 真的在工具清单里时才提它 ——
+        // 用户关了「工具总闸」还让模型去调，只会换来一次「未知工具」。
+        var actionsLine = hasActions
+            ? "- 用户的问题涉及换主题、查看外观设置、清理 AppData、打开系统功能，并确实要动手时，调用 suggest_actions 把按钮放到回答末尾。只放与问题直接相关的 1~3 个。"
+            : "";
 
         var rule2 = hasTools
             ? "涉及本机状态、而下方数据不足时，先调用工具取数据，不要凭印象猜测。"
@@ -509,7 +523,7 @@ public sealed class AiChatService
                "能力范围：\n" +
                "- 可以回答任何领域的问题，不限于电脑相关。\n" +
                "- 这台电脑的一份快照已经放在下方「本机数据」里，可以直接据此回答与这台机器有关的问题。\n" +
-               toolLine + "\n\n" +
+               toolLine + "\n" + actionsLine + "\n\n" +
                "必须遵守的三条：\n" +
                "1. 你不能修改这台电脑：不删文件、不改设置、不装软件、不结束进程。需要用户动手的地方，告诉他去哪个页面。\n" +
                "2. " + rule2 + "\n" +
@@ -590,47 +604,93 @@ public sealed class AiChatService
     /// 按回合裁剪本身不会产生孤儿；这里防的是**历史里本来就有的破损结构**
     /// （更早的版本逐条裁过、或存档来自旧格式）。OpenAI 兼容接口对这类结构一律直接 400，不容错。
     /// </para>
+    /// <para>
+    /// ⛔⛔ **摘除必须整组摘，这是这个函数最容易写错的地方**。
+    /// 以前是「边遍历边把 tool 消息 <c>Add</c> 进结果，发现这组没答全再 <c>RemoveAt(owner)</c>」——
+    /// 只摘掉发起方 assistant，已经加进去的那几条 tool 就留在了结果里，成了
+    /// 「前面没有 tool_calls 的 tool 消息」，服务端照样 400（防 400 的函数自己制造 400）。
+    /// 现在的做法：一组 <c>tool</c> 消息**先暂存在待定列表里**，
+    /// 等这组关上且答全了才整体落进 rebuilt；没答全就整组丢弃，不需要算下标位移。
+    /// </para>
+    /// <para>
+    /// 触发场景（用户侧看是"同一个会话突然每问必报错，只能新建对话"）：
+    /// 模型一轮点了两个工具，第一个跑完、第二个没跑用户就点了「停止」，历史里留下半应答的工具组。
+    /// </para>
     /// </summary>
     private void EnsureToolPairing()
     {
-        if (_messages.All(m => m.Role != "tool")) return;
+        // ⚠️ 这里**不能**再写「一条 tool 都没有就提前返回」。
+        //    以前那行是为了省一次遍历，代价是漏掉了反方向：历史里可能有「assistant 带 tool_calls、
+        //    后面一条 tool 都没有」的破损结构（存档裁在工具组中间、或旧版本写坏），
+        //    它同样会被服务端 400 打回，而早退让这个函数对它视而不见。
+        //    现在的循环方向本身就覆盖两侧，早退只会让说明与行为对不上，删掉即可。
 
         var rebuilt = new List<AiMessage>(_messages.Count);
-        HashSet<string>? awaiting = null;
-        var awaitingOwner = -1;
+
+        // ── 当前这一组 tool_calls 的状态 ──
+        HashSet<string>? awaiting = null;        // 还没等到应答的调用 id；null = 当前不在组里
+        var ownerIndex = -1;                      // 发起方 assistant 在 rebuilt 里的下标
+        var pendingTools = new List<AiMessage>(); // ⚠️ 本组**已配上对**的 tool 消息，暂不落进 rebuilt
         var dropped = 0;
 
         void CloseToolGroup()
         {
             if (awaiting is null) return;
 
-            var pending = awaiting;
-            var ownerIndex = awaitingOwner;
+            var missing = awaiting;
+            var index = ownerIndex;
+            var tools = pendingTools;
+
             awaiting = null;
-            awaitingOwner = -1;
+            ownerIndex = -1;
+            pendingTools = new List<AiMessage>();
 
-            if (pending.Count == 0 || ownerIndex < 0) return;
+            // 防御：awaiting 与 ownerIndex 是同时设置/同时清空的一对，理论上走不到这里。
+            // 真走到了也绝不能拿 -1 去索引 —— 一个 ArgumentOutOfRange 会把整轮对话打断，
+            // 而工具结果本来就只是中间态，丢掉不影响后续。
+            if (index < 0)
+            {
+                dropped += tools.Count;
+                return;
+            }
 
-            // 这组 tool_calls 没被答全 —— 留着它服务端照样报错，整条摘掉
-            var owner = rebuilt[ownerIndex];
+            // 答全了：发起方已经在 rebuilt 里（位置上也对），把它的 tool 结果按原顺序补在它后面。
+            // 关闭只发生在遇到下一条非 tool 消息时，所以此刻 rebuilt 末尾正是这一组。
+            // ⚠️ 只有这条分支会把 tool 消息落进 rebuilt —— 这就是"不会有孤儿 tool"的保证。
+            if (missing.Count == 0)
+            {
+                rebuilt.AddRange(tools);
+                return;
+            }
+
+            // 没答全 —— 这组留着服务端照样报错，**连发起方带工具结果整组摘掉**。
+            // ⚠️ 工具结果停在 pendingTools 里、从来就没进过 rebuilt，所以"整组摘除"只需要处理
+            //    发起方这一条，不需要算 RemoveAt 的下标位移（老代码正是在这里留下孤儿的）。
+            //    而缺了应答的 assistant.tool_calls 本身也是硬错误：每个 tool_call id 都必须有一条 tool 回应。
+            var owner = rebuilt[index];
             if (string.IsNullOrWhiteSpace(owner.Content))
             {
-                rebuilt.RemoveAt(ownerIndex);
+                // 这一轮本来就只是为了调工具、没说人话：整条删掉，否则服务端会报
+                // `content or tool_calls must be set`。
+                rebuilt.RemoveAt(index);
             }
             else
             {
-                rebuilt[ownerIndex] = new AiMessage(owner.Role, owner.Content) { Reasoning = owner.Reasoning };
+                // 已经对用户说出口的话不能删（会让对话出现断层），只把 tool_calls 摘掉留正文。
+                rebuilt[index] = new AiMessage(owner.Role, owner.Content) { Reasoning = owner.Reasoning };
             }
 
-            dropped++;
+            // 只用于日志：发起方 1 条 + 它的工具结果若干条
+            dropped += tools.Count + 1;
         }
 
         foreach (var message in _messages)
         {
             if (message.Role == "tool")
             {
+                // 有主（id 在等待集合里）就先进暂存区；没主就是历史里天然的孤儿，直接丢
                 if (awaiting is not null && message.ToolCallId is { } id && awaiting.Remove(id))
-                    rebuilt.Add(message);
+                    pendingTools.Add(message);
                 else
                     dropped++;
 
@@ -642,7 +702,8 @@ public sealed class AiChatService
             if (message.Role == "assistant" && message.ToolCalls is { Count: > 0 } calls)
             {
                 awaiting = new HashSet<string>(calls.Select(c => c.Id), StringComparer.Ordinal);
-                awaitingOwner = rebuilt.Count;
+                // 先记下标、再 Add：ownerIndex 指向的就是下面这条 assistant
+                ownerIndex = rebuilt.Count;
             }
 
             rebuilt.Add(message);
@@ -664,6 +725,8 @@ public sealed class AiChatService
         "search_software_library" => "正在检索软件库",
         "list_installed_apps" => "正在核对已安装的软件",
         "list_startup_items" => "正在读取开机启动项",
+        "list_documents" => "正在浏览文档库",
+        "read_document" => "正在阅读文档正文",
         _ => "正在处理",
     };
 
@@ -675,6 +738,8 @@ public sealed class AiChatService
         "search_software_library" => "已检索软件库",
         "list_installed_apps" => "已核对已安装软件",
         "list_startup_items" => "已读取开机启动项",
+        "list_documents" => "已浏览文档库",
+        "read_document" => "已阅读文档正文",
         _ => "已完成一次工具调用",
     };
 }

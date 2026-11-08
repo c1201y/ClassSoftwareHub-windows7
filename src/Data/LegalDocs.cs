@@ -5,7 +5,18 @@ namespace ClassSoftwareHub.Desktop.Data;
 /// <summary>
 /// 法律条款（用户协议 / 隐私政策 / 免责声明）。
 /// 内容逐字移植自网页端 <c>c1201y/classsoftwarehub</c> 根目录的 <c>法律文本.ts</c>（中英双语），
-/// 设置页「关于」区的三个入口与独立的「条款」页都从这里取。改文案只动这个文件。
+/// 设置页「关于」区的三个入口与独立的「条款」页都从这里取。
+///
+/// <para>
+/// ⚠️ 2026-11-01 起，这份是**兜底副本**，不再是界面的唯一来源（对齐上游 dv1.2.0-insider1.10）：
+/// 客户端会从站点 <c>public/legal.json</c> 拉最新条款（<see cref="Services.LegalTextSource"/>），
+/// 拉到就用它 —— 改条款不必再发版。只有离线 / 首装 / 六条线路全失败时才用这里。
+/// ⇒ 本文件的文字旧一点不影响使用，但⛔ 不能删（断网时全靠它）。
+/// </para>
+/// <para>
+/// ⚠️ 站点那份 json 只导出中文，所以在线更新只覆盖 <see cref="LegalDoc.Zh"/>；
+/// <see cref="LegalDoc.En"/> 始终来自本文件（英文译本允许比中文旧）。
+/// </para>
 /// </summary>
 public sealed class LegalSection
 {

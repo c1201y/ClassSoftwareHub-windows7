@@ -181,8 +181,10 @@ internal static class CrashDump
             // 但万一环境变量注入失败，这道闸能避免无限自我重启。
             if (Environment.GetEnvironmentVariable("CSH_REEXEC") == "1") return false;
 
-            // 离屏自检类工具（--mathshot）跑完就退，重启一次毫无意义。
+            // 离屏自检类工具（--mathshot / --resource-check）跑完就退，重启一次毫无意义，
+            // 而且会丢掉父进程捕获的 stdout，导致自检结果拿不到。
             if (Array.Exists(args, a => a.Equals("--mathshot", StringComparison.OrdinalIgnoreCase))) return false;
+            if (Array.Exists(args, a => a.Equals("--resource-check", StringComparison.OrdinalIgnoreCase))) return false;
 
             var exe = Environment.ProcessPath;
             if (string.IsNullOrEmpty(exe)) return false;
@@ -274,6 +276,17 @@ internal static class CrashDump
                 if (appKey is null)
                 {
                     if (lastError.Length == 0) lastError = label + ": 无法创建子键";
+                    continue;
+                }
+
+                // 先读后写：三个值都与目标一致就跳过，避免每次启动都写一遍注册表（审计 P2）。
+                // HKLM 未提权时写入必失败，先读也能省掉这次无谓尝试；值不同才真正写。
+                if (appKey.GetValue("DumpFolder") is string folder
+                    && string.Equals(folder, DumpDir, StringComparison.OrdinalIgnoreCase)
+                    && appKey.GetValue("DumpType") is int dt && dt == type
+                    && appKey.GetValue("DumpCount") is int dc && dc == KeepCount)
+                {
+                    written.Add(label);
                     continue;
                 }
 

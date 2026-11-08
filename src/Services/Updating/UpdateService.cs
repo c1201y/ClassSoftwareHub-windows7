@@ -228,10 +228,9 @@ public sealed class UpdateService
                 {
                     if (File.Exists(temp)) File.Delete(temp);
 
-                    // 下载交由 DownloadService 并行通道（与软件下载同一策略：大文件分片）。
-                    // ⚠️ 分片按偏移乱序写入，无法边下载边计算增量哈希，
-                    //    因此先完整落盘，再整文件读取计算 MD5/SHA256（本地磁盘开销可忽略）。
-                    // 更新包不走分片通道，改「边下边算哈希 + 每个候选带自己的请求头」。
+                    // 更新包走单连接顺序下载（见 FetchPackageAsync），边下边算增量哈希：
+                    // 每个候选带自己的请求头（Referer / X-Api-Key），落盘一次即对整文件校验。
+                    // ⚠️ 不走软件下载的分片并行通道 —— 分片按偏移乱序写入，无法增量计算哈希。
                     using var md5 = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
                     using var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
                     await FetchPackageAsync(candidate, package, temp, md5, sha, progress, ct);
@@ -350,10 +349,23 @@ public sealed class UpdateService
     /// </summary>
     private static void EnsureInsideUpdatesDir(string destinationFile)
     {
-        var full = Path.GetFullPath(destinationFile);
-        var root = Path.GetFullPath(UpdatesDir) + Path.DirectorySeparatorChar;
-        if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+        if (!IsInsideUpdatesDir(destinationFile))
             throw new InvalidOperationException($"下载目标越出了 updates 目录，已拒绝写入：{destinationFile}");
+    }
+
+    /// <summary>路径是否落在 <c>updates</c> 目录内（安装前复核用，不抛异常）。</summary>
+    public static bool IsInsideUpdatesDir(string path)
+    {
+        try
+        {
+            var full = Path.GetFullPath(path);
+            var root = Path.GetFullPath(UpdatesDir) + Path.DirectorySeparatorChar;
+            return full.StartsWith(root, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     /// <summary>per-destination 下载互斥（键 = 目标安装包的绝对路径）。</summary>
@@ -527,6 +539,8 @@ public sealed class UpdateService
 
         if (ext == ".msi")
         {
+            // ⚠️ /norestart 在「安装成功、等待重启」时返回 3010 / 1641，二者是成功语义，
+            //    由 ConsumeInstallOutcome 归一化，避免上层按「非 0 = 失败」误报并诱导反复重装。
             LaunchThroughCmd(installerPath, $"msiexec /i \"{installerPath}\" /qb /norestart");
             return;
         }
@@ -584,10 +598,15 @@ public sealed class UpdateService
     /// <summary>上一次静默安装的退出码落在这儿（由 <see cref="LaunchThroughCmd"/> 写）。在 updates 目录里。</summary>
     public static string InstallOutcomePath => Path.Combine(UpdatesDir, "install-outcome.txt");
 
+    /// <summary>最近一次安装结果是否为「成功但需重启」（MSI 退出码 3010 / 1641）。供上层读取以提示重启。</summary>
+    public static bool RebootRequired { get; private set; }
+
     /// <summary>
     /// 读走并删掉上一次安装的退出码记录。
     /// <c>null</c> = 没有记录（老版本装的 / 文件还没写完 / 已经被读过 / 内容不可解析）；
     /// <c>0</c> = 安装器报成功；<b>非 0 = 装失败了</b>，而当时应用已经退出，需要补一句提示。
+    /// ⚠️ 3010 / 1641 是「安装成功、等待重启」，按 0 处理并置 <see cref="RebootRequired"/>，
+    ///    否则上层按「非 0 = 失败」会误报「上次更新可能没有成功」并诱导用户反复重装。
     /// </summary>
     public static int? ConsumeInstallOutcome()
     {
@@ -598,7 +617,17 @@ public sealed class UpdateService
 
             var text = File.ReadAllText(path).Trim();
             try { File.Delete(path); } catch { /* 删不掉的话下次再读一次，不会死循环 */ }
-            return int.TryParse(text, out var code) ? code : null;
+            if (!int.TryParse(text, out var code)) return null;
+
+            if (code is 3010 or 1641)
+            {
+                RebootRequired = true;
+                AppLog.Info("update", $"上次安装｜结果=成功但需重启｜原始退出码={code}｜处置=重启后完成安装");
+                return 0;
+            }
+
+            RebootRequired = false;
+            return code;
         }
         catch
         {

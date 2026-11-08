@@ -174,12 +174,17 @@ public sealed partial class StickerWindow : Window
             if (RenderScaling > 0) return RenderScaling;
         }
         catch { }
-        try
+        // GetDpiForWindow 是 Win10 1607+ 的入口点，Win7/8 的 user32 无此导出。
+        // 先按系统版本挡一道，避免每次取缩放都依赖异常兜底。
+        if (Platform.OsInfo.IsWindows10OrLater)
         {
-            var dpi = NativeMethodsUtil.GetDpiForWindow(HwndNow());
-            if (dpi > 0) return dpi / 96.0;
+            try
+            {
+                var dpi = NativeMethodsUtil.GetDpiForWindow(HwndNow());
+                if (dpi > 0) return dpi / 96.0;
+            }
+            catch { }
         }
-        catch { }
         return 1.0;
     }
 
