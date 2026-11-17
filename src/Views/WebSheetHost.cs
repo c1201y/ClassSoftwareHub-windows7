@@ -186,6 +186,101 @@ internal sealed class WebSheetHost : IDisposable
         try { if (_controller is { } c) c.IsVisible = false; } catch { }
     }
 
+    // ── 内存回收（自上游 dv1.2.2 移植，2026-11-14）──────────────────────────
+    //
+    // 起因：网页工具每开一次就拉起一个 WebView2 渲染进程，用户反馈进程列表里
+    // 挂着一堆「WebView2: 数学实验室」，每条约 27～44 MB。本进程里做 GC.Collect /
+    // EmptyWorkingSet 对那是**另一个进程**，一点用都没有。
+    //
+    // 能动的只有 CoreWebView2 上的两件事：
+    //   ① 挂起（TrySuspendAsync）：把页面冻结、堆与缓存压到最低，渲染进程还在但基本不占内存，
+    //      Resume 之后页面状态原样还在。⚠️ **只在控件不可见时可用**，所以必须先 IsVisible = false。
+    //   ② 关闭（Controller.Close）：控件连同渲染进程一起释放。关掉的宿主**不能再用**。
+
+    /// <summary>挂起后多久没再打开就关掉（10 分钟）。</summary>
+    public const int IdleCloseMs = 10 * 60 * 1000;
+
+    /// <summary>是否已挂起（避免重复挂起 / 恢复不该恢复的）。</summary>
+    public bool IsSuspended { get; private set; }
+
+    /// <summary>
+    /// 挂起：先隐藏，把内存目标压到 Low，再冻结。
+    /// 返回 true = 真的冻结了；false = 只降到了低内存档位（冻结没被接受，不是故障）。
+    ///
+    /// <para>
+    /// ⚠️ <c>TrySuspendAsync</c> 在「控件刚离开可见状态」那一下会抛「组或资源的状态不是执行
+    /// 请求操作的正确状态」—— 因为 IsVisible 的改动要过一轮消息循环才传到底层控制器。
+    /// 所以这里藏完之后先等一小会儿，再冻结；仍然失败也不算错，Low 档位本身已经把
+    /// 渲染进程的内存压下去了。
+    /// </para>
+    /// </summary>
+    public async Task<bool> SuspendAsync()
+    {
+        if (_disposed || IsSuspended) return false;
+
+        try
+        {
+            var core = Core;
+            if (core is null) return false;
+
+            // ⚠️ 顺序不能反：TrySuspend 要求控制器此刻不可见
+            try { if (_controller is { } c) c.IsVisible = false; } catch { }
+
+            // ⚠️ 本地 WebView2 SDK（1.0.1587.40，Win7 上的上限）没有
+            //    MemoryUsageTargetLevel 这个属性（较新运行时才引入），只能靠 TrySuspendAsync 冻结。
+
+            // 等一轮消息循环，把「不可见」真正传给底层控制器，否则 TrySuspend 会直接抛
+            try { await Task.Delay(150).ConfigureAwait(true); } catch { }
+
+            try
+            {
+                await core.TrySuspendAsync();
+                IsSuspended = true;
+                ClassSoftwareHub.Desktop.Core.AppLog.Step("webview", "网页浮层已挂起");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                // 不是故障：冻结只在「控件确实不可见」时才被接受。
+                // 内存目标已经是 Low，能省的大头已经省了；闲置到期还会整个关掉。
+                ClassSoftwareHub.Desktop.Core.AppLog.Debug("webview", "网页浮层已降到低内存档位，冻结未生效：" + ex.Message);
+                return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            ClassSoftwareHub.Desktop.Core.AppLog.Warning("webview", "网页浮层挂起失败：" + ex.Message);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 恢复：解冻 + 内存目标恢复 Normal + 重新显示。
+    /// 没挂起过也安全（<c>Resume</c> 对活动页面是空操作）。
+    /// </summary>
+    public void Resume()
+    {
+        if (_disposed) return;
+
+        try
+        {
+            var core = Core;
+            if (core is null) return;
+
+            core.Resume();
+
+
+            try { if (_controller is { } c) c.IsVisible = true; } catch { }
+
+            IsSuspended = false;
+            ClassSoftwareHub.Desktop.Core.AppLog.Step("webview", "网页浮层已恢复");
+        }
+        catch (Exception ex)
+        {
+            ClassSoftwareHub.Desktop.Core.AppLog.Warning("webview", "网页浮层恢复失败：" + ex.Message);
+        }
+    }
+
     public void Navigate(string url)
     {
         try { Core?.Navigate(url); } catch { }

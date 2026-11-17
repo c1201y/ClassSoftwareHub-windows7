@@ -80,40 +80,51 @@ public static class CsesSchedule
         AllowTrailingCommas = true,
     };
 
-    /// <summary>解析 CSES JSON；失败时返回 null，<paramref name="error"/> 给出面向用户的说明。</summary>
-    public static CsesTimetable? Parse(string json, out string error)
+    /// <summary>
+    /// 解析 CSES 课表；失败时返回 null，<paramref name="error"/> 给出面向用户的说明。
+    ///
+    /// ⚠️ **JSON 与 YAML 都收**（2026-11-13）：
+    ///    CSES 规范本身只定义了 JSON，但实际从课表工具里导出来的文件常是 `.yml` / `.yaml`
+    ///    （内容与 JSON 同构，只是写法不同）。此前这里只按 JSON 解析，遇到 YAML 直接报
+    ///    「不是有效的 CSES JSON」，用户手里明明有课表文件却导不进来 —— 现在按内容判断格式，
+    ///    先试 JSON，不像 JSON 或解析失败就按 YAML 再试一次。
+    ///    判断依据是**内容**而不是扩展名：改了后缀的文件同样能导入。
+    /// </summary>
+    public static CsesTimetable? Parse(string text, out string error)
     {
         error = "";
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            error = "课表文件是空的。";
+            return null;
+        }
+
+        // ① 先按 JSON 解析（CSES 规范格式，也是最快的路径）
+        if (!CsesYaml.LooksLikeYaml(text))
+        {
+            var fromJson = TryParseJson(text, out var jsonError);
+            if (fromJson is not null) return Finish(fromJson, out error);
+
+            // JSON 里可能带注释 / 尾逗号，放宽后仍失败才判为格式错误；
+            // 若内容其实长得像 YAML，下面还会再试一次。
+            if (!LooksLikeYamlText(text))
+            {
+                error = jsonError;
+                return null;
+            }
+        }
+
+        // ② 按 YAML 解析
         try
         {
-            var table = JsonSerializer.Deserialize<CsesTimetable>(json, Options);
-            if (table is null)
-            {
-                error = "课表文件是空的，或不是有效的 CSES JSON。";
-                return null;
-            }
-
-            table.Subjects ??= new List<CsesSubject>();
-            table.Schedules ??= new List<CsesDaySchedule>();
-            foreach (var day in table.Schedules)
-            {
-                day.Classes ??= new List<CsesClass>();
-                day.Weeks = (day.Weeks ?? "all").Trim().ToLowerInvariant();
-                if (day.Weeks != "odd" && day.Weeks != "even") day.Weeks = "all";
-            }
-
-            if (table.Schedules.All(d => d.Classes.Count == 0))
-            {
-                error = "这个文件里没有任何课程安排（schedules 为空）。请确认导出的是 CSES 的 JSON，而不是 YAML。";
-                return null;
-            }
-
-            return table;
+            var table = CsesYaml.Parse(text);
+            var finished = Finish(table, out error);
+            if (finished is not null) return finished;
+            return null;
         }
-        catch (JsonException ex)
+        catch (FormatException ex)
         {
-            error = "课表不是有效的 CSES JSON：" + ex.Message
-                    + (LooksLikeYaml(json) ? "（看起来是 YAML，请在课表工具里另存为 JSON 再导入）" : "");
+            error = "课表不是有效的 CSES 文件（JSON 与 YAML 都无法解析）：" + ex.Message;
             return null;
         }
         catch (Exception ex)
@@ -121,6 +132,53 @@ public static class CsesSchedule
             error = "读取课表失败：" + ex.Message;
             return null;
         }
+    }
+
+    /// <summary>只试 JSON。成功返回表，失败返回 null 并给出错误说明。</summary>
+    private static CsesTimetable? TryParseJson(string text, out string error)
+    {
+        error = "";
+        try
+        {
+            var table = JsonSerializer.Deserialize<CsesTimetable>(text, Options);
+            if (table is null)
+            {
+                error = "课表文件是空的，或不是有效的 CSES JSON。";
+                return null;
+            }
+            return table;
+        }
+        catch (JsonException ex)
+        {
+            error = "课表不是有效的 CSES JSON：" + ex.Message;
+            return null;
+        }
+    }
+
+    /// <summary>内容是否更像 YAML（用于决定 JSON 失败后要不要再试 YAML）。</summary>
+    private static bool LooksLikeYamlText(string text) => CsesYaml.LooksLikeYaml(text);
+
+    /// <summary>公共收尾：补空集合、归一 weeks、校验有没有课。</summary>
+    private static CsesTimetable? Finish(CsesTimetable table, out string error)
+    {
+        error = "";
+
+        table.Subjects ??= new List<CsesSubject>();
+        table.Schedules ??= new List<CsesDaySchedule>();
+        foreach (var day in table.Schedules)
+        {
+            day.Classes ??= new List<CsesClass>();
+            day.Weeks = (day.Weeks ?? "all").Trim().ToLowerInvariant();
+            if (day.Weeks != "odd" && day.Weeks != "even") day.Weeks = "all";
+        }
+
+        if (table.Schedules.All(d => d.Classes.Count == 0))
+        {
+            error = "这个文件里没有任何课程安排（schedules 为空）。请确认导出的是 CSES 课表文件（JSON 或 YAML）。";
+            return null;
+        }
+
+        return table;
     }
 
     public static string Describe(CsesTimetable table)
@@ -221,12 +279,7 @@ public static class CsesSchedule
                || TimeSpan.TryParse(value, CultureInfo.InvariantCulture, out time);
     }
 
-    private static bool LooksLikeYaml(string json)
-    {
-        var head = json.TrimStart();
-        return head.StartsWith("version:", StringComparison.OrdinalIgnoreCase)
-               || head.StartsWith("subjects:", StringComparison.OrdinalIgnoreCase);
-    }
+    private static bool LooksLikeYaml(string json) => CsesYaml.LooksLikeYaml(json);
 }
 
 /// <summary>一个科目的课件进度。</summary>

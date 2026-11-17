@@ -9,7 +9,23 @@ using System.Threading.Tasks;
 namespace ClassSoftwareHub.Desktop.Services;
 
 /// <summary>磁盘可视化里的一块：一个子项及其占用。</summary>
-public sealed record DiskEntry(string Name, string FullPath, bool IsDirectory, long Bytes, int FileCount);
+public sealed record DiskEntry(string Name, string FullPath, bool IsDirectory, long Bytes, int FileCount)
+{
+    /// <summary>
+    /// 子项（自上游 dv1.2.1 移植，2026-11-14）。
+    ///
+    /// <para>
+    /// 以前只算顶层：进入某一层就要**重新扫描**那个目录，深一点的路径要点好几次、
+    /// 每次都要等一遍磁盘。现在一次扫描就把整棵目录树建出来，进入任意一层直接从
+    /// 这里取子项，立刻就能画出来，不再碰磁盘。
+    /// </para>
+    /// <para>
+    /// ⚠️ 只为目录填充；文件项恒为空。为控制内存，只有**占空间的目录**才保留子项
+    /// （0 字节目录本来也不画面积）。
+    /// </para>
+    /// </summary>
+    public List<DiskEntry> Children { get; init; } = new();
+}
 
 public sealed class DiskScanResult
 {
@@ -92,10 +108,11 @@ public static class DiskUsage
 
                 if (IsReparse(dir)) continue;   // junction：跳过，否则重复计数
 
-                var (bytes, count, cut) = Measure(dir, token, ref skipped, watch, onProgress, budget);
-                children.Add(new DiskEntry(dir.Name, dir.FullName, true, bytes, count));
-                total += bytes;
-                files += count;
+                var node = MeasureNode(dir, token, ref skipped, watch, onProgress, budget, depth: 0,
+                    out var cut);
+                children.Add(node);
+                total += node.Bytes;
+                files += node.FileCount;
 
                 if (cut) truncated = true;
             }
@@ -117,6 +134,98 @@ public static class DiskUsage
             };
         }, token);
     }
+
+    /// <summary>
+    /// 递归求一个目录的大小，**同时把子项建出来**（自上游 dv1.2.1 移植，2026-11-14）。
+    ///
+    /// <para>
+    /// 以前进入子目录要重新扫一遍磁盘；现在树在第一次扫描时就建好了，
+    /// 进任意一层直接取 <see cref="DiskEntry.Children"/>，立刻能画。
+    /// </para>
+    /// <para>
+    /// ⚠️ 用递归而不是显式栈：树形结果必须知道自己属于哪一层，显式栈也能做但要维护
+    /// 一个映射表，反而更绕。深度上限 <see cref="MaxDepth"/> 兜住深目录爆栈的风险 ——
+    /// 超过上限的层只统计字节数、不再展开子项（那些层用户也很少真的点进去）。
+    /// </para>
+    /// <para>
+    /// ⚠️ 为控制内存，0 字节的子项不保留（树图上本来也没有面积），
+    /// 也只在目录上挂子项 —— 文件项恒为空。
+    /// </para>
+    /// </summary>
+    private static DiskEntry MeasureNode(
+        DirectoryInfo dir,
+        CancellationToken token,
+        ref int skipped,
+        Stopwatch watch,
+        Action<string, long, int>? onProgress,
+        TimeSpan? budget,
+        int depth,
+        out bool truncated)
+    {
+        truncated = false;
+
+        long bytes = 0;
+        var files = 0;
+        var kids = new List<DiskEntry>();
+        var localSkipped = 0;
+
+        token.ThrowIfCancellationRequested();
+
+        // 预算到点就停：把已统计的部分交出去，由调用方标 Truncated
+        if (budget is { } limit && watch.Elapsed >= limit)
+        {
+            truncated = true;
+            skipped += localSkipped;
+            return new DiskEntry(dir.Name, dir.FullName, true, 0, 0);
+        }
+
+        if (onProgress is not null) onProgress(dir.FullName, bytes, files);
+
+        foreach (var entry in SafeEntries(dir, ref localSkipped))
+        {
+            token.ThrowIfCancellationRequested();
+
+            if (entry is FileInfo file)
+            {
+                bytes += file.Length;
+                files++;
+                continue;
+            }
+
+            if (entry is not DirectoryInfo sub) continue;
+            if (IsReparse(sub)) continue;        // junction：跳过，否则重复计数
+
+            if (depth + 1 >= MaxDepth)
+            {
+                // 到底了：只量大小，不再挂子项
+                var (b, c, cut) = Measure(sub, token, ref localSkipped, watch, onProgress, budget);
+                bytes += b;
+                files += c;
+                if (cut) truncated = true;
+                continue;
+            }
+
+            var child = MeasureNode(sub, token, ref localSkipped, watch, onProgress, budget, depth + 1,
+                out var childCut);
+            if (childCut) truncated = true;
+
+            if (child.Bytes > 0) kids.Add(child);
+            bytes += child.Bytes;
+            files += child.FileCount;
+        }
+
+        skipped += localSkipped;
+
+        kids.Sort((a, b) => b.Bytes.CompareTo(a.Bytes));
+
+        return new DiskEntry(dir.Name, dir.FullName, true, bytes, files) { Children = kids };
+    }
+
+    /// <summary>
+    /// 树的最大展开层数。超过这个深度的只统计大小、不建子项 ——
+    /// 深目录多为缓存/依赖树，用户很少真的要点到第十层去看。
+    /// </summary>
+    private const int MaxDepth = 12;
 
     /// <summary>递归求一个目录的大小（显式栈，不用递归调用以防深目录爆栈）。</summary>
     private static (long Bytes, int Files, bool Truncated) Measure(

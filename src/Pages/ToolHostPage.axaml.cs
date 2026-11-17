@@ -65,6 +65,12 @@ public sealed partial class ToolHostPage : PageBase
         WebHost.SizeChanged += (_, _) => Reposition();
         if (App.MainWindow is { } win) win.ToolHostGeometryChanged += OnGeometryChanged;
 
+        // 若上一个工具留下的宿主还挂着（未到闲置回收时间），直接恢复它而不是重开一条渲染进程。
+        if (_host is { } pending && pending.IsSuspended)
+        {
+            try { pending.Resume(); } catch { }
+        }
+
         _ = StartAsync();
     }
 
@@ -73,7 +79,43 @@ public sealed partial class ToolHostPage : PageBase
         base.OnNavigatedFrom();
         _alive = false;
         if (App.MainWindow is { } win) win.ToolHostGeometryChanged -= OnGeometryChanged;
-        TeardownHost();
+
+        // 内存回收（自上游 dv1.2.2 移植，2026-11-14）：
+        // 离开网页工具就立刻 Dispose，会把整条渲染进程拆掉 —— 再回来要重新起环境、重新加载页面，
+        // 在教室机上就是肉眼可见的几秒空白。上游的做法是「离开先挂起，闲置十分钟没回来才关」，
+        // 这里照做：先挂起省内存，计时到期再真正释放。
+        SuspendThenExpire();
+    }
+
+    /// <summary>挂起当前 WebView，并在闲置超时后真正释放；期间若页面又回来就取消。</summary>
+    private void SuspendThenExpire()
+    {
+        var host = _host;
+
+        // 页面已经换了实例（_host 被新页面接管）时不要动它
+        if (host is null) return;
+
+        _ = Task.Run(async () =>
+        {
+            try { await host.SuspendAsync().ConfigureAwait(false); }
+            catch { /* 挂起失败不影响功能，下面照样会关 */ }
+
+            // 等闲置窗口。期间页面若重新进来（_alive 变回 true），直接放弃关闭。
+            var waited = 0;
+            while (waited < WebSheetHost.IdleCloseMs)
+            {
+                await Task.Delay(5000).ConfigureAwait(false);
+                waited += 5000;
+
+                if (_alive) return;          // 回来了，交给新页面自己管
+                if (!ReferenceEquals(_host, host)) return;   // 已被别的实例替换
+            }
+
+            try { host.Dispose(); } catch { }
+            if (ReferenceEquals(_host, host)) _host = null;
+
+            ClassSoftwareHub.Desktop.Core.AppLog.Step("webview", "网页工具闲置超时，已释放渲染进程");
+        });
     }
 
     private async Task StartAsync()

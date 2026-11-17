@@ -398,6 +398,7 @@ public sealed partial class ToolSidebarWindow : Window
 
     /// <summary>「安全选项」菜单的 Flyout（一次只有一个）。</summary>
     private Flyout? _securityFlyout;
+    private Flyout? _pptFlyout;                 // 「PPT 触控」二级菜单（自上游 dv1.2.1 移植）
 
     /// <summary>「收起」键的那个图标（内容会按贴边重建，所以要留住当前这个实例才好换箭头方向）。</summary>
     private FontIcon? _foldIcon;
@@ -2667,6 +2668,14 @@ public sealed partial class ToolSidebarWindow : Window
                     return;
                 }
 
+                // 「PPT 触控」= 弹二级菜单（两个开关），不直接切换
+                // （自上游 dv1.2.1 移植；为什么是弹菜单而不是一按就切，见 ShowPptTouchFlyout 的注释）
+                if (m.Id == "ppttouch")
+                {
+                    ShowPptTouchFlyout(b);
+                    return;
+                }
+
                 // 「要先问一句」的动作（关全部）不能按老办法在 Run 之后就还焦点：
                 //    侧边栏一失活，刚弹出来的确认面板就会被系统按"点了别处"关掉。
                 //    Run 里已经按 AsksFirst 区分过了，这里只管把面板弹出来。
@@ -2912,6 +2921,165 @@ public sealed partial class ToolSidebarWindow : Window
         {
             var f = _securityFlyout;
             _securityFlyout = null;
+            f?.Hide();
+        }
+        catch { /* 收不掉就算了，下一个会顶掉它 */ }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  「PPT 触控」菜单（自上游 dv1.2.1 移植）
+    //
+    //  跟着「安全选项」同一个做法：Kind 仍是 Action，只在点击那一下按 id 分派到
+    //  弹菜单（见 Tool_Click）。菜单里两个开关，状态**一律现读**（见 RefreshPptTouch），
+    //  与「PPT 触控优化」页共用同一份配置：在页面上改过再回来点这颗键，
+    //  菜单里显示的就是改过之后的状态。
+    //
+    //  ⚠️ 为什么要有这颗键：这功能改的是全局输入行为（放映时轻点翻页、长按弹菜单），
+    //     真在课堂上出岔子时，老师得能在**不离开放映、不开设置页**的前提下立刻关掉。
+    // ═══════════════════════════════════════════════════════════════════════
+
+    private void ShowPptTouchFlyout(Button anchor)
+    {
+        try
+        {
+            HidePptTouchFlyout();
+            HideSecurityFlyout();
+            HideConfirmFlyout();
+
+            var panel = new StackPanel { Width = 248, Spacing = 1 };
+
+            void Header(string text) => panel.Children.Add(new TextBlock
+            {
+                Text = text,
+                FontSize = 12,
+                Opacity = 0.7,
+                Margin = new Thickness(12, 8, 12, 6),
+            });
+
+            // 一行开关：左边两行字（名称 + 说明），右边开关。
+            // ⚠️ Avalonia 的 ToggleSwitch 与 WinUI 的默认内边距不同，
+            //    放进 248 宽的菜单里要显式压掉左右留白，否则文字被挤没了。
+            void SwitchRow(string title, string note, bool initial, Func<bool, bool> apply)
+            {
+                var text = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
+                text.Children.Add(new TextBlock { Text = title, FontSize = 14 });
+                text.Children.Add(new TextBlock
+                {
+                    Text = note,
+                    FontSize = 11,
+                    Opacity = 0.7,
+                    TextWrapping = TextWrapping.Wrap,
+                });
+
+                var toggle = new ToggleSwitch
+                {
+                    IsChecked = initial,
+                    MinWidth = 0,
+                    OnContent = "",
+                    OffContent = "",
+                    Padding = new Thickness(0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+
+                // 铺初值会触发一次 Checked/Unchecked（回声），铺完再放行；
+                // 拨动后按**实际结果**回写 —— 失败时把真状态还回来，界面不能显示假状态。
+                var ready = false;
+                toggle.IsCheckedChanged += (_, _) =>
+                {
+                    if (!ready) return;
+
+                    var want = toggle.IsChecked == true;
+                    var actual = apply(want);
+                    if (actual == want) return;
+
+                    ready = false;
+                    toggle.IsChecked = actual;
+                    ready = true;
+                };
+                ready = true;
+
+                // ⚠️ Avalonia 的 Grid 没有 ColumnSpacing（WinUI 的写法），
+                //    这里用右列的左边距代替。
+                var row = new Grid { Margin = new Thickness(12, 4, 12, 6) };
+                row.ColumnDefinitions.Add(new ColumnDefinition());
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                Grid.SetColumn(text, 0);
+                Grid.SetColumn(toggle, 1);
+                toggle.Margin = new Thickness(12, 0, 0, 0);
+                row.Children.Add(text);
+                row.Children.Add(toggle);
+                panel.Children.Add(row);
+            }
+
+            Header("PowerPoint 触控");
+
+            var cfg = PptTouchConfig.Load();
+            SwitchRow("触控手势", "放映时轻点翻页、上下滑换页", cfg.Enabled, SetPptTouchGesture);
+            SwitchRow("长按菜单", "长按弹出本程序菜单，替代系统右键菜单", cfg.CustomMenu, SetPptTouchMenu);
+
+            var flyout = new Flyout
+            {
+                Placement = ConfirmPlacement(),
+                Content = panel,
+            };
+            flyout.Closed += (_, _) =>
+            {
+                if (ReferenceEquals(_pptFlyout, flyout)) _pptFlyout = null;
+
+                // 菜单收掉 = 用户不再操作了 → 恢复自动收起，并补收一次边条
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (_confirmFlyout is not null) return;     // 后面还跟着确认面板 → 由它收尾
+                    SuppressAutoCollapse = false;
+                    CollapseAfterPopupsClosed();
+                });
+            };
+
+            SuppressAutoCollapse = true;                // 菜单挂着的时候边条不许自己收
+            _pptFlyout = flyout;
+            flyout.ShowAt(anchor);
+            AppLog.Debug("sidebar", "PPT 触控｜菜单已弹出");
+        }
+        catch (Exception ex)
+        {
+            Core.AppLog.Catch("sidebar", "弹出 PPT 触控菜单", ex, Core.LogLevel.Debug);
+        }
+    }
+
+    /// <summary>拨动「触控手势」总开关，返回**实际生效**的状态（失败时与传入值不同）。</summary>
+    private static bool SetPptTouchGesture(bool on)
+    {
+        try
+        {
+            return PptTouchConfig.Update(c => c.Enabled = on).Enabled;
+        }
+        catch (Exception ex)
+        {
+            Core.AppLog.Catch("sidebar", "切换 PPT 触控手势", ex, Core.LogLevel.Debug);
+            return PptTouchConfig.Load().Enabled;
+        }
+    }
+
+    /// <summary>拨动「长按菜单」，返回**实际生效**的状态。</summary>
+    private static bool SetPptTouchMenu(bool on)
+    {
+        try
+        {
+            return PptTouchConfig.Update(c => c.CustomMenu = on).CustomMenu;
+        }
+        catch (Exception ex)
+        {
+            Core.AppLog.Catch("sidebar", "切换 PPT 长按菜单", ex, Core.LogLevel.Debug);
+            return PptTouchConfig.Load().CustomMenu;
+        }
+    }
+
+    private void HidePptTouchFlyout()
+    {
+        try
+        {
+            var f = _pptFlyout;
+            _pptFlyout = null;
             f?.Hide();
         }
         catch { /* 收不掉就算了，下一个会顶掉它 */ }

@@ -45,6 +45,12 @@ public static class BrightnessService
     /// </summary>
     public static bool TryGet(out int percent)
     {
+        // ⚠️ 已经确认这台机器只能靠 gamma 调时，**以我们自己记的值为准**（2026-11-13）：
+        //    存在「物理接口读得到、但写不动」的机器 —— WMI 读回的是从没被改过的旧值。
+        //    这时若仍拿 WMI 的值显示，滑块会每 3 秒弹回旧值、和实际画面完全不一致，
+        //    现象就是「怎么调都回到同一个数」。走 gamma 时屏幕亮度由我们控制，只有我们最清楚。
+        if (_writePath == 2 && GammaRead(out percent)) return true;
+
         if (TryGetPhysical(out percent)) return true;
         if (GammaRead(out percent)) return true;
         percent = 0;
@@ -107,7 +113,18 @@ public static class BrightnessService
             }
 
             if (target < 0 || target == _applied) return;
-            if (WriteAny(target)) _applied = target;
+            if (WriteAny(target))
+            {
+                _applied = target;
+            }
+            else
+            {
+                // 没写成功就别记住，否则用户再拖回同一个值会被上面的 == 直接挡掉。
+                _applied = -1;
+
+                // 写入失败是「怎么调都调不动」的直接线索，记一次（已节流，不会刷屏）
+                LogOnce("设置亮度｜结果=三条路径均未生效｜影响=滑块会弹回系统旧值", Core.LogLevel.Warning);
+            }
         });
     }
 
@@ -117,6 +134,9 @@ public static class BrightnessService
     /// <summary>
     /// 按 WMI → dxva2 → 软件 gamma 的顺序写，**谁先成谁被记住**：
     /// 定下来之后只试那一条，拖动滑块时不会每次都把三条路挨个撞一遍。
+    ///
+    /// ⚠️ 每条路都以「写完回读确认」为准（见 <see cref="WmiWrite"/>），
+    ///    所以这里记下的路径是**真的能改变亮度**的那一条，不是"调用没抛异常"的那一条。
     /// </summary>
     private static bool WriteAny(int percent)
     {
@@ -164,6 +184,36 @@ public static class BrightnessService
         return false;
     }
 
+    /// <summary>
+    /// 写后回读用：只取当前亮度，失败不写日志。
+    /// 与 <see cref="WmiRead"/> 的区别是**不节流报错** —— 这是写入路径的中间校验，
+    /// 失败会直接反映为「这次写入不算成功」，不需要另外记一条日志。
+    /// </summary>
+    private static bool WmiReadCurrent(out int percent)
+    {
+        percent = 0;
+        try
+        {
+            using var searcher = new ManagementObjectSearcher(
+                @"root\wmi", "SELECT CurrentBrightness FROM WmiMonitorBrightness");
+
+            foreach (var o in searcher.Get())
+            {
+                using var mo = (ManagementObject)o;
+                var v = mo["CurrentBrightness"];
+                if (v is null) continue;
+
+                percent = Math.Clamp(Convert.ToInt32(v), 0, 100);
+                return true;
+            }
+        }
+        catch
+        {
+            // 写入路径的中间校验，失败即视为本次未生效
+        }
+        return false;
+    }
+
     private static bool WmiWrite(int percent)
     {
         try
@@ -187,7 +237,19 @@ public static class BrightnessService
                 //    这个方法的 CIM 映射里没有 ReturnValue 这一项，
                 //    用索引器取会直接抛 ManagementException → 日志被刷屏、还误判成失败。
                 var rc = result?.Properties["ReturnValue"]?.Value;
-                if (rc is not null && Convert.ToInt32(rc) != 0) continue;   // 0 = 成功
+
+                // ⚠️ 取不到返回码**不能**当成成功（2026-11-13 修）：
+                //    部分机器上这条 CIM 映射拿不到 ReturnValue，此前 rc 为 null 时直接
+                //    `any = true`，于是系统亮度根本没改却被记成"已生效"——
+                //    调用方缓存了新值，3 秒后轮询读回旧值，滑块就弹回去，
+                //    现象正是「怎么调都回到同一个数」。现在改为**回读校验**。
+                if (rc is not null && Convert.ToInt32(rc) != 0) continue;
+
+                // 回读一次确认真的改上去了；读不回来就当这次没成功。
+                // 这里**不再开一次 WMI 搜索**（拖滑块时每次多一次 searcher 太重），
+                // 直接查一次 WmiMonitorBrightness 的当前值即可。
+                if (!WmiReadCurrent(out var now)) continue;
+                if (Math.Abs(now - percent) > 2) continue;    // 允许 2% 的量化误差
 
                 any = true;
             }

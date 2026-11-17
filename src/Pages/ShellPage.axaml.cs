@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -833,6 +833,7 @@ public sealed partial class ShellPage : PageBase
             "ExperimentalPage" => "experimental",
             "ChangelogPage" => "changelog",
             "SettingsPage" => "settings",
+            "AboutPage" => "about",            // 自上游 dv1.2.2 移植的「关于」页
             "SidebarLayoutPage" => "sidebar",
             "AnnouncePage" => "announce",      // 教室喊话已提为独立功能项（不在 ToolCatalog，必须显式映射）
             // 自上游 1.10 新增的三项：返回 / GoBack 后高亮要跟着退
@@ -1303,10 +1304,18 @@ public sealed partial class ShellPage : PageBase
                 // 自上游 1.8：导航项已移除，但这个 case 必须留着 —— 入口还有三处：
                 // 软件下载页顶部按钮、首页「提交软件」卡片、命令行 --page=submit。
                 // 删了它们会一起掉进 default 直接回首页，而且不报错。
-                ContentFrame.Navigate(typeof(SubmitPage));
+                //
+                // 自上游 dv1.2.2（2026-11-14）起改为打开**分步向导**（Views/Submit），
+                // 旧的单页投稿（SubmitPage）保留在仓库里作为回退，但不再从路由进入。
+                Views.Submit.SubmitWizardWindow.Open();
                 return;
             case "feedback":
                 ContentFrame.Navigate(typeof(FeedbackPage));
+                return;
+            case "about":
+                // 「关于」页（自上游 dv1.2.2 移植）：集中展示版本、版权、常用链接，
+                // 并收纳反馈中心 / 更新日志 / 运行日志 / 回声洞 / 条款 / 授权的入口。
+                ContentFrame.Navigate(typeof(AboutPage));
                 return;
             case "feedback-form":
                 // 反馈中心的表单页。正常流程是从「反馈中心」点类型卡进来（带 kind 参数，

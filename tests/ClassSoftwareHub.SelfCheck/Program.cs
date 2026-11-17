@@ -143,6 +143,35 @@ internal static class Program
             string.Join("; ", identity.Solutions));
 
         // ── 审计 P1：提权脚本 TOCTOU 防护（独占共享句柄 + 回读校验 + 白名单）──
+        // ══════════════════════════════════════════════════════════════
+        //  投稿向导的软件 ID 生成（自上游 dv1.2.2 移植，2026-11-15）
+        //
+        //  这条链曾被一个隐蔽的时序问题整条打哑：页面在窗口 Show() 之前就建好了，
+        //  那时控件还没进可视树，订阅输入事件不会被触发 —— 表现为「名字改了、
+        //  ID 一直是空的」。生成逻辑本身是对的，所以这里只固化成**纯函数**断言：
+        //  只要这几条过了，说明拼音表、规则与查重都是好的，剩余风险只可能在 UI 时序上。
+        // ══════════════════════════════════════════════════════════════
+        foreach (var (name, expected) in new[]
+        {
+            ("网易云音乐", "wangyiyunyinyue"),
+            ("作业帮", "zuoyebang"),
+            ("7-Zip", "7-zip"),
+            ("Visual Studio Code", "visual-studio-code"),
+            ("QQ音乐", "qqyinyue"),
+        })
+        {
+            var slug = SoftwareSlug.FromName(name);
+            Check($"软件 ID 生成 [{name}]", slug == expected, $"实际={slug} 期望={expected}");
+        }
+
+        Check("软件 ID 不出现非法字符",
+            SoftwareSlug.IsValid(SoftwareSlug.FromName("超 级/软件(测试)版！")));
+        Check("软件 ID 拒绝大写与符号", !SoftwareSlug.IsValid("Bad_ID") && !SoftwareSlug.IsValid("bad id"));
+        Check("软件 ID 查重会加序号",
+            SoftwareSlug.EnsureUnique("demo", new[] { "demo" }) == "demo-2");
+        Check("软件 ID 未占用时保持原样",
+            SoftwareSlug.EnsureUnique("demo", System.Array.Empty<string>()) == "demo");
+
         CheckElevatedArtifact();
 
         Console.WriteLine(new string('-', 60));
@@ -193,6 +222,7 @@ internal static class Program
         }
 
         Check("释放句柄后临时脚本已清理", !File.Exists(path));
+
 
         var rejected = false;
         try

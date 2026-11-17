@@ -496,17 +496,18 @@
                      删了首页卡片和命令行的 page=submit 参数都会掉进 default 直接回首页。
                 -->
                 <!--
-                  反馈中心：E939 是「人 + 对话泡」，微软反馈中心用的就是这个字形（已用字形渲染法确认存在）。
+                  「反馈中心」与「更新日志」原先各占一颗底部导航项，自上游 dv1.2.2 起
+                  统一收进「关于」页。路由（feedback / changelog）**保留** ——
+                  关于页里的卡片、首页入口与命令行参数都还要用。
                 -->
-                <fa:NavigationViewItem Content="反馈中心" Tag="feedback">
+                <!--
+                  关于：自上游 dv1.2.2 起，反馈中心与更新日志不再各占一颗底部导航项，
+                  统一收进「关于」页（页面内仍可直接跳转到那两个页面）。
+                  图标 E946 是信息圈（Info），与「设置」的齿轮分得开。
+                -->
+                <fa:NavigationViewItem Content="关于" Tag="about">
                     <fa:NavigationViewItem.IconSource>
-                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xE939;" />
-                    </fa:NavigationViewItem.IconSource>
-                </fa:NavigationViewItem>
-                <!-- 更新日志：E81C 是时钟/历史，跟「设置」的齿轮分得开 -->
-                <fa:NavigationViewItem Content="更新日志" Tag="changelog">
-                    <fa:NavigationViewItem.IconSource>
-                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xE81C;" />
+                        <fa:FontIconSource FontFamily="{StaticResource SymbolThemeFontFamily}" FontSize="24" Glyph="&#xE946;" />
                     </fa:NavigationViewItem.IconSource>
                 </fa:NavigationViewItem>
                 <fa:NavigationViewItem Content="设置" Tag="settings">

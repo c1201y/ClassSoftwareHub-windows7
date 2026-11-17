@@ -105,6 +105,16 @@ public static class MarkdownText
                 continue;
             }
 
+            // 任务列表：[ ] / [x] / [X]（自上游 dv1.2.1 移植）——
+            // 造一个「复选框 + 文字」的行，与列表同一套缩进观感。
+            // ⚠️ 只读展示：文档里的复选框不接收点击（教程正文不该被改）。
+            if (TryTaskItem(trimmed, out var taskChecked, out var taskText))
+            {
+                FlushParagraph();
+                target.Children.Add(BuildTaskItem(taskChecked, taskText, fontSize, lineHeight, foreground));
+                continue;
+            }
+
             // 无序列表：- / * / •
             if (trimmed.StartsWith("- ", StringComparison.Ordinal)
                 || trimmed.StartsWith("* ", StringComparison.Ordinal)
@@ -123,6 +133,92 @@ public static class MarkdownText
         }
 
         FlushParagraph();
+    }
+
+    /// <summary>
+    /// 识别任务列表项：<c>- [ ] 未做</c> / <c>- [x] 已做</c>（也接受 <c>*</c> 与 <c>+</c> 作前缀）。
+    /// 返回 true 时 <paramref name="text"/> 是方括号之后的内容。
+    /// </summary>
+    private static bool TryTaskItem(string line, out bool done, out string text)
+    {
+        done = false;
+        text = "";
+
+        if (line.Length < 6) return false;
+
+        // 前缀：- / * / +
+        if (line[0] is not ('-' or '*' or '+')) return false;
+        if (line[1] != ' ') return false;
+
+        var rest = line[2..].TrimStart();
+
+        // 方括号：必须正好是 [ ] 或 [x] / [X]
+        if (rest.Length < 3 || rest[0] != '[' || rest[2] != ']') return false;
+
+        var inner = rest[1];
+        if (inner != ' ' && inner != 'x' && inner != 'X') return false;
+
+        done = inner is 'x' or 'X';
+        text = rest[3..].TrimStart();
+        return true;
+    }
+
+    /// <summary>
+    /// 造一行任务项：复选框 + 正文。
+    /// 已完成的内容同时加删除线 —— 这是任务列表在 Markdown 渲染里的通行做法，
+    /// 也让「已完成」在视觉上不只依赖一个小方框。
+    /// </summary>
+    private static Control BuildTaskItem(bool done, string text, double fontSize, double lineHeight, Brush? foreground)
+    {
+        var row = new StackPanel
+        {
+            Orientation = Avalonia.Layout.Orientation.Horizontal,
+            Spacing = 8,
+            Margin = new Thickness(0, 0, 0, 3),
+        };
+
+        // 只读复选框：教程正文不该被读者改，用 CheckBox 但禁用手感更差的交互
+        var box = new CheckBox
+        {
+            IsChecked = done,
+            IsHitTestVisible = false,
+            Focusable = false,
+            MinWidth = 0,
+            Padding = new Thickness(0),
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top,
+            Margin = new Thickness(0, 2, 0, 0),
+        };
+        row.Children.Add(box);
+
+        var block = MakeBlock(text, fontSize, FontWeight.Normal, default, lineHeight, foreground);
+        block.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center;
+
+        if (done) ApplyStrikethrough(block);
+        row.Children.Add(block);
+
+        return row;
+    }
+
+    /// <summary>把一段里所有文字片段加上删除线（任务项勾选后整行划掉）。</summary>
+    private static void ApplyStrikethrough(TextBlock block)
+    {
+        if (block.Inlines is null) return;
+
+        try
+        {
+            foreach (var inline in block.Inlines)
+            {
+                if (inline is Run run)
+                    run.TextDecorations = Avalonia.Media.TextDecorations.Strikethrough;
+            }
+
+            // 完成项的字色也压淡一档，避免划掉之后仍很显眼
+            block.Opacity = 0.6;
+        }
+        catch
+        {
+            // 装饰加不上就只留复选框状态，不影响阅读
+        }
     }
 
     /// <summary>造一段：行内语法解析进 Inlines。</summary>
@@ -221,7 +317,7 @@ public static class MarkdownText
     /// 造一张表：列宽按各列最长内容的字符数加权（给下限，免得两字列被挤成一条缝）；
     /// 表头行加底色 + 半粗，单元格之间用 0.5px 细线分隔，外框 0.5px + 8px 圆角。
     /// </summary>
-    private static Border BuildTable(string[] lines, int start, Brush? foreground, out int consumed)
+    private static Control BuildTable(string[] lines, int start, Brush? foreground, out int consumed)
     {
         var rows = new List<List<string>> { SplitRow(lines[start]) };
 
@@ -299,14 +395,22 @@ public static class MarkdownText
             }
         }
 
-        return new Border
+        // 列多、单元格又长的表格在窄窗口里会被挤成一列一个字（自上游 dv1.2.1 移植）：
+        // 给表格一个横向滚动容器，让它按内容宽度铺开、超宽就横向滚，而不是硬压。
+        // ⚠️ 用 ScrollViewer 包住表格，不能反过来让父级横向滚 —— 那样整页都会跟着左右跑。
+        return new ScrollViewer
         {
-            BorderThickness = new Thickness(0.5),
-            BorderBrush = stroke,
-            CornerRadius = new CornerRadius(8),
-            Margin = new Thickness(0, 6, 0, 10),
+            HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
             HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
-            Child = grid,
+            Margin = new Thickness(0, 6, 0, 10),
+            Content = new Border
+            {
+                BorderThickness = new Thickness(0.5),
+                BorderBrush = stroke,
+                CornerRadius = new CornerRadius(8),
+                Child = grid,
+            },
         };
     }
 
@@ -318,18 +422,32 @@ public static class MarkdownText
     {
         if (text.Length == 0) return;
 
+        // 删除线 ~~…~~ 先切一层（自上游 dv1.2.1 移植），交给下面继续处理粗体与代码。
+        var parts = text.Split("~~");
+        for (var i = 0; i < parts.Length; i++)
+        {
+            if (parts[i].Length == 0) continue;
+
+            var strike = i % 2 == 1;
+            AppendBold(inlines, parts[i], strike);
+        }
+    }
+
+    /// <summary>再切一层粗体 **…**，带着删除线标记往下传。</summary>
+    private static void AppendBold(InlineCollection inlines, string text, bool strike)
+    {
         var bold = text.Split("**");
         for (var i = 0; i < bold.Length; i++)
         {
             if (bold[i].Length == 0) continue;
 
             var isBold = i % 2 == 1;
-            AppendCode(inlines, bold[i], isBold);
+            AppendCode(inlines, bold[i], isBold, strike);
         }
     }
 
     /// <summary>段内再切一层反引号，代码片段用等宽字体。</summary>
-    private static void AppendCode(InlineCollection inlines, string text, bool isBold)
+    private static void AppendCode(InlineCollection inlines, string text, bool isBold, bool isStrike)
     {
         var parts = text.Split('`');
         for (var i = 0; i < parts.Length; i++)
@@ -339,6 +457,7 @@ public static class MarkdownText
             var run = new Run { Text = parts[i] };
 
             if (isBold) run.FontWeight = FontWeight.SemiBold;
+            if (isStrike) run.TextDecorations = Avalonia.Media.TextDecorations.Strikethrough;
             // 等宽：Avalonia 里直接用系统字体名，Win7 自带 Consolas（没有就落到默认等宽）
             if (i % 2 == 1) run.FontFamily = new FontFamily("Consolas, Courier New, monospace");
 

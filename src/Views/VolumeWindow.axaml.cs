@@ -76,6 +76,7 @@ public sealed partial class VolumeWindow : Window
     private int _brightnessPercent = -1;    // 亮度缓存（-1 = 还没读到）
     private bool _brightnessReadable = true;
     private bool _brightnessReading;        // 后台读正在进行，别叠着再发一个
+    private DateTime _brightnessSetAt;      // 上次用户改亮度的时间（UTC），用于避开写入未落盘时的读回
 
     private VolumeWindow()
     {
@@ -542,7 +543,15 @@ public sealed partial class VolumeWindow : Window
                 if (!_started || _target != Target.Brightness) return;
 
                 _brightnessReadable = ok;
-                if (ok) _brightnessPercent = percent;
+
+                // ⚠️ 刚拖完的一小段时间内**不采用系统读回的值**（2026-11-13）：
+                //    亮度写入是异步的（50ms 合并窗口 + WMI 十几到几十毫秒），
+                //    松手后立刻发生的这次轮询很可能在写入落盘之前就读了，读回的还是旧值。
+                //    直接采用就会把滑块弹回去，用户看到的现象是「怎么调都回到同一个数」。
+                //    这段窗口内保留用户刚设的值，等下一次轮询再以系统为准。
+                var justSet = (DateTime.UtcNow - _brightnessSetAt).TotalMilliseconds < 1200;
+                if (ok && !justSet) _brightnessPercent = percent;
+
                 if (adaptive.HasValue) _adaptiveOn = adaptive;
 
                 ApplyBrightnessUi();
@@ -575,6 +584,7 @@ public sealed partial class VolumeWindow : Window
         // 亮度写入是异步的（50ms 合并窗口 + WMI 延迟），下一次后台读可能读回旧值；
         // 先把缓存改成用户刚设的值，界面就不会"自己弹回去"。
         _brightnessPercent = percent;
+        _brightnessSetAt = DateTime.UtcNow;      // 让紧随其后的那次轮询别急着采用系统旧值
         BrightnessService.SetPercent(percent);
     }
 

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -105,9 +105,6 @@ public sealed partial class SettingsPage : PageBase
             }
         };
 
-        // 回声洞折叠区固定收起：模板里那个内层 Expander 要等可视树就绪才压得动，
-        // 用 AttachedToVisualTree 兜一道（原版挂在 Loaded 上，语义等价）。
-        EchoCaveExpander.AttachedToVisualTree += (_, _) => CollapseEchoCave();
     }
 
     public override void OnNavigatedTo(object? parameter)
@@ -207,7 +204,6 @@ public sealed partial class SettingsPage : PageBase
         InstallerExpander.IsExpanded = false;
         CacheExpander.IsExpanded = false;
         LogExpander.IsExpanded = false;
-        CollapseEchoCave();
 
         // 打开设置页固定从顶部开始：卡片高度会被设置值二次刷新，ScrollViewer 的锚点跟着漂，
         // 实测会直接停到「常用工具」那一段（2026-09-28）。
@@ -223,12 +219,9 @@ public sealed partial class SettingsPage : PageBase
             HistoryExpander.IsExpanded = false;
             InstallerExpander.IsExpanded = false;
             LogExpander.IsExpanded = false;
-            CollapseEchoCave();
         };
         _settleTimer.Start();
 
-        // 回声洞折叠区固定收起（原版在 Loaded 里做；移植版页面每次新建，导航入场再压一次）。
-        CollapseEchoCave();
     }
 
     // ══════════════════════════ 诊断 ══════════════════════════
@@ -246,112 +239,13 @@ public sealed partial class SettingsPage : PageBase
         App.MainWindow?.Shell.NavigateToHubAiSettings();
     }
 
-    // ══════════════════════════ 回声洞 ══════════════════════════
-
-    /// <summary>回声洞那张卡片整卡可点＝换一条（悬停底色铺满整行，正文自己不带框）。</summary>
-    private void EchoCave_Click(object? sender, RoutedEventArgs e) => EchoCave.ShowNext();
-
-    /// <summary>
-    /// 把回声洞折叠区收起来（设置页一打开必须是折叠的样子）。
-    /// 外层 SettingsExpander.IsExpanded 与模板里那个内层 Expander 都要压 ——
-    /// 内层才是真身（模板里绑的是 TwoWay，它起手展开会把 true 反推回外层），只压外层会被顶回来。
-    /// 收起后外层/内层 ActualHeight 都是 70（只剩表头行），摊开 125~165（随内容长短）。
-    /// </summary>
-    private void CollapseEchoCave()
+    /// <summary>跳到「关于」页（自上游 dv1.2.2 移植）。</summary>
+    private void OpenAbout_Click(object? sender, RoutedEventArgs e)
     {
-        // 光设 false 在这个控件上不够稳：只在 IsExpanded **发生变化**时才驱动 VisualState。
-        // 所以先拨到 true 再拨回 false，强制它把"折叠"真的跑一遍。
-        if (!EchoCaveExpander.IsExpanded) EchoCaveExpander.IsExpanded = true;
-        EchoCaveExpander.IsExpanded = false;
-
-        var inner = FindDescendant<Expander>(EchoCaveExpander);
-        if (inner is not null)
-        {
-            if (!inner.IsExpanded) inner.IsExpanded = true;
-            inner.IsExpanded = false;
-        }
+        try { App.MainWindow?.Shell.NavigateTo("about"); }
+        catch (Exception ex) { AppLog.Catch("settings", "打开关于页", ex, LogLevel.Debug); }
     }
 
-    /// <summary>深度优先找一个后裔控件（模板里的内层控件用；找不到返回 null）。</summary>
-    private static T? FindDescendant<T>(Visual root) where T : Visual
-    {
-        foreach (var child in root.GetVisualChildren())
-        {
-            if (child is T hit) return hit;
-            var deeper = FindDescendant<T>(child);
-            if (deeper is not null) return deeper;
-        }
-        return null;
-    }
-
-    /// <summary>
-    /// 「投稿」弹层里的提交：走「提交软件」同一套自建服务（令牌在服务端）。
-    /// 回执**就留在弹层里** —— 成功时给一句回执、停一下自己收起，失败时留着让用户看。
-    /// </summary>
-    private async void SubmitEchoCave_Click(object? sender, RoutedEventArgs e)
-    {
-        var text = EchoSubmitBox.Text?.Trim() ?? "";
-        if (text.Length == 0)
-        {
-            ShowEchoSubmitStatus("还没写内容。");
-            return;
-        }
-
-        EchoSubmitButton.IsEnabled = false;
-        EchoSubmitButton.Content = "正在提交";
-        ShowEchoSubmitStatus("正在提交…");
-
-        // ⚠️ async void 里抛出去会直接带走进程；而且按钮会永远停在「正在提交」且不可点。
-        //    异常必须在本地收口，复位交给 finally。
-        bool ok;
-        string message;
-        try
-        {
-            (ok, message) = await Services.EchoCaveService.SubmitAsync(text);
-        }
-        catch (Exception ex)
-        {
-            Core.AppLog.Exception("echo-cave", ex, "提交回声洞投稿");
-            ok = false;
-            message = "提交失败：" + ex.Message;
-        }
-        finally
-        {
-            EchoSubmitButton.IsEnabled = true;
-            EchoSubmitButton.Content = "提交";
-        }
-
-        ShowEchoSubmitStatus(message);
-        // 服务端还没接上（或网络被挡）时给条退路：去 GitHub 网页投。成功时不给，免得画蛇添足。
-        EchoSubmitFallback.IsVisible = !ok;
-
-        if (ok)
-        {
-            EchoSubmitBox.Text = "";
-
-            // 回执看一眼够了就自己收（成功才收；失败留着，还能点兜底链接）。
-            await Task.Delay(1800);
-            if (EchoSubmitStatus.Text == message) EchoSubmitButton.Flyout?.Hide();
-        }
-    }
-
-    private async void SubmitEchoCaveFallback_Click(object? sender, RoutedEventArgs e)
-    {
-        try { await SubmitEchoCaveFallback_ClickAsync(sender, e); }
-        catch (Exception ex) { AppLog.Catch("echo-cave", "打开回声洞网页投稿", ex); }
-    }
-
-    private async Task SubmitEchoCaveFallback_ClickAsync(object? sender, RoutedEventArgs e)
-    {
-        if (await EchoCave.OpenSubmitPage()) EchoSubmitButton.Flyout?.Hide();
-        else ShowEchoSubmitStatus("无法打开浏览器，请手动访问 GitHub 投稿。");
-    }
-
-    private void ShowEchoSubmitStatus(string message)
-    {
-        EchoSubmitStatus.Text = message;
-        EchoSubmitStatus.IsVisible = true;
-    }
 
     public override void OnNavigatedFrom()
     {

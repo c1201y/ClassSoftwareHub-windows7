@@ -108,6 +108,22 @@
                     </ItemsControl.ItemsPanel>
                 </ItemsControl>
 
+                <!--
+                  「关于」页入口（自上游 dv1.2.2 移植）。
+                  那个页面集中展示版本、版权、常用链接，并收纳反馈中心 / 更新日志 /
+                  运行日志 / 回声洞 / 条款 / 授权。
+                -->
+                <TextBlock Text="关于" FontSize="14" FontWeight="SemiBold" Margin="0,20,0,8" />
+                <StackPanel Spacing="4">
+                    <views:SettingsCard Header="关于 ClassSoftwareHub"
+                                        Description="版本、版权、常用链接、回声洞与反馈入口"
+                                        IsClickEnabled="True" Click="OpenAbout_Click">
+                        <views:SettingsCard.HeaderIcon>
+                            <fa:FontIcon Glyph="&#xE946;" />
+                        </views:SettingsCard.HeaderIcon>
+                    </views:SettingsCard>
+                </StackPanel>
+
                 <!-- 法律条款（与网页端设置页「关于」区一致：用户协议 / 隐私政策 / 免责声明） -->
                 <TextBlock Text="法律条款" FontSize="14" FontWeight="SemiBold" Margin="0,20,0,8" />
                 <StackPanel Spacing="4">
@@ -543,59 +559,13 @@
                 </StackPanel>
 
                 <!-- ================= 回声洞 ================= -->
-                <!-- 单独一块、单独一个「回声洞」标题（不并进「软件内容」）；
-                     形态对齐 ClassIsland 的「关于 → 回声洞」：一个 SettingsExpander，
-                     展开区里**只有一张卡片**，里面**只有字条本身**（Controls/EchoCaveCard，
-                     标准正文字号、自己不带边框、不写任何状态文字）；
-                     「投稿」按钮在卡片右侧，点开是个 Flyout：一个输入框 + 一个提交按钮，不跳浏览器；回执也留在这个弹层里。 -->
-                <TextBlock Text="回声洞" FontSize="14" FontWeight="SemiBold" Margin="0,24,0,8" />
-                <StackPanel Spacing="4">
+                <!--
+                  自上游 dv1.2.2（2026-11-13）起，「回声洞」整块**移到「关于」页**：
+                  那个页面本来就是「集中展示版本、版权与常用链接」的地方，回声洞属于同一类内容。
+                  本页不再重复一份 —— 重复的代价是两边文案与交互会分叉。
 
-                    <fa:SettingsExpander x:Name="EchoCaveExpander" Header="回声洞"
-                                         Description="请点击这里收看 ClassSoftwareHub 群友的逆天发言！"
-                                         IsExpanded="False">
-                        <fa:SettingsExpander.IconSource>
-                            <fa:FontIconSource FontFamily="{DynamicResource SymbolThemeFontFamily}" Glyph="&#xE8BD;" />
-                        </fa:SettingsExpander.IconSource>
-                        <fa:SettingsExpander.Items>
-
-                            <!-- 展开区唯一的一张卡片：整卡可点＝换一条（悬停底色铺满整行，正文自己不带框）；右边一颗「投稿」 -->
-                            <views:SettingsCard IsClickEnabled="True" Click="EchoCave_Click"
-                                                IsActionIconVisible="False"
-                                                ToolTip.Tip="点击换一条">
-                                <views:SettingsCard.Header>
-                                    <controls:EchoCaveCard x:Name="EchoCave" />
-                                </views:SettingsCard.Header>
-                                <Button Content="投稿" VerticalAlignment="Center">
-                                    <Button.Flyout>
-                                        <Flyout Placement="Bottom">
-                                            <StackPanel Width="320" Spacing="10">
-                                                <TextBlock Text="投稿到回声洞" FontSize="14" FontWeight="SemiBold" />
-                                                <TextBox x:Name="EchoSubmitBox"
-                                                         Watermark="写一句让人笑出声的话"
-                                                         AcceptsReturn="True" TextWrapping="Wrap"
-                                                         MinHeight="76" MaxLength="200" />
-                                                <TextBlock x:Name="EchoSubmitStatus" TextWrapping="Wrap"
-                                                           IsVisible="False" FontSize="12"
-                                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
-                                                <Button x:Name="EchoSubmitFallback"
-                                                        Content="改用 GitHub 网页投稿"
-                                                        Padding="0" MinWidth="0" IsVisible="False"
-                                                        Click="SubmitEchoCaveFallback_Click" />
-                                                <Button x:Name="EchoSubmitButton" Content="提交"
-                                                        HorizontalAlignment="Right"
-                                                        Classes="accent"
-                                                        Click="SubmitEchoCave_Click" />
-                                            </StackPanel>
-                                        </Flyout>
-                                    </Button.Flyout>
-                                </Button>
-                            </views:SettingsCard>
-
-                        </fa:SettingsExpander.Items>
-                    </fa:SettingsExpander>
-
-                </StackPanel>
+                  ⚠️ 需要就地看一眼回声洞的话，用下面「关于」区那颗「回声洞」卡片跳过去。
+                -->
 
                 <!-- ================= 更新 ================= -->
                 <TextBlock x:Name="UpdateSectionHeader" Text="更新" FontSize="14" FontWeight="SemiBold" Margin="0,24,0,8" />

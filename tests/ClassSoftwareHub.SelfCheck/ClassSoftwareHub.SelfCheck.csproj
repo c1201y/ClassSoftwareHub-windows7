@@ -25,6 +25,8 @@
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="Stubs.cs" />
+    <Compile Include="Stubs.App.cs" />
+    <Compile Include="Stubs.Assets.cs" />
     <Compile Include="../../src/Services/ChemistryBalancer.cs" Link="Sources/ChemistryBalancer.cs" />
     <Compile Include="../../src/Services/PeriodicTable.cs" Link="Sources/PeriodicTable.cs" />
     <Compile Include="../../src/Services/EquationSolver.cs" Link="Sources/EquationSolver.cs" />
@@ -33,6 +35,11 @@
     <Compile Include="../../src/Services/LinearForm.cs" Link="Sources/LinearForm.cs" />
     <Compile Include="../../src/Services/LinearSolver.cs" Link="Sources/LinearSolver.cs" />
     <Compile Include="../../src/Services/ElevatedArtifact.cs" Link="Sources/ElevatedArtifact.cs" />
+
+    <!-- 投稿向导的 ID 生成（自上游 dv1.2.2 移植）：中文名转拼音这条链必须有回归断言 -->
+    <Compile Include="../../src/Services/SoftwareSlug.cs" Link="Sources/SoftwareSlug.cs" />
+    <Compile Include="../../src/Core/PinyinTable.cs" Link="Sources/PinyinTable.cs" />
+    <EmbeddedResource Include="../../src/Assets/Pinyin/pinyin.tsv" Link="Assets/Pinyin/pinyin.tsv" />
   </ItemGroup>
 
 </Project>

@@ -1,0 +1,192 @@
+<platform:PageBase
+    x:Class="ClassSoftwareHub.Desktop.Pages.AboutPage"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:platform="using:ClassSoftwareHub.Desktop.Platform"
+    xmlns:fa="using:FluentAvalonia.UI.Controls"
+    xmlns:views="using:ClassSoftwareHub.Desktop.Views"
+    xmlns:controls="using:ClassSoftwareHub.Desktop.Controls">
+
+    <!--
+      「关于」页（自上游 dv1.2.2 移植，2026-11-14）。
+
+      版式与设置页同一套：分组小标题（FontWeight=SemiBold）+ 一列 SettingsCard，
+      卡片间距 4、组间 24。只用「标题 → 分组 → 卡片」这一个顺序，不堆层级。
+
+      收纳关系（对应上游 1.2.2「回声洞、授权与条款声明移至关于页；
+      导航栏底部的反馈中心与更新日志不再单列」）：
+        · 应用信息     —— 名称、版本、版权、常用链接
+        · 帮助与反馈   —— 反馈中心 / 更新日志 / 运行日志
+        · 回声洞       —— 折叠区，展开后是字条与投稿
+        · 条款与声明   —— 用户协议 / 隐私政策 / 免责声明
+        · 授权         —— 激活状态
+
+      上游在这个页面上还画了一条铺满顶部的横幅并做下缘渐隐；WinUI 3 靠合成层遮罩实现，
+      Avalonia 这边没有等价 API，硬做要么失真要么卡，所以**不搬横幅**，直接以标题起头。
+    -->
+
+    <ScrollViewer Padding="24,28,24,44" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel MaxWidth="960" HorizontalAlignment="Center" Spacing="8">
+
+            <TextBlock Text="关于 ClassSoftwareHub" FontSize="28" FontWeight="SemiBold" Margin="0,4,0,4" />
+
+            <!-- ══════════════ 应用信息 ══════════════ -->
+            <TextBlock Text="应用信息" FontWeight="SemiBold" Margin="0,20,0,8" />
+            <StackPanel Spacing="4">
+
+                <views:SettingsCard x:Name="AppCard" Header="ClassSoftwareHub"
+                                    Description="班级电教委员的装机与课堂工具集"
+                                    IsActionIconVisible="False">
+                    <views:SettingsCard.HeaderIcon>
+                        <fa:FontIcon Glyph="&#xE71D;" />
+                    </views:SettingsCard.HeaderIcon>
+                    <TextBlock x:Name="VersionText" VerticalAlignment="Center" Opacity="0.7" />
+                </views:SettingsCard>
+
+                <views:SettingsCard Header="版权信息" IsActionIconVisible="False">
+                    <views:SettingsCard.HeaderIcon>
+                        <fa:FontIcon Glyph="&#xE8A5;" />
+                    </views:SettingsCard.HeaderIcon>
+                    <views:SettingsCard.Description>
+                        <TextBlock x:Name="CopyrightText" TextWrapping="Wrap" FontSize="12" />
+                    </views:SettingsCard.Description>
+                </views:SettingsCard>
+
+                <views:SettingsCard Header="常用链接" IsActionIconVisible="False">
+                    <views:SettingsCard.HeaderIcon>
+                        <fa:FontIcon Glyph="&#xE774;" />
+                    </views:SettingsCard.HeaderIcon>
+                    <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                        <HyperlinkButton Content="项目仓库" Padding="6,0" Click="OpenRepo_Click" />
+                        <HyperlinkButton Content="文档站点" Padding="6,0" Click="OpenSite_Click" />
+                        <HyperlinkButton Content="赞助作者" Padding="6,0" Click="OpenSponsor_Click" />
+                    </StackPanel>
+                </views:SettingsCard>
+
+            </StackPanel>
+
+            <!-- ══════════════ 帮助与反馈 ══════════════ -->
+            <!-- 反馈中心与更新日志原先各占一颗底部导航项，自上游 1.2.2 收进本页 -->
+            <TextBlock Text="帮助与反馈" FontWeight="SemiBold" Margin="0,24,0,8" />
+            <StackPanel Spacing="4">
+
+                <views:SettingsCard Header="问题反馈" Description="提交问题与功能建议"
+                                    IsClickEnabled="True" Click="OpenFeedback_Click">
+                    <views:SettingsCard.HeaderIcon>
+                        <fa:FontIcon Glyph="&#xE939;" />
+                    </views:SettingsCard.HeaderIcon>
+                </views:SettingsCard>
+
+                <views:SettingsCard Header="更新日志" Description="各版本的改动记录"
+                                    IsClickEnabled="True" Click="OpenChangelog_Click">
+                    <views:SettingsCard.HeaderIcon>
+                        <fa:FontIcon Glyph="&#xE81C;" />
+                    </views:SettingsCard.HeaderIcon>
+                </views:SettingsCard>
+
+                <views:SettingsCard Header="运行日志" Description="本机日志与诊断信息"
+                                    IsClickEnabled="True" Click="OpenLogs_Click">
+                    <views:SettingsCard.HeaderIcon>
+                        <fa:FontIcon Glyph="&#xE9D9;" />
+                    </views:SettingsCard.HeaderIcon>
+                </views:SettingsCard>
+
+            </StackPanel>
+
+            <!-- ══════════════ 回声洞 ══════════════ -->
+            <!-- 自上游 1.2.2 从设置页整块搬来，形态与文案一字未改：
+                 一个折叠区，默认折起，展开区里只有一张卡片（字条 + 投稿）。
+                 ⚠️ 描述那句是既定文案，不要改写。 -->
+            <TextBlock Text="回声洞" FontWeight="SemiBold" Margin="0,24,0,8" />
+            <StackPanel Spacing="4">
+
+                <fa:SettingsExpander x:Name="EchoCaveExpander" Header="回声洞"
+                                     Description="请点击这里收看 ClassSoftwareHub 群友的逆天发言！"
+                                     IsExpanded="False">
+                    <fa:SettingsExpander.IconSource>
+                        <fa:FontIconSource FontFamily="{DynamicResource SymbolThemeFontFamily}" Glyph="&#xE8BD;" />
+                    </fa:SettingsExpander.IconSource>
+                    <fa:SettingsExpander.Items>
+
+                        <views:SettingsCard IsClickEnabled="True" Click="EchoCave_Click"
+                                            IsActionIconVisible="False"
+                                            ToolTip.Tip="换一条">
+                            <views:SettingsCard.Header>
+                                <controls:EchoCaveCard x:Name="EchoCave" />
+                            </views:SettingsCard.Header>
+                            <Button Content="投稿" VerticalAlignment="Center">
+                                <!-- ⚠️ Avalonia 的 Flyout 不能挂 x:Name（不是 Control）；
+                                     收起时统一走 EchoSubmitButton.Flyout?.Hide()。 -->
+                                <Button.Flyout>
+                                    <Flyout Placement="Bottom">
+                                        <StackPanel Width="320" Spacing="10">
+                                            <TextBlock Text="投稿到回声洞" FontWeight="SemiBold" />
+                                            <TextBox x:Name="EchoSubmitBox"
+                                                     Watermark="不超过 200 字"
+                                                     AcceptsReturn="True" TextWrapping="Wrap"
+                                                     MinHeight="76" MaxLength="200" />
+                                            <TextBlock x:Name="EchoSubmitStatus" TextWrapping="Wrap"
+                                                       IsVisible="False" FontSize="12" Opacity="0.7" />
+                                            <HyperlinkButton x:Name="EchoSubmitFallback"
+                                                             Content="改用 GitHub 网页投稿"
+                                                             Padding="0" MinWidth="0" IsVisible="False"
+                                                             Click="SubmitEchoCaveFallback_Click" />
+                                            <Button x:Name="EchoSubmitButton" Content="提交"
+                                                    HorizontalAlignment="Right"
+                                                    Classes="accent"
+                                                    Click="SubmitEchoCave_Click" />
+                                        </StackPanel>
+                                    </Flyout>
+                                </Button.Flyout>
+                            </Button>
+                        </views:SettingsCard>
+
+                    </fa:SettingsExpander.Items>
+                </fa:SettingsExpander>
+
+            </StackPanel>
+
+            <!-- ══════════════ 条款与声明 ══════════════ -->
+            <TextBlock Text="条款与声明" FontWeight="SemiBold" Margin="0,24,0,8" />
+            <StackPanel Spacing="4">
+
+                <views:SettingsCard Header="用户协议" IsClickEnabled="True" Click="OpenLegal_Click" Tag="agreement">
+                    <views:SettingsCard.HeaderIcon>
+                        <fa:FontIcon Glyph="&#xE9D5;" />
+                    </views:SettingsCard.HeaderIcon>
+                </views:SettingsCard>
+
+                <views:SettingsCard Header="隐私政策" IsClickEnabled="True" Click="OpenLegal_Click" Tag="privacy">
+                    <views:SettingsCard.HeaderIcon>
+                        <fa:FontIcon Glyph="&#xE72E;" />
+                    </views:SettingsCard.HeaderIcon>
+                </views:SettingsCard>
+
+                <views:SettingsCard Header="免责声明" IsClickEnabled="True" Click="OpenLegal_Click" Tag="disclaimer">
+                    <views:SettingsCard.HeaderIcon>
+                        <fa:FontIcon Glyph="&#xE7BA;" />
+                    </views:SettingsCard.HeaderIcon>
+                </views:SettingsCard>
+
+            </StackPanel>
+
+            <!-- ══════════════ 授权 ══════════════ -->
+            <TextBlock Text="授权" FontWeight="SemiBold" Margin="0,24,0,8" />
+            <StackPanel Spacing="4">
+
+                <views:SettingsCard x:Name="LicenseCard" Header="授权状态" IsActionIconVisible="False">
+                    <views:SettingsCard.HeaderIcon>
+                        <fa:FontIcon Glyph="&#xE8FB;" />
+                    </views:SettingsCard.HeaderIcon>
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <TextBlock x:Name="LicenseText" VerticalAlignment="Center" Opacity="0.7" />
+                        <Button x:Name="LicenseInputButton" Content="输入激活码" IsVisible="False"
+                                Click="OpenActivation_Click" />
+                    </StackPanel>
+                </views:SettingsCard>
+
+            </StackPanel>
+
+        </StackPanel>
+    </ScrollViewer>
+</platform:PageBase>

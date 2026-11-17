@@ -67,6 +67,27 @@ public sealed class PptTouchConfig
             AppLog.Warning("ppttouch", "保存设置失败：" + ex.Message);
         }
     }
+
+    /// <summary>
+    /// 改一项配置并立即落盘 + 让钩子生效，返回**改完之后**的配置。
+    ///
+    /// <para>
+    /// 给侧边栏那颗「PPT 触控」按钮用（自上游 dv1.2.1 移植）：它要在不开设置页的前提下
+    /// 直接开关这两个功能。返回值就是"实际生效的状态"——调用方拿它回写开关，
+    /// 这样保存失败时界面显示的是真状态，而不是用户以为改成了的样子。
+    /// </para>
+    /// </summary>
+    public static PptTouchConfig Update(Action<PptTouchConfig> mutate)
+    {
+        var cfg = Load();
+        mutate(cfg);
+        cfg.Save();
+
+        // 立刻让钩子按新配置工作，不必等重启
+        PptTouch.ApplyConfig();
+
+        return cfg;
+    }
 }
 
 /// <summary>

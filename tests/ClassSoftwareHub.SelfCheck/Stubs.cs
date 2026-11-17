@@ -8,4 +8,21 @@ namespace ClassSoftwareHub.Desktop.Core;
 internal static class AppLog
 {
     public static void Exception(string tag, Exception ex, string what) { }
+    public static void Warn(string tag, string what) { }
+    public static void Warning(string tag, string what) { }
+    public static void Debug(string tag, string what) { }
+    public static void Info(string tag, string what) { }
+
+    public static void Catch(string tag, string what, Exception ex,
+        ClassSoftwareHub.Desktop.Core.LogLevel level = ClassSoftwareHub.Desktop.Core.LogLevel.Debug)
+    { }
+}
+
+/// <summary>日志级别（与主工程同名，供被链接源码编译通过）。</summary>
+internal enum LogLevel
+{
+    Debug,
+    Info,
+    Warning,
+    Error,
 }

@@ -221,7 +221,8 @@ public sealed partial class PptResumePage : PageBase
 
             var filters = new List<FilePickerFileType>
             {
-                new("CSES 课表（JSON）") { Patterns = new[] { "*.json", "*.cses" } },
+                // CSES 规范只定义 JSON，但课表工具导出的常是 .yml / .yaml（内容同构），一并列出
+                new("CSES 课表（JSON / YAML）") { Patterns = new[] { "*.json", "*.cses", "*.yml", "*.yaml" } },
                 new("所有文件") { Patterns = new[] { "*" } },
             };
 

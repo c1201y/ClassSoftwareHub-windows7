@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <!--
     ClassSoftwareHub · Windows 7 移植版（代号 csh-win7）
@@ -194,6 +194,10 @@
          EmbeddedAssets.ExtractToCache 按「资源名结尾匹配」找文件，文件名必须与
          Views/Oobe/*.cs 里写的字面量一字不差。 -->
     <EmbeddedResource Include="..\Assets\Oobe\*" Link="Assets\Oobe\%(Filename)%(Extension)" />
+    <!-- 拼音词表（自上游 dv1.2.2 移植）：投稿时把中文软件名转成站点用的 ID
+         （「网易云音乐」→ wangyiyunyinyue）。PinyinTable 按「资源名结尾匹配」找
+         pinyin.tsv，文件名别改，否则生成出来的 ID 会退化成空串。 -->
+    <EmbeddedResource Include="Assets\Pinyin\pinyin.tsv" Link="Assets\Pinyin\pinyin.tsv" />
   </ItemGroup>
 
   <ItemGroup>

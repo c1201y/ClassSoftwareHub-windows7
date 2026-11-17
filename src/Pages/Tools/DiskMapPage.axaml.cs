@@ -114,8 +114,85 @@ public partial class DiskMapPage : Platform.PageBase
     //  扫描
     // ══════════════════════════════════════════════════════
 
+    /// <summary>
+    /// 若当前已扫描的树里包含 <paramref name="path"/> 这一层，直接用树里的节点重画并返回 true。
+    ///
+    /// <para>
+    /// 按路径逐层下钻找节点：树的根是上次真正扫描的那个目录，
+    /// 所以只有「在该根之下」的路径才命中；不在树里的（换盘、点了树外目录）照旧走完整扫描。
+    /// </para>
+    /// </summary>
+    private bool TryRenderFromTree(string path)
+    {
+        if (_result is null) return false;
+
+        try
+        {
+            var root = _result.Root;
+            if (string.IsNullOrEmpty(root)) return false;
+
+            // 路径归一：统一去掉尾部反斜杠再比
+            var normalized = path.TrimEnd('\\');
+            var treeRoot = root.TrimEnd('\\');
+
+            DiskScanResult view;
+            if (string.Equals(normalized, treeRoot, StringComparison.OrdinalIgnoreCase))
+            {
+                view = _result;
+            }
+            else
+            {
+                // 必须在根之下，否则树里没有
+                if (!normalized.StartsWith(treeRoot + "\\", StringComparison.OrdinalIgnoreCase))
+                    return false;
+
+                var relative = normalized[(treeRoot.Length + 1)..];
+                var parts = relative.Split('\\', StringSplitOptions.RemoveEmptyEntries);
+
+                var node = _result.Children
+                    .FirstOrDefault(c => string.Equals(c.FullPath.TrimEnd('\\'), 
+                        treeRoot + "\\" + parts[0], StringComparison.OrdinalIgnoreCase));
+
+                for (var i = 1; i < parts.Length && node is not null; i++)
+                {
+                    var next = treeRoot + "\\" + string.Join("\\", parts.Take(i + 1));
+                    node = node.Children.FirstOrDefault(c =>
+                        string.Equals(c.FullPath.TrimEnd('\\'), next, StringComparison.OrdinalIgnoreCase));
+                }
+
+                if (node is null || node.Children.Count == 0) return false;
+
+                view = new DiskScanResult
+                {
+                    Root = node.FullPath,
+                    Children = node.Children,
+                    TotalBytes = node.Bytes,
+                    FileCount = node.FileCount,
+                    Elapsed = _result.Elapsed,
+                };
+            }
+
+            _currentPath = path;
+            UpdateCrumb();
+            EmptyText.IsVisible = false;
+            StatusText.Text = "（来自已扫描的结果，未重新读盘）";
+            Render(view);
+            return true;
+        }
+        catch
+        {
+            // 找树失败就当没命中，走完整扫描 —— 功能不能因此不可用
+            return false;
+        }
+    }
+
     private async Task ScanAsync(string path)
     {
+        // 树里已经有这一层就**直接画**，不再碰磁盘（自上游 dv1.2.1 移植，2026-11-14）。
+        // 以前进每一层都要重扫，深一点的路径要点好几次、每次等一遍磁盘；
+        // 现在首次扫描已把整棵树建好，这里只是把节点取出来。
+        if (TryRenderFromTree(path)) return;
+
         // ⚠️ 上一轮的 CTS 只 Cancel 不 Dispose：此刻它可能还挂在某个 await 上，
         //    立刻 Dispose 会让取消回调抛 ObjectDisposedException；由它自己的 finally 释放。
         _cts?.Cancel();
