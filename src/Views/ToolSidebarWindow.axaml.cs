@@ -2741,7 +2741,7 @@ public sealed partial class ToolSidebarWindow : Window
                 else if (string.Equals(m.WindowTool, "quick-lookup", StringComparison.Ordinal))
                     QuickLookupWindow.ShowWindow();               // 查阅单词小浮窗（1.8）
                 else if (string.Equals(m.WindowTool, "ppt-resume", StringComparison.Ordinal))
-                    PptResumeWindow.ShowWindow();
+                    PptResumeService.Current.OpenPanel();
                 else if (string.Equals(m.WindowTool, "hash-check", StringComparison.Ordinal))
                     HashCheckWindow.Show();                       // 哈希校验小浮窗（1.8）
                 else if (string.Equals(m.WindowTool, "image-color", StringComparison.Ordinal))

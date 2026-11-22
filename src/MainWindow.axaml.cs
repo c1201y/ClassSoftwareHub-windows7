@@ -2626,7 +2626,7 @@ public sealed partial class MainWindow : Window
         try { Views.LogDetailWindow.CloseForExit(); } catch { }
         try { Views.SubjectToolsWindow.CloseForExit(); } catch { }   // 学科工具独立窗口（1.3） // 日志详细视图（独立窗口，开发者排障用）
         try { Views.FileSearchWindow.CloseForExit(); } catch { }     // 文件快搜浮窗（1.4）
-        try { Views.PptResumeWindow.CloseForExit(); } catch { }      // PPT 续播浮窗（1.4）
+        try { PptResumeService.Current.Shutdown(); } catch { }          // 课件续页（卡片 + 面板 + 引擎）
         try { Views.QuickLookupWindow.CloseForExit(); } catch { }    // 查阅单词浮窗（1.8）
         try { Views.HashCheckWindow.CloseForExit(); } catch { }      // 哈希校验浮窗（1.8）
         try { Views.ImageColorWindow.CloseForExit(); } catch { }     // 图片取色浮窗（1.10）

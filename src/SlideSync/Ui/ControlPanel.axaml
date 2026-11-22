@@ -1,0 +1,1224 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="clr-namespace:ClassSoftwareHub.Desktop.SlideSync.Ui"
+        xmlns:core="clr-namespace:ClassSoftwareHub.Desktop.SlideSync"
+        xmlns:pages="clr-namespace:ClassSoftwareHub.Desktop.SlideSync.Ui"
+        x:Class="ClassSoftwareHub.Desktop.SlideSync.Ui.ControlPanel"
+        Title="课件续页"
+        Width="1000" Height="680"
+        MinWidth="720" MinHeight="480"
+        WindowStartupLocation="CenterScreen"
+        ShowInTaskbar="True"
+        CanResize="True"
+        SystemDecorations="Full"
+        Background="#FFFFFFFF"
+        FontSize="14">
+
+    <!--
+      面板是插件第一个 Avalonia 窗口，配色/圆角/字体全部走 ClassIsland 主题资源，
+      不另立色板。
+
+      2026-10-24 老师第二轮要求：这个窗口是插件的统一入口，除了找课件，还要能改全部设置。
+      顶部因此改成三页 TabControl（课件库 / 设置 / 关于），课件库页面的排版保持原样。
+
+      2026-10-24 23:06 老师第三轮要求：这个窗口不要亚克力/毛玻璃，就是一块实心底色，
+      颜色还要能在设置里改。于是这里刻意没有 TransparencyLevelHint（有这个属性才走
+      亚克力合成），窗口是不透明的；Background 由 ControlPanel.ApplyPanelBackground()
+      按设置刷上去，下面这个 #FFFFFFFF 只是构造完成的第一帧（以及设置读坏时的兜底）。
+      底色偏暗时正文会自动转成浅色，见 ApplyPanelBackground 里的亮度判断。
+    -->
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- 设置卡片主题（插件自带的 SettingsCard，不依赖 FluentAvalonia，见 Ui/SettingsCard.cs）。 -->
+                <ResourceInclude Source="avares://ClassSoftwareHub/SlideSync/Ui/SettingsCard.axaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <!-- 设置里那行「控制面板底色」：Avalonia 的 ColorPicker 只认 Color，
+                而设置字段是 "#AARRGGBB" 字符串，中间靠这个转换器翻译。
+                 和官方设置页共用同一个实现（Views\SettingsPages\SlideSyncSettingsPage.xaml.cs）。 -->
+            <pages:HexColorConverter x:Key="HexColor" />
+            <!-- 2026-10-31 任务B：滑条上「出厂默认值」那根短线的定位（与官方设置页同一份实现）。 -->
+            <pages:DefaultMarkConverter x:Key="DefaultMark" />
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <Window.Styles>
+        <Style Selector="Border.deck-row">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="10,8" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Border.deck-row:pointerover">
+            <Setter Property="Background" Value="{DynamicResource SubtleFillColorSecondaryBrush}" />
+        </Style>
+        <!-- 选中态放在 hover 之后：两者同时命中时选中色要压住 hover。 -->
+        <Style Selector="Border.deck-row.selected">
+            <Setter Property="Background" Value="{DynamicResource SubtleFillColorTertiaryBrush}" />
+        </Style>
+        <Style Selector="Border.history-row">
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="Padding" Value="8,5" />
+        </Style>
+        <Style Selector="Border.history-row.latest">
+            <Setter Property="Background" Value="{DynamicResource SubtleFillColorSecondaryBrush}" />
+        </Style>
+        <Style Selector="Button.action">
+            <Setter Property="MinWidth" Value="108" />
+            <Setter Property="Height" Value="36" />
+        </Style>
+        <!-- 设置页的分组标题。原来设置页用的是 ClassIsland.Core 的 IconText，
+             面板要能在不加载宿主程序集的情况下独立构造/离屏验收，所以只保留文字和字重，
+             颜色仍取 Fluent 的次要文字资源，观感一致。 -->
+        <Style Selector="TextBlock.settings-group">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Margin" Value="2,14,0,2" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+        </Style>
+        <!-- 顶部页签：选中态压到 Fluent 的强调色上，和本体设置页的强调色一致。 -->
+        <Style Selector="TabItem">
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="MinHeight" Value="40" />
+            <Setter Property="Padding" Value="14,6" />
+            <Setter Property="Margin" Value="0,0,4,0" />
+        </Style>
+        <Style Selector="TabItem:selected">
+            <Setter Property="Foreground" Value="{DynamicResource AccentFillColorDefaultBrush}" />
+        </Style>
+    </Window.Styles>
+
+    <TabControl x:Name="Tabs" SelectedIndex="0">
+
+        <!-- ============================ 课件库 ============================ -->
+        <!-- 这一页的排版、行为与第一版完全一致：搜索 + 刷新 / 左 320px 分组列表 /
+             右详情与历史 / 底部状态条。切页签不会重新读台账（只有打开窗口和刷新按钮会）。 -->
+        <TabItem Header="课件库">
+            <Grid RowDefinitions="Auto,*,Auto">
+
+                <!-- 顶部：搜索 + 导出 + 刷新。Ctrl+F 由窗口的 KeyDown 处理（见 code-behind）。 -->
+                <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto" Margin="24,20,24,14">
+                    <TextBox x:Name="SearchBox"
+                             Watermark="搜索课件名 / 科目"
+                             Height="38"
+                             Padding="12,0"
+                             VerticalContentAlignment="Center"
+                             CornerRadius="6" />
+                    <!-- 导出挨着刷新：老师常先刷新确认台账是新的，再导出。
+                         禁用时提示“还没有记录”，所以 ToolTip.ShowOnDisabled 要显式打开
+                         （Avalonia 默认禁用控件不弹 ToolTip）。 -->
+                    <Button x:Name="ExportButton"
+                            Grid.Column="1"
+                            Content="导出记录"
+                            Height="38"
+                            MinWidth="100"
+                            Margin="12,0,0,0"
+                            Click="OnExportClick"
+                            ToolTip.ShowOnDisabled="True"
+                            ToolTip.Tip="还没有记录" />
+                    <Button x:Name="RefreshButton"
+                            Grid.Column="2"
+                            Content="刷新"
+                            Height="38"
+                            MinWidth="84"
+                            Margin="12,0,0,0"
+                            Click="OnRefreshClick" />
+                </Grid>
+
+                <!-- 主体：左课件库 / 右详情。 -->
+                <Grid Grid.Row="1" ColumnDefinitions="320,17,*" Margin="24,0,24,0">
+
+                    <Border Grid.Column="0"
+                            Background="{DynamicResource LayerFillColorDefaultBrush}"
+                            BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            ClipToBounds="True">
+                        <Grid RowDefinitions="Auto,*">
+                            <Grid Grid.Row="0" ColumnDefinitions="Auto,*,Auto,Auto,Auto" Margin="10,8,10,2">
+                                <CheckBox x:Name="SelectAllCheck"
+                                          Grid.Column="0"
+                                          Content="全选"
+                                          FontSize="12"
+                                          IsVisible="False"
+                                          VerticalAlignment="Center"
+                                          Click="OnSelectAllClick" />
+                                <TextBlock x:Name="ManageTitle"
+                                           Grid.Column="1"
+                                           Text="课件库"
+                                           FontSize="12"
+                                           FontWeight="SemiBold"
+                                           Margin="8,0,8,0"
+                                           TextTrimming="CharacterEllipsis"
+                                           ClipToBounds="True"
+                                           VerticalAlignment="Center"
+                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                <Button x:Name="ManageButton"
+                                        Grid.Column="2"
+                                        Content="管理"
+                                        Padding="10,3"
+                                        Margin="6,0,0,0"
+                                        Click="OnManageClick" />
+                                <Button x:Name="DeleteButton"
+                                        Grid.Column="3"
+                                        Content="删除选中"
+                                        Padding="10,3"
+                                        Margin="6,0,0,0"
+                                        IsVisible="False"
+                                        Click="OnDeleteClick" />
+                                <Button x:Name="ManageDoneButton"
+                                        Grid.Column="4"
+                                        Content="完成"
+                                        Padding="10,3"
+                                        Margin="6,0,0,0"
+                                        IsVisible="False"
+                                        Click="OnManageDoneClick" />
+                            </Grid>
+                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                            <ItemsControl x:Name="GroupList" Margin="6,4,6,6">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Margin="0,8,0,2">
+                                            <TextBlock Text="{Binding Header}"
+                                                       FontSize="12"
+                                                       FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                       Margin="8,0,0,4" />
+                                            <ItemsControl ItemsSource="{Binding Rows}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <Border Classes="deck-row"
+                                                                Classes.selected="{Binding IsSelected}"
+                                                                Tag="{Binding}"
+                                                                PointerPressed="OnRowPressed">
+                                                            <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto">
+                                                                <CheckBox Grid.RowSpan="2"
+                                                                          Grid.Column="0"
+                                                                          IsChecked="{Binding IsPicked, Mode=TwoWay}"
+                                                                          IsVisible="{Binding ManageMode}"
+                                                                          VerticalAlignment="Center"
+                                                                          Margin="0,0,6,0" />
+                                                                <TextBlock Grid.Column="1"
+                                                                           Text="{Binding Name}"
+                                                                           FontSize="14"
+                                                                           TextTrimming="CharacterEllipsis"
+                                                                           Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                                                                <Border Grid.Column="2"
+                                                                        Background="{DynamicResource SubtleFillColorTertiaryBrush}"
+                                                                        CornerRadius="3"
+                                                                        Padding="6,1"
+                                                                        Margin="8,0,0,0"
+                                                                        VerticalAlignment="Center"
+                                                                        IsVisible="{Binding HasBadge}">
+                                                                    <TextBlock Text="{Binding Badge}"
+                                                                               FontSize="11"
+                                                                               Foreground="{DynamicResource AccentFillColorDefaultBrush}" />
+                                                                </Border>
+                                                                <TextBlock Grid.Row="1"
+                                                                           Grid.Column="1"
+                                                                           Grid.ColumnSpan="2"
+                                                                           Text="{Binding Subline}"
+                                                                           FontSize="12"
+                                                                           Margin="0,2,0,0"
+                                                                           TextTrimming="CharacterEllipsis"
+                                                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                                            </Grid>
+                                                        </Border>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                        </Grid>
+                    </Border>
+
+                    <!-- 竖分隔线单独占一列，左右两栏的圆角不会互相啃。 -->
+                    <Border Grid.Column="1"
+                            Width="1"
+                            HorizontalAlignment="Center"
+                            Background="{DynamicResource DividerStrokeColorDefaultBrush}" />
+
+                    <Grid Grid.Column="2">
+                        <Grid x:Name="DetailPanel" RowDefinitions="Auto,*,Auto">
+                            <StackPanel Grid.Row="0">
+                                <TextBlock x:Name="DetailName"
+                                           FontSize="20"
+                                           FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis"
+                                           Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                                <TextBlock x:Name="DetailMeta"
+                                           FontSize="12"
+                                           Margin="0,3,0,0"
+                                           TextTrimming="CharacterEllipsis"
+                                           Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
+
+                                <Grid ColumnDefinitions="Auto,*" Margin="0,10,0,0">
+                                    <TextBlock x:Name="DetailPage"
+                                               FontSize="64"
+                                               FontWeight="Bold"
+                                               LineHeight="64"
+                                               VerticalAlignment="Bottom"
+                                               Foreground="{DynamicResource AccentFillColorDefaultBrush}" />
+                                    <StackPanel Grid.Column="1"
+                                                Margin="16,0,0,8"
+                                                VerticalAlignment="Bottom"
+                                                Spacing="2">
+                                        <TextBlock x:Name="DetailTotal"
+                                                   FontSize="14"
+                                                   Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                                        <TextBlock x:Name="DetailLast"
+                                                   FontSize="12"
+                                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+                                </Grid>
+
+                                <Border Height="1"
+                                        Margin="0,12,0,8"
+                                        Background="{DynamicResource DividerStrokeColorDefaultBrush}" />
+                                <TextBlock Text="历史记录"
+                                           FontSize="13"
+                                           FontWeight="SemiBold"
+                                           Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                            </StackPanel>
+
+                            <Grid Grid.Row="1" Margin="0,6,0,0">
+                                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                    <StackPanel>
+                                        <Grid ColumnDefinitions="104,*,84" Margin="8,0,8,4">
+                                            <TextBlock Text="时间" FontSize="11" Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
+                                            <TextBlock Grid.Column="1" Text="页范围" FontSize="11" Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
+                                            <TextBlock Grid.Column="2" Text="时长" FontSize="11" HorizontalAlignment="Right" Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
+                                        </Grid>
+                                        <ItemsControl x:Name="HistoryList">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Classes="history-row" Classes.latest="{Binding IsLatest}"
+                                                            Cursor="Hand"
+                                                            PointerPressed="OnHistoryRowPressed"
+                                                            ToolTip.Tip="点这一行跳到那一页">
+                                                        <Grid ColumnDefinitions="104,*,84">
+                                                            <TextBlock Text="{Binding TimeText}"
+                                                                       FontSize="12"
+                                                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                                            <TextBlock Grid.Column="1"
+                                                                       Text="{Binding PageText}"
+                                                                       FontSize="12"
+                                                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                                                            <TextBlock Grid.Column="2"
+                                                                       Text="{Binding DurationText}"
+                                                                       FontSize="12"
+                                                                       HorizontalAlignment="Right"
+                                                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                                        </Grid>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <TextBlock x:Name="HistoryEmpty"
+                                                   Text="还没有历史记录"
+                                                   FontSize="12"
+                                                   Margin="8,8,0,0"
+                                                   Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
+                                    </StackPanel>
+                                </ScrollViewer>
+                            </Grid>
+
+                            <StackPanel Grid.Row="2"
+                                        Orientation="Horizontal"
+                                        HorizontalAlignment="Right"
+                                        Spacing="10"
+                                        Margin="0,12,0,0">
+                                <Button x:Name="OpenFolderButton"
+                                        Classes="action"
+                                        Content="打开文件夹"
+                                        Click="OnOpenFolderClick" />
+                                <Button x:Name="JumpButton"
+                                        Classes="action accent"
+                                        Content="立即跳转"
+                                        Click="OnJumpClick" />
+                            </StackPanel>
+                        </Grid>
+
+                        <StackPanel x:Name="EmptyPanel"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    Spacing="6"
+                                    IsVisible="False">
+                            <TextBlock x:Name="EmptyTitle"
+                                       Text="从左侧选一份课件"
+                                       FontSize="16"
+                                       HorizontalAlignment="Center"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                            <TextBlock Text="这里会显示页码和历史记录"
+                                       FontSize="12"
+                                       HorizontalAlignment="Center"
+                                       Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+
+                <!-- 底部状态条：台账文件 + 记录总数；操作结果（导出/跳页）另起一行（见下）。 -->
+                <Border Grid.Row="2"
+                        BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}"
+                        BorderThickness="0,1,0,0"
+                        Margin="0,14,0,0"
+                        Padding="24,8">
+                    <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,Auto">
+                        <TextBlock x:Name="StatusText"
+                                   FontSize="11"
+                                   VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis"
+                                   Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
+                        <Button Grid.Column="1"
+                                x:Name="FullScreenButton"
+                                Content="全屏"
+                                FontSize="11"
+                                Padding="10,2"
+                                Margin="12,0,0,0"
+                                Click="OnFullScreenClick"
+                                ToolTip.Tip="F11 全屏 / 再按一次还原" />
+                        <!-- 台账路径那一句很长，导出结果挤在同一行会被它挤没；
+                             所以单独占第二行：导出结果、“已请求跳到第 N 页”这类反馈都写在这里。 -->
+                        <TextBlock x:Name="HintText"
+                                   Grid.Row="1"
+                                   Grid.ColumnSpan="2"
+                                   FontSize="11"
+                                   Margin="0,3,0,0"
+                                   IsVisible="False"
+                                   TextTrimming="CharacterEllipsis"
+                                   Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
+                    </Grid>
+                </Border>
+            </Grid>
+        </TabItem>
+
+        <!-- ============================= 设置 ============================= -->
+        <!-- 和 Views\SettingsPages\SlideSyncSettingsPage.axaml 逐项对齐（30 个绑定路径完全一致：
+             29 条原本就一致，2026-10-24 补上了漏搬的“下课时弹一条系统通知”）：同样的 Settings.XXX、
+             同样的说明文字、同样的分组；绑定到同一个 SyncSettings 实例，改动立即生效，
+             存盘由宿主 ConfigureFileHelper 负责。
+             只有这几处因为面板不是宿主设置页而改写：
+               · 分组标题由 ciControls:IconText 换成 TextBlock.settings-group（不加载宿主类型）；
+               · 滑块的 ci:SliderDragTooltipAssist 拖动气泡没有搬（同上，纯提示，不影响取值）；
+               · 文件夹选择用 TopLevel.StorageProvider，不走宿主的 FilePickerService；
+               · “新手引导”没有搬：教程段落必须挂在 ClassIsland 的设置窗口/教程中心/主窗口上，
+                 面板是独立窗口，搬过来也启动不了（见 stability-report-panelaudit.txt）。
+             设置页要能随窗口拉伸：ScrollViewer + 内容 MaxWidth 900 居中。 -->
+        <TabItem Header="设置">
+            <ScrollViewer x:Name="SettingsScroll"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled">
+                <StackPanel x:Name="SettingsContent"
+                            MaxWidth="900"
+                            HorizontalAlignment="Center"
+                            Margin="24,10,24,28">
+
+                    <TextBlock Classes="settings-group" Text="配置文件" />
+
+                    <ui:SettingsCard Header="导出 / 导入配置"
+                                               Description="把这项功能的全部设置存成一个 json 文件，换台电脑或重装后导回来。只含设置，不含讲过的记录。">
+                        <ui:SettingsCard.Footer>
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <Button x:Name="ExportSettingsButton" Content="导出配置" Click="OnExportSettingsClick" Padding="12,4" />
+                                <Button x:Name="ImportSettingsButton" Content="导入配置" Click="OnImportSettingsClick" Padding="12,4" />
+                            </StackPanel>
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <TextBlock Classes="settings-group" Text="基本" />
+
+                    <ui:SettingsCard Header="授课时显示悬浮卡片"
+                                               Description="检测到放映时，在屏幕边缘浮出一张卡片显示当前页码。">
+                        <ui:SettingsCard.Footer>
+                            <ToggleSwitch VerticalAlignment="Center"
+                                          IsChecked="{Binding Settings.AutoShowOverlay, Mode=TwoWay}" />
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <ui:SettingsCard Header="无人操作时自动贴边"
+                                               Description="停手一段时间后卡片缩成屏幕边缘的一条标签，不挡课件。">
+                        <ui:SettingsCard.Footer>
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <!-- 2026-10-31 任务B：滑条上那根 2px 短线 = 出厂默认值（15 秒），
+                                     位置按滑条实际宽度和 5–120 的范围换算，见 Core\SyncSettings.cs 的 DefaultMarkGeometry。 -->
+                                <Grid VerticalAlignment="Center">
+                                    <Slider x:Name="AutoHideSecondsSlider"
+                                            Width="170" Minimum="5" Maximum="120" TickFrequency="5" IsSnapToTickEnabled="True"
+                                            VerticalAlignment="Center"
+                                            Value="{Binding Settings.AutoHideSeconds, Mode=TwoWay}" />
+                                    <Border Width="2" Height="10" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                            IsHitTestVisible="False"
+                                            Background="{DynamicResource AccentTextFillColorPrimaryBrush}"
+                                            Margin="{Binding Bounds.Width, ElementName=AutoHideSecondsSlider, Converter={StaticResource DefaultMark}, ConverterParameter='5,120,15'}" />
+                                </Grid>
+                                <ToggleSwitch VerticalAlignment="Center"
+                                              IsChecked="{Binding Settings.AutoHide, Mode=TwoWay}" />
+                            </StackPanel>
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <ui:SettingsCard Header="记录每节课的进度台账"
+                                               Description="每次放映写一条记录：从第几页看到第几页、看了多久。卡片就是靠它知道“上次停在哪一页”。">
+                        <ui:SettingsCard.Footer>
+                            <ToggleSwitch VerticalAlignment="Center"
+                                          IsChecked="{Binding Settings.RecordLedger, Mode=TwoWay}" />
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <!-- 和设置页同一项（官方文件 Views\SettingsPages\SlideSyncSettingsPage.axaml 里的
+                         “下课时弹一条系统通知”）：之前漏搬，面板里怎么都关不掉这条通知。 -->
+                    <ui:SettingsCard Header="下课时弹一条系统通知"
+                                               Description="下课铃响、课件也关掉之后，右下角弹一条：这一节记到第几页、还剩几页。课件还开着就不弹。">
+                        <ui:SettingsCard.Footer>
+                            <ToggleSwitch VerticalAlignment="Center"
+                                          IsChecked="{Binding Settings.ClassEndNotification, Mode=TwoWay}" />
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <ui:SettingsCard Header="在卡片上显示控制面板按钮"
+                                               Description="卡片右上角出现一个齿轮，点开独立的面板：搜索课件、看历史、打开文件夹。">
+                        <ui:SettingsCard.Footer>
+                            <ToggleSwitch x:Name="EnablePanelToggle"
+                                          VerticalAlignment="Center"
+                                          IsChecked="{Binding Settings.EnableControlPanel, Mode=TwoWay}" />
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <ui:SettingsCard Header="最短记录时长"
+                                               Description="短于该时长的放映当作误触，不写进台账（秒）。">
+                        <ui:SettingsCard.Footer>
+                            <NumericUpDown Width="140" Minimum="0" Maximum="600" Increment="5"
+                                           VerticalAlignment="Center"
+                                           Value="{Binding Settings.MinSessionSeconds, Mode=TwoWay}" />
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <Separator Margin="0,12,0,4" />
+                    <TextBlock Classes="settings-group" Text="卡片外观" />
+
+                    <ui:SettingsCard Header="跟随软件主题"
+                                               Description="{Binding Appearance.ThemeSummary}">
+                        <ui:SettingsCard.Footer>
+                            <ToggleSwitch x:Name="FollowThemeToggle"
+                                          VerticalAlignment="Center"
+                                          IsChecked="{Binding Settings.FollowAppTheme, Mode=TwoWay}" />
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <ui:SettingsCard Header="强调色"
+                                               Description="页码和“点这里跳过去”用的颜色。"
+                                               IsVisible="{Binding !Settings.FollowAppTheme}">
+                        <ui:SettingsCard.Footer>
+                            <ColorPicker VerticalAlignment="Center"
+                                         Color="{Binding Appearance.AccentColor, Mode=TwoWay}" />
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <ui:SettingsCard Header="卡片底色"
+                                               Description="默认用软件界面的底色。"
+                                               IsVisible="{Binding !Settings.FollowAppTheme}">
+                        <ui:SettingsCard.Footer>
+                            <ColorPicker VerticalAlignment="Center"
+                                         Color="{Binding Appearance.BackgroundColor, Mode=TwoWay}" />
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <ui:SettingsCard Header="不透明度"
+                                               Description="100% = 与软件界面一样透（跟随主题时）；太高挡课件，太低看不清字。">
+                        <ui:SettingsCard.Footer>
+                            <Grid VerticalAlignment="Center">
+                                <Slider x:Name="OpacitySlider"
+                                        Width="180" Minimum="20" Maximum="100" TickFrequency="5" IsSnapToTickEnabled="True"
+                                        VerticalAlignment="Center"
+                                        Value="{Binding Settings.CardOpacityPercent, Mode=TwoWay}" />
+                                <!-- 默认 90%（Core\SyncSettings.cs 的 cardOpacityPercent） -->
+                                <Border Width="2" Height="10" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                        IsHitTestVisible="False"
+                                        Background="{DynamicResource AccentTextFillColorPrimaryBrush}"
+                                        Margin="{Binding Bounds.Width, ElementName=OpacitySlider, Converter={StaticResource DefaultMark}, ConverterParameter='20,100,90'}" />
+                            </Grid>
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <ui:SettingsCard Header="圆角"
+                                               Description="0 = 直角，24 = 很圆；跟随主题时用软件的圆角设置。">
+                        <ui:SettingsCard.Footer>
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <Grid VerticalAlignment="Center">
+                                    <Slider x:Name="CornerRadiusSlider" Width="170" Minimum="0" Maximum="24" TickFrequency="1" IsSnapToTickEnabled="True"
+                                            VerticalAlignment="Center"
+                                            Value="{Binding Appearance.CornerRadius, Mode=TwoWay}" />
+                                    <!-- 默认 10（Core\Appearance.cs 里 CardCornerRadius < 0 时的实际生效值） -->
+                                    <Border Width="2" Height="10" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                            IsHitTestVisible="False"
+                                            Background="{DynamicResource AccentTextFillColorPrimaryBrush}"
+                                            Margin="{Binding Bounds.Width, ElementName=CornerRadiusSlider, Converter={StaticResource DefaultMark}, ConverterParameter='0,24,10'}" />
+                                </Grid>
+                                <ToggleSwitch VerticalAlignment="Center" OnContent="自定义" OffContent="跟随"
+                                              IsChecked="{Binding Appearance.CustomRadius, Mode=TwoWay}" />
+                            </StackPanel>
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <ui:SettingsCard Header="大小"
+                                               Description="整张卡片的缩放倍数。">
+                        <ui:SettingsCard.Footer>
+                            <Grid VerticalAlignment="Center">
+                                <Slider x:Name="CardScaleSlider" Width="180" Minimum="0.6" Maximum="2" TickFrequency="0.05" IsSnapToTickEnabled="True"
+                                        VerticalAlignment="Center"
+                                        Value="{Binding Settings.CardScale, Mode=TwoWay}" />
+                                <!-- 默认 1.00（Core\SyncSettings.cs 的 cardScale） -->
+                                <Border Width="2" Height="10" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                        IsHitTestVisible="False"
+                                        Background="{DynamicResource AccentTextFillColorPrimaryBrush}"
+                                        Margin="{Binding Bounds.Width, ElementName=CardScaleSlider, Converter={StaticResource DefaultMark}, ConverterParameter='0.6,2,1'}" />
+                            </Grid>
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <ui:SettingsCard Header="字号微调"
+                                               Description="在软件默认字号基础上加减。">
+                        <ui:SettingsCard.Footer>
+                            <Grid VerticalAlignment="Center">
+                                <Slider x:Name="CardFontSizeSlider" Width="180" Minimum="-4" Maximum="12" TickFrequency="1" IsSnapToTickEnabled="True"
+                                        VerticalAlignment="Center"
+                                        Value="{Binding Settings.CardFontSizeDelta, Mode=TwoWay}" />
+                                <!-- 默认 0（Core\SyncSettings.cs 的 cardFontSizeDelta） -->
+                                <Border Width="2" Height="10" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                        IsHitTestVisible="False"
+                                        Background="{DynamicResource AccentTextFillColorPrimaryBrush}"
+                                        Margin="{Binding Bounds.Width, ElementName=CardFontSizeSlider, Converter={StaticResource DefaultMark}, ConverterParameter='-4,12,0'}" />
+                            </Grid>
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <ui:SettingsCard Header="贴哪一边"
+                                               Description="默认右边，和软件主界面同侧。">
+                        <ui:SettingsCard.Footer>
+                            <!-- 2026-10-31 任务B：选项改成数据驱动（Settings.CardSideOptions），
+                                 默认那一项（右边）后面补一个强调色「（推荐）」。 -->
+                            <ComboBox x:Name="SideCombo"
+                                      MinWidth="120"
+                                      ItemsSource="{Binding Settings.CardSideOptions}"
+                                      SelectedIndex="{Binding Appearance.SideIndex, Mode=TwoWay}"
+                                      HorizontalContentAlignment="Left">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate x:DataType="core:ChoiceOption" x:CompileBindings="True">
+                                        <StackPanel Orientation="Horizontal" Spacing="2">
+                                            <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
+                                            <TextBlock Text="（推荐）"
+                                                       VerticalAlignment="Center"
+                                                       IsVisible="{Binding IsDefault}"
+                                                       Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <ui:SettingsCard Header="垂直位置"
+                                               Description="0 = 贴屏幕顶部，50 = 居中，100 = 贴底部。">
+                        <ui:SettingsCard.Footer>
+                            <Grid VerticalAlignment="Center">
+                                <Slider x:Name="CardVerticalSlider" Width="180" Minimum="0" Maximum="100" TickFrequency="5" IsSnapToTickEnabled="True"
+                                        VerticalAlignment="Center"
+                                        Value="{Binding Settings.CardVerticalPercent, Mode=TwoWay}" />
+                                <!-- 默认 50（Core\SyncSettings.cs 的 cardVerticalPercent） -->
+                                <Border Width="2" Height="10" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                        IsHitTestVisible="False"
+                                        Background="{DynamicResource AccentTextFillColorPrimaryBrush}"
+                                        Margin="{Binding Bounds.Width, ElementName=CardVerticalSlider, Converter={StaticResource DefaultMark}, ConverterParameter='0,100,50'}" />
+                            </Grid>
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <ui:SettingsCard Header="收起标签宽度"
+                                               Description="缩起来之后露在屏幕边缘的那一条有多宽（像素）。">
+                        <ui:SettingsCard.Footer>
+                            <Grid VerticalAlignment="Center">
+                                <Slider x:Name="CollapsedTabWidthSlider" Width="180" Minimum="16" Maximum="96" TickFrequency="2" IsSnapToTickEnabled="True"
+                                        VerticalAlignment="Center"
+                                        Value="{Binding Settings.CollapsedTabWidth, Mode=TwoWay}" />
+                                <!-- 默认 32（Core\SyncSettings.cs 的 collapsedTabWidth） -->
+                                <Border Width="2" Height="10" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                        IsHitTestVisible="False"
+                                        Background="{DynamicResource AccentTextFillColorPrimaryBrush}"
+                                        Margin="{Binding Bounds.Width, ElementName=CollapsedTabWidthSlider, Converter={StaticResource DefaultMark}, ConverterParameter='16,96,32'}" />
+                            </Grid>
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <!-- 2026-10-24 23:06 老师要求：缩成药丸后默认长一点，长度也要能改。
+                         宽度是"露在屏幕边缘那一条有多宽"，长度是"沿屏幕边缘方向有多长"，
+                         两个方向分开调，别混在一起。 -->
+                    <ui:SettingsCard Header="收起药丸的长度"
+                                               Description="缩成药丸后沿屏幕边缘那一向有多长（像素）。">
+                        <ui:SettingsCard.Footer>
+                            <NumericUpDown Width="140" Minimum="96" Maximum="480" Increment="8"
+                                           VerticalAlignment="Center"
+                                           Value="{Binding Settings.CollapsedTabLength, Mode=TwoWay}" />
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <!-- 药丸里的两行页码在 50% 透明下看不清，所以药丸单独给一档透明度。 -->
+                    <ui:SettingsCard Header="收起药丸的透明度"
+                                               Description="缩成药丸后这一条的透明程度（100% 完全不透明）。里面有两行页码，太透会看不清。">
+                        <ui:SettingsCard.Footer>
+                            <Grid VerticalAlignment="Center">
+                                <Slider x:Name="CollapsedTabOpacitySlider" Width="180" Minimum="30" Maximum="100" TickFrequency="5" IsSnapToTickEnabled="True"
+                                        VerticalAlignment="Center"
+                                        Value="{Binding Settings.CollapsedTabOpacityPercent, Mode=TwoWay}" />
+                                <!-- 默认 80%（Core\SyncSettings.cs 的 collapsedTabOpacityPercent） -->
+                                <Border Width="2" Height="10" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                        IsHitTestVisible="False"
+                                        Background="{DynamicResource AccentTextFillColorPrimaryBrush}"
+                                        Margin="{Binding Bounds.Width, ElementName=CollapsedTabOpacitySlider, Converter={StaticResource DefaultMark}, ConverterParameter='30,100,80'}" />
+                            </Grid>
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <!-- 2026-10-25 用户第 9 条：「药丸不是有个进度条吗，每科改颜色，设置可以调每科对应的颜色」。
+                         科目名照课表写法；表里没配到的科目用软件主题强调色。 -->
+                    <ui:SettingsCard Header="各科目进度条颜色"
+                                               Description="药丸（收起态）里那道竖进度条按当前课件的科目上色。表里没配到的科目用主题强调色。"
+                                               IsExpanded="True">
+                        <StackPanel Spacing="8" Margin="0,4,0,0">
+                            <ItemsControl x:Name="SubjectColorList" ItemsSource="{Binding Settings.SubjectColors}">
+                                <ItemsControl.ItemTemplate>
+                                    <!-- 理由同上：Options 是 internal，只有编译期绑定看得到。 -->
+                                    <DataTemplate x:DataType="core:SubjectColor" x:CompileBindings="True">
+                                        <Grid ColumnDefinitions="150,Auto,Auto" Margin="0,0,0,6">
+                                            <ComboBox Grid.Column="0" Margin="0,0,8,0"
+                                                      IsVisible="{Binding UseDropdown}"
+                                                      ItemsSource="{Binding Options}"
+                                                      SelectedItem="{Binding Subject, Mode=TwoWay}"
+                                                      PlaceholderText="语文"
+                                                      HorizontalAlignment="Stretch" />
+                                            <TextBox Grid.Column="0" Margin="0,0,8,0"
+                                                     IsVisible="{Binding UseTextBox}"
+                                                     Watermark="语文"
+                                                     Text="{Binding Subject, Mode=TwoWay}" />
+                                            <ColorPicker Grid.Column="1" Width="120" Height="32"
+                                                         VerticalAlignment="Center"
+                                                         BorderBrush="#33000000" BorderThickness="1"
+                                                         IsAlphaVisible="False"
+                                                         Color="{Binding Color, Mode=TwoWay, Converter={StaticResource HexColor}}" />
+                                            <Button Grid.Column="2" Margin="8,0,0,0" Content="删除"
+                                                    Tag="{Binding}" Click="OnRemoveSubjectColor" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <Button Content="添加一行" Click="OnAddSubjectColor" />
+                                <Button Content="恢复预设色" Click="OnResetSubjectColors" />
+                                <TextBlock VerticalAlignment="Center"
+                                           Text="表里没有的科目用主题强调色。"
+                                           FontSize="12"
+                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </ui:SettingsCard>
+
+                    <!-- 同一个要求的另一半：面板不要亚克力，直接上实色，颜色归老师管。
+                         8 位写法是 #AARRGGBB（Alpha 在前，和 Avalonia 自己的颜色口径一致）。 -->
+                    <ui:SettingsCard Header="控制面板底色"
+                                               Description="点齿轮打开的面板底色，默认纯白 #FFFFFFFF。">
+                        <ui:SettingsCard.Footer>
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <ColorPicker Width="140" Height="32"
+                                             VerticalAlignment="Center"
+                                             BorderBrush="#33000000" BorderThickness="1"
+                                             IsAlphaVisible="True"
+                                             Color="{Binding Settings.PanelBackgroundColor, Mode=TwoWay, Converter={StaticResource HexColor}}" />
+                                <!-- 把存下来的原样显示出来：老师能确认自己填的串到底被存成了什么，
+                                     也看得出 6 位和 8 位的区别。 -->
+                                <TextBlock VerticalAlignment="Center"
+                                           FontSize="12"
+                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                           Text="{Binding Settings.PanelBackgroundColor}" />
+                            </StackPanel>
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <Separator Margin="0,12,0,4" />
+                    <TextBlock Text="{Binding Appearance.CardSummary}" TextWrapping="Wrap"
+                               FontSize="12"
+                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                               Margin="0,10,0,0" />
+
+                    <Separator Margin="0,16,0,4" />
+                    <ui:SettingsCard Header="高级选项"
+                                               Description="不常改的运行时机、学科课件文件夹、显示内容与交互选项收在这里；默认值已够日常使用。">
+                        <!-- x:Name 给 code-behind 用：里面的卡片是嵌套 SettingsCard。 -->
+                        <StackPanel x:Name="AdvancedPanel" Spacing="4">
+                    <TextBlock Classes="settings-group" Text="运行时机" />
+
+                    <ui:SettingsCard Header="上课前自动待命"
+                                               Description="{Binding Appearance.RuntimeSummary}">
+                        <ui:SettingsCard.Footer>
+                            <ToggleSwitch VerticalAlignment="Center"
+                                          IsChecked="{Binding Settings.AutoStartBeforeClass, Mode=TwoWay}" />
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <!-- 功能7：课前预览上次没讲完的课件。和设置页一样直绑同一个 SyncSettings，
+                         开关拨动即写回 ReadyCardEnabled，SessionEngine 下一轮调度就会重算预备态。 -->
+                    <ui:SettingsCard x:Name="ReadyCardRow"
+                                               Header="课前预览上次没讲完的课件"
+                                               Description="上课前两分钟，如果这一科上次没讲完，卡片先亮出来，写着上次停在第几页。关掉就只在真正放映时出现。"
+                                               IsVisible="{Binding Settings.AutoStartBeforeClass}">
+                        <ui:SettingsCard.Footer>
+                            <ToggleSwitch x:Name="ReadyCardToggle"
+                                          VerticalAlignment="Center"
+                                          IsChecked="{Binding Settings.ReadyCardEnabled, Mode=TwoWay}" />
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <ui:SettingsCard Header="提前多少秒待命"
+                                               Description="默认 120 秒，也就是上课前 2 分钟。"
+                                               IsVisible="{Binding Settings.AutoStartBeforeClass}">
+                        <ui:SettingsCard.Footer>
+                            <NumericUpDown Width="140" Minimum="0" Maximum="600" Increment="10"
+                                           VerticalAlignment="Center"
+                                           Value="{Binding Settings.PreClassLeadSeconds, Mode=TwoWay}" />
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <ui:SettingsCard Header="下课后保留多久"
+                                               Description="默认 120 秒。下课之后本功能还会盯一会儿课件，把「最后停在第几页」记完，然后彻底退出（秒）。"
+                                               IsVisible="{Binding Settings.AutoStartBeforeClass}">
+                        <ui:SettingsCard.Footer>
+                            <NumericUpDown Width="140" Minimum="0" Maximum="1800" Increment="30"
+                                           VerticalAlignment="Center"
+                                           Value="{Binding Settings.PostClassGraceSeconds, Mode=TwoWay}" />
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <ui:SettingsCard Header="课表外打开课件也加载"
+                                               Description="自习课、临时加课、学校没排课表时的兜底：只要打开 PowerPoint/WPS 就待命，关掉就退出。">
+                        <ui:SettingsCard.Footer>
+                            <ToggleSwitch VerticalAlignment="Center"
+                                          IsChecked="{Binding Settings.ArmOnDeckOpenOutsideClass, Mode=TwoWay}" />
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <ui:SettingsCard Header="检测到 PPT 就显示卡片"
+                                               Description="默认开：只要 PowerPoint/WPS 在跑、课件打开着，就显示卡片，不管是不是上课时间。关掉 = 课表时段外一律不显示、下课铃一响就隐藏（后台仍会继续记页码）。">
+                        <ui:SettingsCard.Footer>
+                            <ToggleSwitch VerticalAlignment="Center"
+                                          IsChecked="{Binding Settings.ShowCardOutsideClass, Mode=TwoWay}" />
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <ui:SettingsCard Header="课前回看天数"
+                                               Description="默认 21 天（3 周）。只决定课前「打开并接着讲」往回找多久没讲完的课件；缓存区不会自动清空，记录一直留着。">
+                        <ui:SettingsCard.Footer>
+                            <NumericUpDown Width="140" Minimum="1" Maximum="365" Increment="1"
+                                           VerticalAlignment="Center"
+                                           Value="{Binding Settings.HistoryRetentionDays, Mode=TwoWay}" />
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <ui:SettingsCard Header="诊断日志"
+                                               Description="把每次 COM 轮询的结果写进 app.log。排查「没反应」时才需要打开，平时关着。">
+                        <ui:SettingsCard.Footer>
+                            <ToggleSwitch VerticalAlignment="Center"
+                                          IsChecked="{Binding Settings.DiagnosticLog, Mode=TwoWay}" />
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <Separator Margin="0,12,0,4" />
+                    <TextBlock Classes="settings-group" Text="打开课件" />
+
+                    <!-- 2026-11-18：和设置页同一张卡、同一个 SyncSettings 实例。
+                         Auto = 系统默认程序；PowerPoint / WPS 固定优先，缺装时 DeckLauncher 退回默认程序。 -->
+                    <ui:SettingsCard Header="打开课件时默认用哪个软件"
+                                               Description="「自动」交给 Windows 的默认程序；也可以固定用 PowerPoint 或 WPS 演示。选定的软件没装时仍会退回默认程序。">
+                        <ui:SettingsCard.Footer>
+                            <ComboBox x:Name="DeckOpenAppCombo"
+                                      MinWidth="190"
+                                      VerticalAlignment="Center"
+                                      HorizontalContentAlignment="Left"
+                                      ItemsSource="{Binding Settings.DeckOpenAppOptions}"
+                                      SelectedIndex="{Binding Settings.DeckOpenAppIndex, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate x:DataType="core:ChoiceOption" x:CompileBindings="True">
+                                        <StackPanel Orientation="Horizontal" Spacing="2">
+                                            <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
+                                            <TextBlock Text="（推荐）"
+                                                       VerticalAlignment="Center"
+                                                       IsVisible="{Binding IsDefault}"
+                                                       Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <Separator Margin="0,12,0,4" />
+                    <TextBlock Classes="settings-group" Text="学科课件文件夹" />
+
+                    <ui:SettingsCard Header="上课时自动打开本科目的课件文件夹"
+                                               Description="正课一开始，就把当前科目对应的文件夹打开（同一节课只开一次）。科目名取课表里的「科目」，所以先让课表认得出这一科。">
+                        <ui:SettingsCard.Footer>
+                            <ToggleSwitch VerticalAlignment="Center"
+                                          IsChecked="{Binding Settings.AutoOpenSubjectFolder, Mode=TwoWay}" />
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <!-- 2026-10-31 任务A：打开时机。三档，下拉选项来自 Settings.SubjectFolderMomentOptions
+                         （顺序 = SubjectFolderMoment 枚举值），默认项后面补强调色「（推荐）」；
+                         课前/课后两行 N 只在对应档位出现。这一份和官方设置页绑的是同一个 SyncSettings 实例。 -->
+                    <ui:SettingsCard Header="什么时候打开"
+                                               Description="「上课开始时」是出厂默认（推荐）。另外两档按当前时间与课表判定，同一节课只打开一次。"
+                                               IsVisible="{Binding Settings.AutoOpenSubjectFolder}">
+                        <ui:SettingsCard.Footer>
+                            <ComboBox x:Name="SubjectFolderMomentCombo"
+                                      MinWidth="190"
+                                      VerticalAlignment="Center"
+                                      HorizontalContentAlignment="Left"
+                                      ItemsSource="{Binding Settings.SubjectFolderMomentOptions}"
+                                      SelectedIndex="{Binding Settings.SubjectFolderMomentIndex, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate x:DataType="core:ChoiceOption" x:CompileBindings="True">
+                                        <StackPanel Orientation="Horizontal" Spacing="2">
+                                            <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
+                                            <!-- 「（推荐）」用主题强调色，只在默认项上出现（数据本身不改）。 -->
+                                            <TextBlock Text="（推荐）"
+                                                       VerticalAlignment="Center"
+                                                       IsVisible="{Binding IsDefault}"
+                                                       Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <ui:SettingsCard Header="上课前多少分钟"
+                                               Description="打铃前 N 分钟打开这一科的文件夹（0–30，默认 2）。到点只开一次。"
+                                               IsVisible="{Binding Settings.ShowBeforeClassOpenMinutes}">
+                        <ui:SettingsCard.Footer>
+                            <NumericUpDown Width="140" Minimum="0" Maximum="30" Increment="1"
+                                           VerticalAlignment="Center"
+                                           Value="{Binding Settings.BeforeClassOpenMinutes, Mode=TwoWay}" />
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <ui:SettingsCard Header="下课后多少分钟"
+                                               Description="下课铃后 N 分钟打开这一节的文件夹（0–30，默认 2）。到点只开一次。"
+                                               IsVisible="{Binding Settings.ShowAfterClassOpenMinutes}">
+                        <ui:SettingsCard.Footer>
+                            <NumericUpDown Width="140" Minimum="0" Maximum="30" Increment="1"
+                                           VerticalAlignment="Center"
+                                           Value="{Binding Settings.AfterClassOpenMinutes, Mode=TwoWay}" />
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <ui:SettingsCard Header="各科目的文件夹"
+                                               Description="科目名照课表里的写法（语文、数学、英语……）。遇到「劳动/英语」这种合写科目，斜杠两边任一匹配都算。"
+                                               IsExpanded="True"
+                                               IsVisible="{Binding Settings.AutoOpenSubjectFolder}">
+                        <StackPanel Spacing="8" Margin="0,4,0,0">
+                            <ItemsControl x:Name="SubjectFolderList" ItemsSource="{Binding Settings.SubjectFolders}">
+                                <ItemsControl.ItemTemplate>
+                                    <!--
+                                      x:CompileBindings：行模板只认 x:DataType 指明的 SubjectFolder 成员。
+                                      Options 是 internal（设置页和面板同程序集），反射绑定看不到，
+                                      所以这里用编译期绑定；也避免 $parent[…] 那种运行时按程序集名加载类型
+                                      的写法（插件是动态加载的，那样会把窗口打崩）。
+                                    -->
+                                    <DataTemplate x:DataType="core:SubjectFolder" x:CompileBindings="True">
+                                        <Grid ColumnDefinitions="150,*,Auto,Auto" Margin="0,0,0,6">
+                                            <ComboBox Grid.Column="0" Margin="0,0,8,0"
+                                                      IsVisible="{Binding UseDropdown}"
+                                                      ItemsSource="{Binding Options}"
+                                                      SelectedItem="{Binding Subject, Mode=TwoWay}"
+                                                      PlaceholderText="语文"
+                                                      HorizontalAlignment="Stretch" />
+                                            <TextBox Grid.Column="0" Margin="0,0,8,0"
+                                                     IsVisible="{Binding UseTextBox}"
+                                                     Watermark="语文"
+                                                     Text="{Binding Subject, Mode=TwoWay}" />
+                                            <TextBox Grid.Column="1" Watermark="D:\课件\语文"
+                                                     Text="{Binding Folder, Mode=TwoWay}" />
+                                            <Button Grid.Column="2" Margin="8,0,0,0" Content="选择…"
+                                                    Tag="{Binding}" Click="OnPickSubjectFolder" />
+                                            <Button Grid.Column="3" Margin="6,0,0,0" Content="删除"
+                                                    Tag="{Binding}" Click="OnRemoveSubjectFolder" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <Button Content="添加一行" Click="OnAddSubjectFolder" />
+                                <TextBlock VerticalAlignment="Center"
+                                           Text="没配的科目不会打开任何文件夹。"
+                                           FontSize="12"
+                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </ui:SettingsCard>
+
+                    <Separator Margin="0,12,0,4" />
+                    <TextBlock Classes="settings-group" Text="显示内容" />
+
+                    <ui:SettingsCard Header="显示内容"
+                                               Description="卡片上出现哪几行。"
+                                               IsExpanded="True">
+                        <StackPanel>
+                        <Grid ColumnDefinitions="*,Auto" MinHeight="32">
+                            <TextBlock Text="课件文件名" VerticalAlignment="Center" />
+                            <Grid Grid.Column="1" VerticalAlignment="Center" Margin="16,0,0,0">
+                                <ToggleSwitch VerticalAlignment="Center" IsChecked="{Binding Settings.CardShowFileName, Mode=TwoWay}" />
+                            </Grid>
+                        </Grid>
+                        <Grid ColumnDefinitions="*,Auto" MinHeight="32">
+                            <TextBlock Text="共几页" VerticalAlignment="Center" />
+                            <Grid Grid.Column="1" VerticalAlignment="Center" Margin="16,0,0,0">
+                                <ToggleSwitch VerticalAlignment="Center" IsChecked="{Binding Settings.CardShowSlideCount, Mode=TwoWay}" />
+                            </Grid>
+                        </Grid>
+                        <Grid ColumnDefinitions="*,Auto" MinHeight="32">
+                            <TextBlock Text="科目 · 上下课" VerticalAlignment="Center" />
+                            <Grid Grid.Column="1" VerticalAlignment="Center" Margin="16,0,0,0">
+                                <ToggleSwitch VerticalAlignment="Center" IsChecked="{Binding Settings.CardShowContext, Mode=TwoWay}" />
+                            </Grid>
+                        </Grid>
+                        <Grid ColumnDefinitions="*,Auto" MinHeight="32">
+                            <TextBlock Text="状态行（正在跳转…）" VerticalAlignment="Center" />
+                            <Grid Grid.Column="1" VerticalAlignment="Center" Margin="16,0,0,0">
+                                <ToggleSwitch VerticalAlignment="Center" IsChecked="{Binding Settings.CardShowStatusLine, Mode=TwoWay}" />
+                            </Grid>
+                        </Grid>
+                        <Grid ColumnDefinitions="*,Auto" MinHeight="32">
+                            <TextBlock Text="上次停在第几页" VerticalAlignment="Center" />
+                            <Grid Grid.Column="1" VerticalAlignment="Center" Margin="16,0,0,0">
+                                <ToggleSwitch VerticalAlignment="Center" IsChecked="{Binding Settings.CardShowJumpLine, Mode=TwoWay}" />
+                            </Grid>
+                        </Grid>
+                        </StackPanel>
+                    </ui:SettingsCard>
+
+                    <Separator Margin="0,12,0,4" />
+                    <TextBlock Classes="settings-group" Text="交互" />
+
+                    <ui:SettingsCard Header="点击卡片跳页"
+                                               Description="点“上次停在第 N 页”那一行直接跳过去。">
+                        <ui:SettingsCard.Footer>
+                            <ToggleSwitch VerticalAlignment="Center"
+                                          IsChecked="{Binding Settings.CardClickToJump, Mode=TwoWay}" />
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <ui:SettingsCard Header="跳转时重播该页动画"
+                                               Description="关掉＝从上次中断的地方接着播（默认）。">
+                        <ui:SettingsCard.Footer>
+                            <ToggleSwitch VerticalAlignment="Center"
+                                          IsChecked="{Binding Settings.JumpResetsAnimation, Mode=TwoWay}" />
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <ui:SettingsCard Header="预览卡片"
+                                               Description="把卡片叫出来，看看现在的样子。">
+                        <ui:SettingsCard.Footer>
+                            <Button x:Name="PreviewCardButton" Content="显示卡片" Click="OnPreviewClick" />
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                        </StackPanel>
+                    </ui:SettingsCard>
+
+                    <Separator Margin="0,12,0,4" />
+                    <TextBlock Classes="settings-group" Text="本机 API" />
+
+                    <ui:SettingsCard Header="启用本机 API"
+                                               Description="只监听 127.0.0.1：其他软件可以查询当前课件、页码和课表，并发起续播或跳页。接口地址 http://127.0.0.1:47822/api/slidesync/status">
+                        <ui:SettingsCard.Footer>
+                            <ToggleSwitch VerticalAlignment="Center"
+                                          IsChecked="{Binding Settings.ApiEnabled, Mode=TwoWay}" />
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <ui:SettingsCard Header="访问令牌"
+                                               Description="请求头带上 X-Api-Token，或加 ?token=…。可用接口：status、subjects、lesson，POST resume、jump。">
+                        <ui:SettingsCard.Footer>
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <TextBox Width="260" IsReadOnly="True"
+                                         Text="{Binding Settings.ApiToken, Mode=OneWay}"
+                                         FontFamily="Consolas" FontSize="12" />
+                                <Button Content="复制" Click="OnCopyApiTokenClick" />
+                            </StackPanel>
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+                </StackPanel>
+            </ScrollViewer>
+        </TabItem>
+
+        <!-- ============================= 课表 ============================= -->
+        <TabItem Header="课表">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel MaxWidth="720"
+                            HorizontalAlignment="Center"
+                            Margin="24,24,24,24"
+                            Spacing="10">
+                    <TextBlock Text="导入 CSES 课表后，程序能认出当前上哪一科，科目名也会自动填进各科配置里。"
+                               FontSize="12"
+                               TextWrapping="Wrap"
+                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+
+                    <ui:SettingsCard Header="课表文件"
+                                     Description="支持 CSES 的 JSON / YAML。">
+                        <ui:SettingsCard.Footer>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button x:Name="ImportTimetableButton"
+                                        Content="导入…"
+                                        Click="OnImportTimetableClick" />
+                                <Button x:Name="ClearTimetableButton"
+                                        Content="清除"
+                                        Click="OnClearTimetableClick" />
+                            </StackPanel>
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <TextBlock x:Name="TimetableText"
+                               FontSize="12"
+                               TextWrapping="Wrap"
+                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+
+                    <ui:SettingsCard Header="学期第一周周一"
+                                     Description="用来推算单双周；不填则单双周都按可用处理。">
+                        <ui:SettingsCard.Footer>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBox x:Name="SemesterStartBox"
+                                         Width="120"
+                                         Watermark="2026-09-01" />
+                                <Button Content="保存"
+                                        Click="OnApplySemesterClick" />
+                            </StackPanel>
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <TextBlock x:Name="ParityText"
+                               FontSize="12"
+                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+
+                    <ui:SettingsCard Header="现在 / 下一节">
+                        <ui:SettingsCard.Footer>
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <TextBlock x:Name="LessonText"
+                                           VerticalAlignment="Center"
+                                           FontSize="12"
+                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                <Button x:Name="ResumeCurrentButton"
+                                        Content="续播这一科"
+                                        Click="OnResumeCurrentClick" />
+                            </StackPanel>
+                        </ui:SettingsCard.Footer>
+                    </ui:SettingsCard>
+
+                    <TextBlock Text="各科进度"
+                               FontSize="13"
+                               FontWeight="SemiBold"
+                               Margin="2,10,0,2"
+                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                    <StackPanel x:Name="CsesSubjectList" Spacing="2" />
+                </StackPanel>
+            </ScrollViewer>
+        </TabItem>
+
+        <!-- ============================= 关于 ============================= -->
+        <TabItem Header="关于">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel MaxWidth="720"
+                            HorizontalAlignment="Center"
+                            Margin="24,36,24,24"
+                            Spacing="6">
+                    <TextBlock x:Name="AboutNameText"
+                               Text="课件续页"
+                               FontSize="26"
+                               FontWeight="SemiBold"
+                               HorizontalAlignment="Center"
+                               Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                    <TextBlock x:Name="AboutVersionText"
+                               FontSize="13"
+                               HorizontalAlignment="Center"
+                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                    <TextBlock Text="记录每份课件的讲授进度，下次打开时接着上次停下的那一页放映。"
+                               FontSize="12"
+                               HorizontalAlignment="Center"
+                               TextWrapping="Wrap"
+                               TextAlignment="Center"
+                               Margin="0,4,0,0"
+                               Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
+
+                    <Border Margin="0,20,0,0"
+                            Background="{DynamicResource LayerFillColorDefaultBrush}"
+                            BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="20,14">
+                        <StackPanel Spacing="12">
+                            <Grid ColumnDefinitions="96,*">
+                                <TextBlock Text="仓库"
+                                           VerticalAlignment="Center"
+                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                <Button x:Name="AboutRepoLink"
+                                        Grid.Column="1"
+                                        Content="https://github.com/c1201y/ClassSoftwareHub-windows7"
+                                        HorizontalAlignment="Left"
+                                        Padding="0"
+                                        Background="Transparent"
+                                        BorderThickness="0"
+                                        Foreground="#2563EB"
+                                        Cursor="Hand"
+                                        Click="OnRepoClick" />
+                            </Grid>
+                            <Grid ColumnDefinitions="96,*">
+                                <TextBlock Text="数据目录"
+                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                <TextBlock x:Name="AboutDataFolderText"
+                                           Grid.Column="1"
+                                           FontSize="13"
+                                           TextWrapping="Wrap"
+                                           Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                            </Grid>
+                            <Grid ColumnDefinitions="96,*">
+                                <TextBlock Text="台账记录"
+                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                <TextBlock x:Name="AboutRecordsText"
+                                           Grid.Column="1"
+                                           FontSize="13"
+                                           Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <Button x:Name="AboutOpenFolderButton"
+                            Content="打开数据文件夹"
+                            HorizontalAlignment="Center"
+                            Margin="0,18,0,0"
+                            Click="OnAboutOpenFolderClick" />
+
+                    <TextBlock Text="ClassSoftwareHub · 课件续页设置与课件库都在这个窗口里"
+                               FontSize="11"
+                               HorizontalAlignment="Center"
+                               Margin="0,10,0,0"
+                               Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
+                    <TextBlock Text="课件续播内核移植自 ClassSlideSync（MIT License）· Copyright (c) 2026 kkt446"
+                               FontSize="11"
+                               HorizontalAlignment="Center"
+                               TextWrapping="Wrap"
+                               TextAlignment="Center"
+                               Foreground="{DynamicResource TextFillColorTertiaryBrush}" />
+                </StackPanel>
+            </ScrollViewer>
+        </TabItem>
+    </TabControl>
+</Window>
