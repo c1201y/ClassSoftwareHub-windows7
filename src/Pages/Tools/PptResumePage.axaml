@@ -4,28 +4,6 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:platform="using:ClassSoftwareHub.Desktop.Platform">
 
-    <!--
-      课件续页（原 PPT 续播）：真正的界面在独立控制面板窗口里，
-      这一页只负责把面板叫出来，保证内置工具 / 搜索 / 侧边栏的导航照常能用。
-    -->
-    <Grid Background="Transparent">
-        <StackPanel HorizontalAlignment="Center"
-                    VerticalAlignment="Center"
-                    Spacing="14"
-                    MaxWidth="520">
-            <TextBlock Text="课件续页"
-                       FontSize="28"
-                       FontWeight="Bold"
-                       HorizontalAlignment="Center" />
-            <TextBlock FontSize="12.5"
-                       Opacity="0.7"
-                       TextWrapping="Wrap"
-                       TextAlignment="Center"
-                       Text="记录每份课件讲到第几页，下次打开时接着上次那一页放映。控制面板已经在独立窗口里打开，直接在那里操作就行。" />
-            <Button Content="打开控制面板"
-                    HorizontalAlignment="Center"
-                    Padding="18,7"
-                    Click="OpenPanel_Click" />
-        </StackPanel>
-    </Grid>
+    <!-- 控制面板本体在 OnNavigatedTo 里创建并塞进 Content。 -->
+    <Grid Background="Transparent" />
 </platform:PageBase>

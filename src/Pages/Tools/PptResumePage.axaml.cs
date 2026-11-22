@@ -1,14 +1,17 @@
-using Avalonia.Interactivity;
+using Avalonia.Controls;
+using Avalonia.Styling;
 using ClassSoftwareHub.Desktop.Platform;
 using ClassSoftwareHub.Desktop.Services;
+using ClassSoftwareHub.Desktop.SlideSync.Ui;
 
 namespace ClassSoftwareHub.Desktop.Pages.Tools;
 
-/// <summary>
-/// 课件续页的导航落点：面板是独立窗口，这里打开它，导航本身不承载设置。
-/// </summary>
+/// <summary>课件续页的导航落点：控制面板直接嵌在这一页里。</summary>
 public sealed partial class PptResumePage : PageBase
 {
+    private ControlPanel? _panel;
+    private ThemeVariantScope? _scope;
+
     public PptResumePage()
     {
         InitializeComponent();
@@ -16,9 +19,23 @@ public sealed partial class PptResumePage : PageBase
 
     public override void OnNavigatedTo(object? parameter)
     {
-        PptResumeService.Current.OpenPanel();
+        if (_panel is not null) return;
+        _panel = PptResumeService.Current.CreatePanel();
+        if (_panel is not null)
+        {
+            // 面板底色偏暗时只切换这一块的主题变体，不影响主界面。
+            _scope = new ThemeVariantScope { Child = _panel };
+            Content = _scope;
+            Core.AppLog.Step("ppt-resume", "控制面板已嵌入课件续页页面");
+        }
     }
 
-    private void OpenPanel_Click(object? sender, RoutedEventArgs e)
-        => PptResumeService.Current.OpenPanel();
+    public override void OnNavigatedFrom()
+    {
+        if (_panel is null) return;
+        PptResumeService.Current.ReleasePanel(_panel);
+        _panel = null;
+        _scope = null;
+        Content = null;
+    }
 }

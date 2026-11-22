@@ -1,9 +1,10 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text;
 using Avalonia.Media;
 using System.ComponentModel;
@@ -13,7 +14,9 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Platform;
 using Avalonia.Platform.Storage;
+using Avalonia.Styling;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using ClassSoftwareHub.Desktop.SlideSync;
 using ClassSoftwareHub.Desktop.Data;
 using ClassSoftwareHub.Desktop.Platform;
@@ -33,7 +36,7 @@ namespace ClassSoftwareHub.Desktop.SlideSync.Ui
     /// 设置页绑定到服务持有的同一个 <see cref="SyncSettings"/>，改完立即生效，
     /// 存盘仍由宿主的 ConfigureFileHelper 负责，面板自己不写配置文件。
     /// </summary>
-    public partial class ControlPanel : Window
+    public partial class ControlPanel : UserControl
     {
         readonly Ledger ledger;
 
@@ -58,8 +61,8 @@ namespace ClassSoftwareHub.Desktop.SlideSync.Ui
         int liveRecords;       // 上次看到的台账记录总数：增量刷新靠它判断“有没有变”
         int liveFiles;         // 上次看到的课件份数：多出新课件要整栏重排
         DispatcherTimer? liveTimer;   // 台账在放映中是每秒变的，面板开着时定时补一次
-        WindowState beforeFullScreen = WindowState.Normal;   // F11 之前是什么状态，退出全屏要回得去
-        bool closed;           // 窗口已关闭：异步对话框回来时不能再往控件/配置里写
+        bool closed;           // 面板已离开页面：异步对话框回来时不能再往控件/配置里写
+        bool hooked;           // 设置 / 搜索 / 页签事件是否已挂上（离开页面时摘掉，回来再挂）
 
         /// <summary>
         /// 设置页的绑定源（和 ClassIsland 设置页是同一个对象）。只读引用，改动通过绑定写回。
@@ -79,7 +82,7 @@ namespace ClassSoftwareHub.Desktop.SlideSync.Ui
         public event Action<string, int>? JumpRequested;
 
         /// <summary>
-        /// 必须在本插件的服务里、Avalonia UI 线程上构造（非 UI 线程 new Window 会抛
+        /// 必须在本插件的服务里、Avalonia UI 线程上构造（非 UI 线程 new 控件会抛
         /// "Call from invalid thread"）。openFolder 由服务用宿主的 IUriNavigationService 实现；
         /// service 只给“预览卡片 / 外观摘要 / 关于页”取实时信息，允许为空（离线测试时为空）。
         /// </summary>
@@ -100,32 +103,23 @@ namespace ClassSoftwareHub.Desktop.SlideSync.Ui
 
             GroupList.ItemsSource = groups;
             ApplyPanelBackground();
-            this.settings.PropertyChanged += OnSettingsChanged;
             DetailPanel.IsVisible = false;
             EmptyPanel.IsVisible = true;
             JumpButton.IsEnabled = false;
             OpenFolderButton.IsEnabled = false;
             PreviewCardButton.IsEnabled = service != null;
 
-            SearchBox.TextChanged += OnSearchChanged;
-            AddHandler(KeyDownEvent, OnWindowKeyDown, RoutingStrategies.Tunnel);
-            Tabs.SelectionChanged += OnTabSelectionChanged;
-            Opened += OnOpened;
-            Closing += OnClosing;
-            Closed += OnClosedDetach;
+            AddHandler(KeyDownEvent, OnPanelKeyDown, RoutingStrategies.Tunnel);
+            AttachedToVisualTree += OnAttached;
+            DetachedFromVisualTree += OnDetached;
 
-            // 科目名单可能早就存在设置里了；课表还没加载时先退回可编辑文本框，打开窗口时再对一次。
+            // 科目名单可能早就存在设置里了；课表还没加载时先退回可编辑文本框，进页面时再对一次。
             RefreshSubjectsSafe();
             UpdateAbout();
 
             // 台账可能是服务启动时就 Load 好的，构造完就该决定“导出记录”能不能点，
-            // 不能等 Opened 才第一次判断（否则空台账的提示会晚一拍）。
+            // 不能等挂到页面上才第一次判断（否则空台账的提示会晚一拍）。
             UpdateExportState();
-
-            // 老师要求“跟正常软件一样”：尺寸和位置在关窗口时记住，下次打开接着用。
-            ApplySavedGeometry();
-            // 存下来的坐标可能落在已经拔掉的副屏上：这时候窗口再也看不见，必须先拉回真实屏幕。
-            ClampToVisibleScreen();
         }
 
         // ---- 控制面板底色（老师要求：不要亚克力，就是一块实心颜色，且能改） ----
@@ -167,15 +161,18 @@ namespace ClassSoftwareHub.Desktop.SlideSync.Ui
                 // 0.45 是二分点：中灰 #808080 亮度 0.50 判为浅底，深字对比度约 8.8:1；
                 // 若判成深底，白字对 #808080 只有约 3.9:1，反而更差。
                 bool dark = RelativeLuminance(solid.Color) < 0.45;
-                var want = dark ? Avalonia.Styling.ThemeVariant.Dark : Avalonia.Styling.ThemeVariant.Light;
-                if (RequestedThemeVariant != want)
+                var want = dark ? ThemeVariant.Dark : ThemeVariant.Light;
+                // 面板嵌在页面里，不再有 Window 的 RequestedThemeVariant；由页面套一层
+                // ThemeVariantScope，这里只改最近的这个作用域，不动整个应用的主题。
+                var scope = this.GetVisualAncestors().OfType<ThemeVariantScope>().FirstOrDefault();
+                if (scope is not null && scope.RequestedThemeVariant != want)
                 {
-                    RequestedThemeVariant = want;
+                    scope.RequestedThemeVariant = want;
 
                     // 光切变体不够：FluentAvalonia 的设置卡片（SettingsExpander 那一层层）是
-                    // 启动时按当时的主题变体解析好、随后就冻住的，窗口上改 RequestedThemeVariant
-                    // 不会让它们重算 —— 结果就是深底上出现「浅灰卡片 + 浅色正文」，白字压浅底。
-                    // 往窗口资源里塞一个换过值的无关键，会触发一次 ResourceChanged，
+                    // 启动时按当时的主题变体解析好、随后就冻住的，只改变体不会让它们重算 ——
+                    // 结果就是深底上出现「浅灰卡片 + 浅色正文」，白字压浅底。
+                    // 往资源里塞一个换过值的无关键，会触发一次 ResourceChanged，
                     // 那一批画刷就按新变体重新解析（实测：卡片底色由 #B3FFFFFF 变为深色档）。
                     // 必须排到下一轮：变体本身是异步传播的，同一帧里重算仍然会读到旧变体。
                     Avalonia.Threading.Dispatcher.UIThread.Post(NudgeThemeResources);
@@ -223,16 +220,27 @@ namespace ClassSoftwareHub.Desktop.SlideSync.Ui
             }
         }
 
-        void OnOpened(object? sender, EventArgs e)
+        void OnAttached(object? sender, Avalonia.VisualTreeAttachmentEventArgs e)
         {
-            // 打开时读一次台账（构造时不读，老师还在拖卡片时别做多余的事）。
-            Reload();
-            RefreshTimetable();
-            // 构造那一刻窗口还没交给平台层，屏幕信息可能不全；真正显示出来后再夹一次。
-            ClampToVisibleScreen();
-            StartLiveRefresh();
-            SearchBox.Focus();
-            Log("opened");
+            try
+            {
+                closed = false;
+                ApplyPanelBackground();
+                if (!hooked)
+                {
+                    settings.PropertyChanged += OnSettingsChanged;
+                    SearchBox.TextChanged += OnSearchChanged;
+                    Tabs.SelectionChanged += OnTabSelectionChanged;
+                    hooked = true;
+                }
+                // 进页面时读一次台账（构造时不读，老师还在拖卡片时别做多余的事）。
+                Reload();
+                RefreshTimetable();
+                StartLiveRefresh();
+                SearchBox.Focus();
+                Log("attached");
+            }
+            catch (Exception ex) { Log("panel attach failed: " + ex.Message); }
         }
 
         /// <summary>
@@ -320,12 +328,11 @@ namespace ClassSoftwareHub.Desktop.SlideSync.Ui
         }
 
         /// <summary>
-        /// 关窗时把挂出去的回调全摘掉：定时器不停的话，关掉的窗口会一直每秒跑一次；
-        /// 事件订阅同样不留。窗口对象本身是否还被别处引用我们管不了，但至少不能再拖着这些。
+        /// 离开页面时把挂出去的回调全摘掉：定时器不停的话，隐藏的面板会一直每两秒跑一次。
+        /// 重新进页面时 OnAttached 会再挂上。
         /// </summary>
-        void OnClosedDetach(object? sender, EventArgs e)
+        void OnDetached(object? sender, Avalonia.VisualTreeAttachmentEventArgs e)
         {
-            try { settings.PropertyChanged -= OnSettingsChanged; } catch { }
             try
             {
                 closed = true;
@@ -335,12 +342,13 @@ namespace ClassSoftwareHub.Desktop.SlideSync.Ui
                     liveTimer.Tick -= OnLiveTick;
                     liveTimer = null;
                 }
-                SearchBox.TextChanged -= OnSearchChanged;
-                Tabs.SelectionChanged -= OnTabSelectionChanged;
-                Opened -= OnOpened;
-                Closing -= OnClosing;
-                Closed -= OnClosedDetach;
-                RemoveHandler(KeyDownEvent, OnWindowKeyDown);
+                if (hooked)
+                {
+                    settings.PropertyChanged -= OnSettingsChanged;
+                    SearchBox.TextChanged -= OnSearchChanged;
+                    Tabs.SelectionChanged -= OnTabSelectionChanged;
+                    hooked = false;
+                }
             }
             catch (Exception ex) { Log("panel detach failed: " + ex.Message); }
         }
@@ -1076,188 +1084,16 @@ namespace ClassSoftwareHub.Desktop.SlideSync.Ui
             RequestJump(selectedRow.Item.FilePath ?? "", selectedRow.Name, selectedPage);
         }
 
-        void OnWindowKeyDown(object? sender, KeyEventArgs e)
+        void OnPanelKeyDown(object? sender, KeyEventArgs e)
         {
-            if (e.Key == Key.F11)
-            {
-                ToggleFullScreen();
-                e.Handled = true;
-                return;
-            }
-            if (e.Key == Key.Escape)
-            {
-                // 老师的要求：Esc 先退出全屏，再按一次才关窗口。
-                if (WindowState == WindowState.FullScreen)
-                {
-                    ToggleFullScreen();
-                }
-                else
-                {
-                    Close();
-                }
-                e.Handled = true;
-                return;
-            }
             if (e.Key == Key.F && (e.KeyModifiers & KeyModifiers.Control) == KeyModifiers.Control)
             {
-                // Ctrl+F 永远落到课件库的搜索框：在设置/关于页按也要能直接搜课件。
+                // Ctrl+F 永远落到课件库的搜索框：在设置/课表页按也要能直接搜课件。
                 if (Tabs.SelectedIndex != 0) Tabs.SelectedIndex = 0;
                 SearchBox.Focus();
                 SearchBox.SelectAll();
                 e.Handled = true;
             }
-        }
-
-        void OnFullScreenClick(object? sender, RoutedEventArgs e)
-        {
-            ToggleFullScreen();
-        }
-
-        /// <summary>F11 / 底部“全屏”按钮：在窗口态和全屏态之间切换。</summary>
-        void ToggleFullScreen()
-        {
-            try
-            {
-                if (WindowState == WindowState.FullScreen)
-                {
-                    // 退出全屏要回到进全屏之前的样子。老师如果是从最大化按的 F11，
-                    // 退全屏却掉回普通窗口，等于顺手把他的窗口改小了。
-                    WindowState = beforeFullScreen == WindowState.FullScreen
-                        ? WindowState.Normal
-                        : beforeFullScreen;
-                    return;
-                }
-                beforeFullScreen = WindowState;
-                WindowState = WindowState.FullScreen;
-            }
-            catch (Exception ex) { Log("fullscreen failed: " + ex.Message); }
-        }
-
-        /// <summary>恢复上次的窗口尺寸与位置；没记录过就用 axaml 里的默认值（1000×680 居中）。</summary>
-        void ApplySavedGeometry()
-        {
-            try
-            {
-                if (settings == null) return;
-                if (settings.PanelWidth >= 480 && settings.PanelHeight >= 360)
-                {
-                    Width = settings.PanelWidth;
-                    Height = settings.PanelHeight;
-                }
-                // 0,0 视为“没记录过”：默认值就是 0，分不清“老师把窗口拖到左上角”和“从没存过”，
-                // 按未记录处理更稳妥（居中打开总比贴着任务栏好）。
-                bool havePos = settings.PanelLeft != 0 || settings.PanelTop != 0;
-                if (havePos && settings.PanelLeft > -20000 && settings.PanelTop > -20000)
-                {
-                    WindowStartupLocation = WindowStartupLocation.Manual;
-                    Position = new PixelPoint(settings.PanelLeft, settings.PanelTop);
-                }
-            }
-            catch (Exception ex) { Log("geometry restore failed: " + ex.Message); }
-        }
-
-        /// <summary>
-        /// 把窗口拉回一块真实存在的屏幕里。掉到屏幕外有两种常见来源：
-        /// 上一节课在副屏上关的窗口、这次教室没有副屏；或者换了分辨率/缩放的投影仪，存的尺寸比工作区还大。
-        /// 屏幕信息还没准备好（构造得太早）时直接返回，Opened 里会再调一次。
-        /// </summary>
-        void ClampToVisibleScreen()
-        {
-            try
-            {
-                if (WindowState != WindowState.Normal) return;   // 最大化/全屏由系统管尺寸，别去改
-                var screens = Screens;
-                if (screens == null) return;
-                var all = screens.All;
-                if (all == null || all.Count == 0) return;
-
-                double scale = 1.0;
-                Screen? target = null;
-                try
-                {
-                    target = screens.ScreenFromPoint(Position);
-                    if (target == null) target = screens.ScreenFromWindow(this);
-                    if (target != null && target.Scaling > 0) scale = target.Scaling;
-                }
-                catch { }
-
-                int w = ToPixels(double.IsNaN(Width) ? 1000 : Width, scale);
-                int h = ToPixels(double.IsNaN(Height) ? 680 : Height, scale);
-
-                if (target == null)
-                {
-                    // 存的坐标不在任何屏幕上（副屏被拔掉了）：挑一块与窗口矩形有交集的屏。
-                    var probe = new PixelRect(Position, new PixelSize(Math.Max(1, w), Math.Max(1, h)));
-                    foreach (var s in all)
-                    {
-                        if (s == null || s.WorkingArea.Width <= 0 || s.WorkingArea.Height <= 0) continue;
-                        if (s.WorkingArea.Intersects(probe)) { target = s; break; }
-                    }
-                }
-                if (target == null) target = screens.Primary;
-                if (target == null) target = all[0];
-                if (target == null) return;
-
-                var work = target.WorkingArea;
-                if (work.Width <= 0 || work.Height <= 0) return;
-                if (target.Scaling > 0) scale = target.Scaling;
-
-                // 尺寸：不超过工作区，也不低于 MinWidth/MinHeight（缩放换算是像素，宽高是 DIP）。
-                int minW = ToPixels(double.IsNaN(MinWidth) ? 720 : MinWidth, scale);
-                int minH = ToPixels(double.IsNaN(MinHeight) ? 480 : MinHeight, scale);
-                int wantW = Math.Min(Math.Max(w, minW), Math.Max(work.Width, minW));
-                int wantH = Math.Min(Math.Max(h, minH), Math.Max(work.Height, minH));
-                if (Math.Abs(wantW - w) > 2) Width = wantW / (scale > 0 ? scale : 1.0);
-                if (Math.Abs(wantH - h) > 2) Height = wantH / (scale > 0 ? scale : 1.0);
-
-                // 位置只在我们自己恢复过坐标时才动：居中/由系统摆位的情况交给系统，别抢。
-                if (WindowStartupLocation != WindowStartupLocation.Manual) return;
-
-                // 标题栏至少要露出来一点，老师才抓得住窗口（左边 120px、上面 40px）。
-                int keepX = Math.Min(120, Math.Max(24, wantW / 3));
-                int keepY = Math.Min(40, Math.Max(12, wantH / 4));
-                int nx = Math.Max(work.X - wantW + keepX, Math.Min(Position.X, work.Right - keepX));
-                int ny = Math.Max(work.Y, Math.Min(Position.Y, work.Bottom - keepY));
-                if (nx != Position.X || ny != Position.Y)
-                {
-                    Position = new PixelPoint(nx, ny);
-                }
-            }
-            catch (Exception ex) { Log("geometry clamp failed: " + ex.Message); }
-        }
-
-        /// <summary>DIP → 屏幕像素（按屏幕缩放）。用于和 WorkingArea 这类像素矩形比较。</summary>
-        static int ToPixels(double dip, double scale)
-        {
-            if (double.IsNaN(dip) || double.IsInfinity(dip) || dip <= 0) return 0;
-            double px = dip * (scale > 0 ? scale : 1.0);
-            if (px > int.MaxValue / 4) px = int.MaxValue / 4;
-            return (int)Math.Round(px);
-        }
-
-        void OnClosing(object? sender, WindowClosingEventArgs e)
-        {
-            SaveGeometry();
-        }
-
-        /// <summary>把当前尺寸和位置写回设置；最大化/全屏时不覆盖（否则还原后尺寸会变成屏幕大小）。</summary>
-        void SaveGeometry()
-        {
-            try
-            {
-                if (settings == null || WindowState != WindowState.Normal) return;
-                // 关窗前宽度可能还没经过布局（程序刚开就关），NaN 写进设置会变成 0，下次就不敢恢复。
-                if (double.IsNaN(Width) || double.IsNaN(Height) || Width <= 0 || Height <= 0) return;
-                settings.PanelWidth = (int)Math.Round(Width);
-                settings.PanelHeight = (int)Math.Round(Height);
-                // 只有我们自己摆过位置时才记坐标：居中打开时 Position 还不是真实值。
-                if (WindowStartupLocation == WindowStartupLocation.Manual)
-                {
-                    settings.PanelLeft = Position.X;
-                    settings.PanelTop = Position.Y;
-                }
-            }
-            catch (Exception ex) { Log("geometry save failed: " + ex.Message); }
         }
 
         // ---- 设置页：学科课件文件夹 ------------------------------------------------

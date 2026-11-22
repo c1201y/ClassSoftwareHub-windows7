@@ -530,7 +530,7 @@ public sealed class PptResumeService
         }
     }
 
-    /// <summary>打开课件续页控制面板（单实例，已经开着就提到前台）。</summary>
+    /// <summary>打开课件续页：把主窗口叫出来，导航到内嵌面板那一页。</summary>
     public void OpenPanel()
     {
         EnsureStarted();
@@ -538,35 +538,37 @@ public sealed class PptResumeService
         {
             try
             {
-                if (_panel is not null)
-                {
-                    if (!_panel.IsVisible) _panel.Show();
-                    if (_panel.WindowState == Avalonia.Controls.WindowState.Minimized)
-                        _panel.WindowState = Avalonia.Controls.WindowState.Normal;
-                    _panel.Activate();
-                    return;
-                }
-
-                var p = new ControlPanel(_ledger ?? new Ledger(), _settings,
-                    () => _lastState ?? new CardState(), OpenPanelFolder, this);
-                p.JumpRequested += OnPanelJumpRequested;
-                p.Closed += (_, _) =>
-                {
-                    if (ReferenceEquals(_panel, p))
-                    {
-                        _panel = null;
-                        p.JumpRequested -= OnPanelJumpRequested;
-                    }
-                };
-                p.Show();
-                _panel = p;
-                p.Activate();
+                var main = App.MainWindow;
+                if (main is null) return;
+                if (!main.IsVisible) main.ShowFromTray();
+                main.Activate();
+                main.Shell.NavigateToTool(typeof(Pages.Tools.PptResumePage));
             }
             catch (Exception ex)
             {
                 AppLog.Catch("ppt-resume", "打开控制面板", ex, LogLevel.Debug);
             }
         });
+    }
+
+    /// <summary>由页面创建内嵌控件；服务保留引用，卡片和跳转状态才能刷进去。</summary>
+    public ControlPanel? CreatePanel()
+    {
+        EnsureStarted();
+        if (!Dispatcher.UIThread.CheckAccess()) return null;
+        var panel = new ControlPanel(_ledger ?? new Ledger(), _settings,
+            () => _lastState ?? new CardState(), OpenPanelFolder, this);
+        panel.JumpRequested += OnPanelJumpRequested;
+        _panel = panel;
+        return panel;
+    }
+
+    /// <summary>页面离开时解绑，别让服务继续往已经卸载的控件上写字。</summary>
+    public void ReleasePanel(ControlPanel panel)
+    {
+        if (panel is null) return;
+        try { panel.JumpRequested -= OnPanelJumpRequested; } catch { }
+        if (ReferenceEquals(_panel, panel)) _panel = null;
     }
 
     /// <summary>设置页「预览卡片」／卡片托盘入口。</summary>
@@ -655,15 +657,11 @@ public sealed class PptResumeService
             try { engine.Dispose(); } catch { }
         }
 
-        if (card is not null && panel is not null)
+        if (panel is not null)
         {
             try { panel.JumpRequested -= OnPanelJumpRequested; } catch { }
         }
         try { card?.Dispose(); } catch { }
-        if (panel is not null)
-        {
-            try { Dispatcher.UIThread.Post(() => { try { panel.Close(); } catch { } }); } catch { }
-        }
 
         SaveSettings();
     }
