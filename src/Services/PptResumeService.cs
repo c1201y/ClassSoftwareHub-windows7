@@ -1,12 +1,17 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Threading;
+using System.Security.Cryptography;
+using System.Text.Json;
+using Avalonia.Controls;
 using Avalonia.Threading;
 using ClassSoftwareHub.Desktop.Core;
 using ClassSoftwareHub.Desktop.Data;
+using ClassSoftwareHub.Desktop.SlideSync;
+using ClassSoftwareHub.Desktop.SlideSync.Ui;
 
 namespace ClassSoftwareHub.Desktop.Services;
 
@@ -51,25 +56,19 @@ public sealed class PptResumeSnapshot
 }
 
 /// <summary>
-/// PPT 续播后台服务。
+/// 课件续页后台服务。
 ///
 /// <para>
-/// ── 干什么 ─────────────────────────────────────────────────────────
-/// 每 2 秒问一次「PowerPoint / WPS 演示现在放映到第几页」，按当前课表把进度记到
-/// 对应科目上；用户点「续播」时，打开该科目上次的课件并从记录的那一页继续放映。
-/// 进度按「每换一页写一次」落盘，所以直接关掉 PPT / 关机也不会丢。
+/// 原来这里每 2 秒自己扫一次 PowerPoint / WPS 的 COM；现在换成课件续页插件的引擎
+/// （<see cref="SessionEngine"/> + <see cref="Ledger"/> + <see cref="PptBridge"/> /
+/// <see cref="SeewoBridge"/>）：250 ms 一次状态机、按课件记台账、WPS 死引用自动重连，
+/// 并且支持希沃白板。CSH 只保留自己的课表导入、科目选择和浮窗界面。
 /// </para>
 ///
 /// <para>
-/// ── 为什么单开一条 STA 线程 ────────────────────────────────────────
-/// Office 的 COM 自动化要求 STA；而且 PowerPoint 卡住（弹模态框、文件很大）时，
-/// 调用会阻塞好几秒 —— 放在 UI 线程上的定时器里会直接把界面卡死。
-/// 这里用一条后台 STA 线程同时处理「轮询」和「续播命令」，UI 只收状态通知。
-/// </para>
-///
-/// <para>
-/// ⚠️ 轮询只在机器上有演示进程时才会去扫 ROT；没开 PPT 时每 2 秒只做一次
-///    轻量的进程名检查，不碰 COM。
+/// 「科目 → 课件」的对照表仍然存在 ppt-resume.json：它负责老师手动指定的课件，
+/// 以及引擎还没记过台账时的兜底进度；引擎的台账在 %LOCALAPPDATA%\ClassSoftwareHub\slidesync
+/// 下，两份数据互不覆盖。
 /// </para>
 /// </summary>
 public sealed class PptResumeService
@@ -77,16 +76,36 @@ public sealed class PptResumeService
     public static PptResumeService Current { get; } = new();
 
     private readonly object _gate = new();
-    private readonly BlockingCollection<Action> _commands = new();
     private PptResumeData _data = new();
     private CsesTimetable? _timetable;
     private PptLiveState _live = new();
     private string _lastMessage = "";
     private DateTime _messageAt;
     private DateTime _liveAt;
-    private object? _ppt;
-    private Thread? _worker;
     private bool _loaded;
+
+    private Ledger? _ledger;
+    private SessionEngine? _engine;
+    private SyncSettings _settings = new();
+    private AppTheme? _theme;
+    private CardAppearance? _appearance;
+    private NativeOverlayCard? _card;
+    private ControlPanel? _panel;
+    private SlideSyncApi? _api;
+    private volatile CardState? _lastState;
+    private bool _armed;
+    private string _armReason = "";
+    private string _lastStatus = "";
+    private DateTime _panelJumpAt;
+    private string _lastOpenDeckPath = "";
+    private DateTime _lastOpenDeckAt;
+
+    private static string DataDir => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "ClassSoftwareHub",
+        "slidesync");
+
+    private static string SettingsPath => Path.Combine(DataDir, "SyncSettings.json");
 
     /// <summary>状态 / 记录 / 课表有变化时触发（已切回 UI 线程）。</summary>
     public event Action? Changed;
@@ -97,32 +116,58 @@ public sealed class PptResumeService
     {
         lock (_gate)
         {
-            if (_worker is not null) return;
+            if (_loaded) return;
+            _loaded = true;
 
-            LoadLocked();
+            _data = PptResumeStore.Load();
+            _timetable = null;
+            if (!string.IsNullOrWhiteSpace(_data.TimetableJson))
+                _timetable = CsesSchedule.Parse(_data.TimetableJson, out _);
 
-            var thread = new Thread(WorkerLoop)
+            try
             {
-                IsBackground = true,
-                Name = "PptResume",
-            };
-            try { thread.SetApartmentState(ApartmentState.STA); } catch { }
+                LoadSettingsLocked();
 
-            _worker = thread;
-            thread.Start();
-        }
-    }
+                var ledger = Ledger.Load(DataDir);
+                _settings.DataFolder = DataDir;
+                _settings.LogSink = m => { try { ledger.Log(m); } catch { } };
 
-    private void LoadLocked()
-    {
-        if (_loaded) return;
-        _loaded = true;
+                var engine = new SessionEngine(ledger, _settings)
+                {
+                    LessonContext = ReadLessonTag,
+                    Diag = _settings.DiagnosticLog,
+                };
+                engine.StateChanged += OnEngineState;
 
-        _data = PptResumeStore.Load();
-        _timetable = null;
-        if (!string.IsNullOrWhiteSpace(_data.TimetableJson))
-        {
-            _timetable = CsesSchedule.Parse(_data.TimetableJson, out _);
+                _ledger = ledger;
+                _engine = engine;
+                engine.Start();
+
+                _theme = AppTheme.Load(DataDir, m => { try { ledger.Log("theme: " + m); } catch { } });
+                RecomputeAppearanceLocked();
+                _appearance = CardAppearance.Resolve(_settings, _theme);
+                BuildCardLocked();
+                StartApiLocked();
+
+                _settings.PropertyChanged += OnSettingsPropertyChanged;
+                try
+                {
+                    if (Avalonia.Application.Current is not null)
+                        Avalonia.Application.Current.ActualThemeVariantChanged += OnAppThemeVariantChanged;
+                }
+                catch { }
+
+                _armed = true;
+                _armReason = "随软件启动";
+                AppLog.Info("ppt-resume", "续播引擎已启动｜数据目录=" + DataDir);
+            }
+            catch (Exception ex)
+            {
+                _ledger = null;
+                _engine = null;
+                _loaded = false;
+                AppLog.Exception("ppt-resume", ex, "启动课件续播引擎");
+            }
         }
     }
 
@@ -156,7 +201,7 @@ public sealed class PptResumeService
                     Name = name,
                     InTimetable = IsInTimetableLocked(name),
                     File = record?.File ?? "",
-                    FileName = record is { File.Length: > 0 } ? Path.GetFileName(record.File) : "",
+                    FileName = record is { File.Length: > 0 } ? DisplayNameOf(record.File) : "",
                     Slide = record?.Slide ?? 0,
                     Total = record?.Total ?? 0,
                     SavedAt = record?.SavedAt ?? "",
@@ -334,107 +379,682 @@ public sealed class PptResumeService
     public void Resume(string subject)
     {
         EnsureStarted();
-        _commands.Add(() => DoResume(subject));
+        subject = (subject ?? "").Trim();
+
+        PptRecord? record;
+        lock (_gate)
+        {
+            _data.Subjects.TryGetValue(subject, out record);
+        }
+
+        if (record is null || record.File.Length == 0)
+        {
+            SetMessage("「" + subject + "」还没有课件记录：先在控制面板的「课件库」里选择这个科目的课件。");
+            return;
+        }
+
+        bool seewo = SeewoBridge.IsSeewoKey(record.File);
+        if (!seewo && !File.Exists(record.File))
+        {
+            SetMessage("课件文件找不到了：" + record.File + "（可能被移动或重命名）");
+            return;
+        }
+
+        var (slide, note) = ResolveResumeSlide(record);
+        var engine = _engine;
+        if (engine is null)
+        {
+            SetMessage("续播引擎还没启动，请稍后再试。");
+            return;
+        }
+
+        SetMessage("正在唤起演示程序，从第 " + slide + " 页继续…" + (note.Length > 0 ? " " + note : ""));
+        engine.RequestJumpTo(record.File, slide);
     }
 
     public void ResumeCurrent()
     {
         EnsureStarted();
-        _commands.Add(() =>
+        var lesson = CurrentLesson();
+        if (lesson is null)
         {
-            PptLesson? lesson;
-            lock (_gate)
-            {
-                lesson = CsesSchedule.FindLesson(_timetable, _data.SemesterStart, DateTime.Now);
-            }
-
-            if (lesson is null)
-            {
-                SetMessage("现在没有找到对应课程：先导入 CSES 课表，或直接按科目续播。");
-                return;
-            }
-
-            DoResume(lesson.Subject);
-        });
-    }
-
-    // ── 后台线程 ─────────────────────────────────────────────────────────
-
-    private void WorkerLoop()
-    {
-        var lastPoll = Environment.TickCount - 2200;
-
-        while (true)
-        {
-            try
-            {
-                while (_commands.TryTake(out var command))
-                {
-                    try { command(); }
-                    catch (Exception ex) { AppLog.Catch("ppt-resume", "执行放映线程排队的操作", ex, LogLevel.Debug); }
-                }
-
-                var now = Environment.TickCount;
-                if (unchecked(now - lastPoll) >= 2000)
-                {
-                    lastPoll = now;
-                    Poll();
-                }
-            }
-            catch (Exception ex)
-            {
-                AppLog.Catch("ppt-resume", "轮询放映状态", ex, LogLevel.Debug);
-            }
-
-            Thread.Sleep(200);
-        }
-    }
-
-    private void Poll()
-    {
-        if (!OfficeCom.AnyRunning())
-        {
-            ReleaseApp();
-            SetLive(false, "尚未检测到正在放映的课件。", "", 0, 0, "");
+            SetMessage("现在没有找到对应课程：先导入 CSES 课表，或直接按科目续播。");
             return;
         }
 
-        var app = _ppt ??= OfficeCom.TryGetRunning();
-        if (app is null)
-        {
-            SetLive(false, "检测到演示软件进程，但暂时连不上（可能还在启动）。", "", 0, 0, "");
-            return;
-        }
+        Resume(lesson.Subject);
+    }
+
+    /// <summary>
+    /// 算出这次应该从第几页开始：优先用引擎台账里最近一次「讲完」的结果（能识别
+    /// 课件被改过、以及上次已讲到最后一页），台账没有或比页面记录旧时退回页面记录。
+    /// </summary>
+    private (int Slide, string Note) ResolveResumeSlide(PptRecord record)
+    {
+        var slide = Math.Max(1, record.Slide);
+        var note = "";
+        var remapped = false;
+
+        if (SeewoBridge.IsSeewoKey(record.File)) return (ClampToKnownTotal(slide, record), note);
+        if (_ledger is null) return (ClampToKnownTotal(slide, record), note);
 
         try
         {
-            dynamic office = app;
-            var windows = 0;
-            try { windows = Convert.ToInt32(office.SlideShowWindows.Count); } catch { }
+            var last = _ledger.Last(record.File);
+            if (last is null) return (ClampToKnownTotal(slide, record), note);
 
-            if (windows <= 0)
+            var lastAt = ParseStamp(last.EndedAt);
+            var savedAt = ParseStamp(record.SavedAt);
+            if (lastAt < savedAt) return (ClampToKnownTotal(slide, record), note);
+
+            var end = last.EndSlide > 0 ? last.EndSlide : last.StartSlide;
+            if (end <= 0) return (ClampToKnownTotal(slide, record), note);
+
+            // 上次停在最后一页 = 已经讲完，下次从头开始（与插件行为一致）
+            var finished = last.SlideCount > 0 && end >= last.SlideCount;
+            slide = finished ? 1 : end;
+
+            var fingerprint = Ledger.Fingerprint(record.File);
+            if (!string.IsNullOrEmpty(last.Fingerprint)
+                && !string.Equals(last.Fingerprint, fingerprint, StringComparison.OrdinalIgnoreCase))
             {
-                SetLive(false, "演示软件已打开，当前没有在放映。", "", 0, 0, "");
-                return;
+                var remap = DeckRemap.RemapFor(_ledger, last, Ledger.Key(record.File), slide, _ledger.Root);
+                if (remap is not null)
+                {
+                    if (remap.Usable && remap.NewSlide > 0)
+                    {
+                        slide = remap.NewSlide;
+                        remapped = true;
+                        if (!string.IsNullOrEmpty(remap.Note)) note = remap.Note;
+                    }
+                    else if (remap.Kind == RemapKind.Replaced)
+                    {
+                        slide = 1;
+                        if (!string.IsNullOrEmpty(remap.Note)) note = remap.Note;
+                    }
+                }
             }
-
-            dynamic show = office.SlideShowWindows[1];
-            var slide = Convert.ToInt32(show.View.CurrentShowPosition);
-
-            dynamic presentation = show.Presentation;
-            var file = Convert.ToString(presentation.FullName) ?? "";
-            var total = Convert.ToInt32(presentation.Slides.Count);
-
-            var subject = ResolveSubject(file, DateTime.Now);
-            SetLive(true, "正在放映。", file, slide, total, subject);
-            SaveProgress(file, subject, slide, total);
         }
         catch (Exception ex)
         {
-            AppLog.Catch("ppt-resume", "读取放映状态", ex, LogLevel.Debug);
-            ReleaseApp();
-            SetLive(false, "读取放映状态失败（演示软件可能正忙或被弹窗挡住）。", "", 0, 0, "");
+            AppLog.Catch("ppt-resume", "计算续播页码", ex, LogLevel.Debug);
         }
+
+        // 课件变短了但没能对齐页码时，页码可能超过现有页数 —— 旧版会先按总页数夹一下，
+        // 这里用上次记下的总页数做同样的兜底（对齐成功的结果不夹，课件可能变长了）。
+        slide = Math.Max(1, remapped ? slide : ClampToKnownTotal(slide, record));
+        return (slide, note);
+    }
+
+    /// <summary>按页面记录里上次的总页数收一下页码；不知道总页数就原样返回。</summary>
+    private static int ClampToKnownTotal(int slide, PptRecord record)
+    {
+        return record.Total > 0 ? Math.Min(slide, record.Total) : slide;
+    }
+
+    private static DateTime ParseStamp(string text)
+    {
+        return DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.None, out var at)
+            ? at
+            : DateTime.MinValue;
+    }
+
+    // ── 插件界面（控制面板 / 浮层卡片）─────────────────────────────────────
+
+    public SyncSettings Settings => _settings;
+    public Ledger? Ledger => _ledger;
+    public SessionEngine? Engine => _engine;
+    public ICardSink? Card => _card;
+    public CardAppearance? Appearance => _appearance;
+    public AppTheme? Theme => _theme;
+    public bool Armed => _armed;
+    public string ArmReason => _armReason;
+
+    /// <summary>课表里的科目名单（给控制面板每行的下拉用）。</summary>
+    public IReadOnlyList<string> SubjectNames()
+    {
+        EnsureStarted();
+        lock (_gate)
+        {
+            var names = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (_timetable is not null)
+            {
+                foreach (var subject in _timetable.Subjects)
+                {
+                    var name = (subject.Name ?? "").Trim();
+                    if (name.Length > 0) names.Add(name);
+                }
+            }
+            foreach (var name in _data.Subjects.Keys) names.Add(name);
+            return names.ToList();
+        }
+    }
+
+    /// <summary>打开课件续页：把主窗口叫出来，导航到内嵌面板那一页。</summary>
+    public void OpenPanel()
+    {
+        EnsureStarted();
+        Dispatcher.UIThread.Post(() =>
+        {
+            try
+            {
+                var main = App.MainWindow;
+                if (main is null) return;
+                if (!main.IsVisible) main.ShowFromTray();
+                main.Activate();
+                main.Shell.NavigateToTool(typeof(Pages.Tools.PptResumePage));
+            }
+            catch (Exception ex)
+            {
+                AppLog.Catch("ppt-resume", "打开控制面板", ex, LogLevel.Debug);
+            }
+        });
+    }
+
+    /// <summary>由页面创建内嵌控件；服务保留引用，卡片和跳转状态才能刷进去。</summary>
+    public ControlPanel? CreatePanel()
+    {
+        EnsureStarted();
+        if (!Dispatcher.UIThread.CheckAccess()) return null;
+        var panel = new ControlPanel(_ledger ?? new Ledger(), _settings,
+            () => _lastState ?? new CardState(), OpenPanelFolder, this);
+        panel.JumpRequested += OnPanelJumpRequested;
+        _panel = panel;
+        return panel;
+    }
+
+    /// <summary>页面离开时解绑，别让服务继续往已经卸载的控件上写字。</summary>
+    public void ReleasePanel(ControlPanel panel)
+    {
+        if (panel is null) return;
+        try { panel.JumpRequested -= OnPanelJumpRequested; } catch { }
+        if (ReferenceEquals(_panel, panel)) _panel = null;
+    }
+
+    /// <summary>设置页「预览卡片」／卡片托盘入口。</summary>
+    public void ShowCardNow()
+    {
+        EnsureStarted();
+        try
+        {
+            var c = _card;
+            if (c is not null) c.Expand();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Catch("ppt-resume", "预览卡片", ex, LogLevel.Debug);
+        }
+    }
+
+    /// <summary>面板 / 卡片发起的跳页：统一走引擎的 RequestJumpTo。</summary>
+    public void RequestJump(string filePath, int slide, bool fromPanel = false)
+    {
+        EnsureStarted();
+        try
+        {
+            var engine = _engine;
+            if (engine is null) return;
+
+            if (!string.IsNullOrWhiteSpace(filePath) && slide > 0)
+            {
+                _panelJumpAt = DateTime.UtcNow;
+                engine.RequestJumpTo(filePath, slide);
+            }
+            else
+            {
+                engine.RequestJump();
+            }
+
+            var c = _card;
+            if (c is not null) c.ShowStatus("正在跳转…");
+            if (fromPanel) _panel?.ShowStatus("正在跳转…");
+        }
+        catch (Exception ex)
+        {
+            var c = _card;
+            if (c is not null) c.ShowStatus("跳转失败：" + ex.Message);
+            if (fromPanel) _panel?.ShowStatus("跳转失败：" + ex.Message);
+        }
+    }
+
+    /// <summary>退出软件时收掉卡片 / 引擎 / 面板，并落盘设置。</summary>
+    public void Shutdown()
+    {
+        SyncSettings? settings;
+        NativeOverlayCard? card;
+        SessionEngine? engine;
+        ControlPanel? panel;
+
+        lock (_gate)
+        {
+            if (!_loaded) return;
+            _loaded = false;
+            _armed = false;
+
+            settings = _settings;
+            card = _card;
+            _card = null;
+            engine = _engine;
+            _engine = null;
+            panel = _panel;
+            _panel = null;
+        }
+
+        try { settings.PropertyChanged -= OnSettingsPropertyChanged; } catch { }
+        try
+        {
+            if (Avalonia.Application.Current is not null)
+                Avalonia.Application.Current.ActualThemeVariantChanged -= OnAppThemeVariantChanged;
+        }
+        catch { }
+        StopApiLocked();
+        try { _saveTimer?.Dispose(); } catch { }
+        _saveTimer = null;
+
+        if (engine is not null)
+        {
+            try { engine.StateChanged -= OnEngineState; } catch { }
+            try { engine.Dispose(); } catch { }
+        }
+
+        if (panel is not null)
+        {
+            try { panel.JumpRequested -= OnPanelJumpRequested; } catch { }
+        }
+        try { card?.Dispose(); } catch { }
+
+        SaveSettings();
+    }
+
+    // ── 卡片接线 ─────────────────────────────────────────────────────────
+
+    private void BuildCardLocked()
+    {
+        var c = new NativeOverlayCard();
+        c.Configure(_appearance ?? new CardAppearance(),
+            _settings.AutoShowOverlay, _settings.AutoHide, _settings.AutoHideSeconds,
+            _settings.EnableControlPanel);
+        c.JumpRequested += OnCardJumpRequested;
+        c.HistoryJumpRequested += OnCardHistoryJumpRequested;
+        c.PositionChanged += OnCardPositionChanged;
+        c.PanelRequested += OpenPanel;
+        c.OpenDeckRequested += OnCardOpenDeckRequested;
+        c.SwitchToSuiteRequested += OnCardSwitchToSuiteRequested;
+        c.Log = m => { try { _ledger?.Log("card: " + m); } catch { } };
+        c.Start();
+        _card = c;
+    }
+
+    private void OnCardJumpRequested()
+    {
+        var st = _lastState;
+        var page = st?.Previous ?? 0;
+        RequestJump("", page > 0 ? page : 0);
+    }
+
+    private void OnCardHistoryJumpRequested(string filePath, int slide) => RequestJump(filePath, slide);
+
+    private void OnCardPositionChanged(bool onRight, int verticalPercent)
+    {
+        _settings.CardOnLeft = !onRight;
+        _settings.CardVerticalPercent = verticalPercent;
+    }
+
+    private void OnCardOpenDeckRequested(string filePath, int slide)
+    {
+        if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+        {
+            _card?.ShowStatus("课件不在了");
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        if (string.Equals(filePath, _lastOpenDeckPath, StringComparison.OrdinalIgnoreCase)
+            && (now - _lastOpenDeckAt).TotalSeconds < 8) return;
+        _lastOpenDeckPath = filePath;
+        _lastOpenDeckAt = now;
+
+        try
+        {
+            DeckLauncher.Open(filePath, m => { try { _ledger?.Log(m); } catch { } });
+            _engine?.RequestJumpOnOpen(filePath, slide);
+            _card?.ShowStatus("正在打开课件…");
+        }
+        catch (Exception ex)
+        {
+            _ledger?.Log("open deck failed: " + ex.Message);
+            _card?.ShowStatus("打不开课件");
+        }
+    }
+
+    private void OnCardSwitchToSuiteRequested()
+    {
+        try { PptBridge.ForegroundSuiteWindow(); } catch { }
+    }
+
+    private void OnPanelJumpRequested(string filePath, int slide) => RequestJump(filePath, slide, true);
+
+    private void OpenPanelFolder(string folder)
+    {
+        if (string.IsNullOrWhiteSpace(folder))
+        {
+            _panel?.ShowStatus("没有可打开的文件夹");
+            return;
+        }
+        if (!Directory.Exists(folder))
+        {
+            _panel?.ShowStatus("找不到这个文件夹，可能已被移动：" + folder);
+            return;
+        }
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = folder,
+                UseShellExecute = true,
+            });
+        }
+        catch (Exception ex)
+        {
+            _panel?.ShowStatus("打不开文件夹：" + ex.Message);
+        }
+    }
+
+    // ── 设置 / 外观 ──────────────────────────────────────────────────────
+
+    private void LoadSettingsLocked()
+    {
+        try
+        {
+            if (File.Exists(SettingsPath))
+            {
+                var json = File.ReadAllText(SettingsPath);
+                var loaded = JsonSerializer.Deserialize<SyncSettings>(json);
+                if (loaded is not null) _settings = loaded;
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLog.Catch("ppt-resume", "读取课件续页设置", ex, LogLevel.Debug);
+        }
+
+        _settings.DataFolder = DataDir;
+        DeckLauncher.Preferred = _settings.DeckOpenApp;
+    }
+
+    /// <summary>启动本机 HTTP 接口；令牌首次使用时自动生成并落盘。</summary>
+    private void StartApiLocked()
+    {
+        if (!_settings.ApiEnabled || _api is not null) return;
+        if (string.IsNullOrWhiteSpace(_settings.ApiToken))
+        {
+            _settings.ApiToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+            SaveSettings();
+        }
+
+        var api = new SlideSyncApi(this, _settings.ApiPort, _settings.ApiToken);
+        if (api.Start()) _api = api;
+        else api.Dispose();
+    }
+
+    private void StopApiLocked()
+    {
+        var api = _api;
+        _api = null;
+        try { api?.Dispose(); } catch { }
+    }
+
+    private void OnAppThemeVariantChanged(object? sender, EventArgs e)
+    {
+        try
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                try
+                {
+                    lock (_gate)
+                    {
+                        if (!_loaded) return;
+                        RecomputeAppearanceLocked();
+                    }
+                    RaiseChanged();
+                }
+                catch (Exception ex)
+                {
+                    AppLog.Catch("ppt-resume", "跟随软件主题刷新卡片颜色", ex, LogLevel.Debug);
+                }
+            });
+        }
+        catch { }
+    }
+
+    private System.Threading.Timer? _saveTimer;
+
+    private void OnSettingsPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        // 滑块一拖就是几十次变更，攒 600 ms 写一次盘。
+        _saveTimer ??= new System.Threading.Timer(_ => SaveSettings(), null,
+            System.Threading.Timeout.Infinite, System.Threading.Timeout.Infinite);
+        try { _saveTimer.Change(600, System.Threading.Timeout.Infinite); } catch { }
+
+        if (e.PropertyName == nameof(SyncSettings.ApiEnabled)
+            || e.PropertyName == nameof(SyncSettings.ApiPort)
+            || e.PropertyName == nameof(SyncSettings.ApiToken))
+        {
+            lock (_gate)
+            {
+                if (_loaded)
+                {
+                    StopApiLocked();
+                    StartApiLocked();
+                }
+            }
+        }
+
+        Dispatcher.UIThread.Post(ApplySettingsToCard);
+    }
+
+    private void ApplySettingsToCard()
+    {
+        try
+        {
+            DeckLauncher.Preferred = _settings.DeckOpenApp;
+            RecomputeAppearanceLocked();
+            _card?.Configure(_appearance ?? new CardAppearance(),
+                _settings.AutoShowOverlay, _settings.AutoHide, _settings.AutoHideSeconds,
+                _settings.EnableControlPanel);
+            if (_engine is not null) _engine.Diag = _settings.DiagnosticLog;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Catch("ppt-resume", "应用课件续页设置", ex, LogLevel.Debug);
+        }
+    }
+
+    private void SaveSettings()
+    {
+        try
+        {
+            Directory.CreateDirectory(DataDir);
+            var json = JsonSerializer.Serialize(_settings, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(SettingsPath, json);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Catch("ppt-resume", "保存课件续页设置", ex, LogLevel.Debug);
+        }
+    }
+
+    /// <summary>重新算一遍「软件主题 ⊕ 用户自定义」。</summary>
+    public CardAppearance RecomputeAppearance()
+    {
+        EnsureStarted();
+        RecomputeAppearanceLocked();
+        return _appearance ?? new CardAppearance();
+    }
+
+    private void RecomputeAppearanceLocked()
+    {
+        _theme ??= AppTheme.Load(DataDir, null);
+        ProbeUiThemeLocked();
+        _appearance = CardAppearance.Resolve(_settings, _theme);
+        _card?.SetAppearance(_appearance);
+    }
+
+    /// <summary>强调色优先取 Avalonia 运行时的系统强调色（软件主题色）。</summary>
+    private void ProbeUiThemeLocked()
+    {
+        if (_theme is null) return;
+        try
+        {
+            if (TryBrush("AccentFillColorDefaultBrush", out var c)
+                || TryBrush("SystemAccentColor", out c)
+                || TryBrush("SystemAccentColorDark1", out c))
+            {
+                _theme.AccentR = c.R;
+                _theme.AccentG = c.G;
+                _theme.AccentB = c.B;
+                _theme.AccentFromUi = true;
+                _theme.AccentNote = "avalonia:accent";
+            }
+            else
+            {
+                _theme.AccentFromUi = false;
+                _theme.AccentNote = "default";
+            }
+
+            // 工具浮窗 / 文件搜索窗用的就是这把画刷；卡片底色跟着它，
+            // 换主题时 ActualThemeVariantChanged 会再探一次。
+            if (TryBrush("ApplicationPageBackgroundThemeBrush", out var bg))
+            {
+                _theme.BgR = bg.R;
+                _theme.BgG = bg.G;
+                _theme.BgB = bg.B;
+                _theme.BackgroundHex = string.Format("#{0:X2}{1:X2}{2:X2}", bg.R, bg.G, bg.B);
+            }
+        }
+        catch
+        {
+            _theme.AccentFromUi = false;
+        }
+    }
+
+    private static bool TryBrush(string key, out Avalonia.Media.Color color)
+    {
+        color = default;
+        try
+        {
+            var app = Avalonia.Application.Current;
+            if (app is null) return false;
+            if (!app.TryFindResource(key, out var value) || value is null) return false;
+            if (value is Avalonia.Media.SolidColorBrush brush)
+            {
+                color = brush.Color;
+                return true;
+            }
+            if (value is Avalonia.Media.Color direct)
+            {
+                color = direct;
+                return true;
+            }
+        }
+        catch { }
+        return false;
+    }
+
+    // ── 引擎事件 ─────────────────────────────────────────────────────────
+
+    private void OnEngineState(CardState state)
+    {
+        try
+        {
+            var now = DateTime.Now;
+            var playing = state.Showing;
+            var file = "";
+            var slide = state.Current;
+            var total = state.SlideCount;
+
+            if (playing)
+            {
+                file = _engine?.LastFilePath ?? "";
+                if (file.Length == 0) file = _live.File;
+            }
+
+            var subject = "";
+            if (file.Length > 0) subject = ResolveSubject(file, now);
+
+            var status = DescribeState(state, playing);
+            if (state.BlockedNotice.Length > 0) status = state.BlockedNotice;
+
+            lock (_gate)
+            {
+                _live = new PptLiveState
+                {
+                    Playing = playing,
+                    File = playing ? file : "",
+                    Slide = playing ? slide : 0,
+                    Total = playing ? total : 0,
+                    Subject = playing ? subject : "",
+                    Status = status,
+                };
+                _liveAt = now;
+
+                if (state.Status.Length > 0 && state.Status != _lastMessage)
+                {
+                    _lastMessage = state.Status;
+                    _messageAt = now;
+                }
+
+                if (playing && file.Length > 0 && slide > 0)
+                    SaveProgressLocked(file, subject, slide, total);
+            }
+
+            _lastState = state;
+
+            if (_panelJumpAt != DateTime.MinValue)
+            {
+                if ((DateTime.UtcNow - _panelJumpAt).TotalSeconds > 20)
+                {
+                    _panelJumpAt = DateTime.MinValue;
+                }
+                else if (!string.IsNullOrEmpty(state.Status) && state.Status != "正在跳转…")
+                {
+                    _panelJumpAt = DateTime.MinValue;
+                    _panel?.ShowStatus(state.Status);
+                }
+            }
+
+            if (state.Status != _lastStatus)
+            {
+                _lastStatus = state.Status;
+                _card?.ShowStatus(state.Status);
+            }
+            _card?.Apply(state);
+
+            RaiseChanged();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Catch("ppt-resume", "处理续播引擎状态", ex, LogLevel.Debug);
+        }
+    }
+
+    private string DescribeState(CardState state, bool playing)
+    {
+        if (playing) return "正在放映。";
+        if (state.DeckOpen) return "课件已打开，当前没有在放映。";
+
+        try
+        {
+            if (PptBridge.SuiteIsRunning())
+            {
+                var name = PptBridge.SuiteName();
+                return (name.Length > 0 ? name : "演示软件") + "已打开，当前没有在放映。";
+            }
+        }
+        catch { }
+
+        return "尚未检测到正在放映的课件。";
     }
 
     /// <summary>
@@ -470,7 +1090,7 @@ public sealed class PptResumeService
     {
         if (_timetable is null || file.Length == 0) return "";
 
-        var name = Path.GetFileNameWithoutExtension(file);
+        var name = Path.GetFileNameWithoutExtension(SeewoBridge.DisplayName(file));
         if (name.Length == 0) return "";
 
         var best = "";
@@ -495,168 +1115,29 @@ public sealed class PptResumeService
         PptResumeStore.Save(_data);
     }
 
-    private void SaveProgress(string file, string subject, int slide, int total)
+    private void SaveProgressLocked(string file, string subject, int slide, int total)
     {
         if (subject.Length == 0 || file.Length == 0) return;
 
-        var changed = false;
-        lock (_gate)
+        if (!_data.Subjects.TryGetValue(subject, out var record))
         {
-            if (!_data.Subjects.TryGetValue(subject, out var record))
-            {
-                record = new PptRecord();
-                _data.Subjects[subject] = record;
-            }
-
-            if (record.File == file && record.Slide == slide && record.Total == total)
-                return;
-
-            record.File = file;
-            record.Slide = slide;
-            record.Total = total;
-            record.SavedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-            _data.FileSubjects[file] = subject;
-            PptResumeStore.Save(_data);
-            changed = true;
+            record = new PptRecord();
+            _data.Subjects[subject] = record;
         }
 
-        if (changed) RaiseChanged();
-    }
-
-    private void DoResume(string subject)
-    {
-        subject = (subject ?? "").Trim();
-
-        PptRecord? record;
-        lock (_gate)
-        {
-            _data.Subjects.TryGetValue(subject, out record);
-        }
-
-        if (record is null || record.File.Length == 0)
-        {
-            SetMessage("「" + subject + "」还没有课件记录：先在「PPT 续播」页里选择这个科目的课件。");
+        if (string.Equals(record.File, file, StringComparison.OrdinalIgnoreCase)
+            && record.Slide == slide && record.Total == total)
             return;
-        }
 
-        if (!File.Exists(record.File))
-        {
-            SetMessage("课件文件找不到了：" + record.File + "（可能被移动或重命名）");
-            return;
-        }
-
-        var app = _ppt ??= OfficeCom.TryGetRunning() ?? OfficeCom.Start();
-        if (app is null)
-        {
-            SetMessage("没有找到 PowerPoint 或 WPS 演示，无法续播。请先安装其中之一。");
-            return;
-        }
-
-        try
-        {
-            dynamic office = app;
-            try { office.Visible = -1; } catch { }   // msoTrue；WPS 也认
-
-            dynamic? presentation = FindPresentation(office, record.File);
-            if (presentation is null)
-            {
-                try
-                {
-                    presentation = office.Presentations.Open(record.File, -1, 0, -1);
-                }
-                catch
-                {
-                    presentation = office.Presentations.Open(record.File);
-                }
-            }
-
-            var total = 0;
-            try { total = Convert.ToInt32(presentation.Slides.Count); } catch { }
-
-            var slide = Math.Max(1, record.Slide);
-            if (total > 0) slide = Math.Min(slide, total);
-
-            // 已经在放映同一份课件：直接跳回那一页，不再 Run 一次
-            dynamic? showing = null;
-            try
-            {
-                if (Convert.ToInt32(office.SlideShowWindows.Count) > 0)
-                    showing = office.SlideShowWindows[1];
-            }
-            catch { }
-
-            if (showing is not null)
-            {
-                var showingFile = "";
-                try { showingFile = Convert.ToString(showing.Presentation.FullName) ?? ""; } catch { }
-
-                if (string.Equals(showingFile, record.File, StringComparison.OrdinalIgnoreCase))
-                {
-                    showing.View.GotoSlide(slide);
-                    try { showing.Activate(); } catch { }
-                    SetMessage("「" + subject + "」已跳回第 " + slide + " 页。");
-                    Poll();
-                    return;
-                }
-            }
-
-            dynamic settings = presentation.SlideShowSettings;
-            settings.StartingSlide = slide;
-            settings.Run();
-
-            SetMessage("「" + subject + "」从第 " + slide + " 页开始放映。");
-            _commands.Add(() => { Thread.Sleep(600); Poll(); });
-        }
-        catch (Exception ex)
-        {
-            AppLog.Exception("ppt-resume", ex, $"续播｜科目={subject}");
-            SetMessage("续播失败：" + ex.Message);
-            ReleaseApp();
-        }
-    }
-
-    private static dynamic? FindPresentation(dynamic office, string file)
-    {
-        dynamic presentations = office.Presentations;
-        var count = Convert.ToInt32(presentations.Count);
-
-        for (var i = 1; i <= count; i++)
-        {
-            dynamic presentation = presentations[i];
-            var fullName = "";
-            try { fullName = Convert.ToString(presentation.FullName) ?? ""; } catch { }
-
-            if (string.Equals(fullName, file, StringComparison.OrdinalIgnoreCase))
-                return presentation;
-        }
-
-        return null;
+        record.File = file;
+        record.Slide = slide;
+        record.Total = total;
+        record.SavedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+        _data.FileSubjects[file] = subject;
+        PptResumeStore.Save(_data);
     }
 
     // ── 状态 / 通知 ──────────────────────────────────────────────────────
-
-    private void SetLive(bool playing, string status, string file, int slide, int total, string subject)
-    {
-        lock (_gate)
-        {
-            if (_live.Playing == playing && _live.Status == status && _live.File == file
-                && _live.Slide == slide && _live.Total == total && _live.Subject == subject)
-                return;
-
-            _live = new PptLiveState
-            {
-                Playing = playing,
-                Status = status,
-                File = file,
-                Slide = slide,
-                Total = total,
-                Subject = subject,
-            };
-            _liveAt = DateTime.Now;
-        }
-
-        RaiseChanged();
-    }
 
     private void SetMessageLocked(string message)
     {
@@ -668,13 +1149,6 @@ public sealed class PptResumeService
     {
         lock (_gate) SetMessageLocked(message);
         RaiseChanged();
-    }
-
-    private void ReleaseApp()
-    {
-        var app = _ppt;
-        _ppt = null;
-        OfficeCom.Release(app);
     }
 
     private void RaiseChanged()
@@ -694,5 +1168,27 @@ public sealed class PptResumeService
         if (_timetable is null) return false;
         return _timetable.Subjects.Any(s =>
             string.Equals((s.Name ?? "").Trim(), subject, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string DisplayNameOf(string file)
+    {
+        return SeewoBridge.IsSeewoKey(file)
+            ? SeewoBridge.DisplayName(file)
+            : Path.GetFileName(file);
+    }
+
+    private LessonTag ReadLessonTag()
+    {
+        var tag = new LessonTag();
+        var now = DateTime.Now;
+        tag.Weekday = ((int)now.DayOfWeek + 6) % 7 + 1;
+
+        lock (_gate)
+        {
+            var lesson = CsesSchedule.FindLesson(_timetable, _data.SemesterStart, now);
+            if (lesson is not null) tag.Subject = lesson.Subject;
+        }
+
+        return tag;
     }
 }

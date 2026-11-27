@@ -121,8 +121,8 @@ public static class SidebarModules
         // Kind 仍走 Window（独立窗口）；ToolSidebarWindow 按 WindowTool 分派到 FileSearchWindow。
         new() { Id = "file-search", Name = "文件快搜", ShortName = "找文件", Glyph = "\uE721", Kind = SidebarModuleKinds.Window, WindowTool = "file-search", Note = "在独立浮窗中搜索本机文件与文件夹，不必打开主界面" },
 
-        // PPT 续播：独立浮窗，上课时点一下就从上次那一页继续放映。
-        new() { Id = "ppt-resume", Name = "PPT 续播", ShortName = "续播", Glyph = "\uE714", Kind = SidebarModuleKinds.Window, WindowTool = "ppt-resume", Note = "在独立浮窗中按科目续播课件：从上次停下的那一页继续放映" },
+        // 课件续页：独立控制面板，课件库、设置、课表都在里面。
+        new() { Id = "ppt-resume", Name = "课件续页", ShortName = "续页", Glyph = "\uE714", Kind = SidebarModuleKinds.Window, WindowTool = "ppt-resume", Note = "打开课件续页控制面板：课件库、设置、课表都在里面" },
 
         // ── 学科工具（自上游移植）──
         // 函数图像 / 方程求解 / 化学配平**各占一项**，点哪项就直接开那件工具，单开一扇窗、**不拉主界面**。

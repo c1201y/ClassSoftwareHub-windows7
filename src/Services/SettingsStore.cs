@@ -86,9 +86,6 @@ public sealed class AppSettings
     /// <summary>「文件快搜」浮窗是否始终置顶，默认开。</summary>
     public bool FileSearchOnTop { get; set; } = true;
 
-    /// <summary>「PPT 续播」浮窗是否始终置顶，默认开。</summary>
-    public bool PptResumeOnTop { get; set; } = true;
-
     /// <summary>工具浮窗是否始终置顶，默认开。</summary>
     public bool PaletteOnTop { get; set; } = true;
 

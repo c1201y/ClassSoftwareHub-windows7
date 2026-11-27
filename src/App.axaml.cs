@@ -780,7 +780,7 @@ public partial class App : Application
             Core.AppLog.Exception("file-search", ex, "启动文件索引");
         }
 
-        // PPT 续播（2026-10-31）：后台 STA 线程每隔两秒问一下正在放映的 PPT 停在第几页，
+        // 课件续页（2026-10-31）：后台 STA 线程每隔两秒问一下正在放映的 PPT 停在第几页，
         // 按科目记下来。没有 PPT 在跑时只是一句进程检查，开销可以忽略。
         try
         {
@@ -788,7 +788,7 @@ public partial class App : Application
         }
         catch (Exception ex)
         {
-            Core.AppLog.Exception("ppt-resume", ex, "启动 PPT 续播服务");
+            Core.AppLog.Exception("ppt-resume", ex, "启动课件续页服务");
         }
 
         // 在线心跳：与喊话开关无关。后台要知道「这台机器开着客户端」，而喊话出厂默认关，

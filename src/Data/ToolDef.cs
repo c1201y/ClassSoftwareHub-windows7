@@ -271,12 +271,12 @@ public static class ToolCatalog
             // E80A = 九宫格（像元素周期表）。只用 E7/E8/E9 老码位，ED 段在 Win10 是空框
             Glyph = "\uE80A", Page = typeof(ClassSoftwareHub.Desktop.Pages.Tools.ChemistryPage)
         },
-        // PPT 续播：导入 CSES 课表后，按科目记住每份课件停在第几页，
+        // 课件续页：导入 CSES 课表后，按科目记住每份课件停在第几页，
         // 下次上这门课时在浮窗里一键从那一页继续放映（PowerPoint / WPS 都认）。
         new ToolDef
         {
-            Id = "ppt-resume", Name = "PPT 续播",
-            Desc = "导入 CSES 课表，按科目记住课件停在哪一页；换了别的科目上课后，回来一键从上次那一页继续放映。",
+            Id = "ppt-resume", Name = "课件续页",
+            Desc = "记录每份课件讲到第几页，下次打开时接着上次那一页放映；导入 CSES 课表后还能认出当前科目。",
             // E714 = 播放画面（CshSymbols 里已映射；别用 E768，字体没映射会落到无关字形）
             Glyph = "\uE714", Page = typeof(PptResumePage)
         },
