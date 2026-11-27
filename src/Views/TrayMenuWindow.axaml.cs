@@ -76,6 +76,9 @@ public sealed partial class TrayMenuWindow : Window
         KeyDown += OnKeyDown;
     }
 
+    /// <summary>收起当前托盘菜单（如果开着）；侧边栏「隐藏」时调用。</summary>
+    public static void DismissOpen() => _open?.Dismiss();
+
     /// <summary>
     /// 在鼠标位置弹出菜单。**返回 false 表示没能弹出来**（或抢不到前台），调用方应该退回原生菜单。
     /// 必须在 UI 线程调用。

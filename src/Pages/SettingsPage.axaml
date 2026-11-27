@@ -1,4 +1,4 @@
-<platform:PageBase
+﻿<platform:PageBase
     x:Class="ClassSoftwareHub.Desktop.Pages.SettingsPage"
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -216,8 +216,95 @@
                             <ComboBoxItem Content="亚克力（半透明）" Tag="acrylic" />
                             <ComboBoxItem Content="云母（更接近系统窗口）" Tag="mica" />
                             <ComboBoxItem Content="纯色（最省性能）" Tag="solid" />
+                            <ComboBoxItem Content="自定义图片（顶替亚克力）" Tag="image" />
                         </ComboBox>
                     </views:SettingsCard>
+
+                    <!-- ===== 自定义背景图（只有 Backdrop = image 时显示） ===== -->
+                    <StackPanel x:Name="BackdropImagePanel" Spacing="4" IsVisible="False">
+                        <views:SettingsCard Header="背景图片"
+                                               Description="选一张图铺在窗口最底层，替掉亚克力。浅色/深色可以各用一张。">
+                            <views:SettingsCard.HeaderIcon>
+                                <fa:FontIcon Glyph="&#xEB9F;" />
+                            </views:SettingsCard.HeaderIcon>
+                            <StackPanel Spacing="8">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button x:Name="PickBackdropImageButton" Content="选择图片…"
+                                            Click="PickBackdropImage_Click" MinWidth="120" />
+                                    <Button x:Name="ClearBackdropImageButton" Content="清除"
+                                            Click="ClearBackdropImage_Click" />
+                                </StackPanel>
+                                <TextBlock x:Name="BackdropImagePathText" FontSize="12" Opacity="0.7"
+                                           TextWrapping="Wrap" Text="还没有选图片" />
+                                <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,4,0,0">
+                                    <ToggleSwitch x:Name="BackdropImagePairSwitch" OnContent="深浅各一张"
+                                                  OffContent="深浅各一张" MinWidth="0"
+                                                  IsCheckedChanged="BackdropImagePair_Toggled" />
+                                    <Button x:Name="PickBackdropImageDarkButton" Content="选择深色图片…"
+                                            Click="PickBackdropImageDark_Click" MinWidth="140" IsEnabled="False" />
+                                </StackPanel>
+                                <TextBlock x:Name="BackdropImageDarkText" FontSize="12" Opacity="0.7"
+                                           TextWrapping="Wrap" Text="深色图片未选" />
+                            </StackPanel>
+                        </views:SettingsCard>
+
+                        <views:SettingsCard Header="模糊强度"
+                                               Description="数字越大越糊。推荐 16：既看得出图，又不抢内容。">
+                            <views:SettingsCard.HeaderIcon>
+                                <fa:FontIcon Glyph="&#xE8A9;" />
+                            </views:SettingsCard.HeaderIcon>
+                            <StackPanel Spacing="6">
+                                <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                    <Slider x:Name="BackdropBlurSlider" MinWidth="180" Minimum="0" Maximum="30"
+                                            ValueChanged="BackdropBlur_Changed" />
+                                    <TextBlock x:Name="BackdropBlurText" MinWidth="46" VerticalAlignment="Center"
+                                               FontSize="12.5" Opacity="0.75" />
+                                    <Button x:Name="BackdropBlurRecommend" Content="推荐 16"
+                                            Click="BackdropBlurRecommend_Click" FontSize="12" Padding="8,3" />
+                                </StackPanel>
+                            </StackPanel>
+                        </views:SettingsCard>
+
+                        <views:SettingsCard Header="暗化"
+                                               Description="把图压暗一层保证文字对比度。推荐 25%。">
+                            <views:SettingsCard.HeaderIcon>
+                                <fa:FontIcon Glyph="&#xE706;" />
+                            </views:SettingsCard.HeaderIcon>
+                            <StackPanel Spacing="6">
+                                <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                    <Slider x:Name="BackdropDimSlider" MinWidth="180" Minimum="0" Maximum="0.8"
+                                            ValueChanged="BackdropDim_Changed" />
+                                    <TextBlock x:Name="BackdropDimText" MinWidth="46" VerticalAlignment="Center"
+                                               FontSize="12.5" Opacity="0.75" />
+                                    <Button x:Name="BackdropDimRecommend" Content="推荐 25%"
+                                            Click="BackdropDimRecommend_Click" FontSize="12" Padding="8,3" />
+                                </StackPanel>
+                            </StackPanel>
+                        </views:SettingsCard>
+
+                        <views:SettingsCard Header="铺法"
+                                               Description="铺满＝保持比例裁边填满（默认）；适应＝整张都看得见；平铺＝重复。">
+                            <views:SettingsCard.HeaderIcon>
+                                <fa:FontIcon Glyph="&#xE7C2;" />
+                            </views:SettingsCard.HeaderIcon>
+                            <ComboBox x:Name="BackdropStretchCombo" MinWidth="150"
+                                      SelectionChanged="BackdropStretch_Changed">
+                                <ComboBoxItem Content="铺满（裁边）" Tag="cover" />
+                                <ComboBoxItem Content="适应（整张可见）" Tag="contain" />
+                                <ComboBoxItem Content="拉伸填充" Tag="fill" />
+                                <ComboBoxItem Content="平铺" Tag="tile" />
+                            </ComboBox>
+                        </views:SettingsCard>
+
+                        <views:SettingsCard Header="浮窗也跟随"
+                                               Description="常用工具、文件快搜、查阅单词等浮窗也用同一张图；侧边栏细条不参与。">
+                            <views:SettingsCard.HeaderIcon>
+                                <fa:FontIcon Glyph="&#xE8A0;" />
+                            </views:SettingsCard.HeaderIcon>
+                            <ToggleSwitch x:Name="BackdropImageFloatingSwitch" OnContent="开" OffContent="关"
+                                          MinWidth="0" IsCheckedChanged="BackdropImageFloating_Toggled" />
+                        </views:SettingsCard>
+                    </StackPanel>
 
                 </StackPanel>
 

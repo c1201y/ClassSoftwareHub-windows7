@@ -74,7 +74,7 @@ namespace ClassSoftwareHub.Desktop.SlideSync
         // 2026-10-24 控制面板：卡片右上角的齿轮（独立 Avalonia 窗口的入口）默认开。
         bool enableControlPanel = true;
         // 2026-10-24：控制面板不要亚克力，默认纯白；颜色可改（#AARRGGBB）。
-        string panelBackgroundColor = "#FFFFFFFF";
+        string panelBackgroundColor = "#B3FFFFFF";   // 半透明白：和 CSH 其它页一样坐在窗口材质/背景图上，不要再糊一整块实白
         // 2026-10-24 功能4：下课那一刻（且课件已经关掉）弹一条 Windows 通知，说说这一节记到哪了。
         bool classEndNotification = true;
         /// <summary>功能7（2026-10-25）：课前 2 分钟亮预备态。老师不需要就直接关掉。</summary>
@@ -449,16 +449,21 @@ namespace ClassSoftwareHub.Desktop.SlideSync
             set { Set(ref showPillPageNumbers, value); }
         }
 
-        /// <summary>控制面板的底色，默认不透明白（#AARRGGBB）。</summary>
+        /// <summary>控制面板的底色（#AARRGGBB）。默认半透明白，跟 CSH 其它页一样坐在窗口材质/背景图上。</summary>
         public string PanelBackgroundColor
         {
             get { return panelBackgroundColor; }
             set
             {
                 string v = (value ?? "").Trim();
-                if (v.Length == 0) v = "#FFFFFFFF";
+                if (v.Length == 0) v = "#B3FFFFFF";
                 if (v[0] != '#') v = "#" + v;
-                Set(ref panelBackgroundColor, v.ToUpperInvariant());
+                var normalized = v.ToUpperInvariant();
+                // 一次性迁移（2026-11-27）：老默认是纯实白 #FFFFFFFF，它会把窗口材质/自定义背景图
+                // 整块盖住 —— 用户反馈「CSS 这个面板和别处不一样」就是这一条。只在值仍是老默认时搬一次，
+                // 用户自己挑过的颜色一律不动。
+                if (normalized == "#FFFFFFFF") normalized = "#B3FFFFFF";
+                Set(ref panelBackgroundColor, normalized);
             }
         }
 

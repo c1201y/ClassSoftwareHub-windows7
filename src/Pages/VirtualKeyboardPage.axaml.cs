@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Interactivity;
@@ -52,6 +52,7 @@ public sealed partial class VirtualKeyboardPage : PageBase
         ScaleSlider.Value = Math.Clamp(settings.VirtualKeyboardScale, ScaleSlider.Minimum, ScaleSlider.Maximum);
         WidthSlider.Value = Math.Clamp(settings.VirtualKeyboardWidthRatio, WidthSlider.Minimum, WidthSlider.Maximum);
         FontSlider.Value = Math.Clamp(settings.VirtualKeyboardFontScale, FontSlider.Minimum, FontSlider.Maximum);
+        OpacitySlider.Value = Math.Clamp(settings.VirtualKeyboardOpacity, OpacitySlider.Minimum, OpacitySlider.Maximum);
 
         PlacementCombo.SelectedIndex = settings.VirtualKeyboardFloating ? 1 : 0;
 
@@ -70,6 +71,7 @@ public sealed partial class VirtualKeyboardPage : PageBase
         ScaleText.Text = $"{Math.Round(ScaleSlider.Value * 100)}%";
         WidthText.Text = $"{Math.Round(WidthSlider.Value * 100)}%";
         FontText.Text = $"{Math.Round(FontSlider.Value * 100)}%";
+        OpacityText.Text = $"{Math.Round(OpacitySlider.Value * 100)}%";
     }
 
     // ── 读写设置 ────────────────────────────────────────────
@@ -173,6 +175,16 @@ public sealed partial class VirtualKeyboardPage : PageBase
         VirtualKeyboardWindow.RefreshLook();
     }
 
+    private void Opacity_Changed(object? sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_loading) return;
+
+        var v = Math.Clamp(e.NewValue, 0.2, 1.0);
+        App.Settings.Current.VirtualKeyboardOpacity = v;
+        DebouncedSave();
+        RefreshLabels();
+        VirtualKeyboardWindow.RefreshLook();      // 面板底色带 alpha，立刻重画一次就能看出效果
+    }
     private void Font_Changed(object? sender, RangeBaseValueChangedEventArgs e)
     {
         if (_loading) return;

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -7,7 +7,7 @@ using System.Text.Json;
 namespace ClassSoftwareHub.Desktop.Services;
 
 /// <summary>
-/// 侧边栏展开面板**底部那五个按钮**的稳定 key（数组顺序 = 显示顺序，跟侧边栏上排的先后一致）。
+/// 侧边栏展开面板**底部那六个按钮**的稳定 key（数组顺序 = 显示顺序，跟侧边栏上排的先后一致）。
 /// ⚠️ 这是**存档格式**的一部分（<see cref="AppSettings.SidebarFooterHidden"/> 按它记账）——
 ///    改名 / 换字面量等于让所有用户已经拨好的开关状态全部失效，别动。
 /// </summary>
@@ -26,6 +26,23 @@ public static class SidebarFooterKeys
 public sealed class AppSettings
 {
     public string Backdrop { get; set; } = "acrylic";          // acrylic | mica | solid
+    // ── 自定义背景图（Backdrop = "image" 时生效）──────────────────────────
+    // 图片顶替亚克力：窗口自己把图画在底层，可选模糊 + 暗化保证前景可读。
+    // 详见 Platform/BackdropImage.cs。
+    /// <summary>浅色主题（或不分深浅时唯一）那张图的完整路径。</summary>
+    public string BackdropImage { get; set; } = "";
+    /// <summary>深色主题那张图；只有 <see cref="BackdropImageThemePair"/> 打开时才用。</summary>
+    public string BackdropImageDark { get; set; } = "";
+    /// <summary>深浅色各用一张图。</summary>
+    public bool BackdropImageThemePair { get; set; }
+    /// <summary>模糊强度 0~30（推荐 16，见 <see cref="Platform.BackdropImage.RecommendedBlur"/>）。</summary>
+    public double BackdropImageBlur { get; set; } = 16;
+    /// <summary>暗化比例 0~0.8（推荐 0.25）：把图压暗一层，保证文字对比度。</summary>
+    public double BackdropImageDim { get; set; } = 0.25;
+    /// <summary>铺法：cover（铺满裁边，默认）/ contain（整张可见）/ fill（拉伸）/ tile（平铺）。</summary>
+    public string BackdropImageStretch { get; set; } = "cover";
+    /// <summary>浮窗（常用工具、文件快搜、查阅单词、侧边栏…）也跟着用这张图。</summary>
+    public bool BackdropImageOnFloating { get; set; }
     public string Theme { get; set; } = "system";              // system | light | dark
     /// <summary>分体：外部组件（侧边栏 / 常用工具浮窗 / 截图编辑窗）用**单独**的外观设置。</summary>
     public bool SplitTheme { get; set; }
@@ -109,6 +126,9 @@ public sealed class AppSettings
 
     /// <summary>屏幕右边那条工具侧边栏要不要显示（默认开：全屏播放时也能点到工具）。</summary>
     public bool SidebarEnabled { get; set; } = true;
+
+    /// <summary>悬浮窗置顶策略：startup = 仅启动时置顶；change = 层级变化时恢复（默认）；fast = 每 50ms 置顶。</summary>
+    public string SidebarTopMostMode { get; set; } = "change";
 
     /// <summary>
     /// **贴靠模式**下侧边栏贴哪条边：<c>left</c> | <c>right</c>，外加 <c>both</c>
@@ -249,8 +269,8 @@ public sealed class AppSettings
     public int SidebarGridCellSize { get; set; } = 60;
 
     /// <summary>
-    /// ⚠️ **已弃用**（已从"一个总开关"改成"五颗各自一个开关"）：
-    /// 老存档里 <c>false</c> = 五颗全隐藏。现在只用来做**一次性迁移**
+    /// ⚠️ **已弃用**（已从"一个总开关"改成"逐颗一个开关"）：
+    /// 老存档里 <c>false</c> = 底排全部隐藏。现在只用来做**一次性迁移**
     /// （见 <c>SettingsStore.MigrateSidebarFooter</c>，迁完就把它拨回 true 当"已迁"标记）。
     /// 留给老存档是为了不让用户"我明明全关了"这个状态在升级后丢掉。
     /// </summary>
@@ -305,6 +325,11 @@ public sealed class AppSettings
 
     /// <summary>键盘宽度占工作区的比例（0.35 ~ 1.0）。</summary>
     public double VirtualKeyboardWidthRatio { get; set; } = 1.0;
+    /// <summary>
+    /// 虚拟键盘面板的透明度：1 = 不透明，越小越透（0.2 起，再低就看不清键帽了）。
+    /// 只有面板底色跟着变，键帽保持系统实色 —— 整块都透会把字糊掉。
+    /// </summary>
+    public double VirtualKeyboardOpacity { get; set; } = 0.92;
 
     /// <summary>键帽文字缩放（0.8 ~ 1.3）。</summary>
     public double VirtualKeyboardFontScale { get; set; } = 1.0;
@@ -766,14 +791,14 @@ public sealed class SettingsStore
 
     /// <summary>
     /// 一次性迁移：老存档只有一个总开关（<see cref="AppSettings.SidebarFooterEnabled"/>），
-    /// <c>false</c> = 底排五颗全隐藏。改成"五颗各自一个开关"后，把这个状态搬进
+    /// <c>false</c> = 底排五颗全隐藏。改成"逐颗一个开关"后，把这个状态搬进
     /// <see cref="AppSettings.SidebarFooterHidden"/>。
     /// ⚠️ 迁完把总开关拨回 <c>true</c> 当"已迁"标记 —— 否则每次启动都会重迁一遍，
     ///    把用户后来打开的那几颗又按回去。
     /// </summary>
     private void MigrateSidebarFooter()
     {
-        if (Current.SidebarFooterEnabled) return;      // 开着 = 五颗全显示 = 新默认值，无事可做
+        if (Current.SidebarFooterEnabled) return;      // 开着 = 全显示 = 新默认值，无事可做
 
         var hidden = (Current.SidebarFooterHidden ?? Array.Empty<string>()).ToList();
         foreach (var key in SidebarFooterKeys.All)

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -121,8 +121,10 @@ public sealed partial class SettingsPage : PageBase
         {
             "mica" => 1,
             "solid" => 2,
+            "image" => 3,
             _ => 0
         };
+        SyncBackdropImagePanel(s);
 
         // Win7 / Win10 1803 以前都没有系统材质可上，实际效果是壁纸模糊（磨砂），说明写清楚免得误解。
         // 系统「透明效果」被关掉时同理：DWM 接受背板却一笔都不画，窗口只会透出清晰壁纸 ——
@@ -399,6 +401,12 @@ public sealed partial class SettingsPage : PageBase
         if (BackdropCombo.SelectedItem is not ComboBoxItem item || item.Tag is not string kind) return;
         App.Settings.Current.Backdrop = kind;
         App.Settings.Save();
+        SyncBackdropImagePanel(App.Settings.Current);
+
+        // 离开图片模式时清掉位图缓存（图可能已被用户替换）
+        if (!string.Equals(kind, "image", StringComparison.OrdinalIgnoreCase))
+            Platform.BackdropImage.Invalidate();
+
         App.MainWindow?.SetBackdrop(kind);
     }
 
@@ -1685,4 +1693,158 @@ public sealed partial class SettingsPage : PageBase
             Core.AppLog.Fail("settings", ex, "调整导航栏项目");
         }
     }
+
+    // ── 自定义背景图（Backdrop = image）────────────────────────────────
+
+    /// <summary>把设置刷进"自定义图片"那一组控件；顺带按当前模式显隐整组。</summary>
+    private void SyncBackdropImagePanel(ClassSoftwareHub.Desktop.Services.AppSettings s)
+    {
+        if (BackdropImagePanel is null) return;
+
+        var imageMode = string.Equals(s.Backdrop, "image", StringComparison.OrdinalIgnoreCase);
+        BackdropImagePanel.IsVisible = imageMode;
+        if (!imageMode) return;
+
+        _loading = true;
+        try
+        {
+            BackdropBlurSlider.Value = Math.Clamp(s.BackdropImageBlur, BackdropBlurSlider.Minimum, BackdropBlurSlider.Maximum);
+            BackdropDimSlider.Value = Math.Clamp(s.BackdropImageDim, BackdropDimSlider.Minimum, BackdropDimSlider.Maximum);
+            BackdropImagePairSwitch.IsChecked = s.BackdropImageThemePair;
+            BackdropImageFloatingSwitch.IsChecked = s.BackdropImageOnFloating;
+            PickBackdropImageDarkButton.IsEnabled = s.BackdropImageThemePair;
+
+            BackdropStretchCombo.SelectedIndex = (s.BackdropImageStretch ?? "cover").ToLowerInvariant() switch
+            {
+                "contain" => 1,
+                "fill" => 2,
+                "tile" => 3,
+                _ => 0,
+            };
+
+            BackdropImagePathText.Text = string.IsNullOrWhiteSpace(s.BackdropImage)
+                ? "还没有选图片"
+                : s.BackdropImage + (File.Exists(s.BackdropImage) ? "" : "（文件不存在）");
+            BackdropImageDarkText.Text = string.IsNullOrWhiteSpace(s.BackdropImageDark)
+                ? "深色图片未选"
+                : s.BackdropImageDark + (File.Exists(s.BackdropImageDark) ? "" : "（文件不存在）");
+        }
+        finally { _loading = false; }
+
+        // 推荐值直接标在按钮上：点一下回到推荐值（用户要的"推荐值留个标记"）
+        BackdropBlurRecommend.Content = $"推荐 {Platform.BackdropImage.RecommendedBlur:0}";
+        BackdropDimRecommend.Content = $"推荐 {Math.Round(Platform.BackdropImage.RecommendedDim * 100)}%";
+        RefreshBackdropImageLabels();
+    }
+
+    private void RefreshBackdropImageLabels()
+    {
+        BackdropBlurText.Text = $"{BackdropBlurSlider.Value:0}";
+        BackdropDimText.Text = $"{Math.Round(BackdropDimSlider.Value * 100)}%";
+    }
+
+    /// <summary>改完图/参数：清缓存 + 让主界面重画一次。</summary>
+    private void ReapplyBackdropImage()
+    {
+        Platform.BackdropImage.Invalidate();
+        if (string.Equals(App.Settings.Current.Backdrop, "image", StringComparison.OrdinalIgnoreCase))
+            App.MainWindow?.SetBackdrop("image");
+    }
+
+    private async void PickBackdropImage_Click(object? sender, RoutedEventArgs e) => await PickBackdropImageAsync(dark: false);
+    private async void PickBackdropImageDark_Click(object? sender, RoutedEventArgs e) => await PickBackdropImageAsync(dark: true);
+
+    private async Task PickBackdropImageAsync(bool dark)
+    {
+        try
+        {
+            var top = TopLevel.GetTopLevel(this);
+            if (top is null) return;
+
+            var filters = new List<FilePickerFileType>
+            {
+                new("图片") { Patterns = new[] { "*.jpg", "*.jpeg", "*.png", "*.webp", "*.bmp" } },
+                new("所有文件") { Patterns = new[] { "*" } },
+            };
+
+            var result = await Platform.FilePickerCompat.PickFilesAsync(top, dark ? "选择深色主题背景图" : "选择背景图", false, filters);
+            if (result.Files.Count == 0)
+            {
+                if (!string.IsNullOrEmpty(result.Error)) Core.AppLog.Warn("appearance", "选背景图失败：" + result.Error);
+                return;
+            }
+
+            if (dark) App.Settings.Current.BackdropImageDark = result.Files[0];
+            else App.Settings.Current.BackdropImage = result.Files[0];
+
+            App.Settings.Save();
+            SyncBackdropImagePanel(App.Settings.Current);
+            ReapplyBackdropImage();
+        }
+        catch (Exception ex)
+        {
+            Core.AppLog.Catch("appearance", "选择背景图", ex);
+        }
+    }
+
+    private void ClearBackdropImage_Click(object? sender, RoutedEventArgs e)
+    {
+        App.Settings.Current.BackdropImage = "";
+        App.Settings.Current.BackdropImageDark = "";
+        App.Settings.Save();
+        SyncBackdropImagePanel(App.Settings.Current);
+        ReapplyBackdropImage();
+    }
+
+    private void BackdropBlur_Changed(object? sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_loading) return;
+        App.Settings.Current.BackdropImageBlur = Math.Clamp(e.NewValue, 0, Platform.BackdropImage.MaxBlur);
+        App.Settings.Save();
+        RefreshBackdropImageLabels();
+        ReapplyBackdropImage();
+    }
+
+    private void BackdropDim_Changed(object? sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_loading) return;
+        App.Settings.Current.BackdropImageDim = Math.Clamp(e.NewValue, 0, Platform.BackdropImage.MaxDim);
+        App.Settings.Save();
+        RefreshBackdropImageLabels();
+        ReapplyBackdropImage();
+    }
+
+    private void BackdropBlurRecommend_Click(object? sender, RoutedEventArgs e)
+        => BackdropBlurSlider.Value = Platform.BackdropImage.RecommendedBlur;
+
+    private void BackdropDimRecommend_Click(object? sender, RoutedEventArgs e)
+        => BackdropDimSlider.Value = Platform.BackdropImage.RecommendedDim;
+
+    private void BackdropStretch_Changed(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_loading) return;
+        if (BackdropStretchCombo.SelectedItem is not ComboBoxItem item || item.Tag is not string mode) return;
+        App.Settings.Current.BackdropImageStretch = mode;
+        App.Settings.Save();
+        ReapplyBackdropImage();
+    }
+
+    private void BackdropImagePair_Toggled(object? sender, RoutedEventArgs e)
+    {
+        var on = BackdropImagePairSwitch.IsChecked == true;
+        PickBackdropImageDarkButton.IsEnabled = on;
+        if (_loading) return;
+        App.Settings.Current.BackdropImageThemePair = on;
+        App.Settings.Save();
+        ReapplyBackdropImage();
+    }
+
+    private void BackdropImageFloating_Toggled(object? sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        App.Settings.Current.BackdropImageOnFloating = BackdropImageSwitchValue();
+        App.Settings.Save();
+    }
+
+    private bool BackdropImageSwitchValue() => BackdropImageFloatingSwitch.IsChecked == true;
 }

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -1796,5 +1796,37 @@ public sealed partial class ShellPage : PageBase
         {
             AppLog.Warn("shell", "打开文档失败：" + ex.Message);
         }
+    }
+
+    /// <summary>
+    /// 左侧导航栏蒙版（2026-11-27，用户要求）：自定义背景图模式下，照片会透到导航栏上，
+    /// 条目文字压着花纹看不清。这里给**并排展开**的 pane 刷一层半透明底
+    /// （NavigationViewExpandedPaneBackground 是官方 pane 背板键，默认给的是亚克力，
+    ///  刷成半透明实色即可；⛔ 不能刷成 Transparent —— 那样导航栏与内容区就分不出层了）。
+    /// 只改 Expander 这一个键：Compact/Minimal 的浮层面板保持系统行为，避免"浮层透明漏内容"。
+    /// 离开图片模式时必须撤回（<c>on=false</c>），否则亚克力/云母会被这层压灰。
+    /// </summary>
+    public void SetNavVeil(bool on)
+    {
+        try
+        {
+            // 用和**右侧内容卡片**同一档的半透明白（#B3FFFFFF / 深色 #B31E1E1E），
+            // 这样左栏和内容区才是"同一种料"，不是左边灰、右边白。
+            var dark = ActualThemeVariant == Avalonia.Styling.ThemeVariant.Dark;
+            var brush = new Avalonia.Media.SolidColorBrush(dark
+                ? Avalonia.Media.Color.FromArgb(0xB3, 0x1E, 0x1E, 0x1E)
+                : Avalonia.Media.Color.FromArgb(0xB3, 0xFF, 0xFF, 0xFF));
+
+            if (on)
+                Nav.Resources["NavigationViewExpandedPaneBackground"] = brush;
+            else
+                Nav.Resources.Remove("NavigationViewExpandedPaneBackground");
+
+            // 顶栏那条（导航栏正上方）以前是透明的 —— 照片只在那一条露出来，
+            // 看起来"上面和右边不是一个东西"。图片模式下一起盖上。
+            if (TitleBarArea is not null)
+                TitleBarArea.Background = on ? brush : null;
+        }
+        catch { }
     }
 }

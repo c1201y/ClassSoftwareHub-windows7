@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -11,6 +11,7 @@ using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.Rendering;
 using Avalonia.Styling;
 using Avalonia.Threading;
 using ClassSoftwareHub.Desktop.Core;
@@ -25,8 +26,7 @@ namespace ClassSoftwareHub.Desktop.Views;
 /// 屏幕边缘侧边栏：贴在屏幕的某一条边上（上下左右都能放）。
 /// 全屏放 PPT / 视频时够不到任务栏，从边上点一下就能用工具。
 ///   · 收起 = **两套样式**：grip 圆角抓手（20×110，紧凑 12×72）｜ line 细竖线（窗口缩成 6×220 的圆角细线）。
-///     都是"点一下展开"，另外还能"朝屏幕外滑一下"展开（见 <see cref="Strip_PointerMoved"/>）。
-///     **拖拽换边已整条撤除**（见字段区注释），要换边请到设置里选。
+///     都是"点一下展开"，按住可自由拖动，松手后吸附到最近的屏幕边缘（见 <see cref="Strip_PointerMoved"/>）。
 ///   · 展开 = **两套样式**：classic 工具竖排列表 + 底排五颗（原版）｜
 ///     grid 图标网格（4 列一页 + 分页点）+ 快捷设置行。见 <see cref="SyncStyleViews"/>。
 /// 位置（贴哪条边）会记在设置里；沿边位置同样记忆（松手落盘、启动恢复，见 <see cref="_liveRatio"/>）；
@@ -159,9 +159,9 @@ public sealed partial class ToolSidebarWindow : Window
     private const double CollapseSlideMs = 200;
 
     /// <summary>
-    /// 底部按钮那一排在竖条里的高度增量 —— <b>五颗全显</b>时的经验值。
-    /// 注意它**不是**五颗的真实高度（那是 5×44 + 4×2 = 228）：面板高度基数
-    /// <see cref="PanelLengthDip"/>（450）里本来就已经含了标题和一段留白，这 94 只是把五颗"补齐"。
+    /// 底部按钮那一排在竖条里的高度增量 —— 以原五颗全显为基数的经验值。
+    /// 注意它**不是**按钮的真实高度：面板高度基数
+    /// <see cref="PanelLengthDip"/>（450）里本来就已经含了标题和一段留白，这 94 只是把底排"补齐"。
     /// 底排为**逐颗开关**后，这里必须按**可见颗数**摊算（见 <see cref="FooterDipFor"/>），
     ///    不能写成 <c>n × 44</c> 这种"真实高度" —— 会跟 450 的基数重复计算，面板凭空长一截。
     /// </summary>
@@ -273,8 +273,11 @@ public sealed partial class ToolSidebarWindow : Window
     /// </summary>
     public static int DefaultCollapsedLengthDip(bool line) => line ? LineLengthDip : GripDefaultLengthDip;
 
-    /// <summary>收起条上"滑动展开"的方向阈值（dip）。小于它的一律当点击（见 Strip_PointerReleased）。</summary>
-    private const double SwipeThresholdDip = 20;
+    /// <summary>收起条拖动判定阈值（dip）。小于它仍按点击展开。</summary>
+    private const double DragThresholdDip = 4;
+
+    /// <summary>收起条悬停提示；拖动期间临时拿掉，免得提示气泡跟着窗口跑。</summary>
+    private const string CollapsedTip = "点一下展开，按住可拖动换边";
 
     /// <summary>
     /// 按边缓存的窗口实例（键 = left | right | top | bottom）。
@@ -285,6 +288,8 @@ public sealed partial class ToolSidebarWindow : Window
     /// 换边 / 换模式都只是改这个字典里"该显示哪几条" —— 同一条路（<see cref="SyncInstances"/>）。
     /// </summary>
     private static readonly Dictionary<string, ToolSidebarWindow> _pool = new();
+    private static DispatcherTimer? _topmostWatch;
+    private static IntPtr _lastTopmostForeground;
 
     /// <summary>这条实例贴的边：left | right | top | bottom。**实例级** —— 设置里那个 "both" 是拆出来的两条，不是它的值。</summary>
     private readonly string _edge;
@@ -386,12 +391,11 @@ public sealed partial class ToolSidebarWindow : Window
     /// </summary>
     private SidebarHitPad? _hitPad;
 
-    /// <summary>收起条上按下 / 最近一次移动的位置（dip，Root 坐标）—— 判断"点击还是向外滑"的两点。</summary>
-    private Point _pressPos;
-    private Point _lastPos;
-
-    /// <summary>这一轮按下已靠"向外滑"展开过（抬起 / 丢失捕获后不重复展开）。</summary>
-    private bool _swipedOpen;
+    /// <summary>收起条按下时的屏幕坐标与窗口原点；拖动必须用屏幕坐标，窗口内坐标会随窗口移动而失真。</summary>
+    private PixelPoint _pressScreen;
+    private PixelPoint _dragAnchorScreen;
+    private PixelPoint _dragStartWin;
+    private bool _dragging;
 
     /// <summary>当前那个"要先问一句"的原生 Flyout（一次只有一个）。</summary>
     private Flyout? _confirmFlyout;
@@ -508,19 +512,7 @@ public sealed partial class ToolSidebarWindow : Window
         }
     }
 
-    // 收起条的**拖拽已整条撤除**：拖拽与"点击展开"天生冲突 ——
-    //    区分"点击还是拖动"只能靠**位移阈值**。触摸屏上手指按下必然带几像素抖动，
-    //    稍一动就超过阈值 → 判成拖动 → 松手走 DockToNearestEdge()（吸附/换边），
-    //    **永远走不到 Expand()**，表现为"点了没反应 / 展不开"；
-    //    鼠标场景则表现为"想点一下，偏偏被拖到别处、还换了边"。
-    //
-    //    现在只剩：按下 → 抬起 = 展开。要换贴哪条边请到设置里选（侧边栏 → 贴边 / 自由模式）。
-    //
-    //    保留一样东西：朝屏幕外"滑动展开"（贴左边向右滑、贴右边向左滑，上下边同理）。
-    //       它跟拖拽不是一回事，红线不变：
-    //         · 滑动只是**多开一条路**，抬手时位移不够阈值的**一律还按点击展开**；
-    //         · 唯一被挡下的是"明确朝屏幕里滑够 20dip"——手指抖动到不了这个量级。
-    //       判据全在 Strip_PointerReleased / Strip_PointerMoved 里，改动前先把这段读完。
+    // 单击展开，移动超过阈值后拖动；松手吸附到最近边缘并保存沿边比例。
     private bool _pressed;
 
     private ToolSidebarWindow(string edge)
@@ -554,11 +546,20 @@ public sealed partial class ToolSidebarWindow : Window
             App.Settings.Save();
         }
         foreach (var w in SyncInstances()) w.Present();
+        ApplyTopmostSetting();
     }
 
+    /// <summary>隐藏：连同侧边栏里点开的附属悬浮窗一起收起；启用状态不变，下次启动仍会自动打开。</summary>
     public static void HideSidebar()
     {
+        Services.FloatingWindowCoordinator.HideDetachedWindows();
+        HideSidebarOnly();
+    }
+
+    private static void HideSidebarOnly()
+    {
         foreach (var w in _pool.Values) w.HideSelf();
+        _topmostWatch?.Stop();
     }
 
     /// <summary>
@@ -573,6 +574,8 @@ public sealed partial class ToolSidebarWindow : Window
             try { w.Close(); } catch { }
         }
         _pool.Clear();
+        _topmostWatch?.Stop();
+        _topmostWatch = null;
         Core.AppLog.Info("window", "窗口关闭请求｜窗口=工具侧边栏｜触发=程序化 Close");
     }
 
@@ -699,11 +702,61 @@ public sealed partial class ToolSidebarWindow : Window
     /// <param name="ratio">与 <paramref name="ratioEdge"/> 配套的比例值。</param>
     public static void ApplySetting(string? ratioEdge = null, double ratio = -1)
     {
-        if (!App.Settings.Current.SidebarEnabled) { HideSidebar(); return; }
+        if (!App.Settings.Current.SidebarEnabled) { HideSidebarOnly(); return; }
         foreach (var w in SyncInstances(ratioEdge, ratio))
         {
             w.Present();
             w.SnapToSetting();
+        }
+        ApplyTopmostSetting();
+    }
+
+    /// <summary>
+    /// 应用「悬浮窗置顶方式」：
+    /// startup = 只在启动 / 重新打开时置顶一次；change = 前台窗口变化时补回置顶；fast = 每 50ms 补一次。
+    /// 置顶走 Win32 SetWindowPos，不依赖 Avalonia 的 Topmost 属性 —— 否则它会绕过本策略自己抢层级。
+    /// </summary>
+    public static void ApplyTopmostSetting()
+    {
+        var mode = App.Settings.Current.SidebarTopMostMode switch
+        {
+            "startup" => "startup",
+            "fast" => "fast",
+            _ => "change",
+        };
+
+        _topmostWatch?.Stop();
+        if (_topmostWatch is null)
+        {
+            _topmostWatch = new DispatcherTimer();
+            _topmostWatch.Tick += (_, _) => TopmostWatchTick();
+        }
+        _topmostWatch.Interval = TimeSpan.FromMilliseconds(mode == "fast" ? 50 : 120);
+        _lastTopmostForeground = NativeMethods.GetForegroundWindow();
+
+        if (mode != "startup" && _pool.Values.Any(w => w._visible)) _topmostWatch.Start();
+        BringToFront();
+    }
+
+    private static void TopmostWatchTick()
+    {
+        var mode = App.Settings.Current.SidebarTopMostMode;
+        var foreground = NativeMethods.GetForegroundWindow();
+        if (mode != "fast" && foreground == _lastTopmostForeground) return;
+        _lastTopmostForeground = foreground;
+        BringToFront();
+    }
+
+    /// <summary>把当前可见的侧边栏抬到最前；仅改层级、不激活、不挪位置。</summary>
+    public static void BringToFront()
+    {
+        foreach (var w in _pool.Values)
+        {
+            if (!w._visible) continue;
+            var hwnd = w.Hwnd();
+            if (hwnd == IntPtr.Zero) continue;
+            NativeMethods.SetWindowPos(hwnd, NativeMethods.HWND_TOPMOST, 0, 0, 0, 0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
         }
     }
 
@@ -872,7 +925,7 @@ public sealed partial class ToolSidebarWindow : Window
         {
             Title = "工具侧边栏";
             ShowInTaskbar = false;          // 不进任务栏、不进 Alt+Tab（SystemDecorations=None 已去掉标题栏/边框）
-            Topmost = true;                 // 全屏播放时也要显示在上面
+            Topmost = false;                // 置顶层由 ApplyTopmostSetting 按用户选的三种策略管理
             CanResize = false;
 
             // 退出追踪：上游原版挂在 AppWindow.Closing 上；本仓库无 AppWindow，挂 Avalonia 窗口的 Closing。
@@ -988,7 +1041,7 @@ public sealed partial class ToolSidebarWindow : Window
             _visible = true;
             Collapse(animate: false);                      // 每次出现都从收起状态开始（不挡画面）
 
-            Topmost = true;
+            BringToFront();
 
             MoveToEdge();
             // 外观要等窗口真显示出来之后再收尾（构造期改窗口样式会让窗口显示不出来）
@@ -1785,13 +1838,8 @@ public sealed partial class ToolSidebarWindow : Window
         Touch();
     }
 
-    /// <summary>隐藏：直接关掉（设置里也不显示了），想找回去去「内置工具」页或托盘图标菜单。</summary>
-    private void Hide_Click(object? sender, RoutedEventArgs e)
-    {
-        App.Settings.Current.SidebarEnabled = false;
-        App.Settings.Save();
-        HideSidebar();                                    // 双边时两条一起藏
-    }
+    /// <summary>隐藏：收起悬浮窗和附属工具；下次启动仍按启用设置自动打开。</summary>
+    private void Hide_Click(object? sender, RoutedEventArgs e) => HideSidebar();
 
     /// <summary>
     /// 打开应用：把**主窗口**叫出来（可能收在托盘里、也可能只是最小化了）。
@@ -1818,7 +1866,7 @@ public sealed partial class ToolSidebarWindow : Window
 
     /// <summary>
     /// 底排那几颗按钮（收起 / 常驻 / 位置复原 / 隐藏 / 打开应用）的显示开关变了
-    /// （「侧边布局」页底部那五个开关，逐颗）。
+    /// （「侧边布局」页底部那六个开关，逐颗）。
     /// 跟换模块清单走同一条路：重排 + 重新量尺寸 —— 面板高矮、横条宽窄都跟着**可见颗数**变。
     /// </summary>
     public static void ApplyFooterSetting() => ApplyModules();
@@ -3250,60 +3298,77 @@ public sealed partial class ToolSidebarWindow : Window
 
     // ── 收起状态：点一下展开 / 按住拖动 ──────────────────────
 
-    // ── 收起状态：点一下就展开（拖拽已撤除，见字段区注释）──────────
-
     private void Strip_PointerPressed(object? sender, PointerPressedEventArgs e)
     {
-        // 拖拽已撤除。这里只做两件事：记下"按着"、把指针捕获住。
-        //    捕获必须留着：手指/鼠标按下后可能挪出收起条再抬起，
-        //    没有捕获的话 PointerReleased 不会回到这里，那一"点"就丢了（＝点了没反应）。
         _pressed = true;
         _idle.Stop();                                    // 按住期间别自动收起
-
-        // "滑动展开"：只记起点，**不动窗口**。位移阈值判据见 Strip_PointerReleased。
-        _pressPos = e.GetPosition(Root);
-        _lastPos = _pressPos;
-        _swipedOpen = false;
+        _pressScreen = ((IRenderRoot)this).PointToScreen(e.GetPosition(this));
+        _dragAnchorScreen = _pressScreen;
+        _dragging = false;
+        _dragStartWin = WinPos();
 
         Log($"收起条｜事件=按下｜指针类型={e.Pointer.Type}");
         // 捕获目标**必须是 CollapsedView 自己**（不能用祖先 Root）：
         //    Avalonia 的指针捕获会把后续事件**路由到被捕获的那个控件**
         //    （Root 是 CollapsedView 的祖先，事件只会从 Root 往上冒泡，永远回不到 CollapsedView）——
         //    捕获 Root 时 PointerMoved / PointerReleased 全都收不到，只有 PointerCaptureLost 会来。
-        //    捕获自己之后 Moved/Released 才真正到手，滑动展开才有意义。
+        //    捕获自己之后 Moved/Released 才真正到手，拖动才有意义。
         e.Pointer.Capture(CollapsedView);
         e.Handled = true;
     }
 
     /// <summary>
-    /// **向外滑就地展开**（贴左边向右滑、贴右边向左滑，上下边同理）。
-    ///
-    /// <para>
-    /// 只是给"点击"多开一条路，**绝不取代它**：抬手时位移不够阈值的一律还按点击处理
-    ///    （见 Strip_PointerReleased）。这是硬性红线 ——
-    ///    触摸屏上手指按下必带几像素抖动，只要"位移不够就什么都不做"，用户看到的就是"点了没反应"。
-    /// </para>
+    /// 拖动只依赖「按下时的窗口原点 + 屏幕坐标差」，绝不读取当前窗口位置。
+    /// 否则窗口每移动一像素，窗口内坐标也跟着变，下一帧会反向修正，表现为持续抽搐。
     /// </summary>
+    private static PixelPoint ComputeDragPosition(
+        PixelPoint startWin, PixelPoint anchorScreen, PixelPoint currentScreen,
+        PixelSize size, PixelRect work)
+    {
+        var x = startWin.X + currentScreen.X - anchorScreen.X;
+        var y = startWin.Y + currentScreen.Y - anchorScreen.Y;
+        x = Math.Clamp(x, work.X - size.Width * 3 / 4, work.X + work.Width - size.Width / 4);
+        y = Math.Clamp(y, work.Y - size.Height * 3 / 4, work.Y + work.Height - size.Height / 4);
+        return new PixelPoint(x, y);
+    }
+
     private void Strip_PointerMoved(object? sender, PointerEventArgs e)
     {
         if (!_pressed) return;
 
         try
         {
-            _lastPos = e.GetPosition(Root);
+            var screen = ((IRenderRoot)this).PointToScreen(e.GetPosition(this));
 
-            // 已展开过则不重复执行（快速连滑会反复触发）
-            if (_swipedOpen || _expanded) return;
-
-            if (OutwardDelta(_lastPos) >= SwipeThresholdDip)
+            if (_dragging)
             {
-                _swipedOpen = true;
-                _pressed = false;
-                try { e.Pointer.Capture(null); } catch { }
-                Log("收起条｜手势=向外滑动｜处置=展开");
-                Expand();
+                var size = WinSizePx();
+                var target = ComputeDragPosition(_dragStartWin, _dragAnchorScreen, screen, size, WorkAreaRect());
+                MoveWin(target);
+                if (IsDual) FollowPartner(target.Y, size.Height);
                 e.Handled = true;
+                return;
             }
+
+            if (_expanded) return;
+
+            var threshold = (int)Math.Round(DragThresholdDip * Math.Max(1, Scale()));
+            var dx = screen.X - _pressScreen.X;
+            var dy = screen.Y - _pressScreen.Y;
+            if (Math.Abs(dx) < threshold && Math.Abs(dy) < threshold) return;
+
+            // 越过阈值才开始拖：把起点重置到当前位置，避免第一帧突然跳 4dip。
+            _dragStartWin = WinPos();
+            _dragAnchorScreen = screen;
+            _dragging = true;
+            HideHitPad();
+            try
+            {
+                ToolTip.SetIsOpen(CollapsedView, false);
+                ToolTip.SetTip(CollapsedView, null);
+            }
+            catch { }
+            e.Handled = true;
         }
         catch (Exception ex)
         {
@@ -3315,25 +3380,19 @@ public sealed partial class ToolSidebarWindow : Window
     {
         if (!_pressed) return;
         _pressed = false;
+        var wasDragging = _dragging;
+        _dragging = false;
         try { e.Pointer.Capture(null); } catch { }
 
-        if (_swipedOpen) { e.Handled = true; return; }    // 滑动那一路已经展开了
-
-        // 判据只有一条"该不该展开"，**没有第三种"什么都不做"**：
-        //      · 向外滑够了  → 展开（滑动那条路，正常在 Moved 里就走掉了）
-        //      · 位移不够阈值 → 展开（＝点击，点击展开的原样保留）
-        //      · 朝**屏幕里**滑够了 20dip → 不展开（这是唯一被挡下的一种，
-        //        而且必须是"明确的、朝着屏幕里的滑动"，手指抖动到不了这个量级）
-        //      · 其余（沿边滑、斜着滑但没有明确向内）→ 一律展开，宁可多展一次
-        var outward = OutwardDelta(e.GetPosition(Root));
-        if (outward <= -SwipeThresholdDip)
+        if (wasDragging)
         {
-            Log($"收起条｜手势=向内滑动｜位移={outward:0.#}dip｜处置=不展开");
+            try { ToolTip.SetTip(CollapsedView, CollapsedTip); } catch { }
+            DockToNearestEdge();
             e.Handled = true;
             return;
         }
 
-        Log("收起条｜手势=单击或外滑｜处置=展开");
+        Log("收起条｜手势=单击｜处置=展开");
         Expand();
         e.Handled = true;
     }
@@ -3342,38 +3401,18 @@ public sealed partial class ToolSidebarWindow : Window
     {
         if (!_pressed) return;
         _pressed = false;
-
-        if (_swipedOpen) return;
-
-        // 捕获丢失同样当成"点了一下"：
-        //    未激活的工具窗口上，按下常常只换来一次捕获丢失（没有正常的 Released）——
-        //    这里若不展开，那一下点击就彻底丢了。拖动已撤除，也不存在"把拖动误当点击"的问题。
-        //    只有"明确朝屏幕里滑"才挡（跟 Released 同一条判据）。
-        if (OutwardDelta(_lastPos) <= -SwipeThresholdDip)
+        if (_dragging)
         {
-            Log("收起条｜事件=捕获丢失｜前一手势=向内滑动｜处置=不展开");
+            _dragging = false;
+            try { ToolTip.SetTip(CollapsedView, CollapsedTip); } catch { }
+            DockToNearestEdge();
             return;
         }
 
+        // 未激活的工具窗口上，按下常常只换来一次捕获丢失（没有正常的 Released）——
+        // 这里若不展开，那一下点击就彻底丢了。
         Log("收起条｜事件=捕获丢失｜处置=按单击处理并展开");
         Expand();
-    }
-
-    /// <summary>
-    /// 从按下点到 <paramref name="now"/> 沿**屏幕外**方向挪了多少 dip（正 = 朝屏幕外）。
-    /// 贴左/右看 X、贴上/下看 Y —— 另一根轴的位移**不算数**（沿边上下拖不该影响展不展开）。
-    /// </summary>
-    private double OutwardDelta(Point now)
-    {
-        var dx = now.X - _pressPos.X;
-        var dy = now.Y - _pressPos.Y;
-        return _edge switch
-        {
-            "left" => dx,          // 往右 = 往屏幕外
-            "right" => -dx,        // 往左 = 往屏幕外
-            "top" => dy,           // 往下 = 往屏幕外
-            _ => -dy               // 往上 = 往屏幕外
-        };
     }
 
     /// <summary>收起条的悬停高亮（鼠标搭上去就亮一下，触屏不会触发）。</summary>
@@ -3539,6 +3578,13 @@ public sealed partial class ToolSidebarWindow : Window
             // 松手这一刻把沿边比例落盘。
             // 只在松手写，拖动过程中绝不写 —— 拖动时反复 Save 既卡，
             //    又会把「开机最小化」启动早期"窗口尺寸还没定"的中间态当成最终位置存下来。
+            var along = edge is "left" or "right"
+                ? pos.Y + size.Height / 2.0 - work.Y
+                : pos.X + size.Width / 2.0 - work.X;
+            var span = edge is "left" or "right"
+                ? Math.Max(1, work.Height)
+                : Math.Max(1, work.Width);
+            _liveRatio = Math.Clamp(along / span, 0, 1);
             App.Settings.Current.SidebarPosRatio = _liveRatio;
 
             App.Settings.Save();
@@ -3550,24 +3596,8 @@ public sealed partial class ToolSidebarWindow : Window
             {
                 Log("换边｜原贴边=" + _edge + "｜新贴边=" + edge);
 
-                // 新边上的沿边比例：拖到哪就落在哪（先按旧比例 Present 会"先在下面出现，再突变上去"）
-                var sizeNow = WinSizePx();
-                var posNow = WinPos();
-                double along, span;
-                if (edge is "left" or "right")
-                {
-                    span = Math.Max(1, work.Height);
-                    along = posNow.Y + sizeNow.Height / 2.0 - work.Y;   // 比例记的是「沿边中心」，见 EdgePosition
-                }
-                else
-                {
-                    span = Math.Max(1, work.Width);
-                    along = posNow.X + sizeNow.Width / 2.0 - work.X;
-                }
-                var newRatio = Math.Clamp(along / span, 0, 1);
-
-                // 比例交给 ApplySetting 在建/取实例时就写好，别在它之后再 SnapToSetting
-                ApplySetting(edge, newRatio);
+                // 比例已在松手时按目标边算好，交给 ApplySetting 在建/取实例时就写好。
+                ApplySetting(edge, _liveRatio);
                 return;
             }
 
@@ -3600,6 +3630,7 @@ public sealed partial class ToolSidebarWindow : Window
             var span = Math.Max(1, work.Height);
             _liveRatio = Math.Clamp((myY + myHeight / 2.0 - work.Y) / span, 0, 1);
             other.MoveToEdge(verify: false);
+            other.UpdateHitPad();
         }
         catch (Exception ex)
         {
@@ -3623,8 +3654,7 @@ public sealed partial class ToolSidebarWindow : Window
             // 「圆角抓手」样式里画（见 ApplyCollapsedGrip）。
             ApplyCollapsedGrip();
 
-            // 展开面板：永远竖着排（贴上下边时就是两行）
-            ExpandedStack.Orientation = Orientation.Vertical;
+            // 展开面板：工具区滚动，底栏固定停靠，避免按钮增多后把「隐藏 / 打开应用」裁掉。
             TitleRow.IsVisible = !flat;
 
             ToolStack.Orientation = flat ? Orientation.Horizontal : Orientation.Vertical;
@@ -3637,7 +3667,7 @@ public sealed partial class ToolSidebarWindow : Window
             FooterStack.Spacing = flat ? FooterFlatSpacingDip : 2;
             FooterStack.HorizontalAlignment = flat ? Avalonia.Layout.HorizontalAlignment.Center : Avalonia.Layout.HorizontalAlignment.Stretch;
 
-            // 底部那排按钮是**逐颗**开关（「侧边布局」页底部那五个开关，key 见 SidebarFooterKeys）。
+            // 底部那排按钮是**逐颗**开关（「侧边布局」页底部那六个开关，key 见 SidebarFooterKeys）。
             // 关掉的那颗用 Collapsed —— StackPanel 不吃折叠子项，整排自己跟着收；一颗都不剩时连分隔线一起收。
             // 但**别靠 Visibility 反推高度**：尺寸那几处都有独立的"可见颗数"分支
             //    （<see cref="PlannedSize"/> / <see cref="ExpandedLimits"/> / <see cref="ApplyScrollLimit"/>），
@@ -3704,7 +3734,7 @@ public sealed partial class ToolSidebarWindow : Window
     }
 
     /// <summary>
-    /// 底下**五个**按钮（收起 / 常驻 / 位置复原 / 隐藏 / 打开应用）的内容：
+    /// 底下**五颗**按钮（收起 / 常驻 / 位置复原 / 隐藏 / 打开应用）的内容：
     /// 贴左右边是**竖条** → 图标在上、文字在下（跟工具块一个样式）；
     /// 贴上/下边是**横条**（面板只有 112 高）→ 左图标、右文字，竖排会被裁掉。
     /// 「打开应用」那颗是**图片图标**（软件自己的图标），走 SetFooterImageButton，别跟字形混。

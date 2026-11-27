@@ -1,10 +1,10 @@
-<UserControl xmlns="https://github.com/avaloniaui"
+﻿<UserControl xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ui="clr-namespace:ClassSoftwareHub.Desktop.SlideSync.Ui"
         xmlns:core="clr-namespace:ClassSoftwareHub.Desktop.SlideSync"
         xmlns:pages="clr-namespace:ClassSoftwareHub.Desktop.SlideSync.Ui"
         x:Class="ClassSoftwareHub.Desktop.SlideSync.Ui.ControlPanel"
-        Background="#FFFFFFFF"
+        Background="#00FFFFFF"
         FontSize="14">
 
     <!--
@@ -12,7 +12,7 @@
       不另立色板。
 
       2026-10-24 老师第二轮要求：这个窗口是插件的统一入口，除了找课件，还要能改全部设置。
-      顶部因此改成三页 TabControl（课件库 / 设置 / 关于），课件库页面的排版保持原样。
+      顶部因此改成四页 TabControl（课件库 / 设置 / ClassIsland / 关于），课件库页面的排版保持原样。
 
       2026-10-24 23:06 老师第三轮要求：这个窗口不要亚克力/毛玻璃，就是一块实心底色，
       颜色还要能在设置里改。于是这里刻意没有 TransparencyLevelHint（有这个属性才走
@@ -1046,74 +1046,146 @@
             </ScrollViewer>
         </TabItem>
 
-        <!-- ============================= 课表 ============================= -->
-        <TabItem Header="课表">
+        <!-- ===================== ClassIsland 联动 ===================== -->
+        <TabItem Header="ClassIsland">
             <ScrollViewer VerticalScrollBarVisibility="Auto">
-                <StackPanel MaxWidth="720"
+                <StackPanel MaxWidth="900"
                             HorizontalAlignment="Center"
                             Margin="24,24,24,24"
                             Spacing="10">
-                    <TextBlock Text="导入 CSES 课表后，程序能认出当前上哪一科，科目名也会自动填进各科配置里。"
+                    <TextBlock Text="先把课件续页装进 ClassIsland，再打开共用记录，两边就能看到同一份进度。"
                                FontSize="12"
                                TextWrapping="Wrap"
                                Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
 
-                    <ui:SettingsCard Header="课表文件"
-                                     Description="支持 CSES 的 JSON / YAML。">
+                    <ui:SettingsCard IsExpanded="True" Header="ClassIsland 位置"
+                                     Description="选 ClassIsland.exe 所在的文件夹，选过一次就会记住。">
                         <ui:SettingsCard.Footer>
                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                <Button x:Name="ImportTimetableButton"
-                                        Content="导入…"
-                                        Click="OnImportTimetableClick" />
-                                <Button x:Name="ClearTimetableButton"
-                                        Content="清除"
-                                        Click="OnClearTimetableClick" />
+                                <Button x:Name="CiPickButton"
+                                        Content="选择…"
+                                        Click="OnCiPickClick" />
+                                <Button x:Name="CiOpenButton"
+                                        Content="打开目录"
+                                        Click="OnCiOpenClick" />
                             </StackPanel>
                         </ui:SettingsCard.Footer>
+                        <StackPanel Spacing="4">
+                            <TextBlock x:Name="CiPathText"
+                                       FontSize="12"
+                                       TextWrapping="Wrap" />
+                            <TextBlock x:Name="CiVersionText"
+                                       FontSize="12"
+                                       TextWrapping="Wrap"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
                     </ui:SettingsCard>
 
-                    <TextBlock x:Name="TimetableText"
-                               FontSize="12"
-                               TextWrapping="Wrap"
-                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
-
-                    <ui:SettingsCard Header="学期第一周周一"
-                                     Description="用来推算单双周；不填则单双周都按可用处理。">
+                    <ui:SettingsCard IsExpanded="True" Header="课件续页插件"
+                                     Description="装之前先退出 ClassIsland。在线安装会下载最新版，直接覆盖旧文件。">
                         <ui:SettingsCard.Footer>
                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                <TextBox x:Name="SemesterStartBox"
-                                         Width="120"
-                                         Watermark="2026-09-01" />
-                                <Button Content="保存"
-                                        Click="OnApplySemesterClick" />
+                                <Button x:Name="CiInstallButton"
+                                        Content="在线安装"
+                                        Click="OnCiInstallClick" />
+                                <Button x:Name="CiLocalButton"
+                                        Content="从安装包…"
+                                        Click="OnCiLocalClick" />
+                                <Button x:Name="CiPluginFolderButton"
+                                        Content="插件目录"
+                                        Click="OnCiPluginFolderClick" />
                             </StackPanel>
                         </ui:SettingsCard.Footer>
+                        <StackPanel Spacing="4">
+                            <TextBlock x:Name="CiPluginText"
+                                       FontSize="12"
+                                       TextWrapping="Wrap" />
+                            <TextBlock x:Name="CiResultText"
+                                       FontSize="12"
+                                       TextWrapping="Wrap"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
                     </ui:SettingsCard>
 
-                    <TextBlock x:Name="ParityText"
-                               FontSize="12"
-                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
-
-                    <ui:SettingsCard Header="现在 / 下一节">
+                    <ui:SettingsCard IsExpanded="True" Header="共用课件记录"
+                                     Description="打开后两边共用一份课件记录。改完要重启 CSH。">
                         <ui:SettingsCard.Footer>
-                            <StackPanel Orientation="Horizontal" Spacing="10">
-                                <TextBlock x:Name="LessonText"
-                                           VerticalAlignment="Center"
-                                           FontSize="12"
-                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
-                                <Button x:Name="ResumeCurrentButton"
-                                        Content="续播这一科"
-                                        Click="OnResumeCurrentClick" />
-                            </StackPanel>
+                            <CheckBox x:Name="CiShareCheck"
+                                      Content="共用"
+                                      IsCheckedChanged="OnCiShareChanged" />
                         </ui:SettingsCard.Footer>
+                        <TextBlock x:Name="CiShareText"
+                                   FontSize="12"
+                                   TextWrapping="Wrap"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
                     </ui:SettingsCard>
 
-                    <TextBlock Text="各科进度"
-                               FontSize="13"
-                               FontWeight="SemiBold"
-                               Margin="2,10,0,2"
-                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
-                    <StackPanel x:Name="CsesSubjectList" Spacing="2" />
+                    <Expander Header="CSH 自带课表（不用 ClassIsland 时再展开）"
+                              HorizontalAlignment="Stretch">
+                        <StackPanel Spacing="10" Margin="0,10,0,0">
+                            <TextBlock Text="导入 CSES 课表后，程序能认出当前上哪一科，科目名也会自动填进各科配置里。"
+                                       FontSize="12"
+                                       TextWrapping="Wrap"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+
+                            <ui:SettingsCard Header="课表文件"
+                                             Description="支持 CSES 的 JSON / YAML。">
+                                <ui:SettingsCard.Footer>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button x:Name="ImportTimetableButton"
+                                                Content="导入…"
+                                                Click="OnImportTimetableClick" />
+                                        <Button x:Name="ClearTimetableButton"
+                                                Content="清除"
+                                                Click="OnClearTimetableClick" />
+                                    </StackPanel>
+                                </ui:SettingsCard.Footer>
+                            </ui:SettingsCard>
+
+                            <TextBlock x:Name="TimetableText"
+                                       FontSize="12"
+                                       TextWrapping="Wrap"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+
+                            <ui:SettingsCard Header="学期第一周周一"
+                                             Description="用来推算单双周；不填则单双周都按可用处理。">
+                                <ui:SettingsCard.Footer>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBox x:Name="SemesterStartBox"
+                                                 Width="120"
+                                                 Watermark="2026-09-01" />
+                                        <Button Content="保存"
+                                                Click="OnApplySemesterClick" />
+                                    </StackPanel>
+                                </ui:SettingsCard.Footer>
+                            </ui:SettingsCard>
+
+                            <TextBlock x:Name="ParityText"
+                                       FontSize="12"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+
+                            <ui:SettingsCard Header="现在 / 下一节">
+                                <ui:SettingsCard.Footer>
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <TextBlock x:Name="LessonText"
+                                                   VerticalAlignment="Center"
+                                                   FontSize="12"
+                                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                        <Button x:Name="ResumeCurrentButton"
+                                                Content="续播这一科"
+                                                Click="OnResumeCurrentClick" />
+                                    </StackPanel>
+                                </ui:SettingsCard.Footer>
+                            </ui:SettingsCard>
+
+                            <TextBlock Text="各科进度"
+                                       FontSize="13"
+                                       FontWeight="SemiBold"
+                                       Margin="2,10,0,2"
+                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                            <StackPanel x:Name="CsesSubjectList" Spacing="2" />
+                        </StackPanel>
+                    </Expander>
                 </StackPanel>
             </ScrollViewer>
         </TabItem>
@@ -1121,7 +1193,7 @@
         <!-- ============================= 关于 ============================= -->
         <TabItem Header="关于">
             <ScrollViewer VerticalScrollBarVisibility="Auto">
-                <StackPanel MaxWidth="720"
+                <StackPanel MaxWidth="900"
                             HorizontalAlignment="Center"
                             Margin="24,36,24,24"
                             Spacing="6">

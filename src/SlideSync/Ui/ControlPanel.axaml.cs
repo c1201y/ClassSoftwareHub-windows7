@@ -29,8 +29,8 @@ namespace ClassSoftwareHub.Desktop.SlideSync.Ui
     /// 课件续页的控制面板。卡片是 Win32 的 WS_EX_NOACTIVATE 图层窗口，拿不到键盘焦点，
     /// 所以“搜索课件、翻历史、跳页”这些需要输入的操作放到这个正经的 Avalonia 窗口里。
     ///
-    /// 2026-10-24 老师第二轮要求：这个窗口同时是插件的统一入口，顶部三页
-    /// 「课件库 / 设置 / 关于」。课件库的数据来自内存里的 Ledger（Ledger.Load 已经在服务启动时做过），
+    /// 2026-10-24 老师第二轮要求：这个窗口同时是插件的统一入口，现在顶部四页
+    /// 「课件库 / 设置 / ClassIsland / 关于」。课件库的数据来自内存里的 Ledger（Ledger.Load 已经在服务启动时做过），
     /// 打开面板和点“刷新”时整栏重建；面板开着时每 2 秒对一次记录数，变了才增量补详情
     /// （见 <see cref="RefreshLive"/>），因为放映过程中台账是每秒都在长的。
     /// 设置页绑定到服务持有的同一个 <see cref="SyncSettings"/>，改完立即生效，
@@ -63,6 +63,8 @@ namespace ClassSoftwareHub.Desktop.SlideSync.Ui
         DispatcherTimer? liveTimer;   // 台账在放映中是每秒变的，面板开着时定时补一次
         bool closed;           // 面板已离开页面：异步对话框回来时不能再往控件/配置里写
         bool hooked;           // 设置 / 搜索 / 页签事件是否已挂上（离开页面时摘掉，回来再挂）
+        bool ciBusy;           // ClassIsland 页正在下载 / 安装：按钮先锁住，防止连点
+        bool ciSyncing;        // 代码在改 CiShareCheck：别把这次赋值当成用户点击
 
         /// <summary>
         /// 设置页的绑定源（和 ClassIsland 设置页是同一个对象）。只读引用，改动通过绑定写回。
@@ -152,7 +154,11 @@ namespace ClassSoftwareHub.Desktop.SlideSync.Ui
         /// </summary>
         internal void ApplyPanelBackground()
         {
-            var brush = BrushFrom(settings.PanelBackgroundColor, new SolidColorBrush(Colors.White));
+            // 2026-11-27：老存档里存的纯实白 #FFFFFFFF 会把窗口材质/自定义背景图整块盖住，
+            //   看上去这个面板和别处不是一个世界。取值时兜一道，等同一次性迁移。
+            var panelColor = settings.PanelBackgroundColor;
+            if (string.Equals(panelColor, "#FFFFFFFF", StringComparison.OrdinalIgnoreCase)) panelColor = "#B3FFFFFF";
+            var brush = BrushFrom(panelColor, new SolidColorBrush(Color.FromArgb(0xB3, 0xFF, 0xFF, 0xFF)));
             Background = brush;
             var solid = brush as ISolidColorBrush;
             if (solid != null)
@@ -236,6 +242,7 @@ namespace ClassSoftwareHub.Desktop.SlideSync.Ui
                 // 进页面时读一次台账（构造时不读，老师还在拖卡片时别做多余的事）。
                 Reload();
                 RefreshTimetable();
+                RefreshClassIsland();
                 StartLiveRefresh();
                 SearchBox.Focus();
                 Log("attached");
@@ -1295,6 +1302,196 @@ namespace ClassSoftwareHub.Desktop.SlideSync.Ui
                 Log("copy api token failed: " + ex.Message);
                 ShowHint("复制失败：" + ex.Message);
             }
+        }
+
+        // ---- ClassIsland 页 -------------------------------------------------------
+
+        /// <summary>
+        /// 把磁盘上的现状重新读一遍：找到哪、装没装、CSH 在不在运行。
+        /// 切页 / 装完 / 改完开关都走这里，页面上不缓存状态。
+        /// </summary>
+        void RefreshClassIsland()
+        {
+            try
+            {
+                var ci = ClassIslandLink.Detect();
+
+                CiPathText.Text = ci.Found
+                    ? ci.Root
+                    : "还没有找到 ClassIsland。点「选择…」，选 ClassIsland.exe 所在的文件夹。";
+                CiVersionText.Text = ci.Found
+                    ? "版本 " + (ci.Version.Length > 0 ? ci.Version : "未知") + "　插件目录：" + ci.PluginDir
+                    : "没找到时，会自动查上次选的位置、正在运行的 ClassIsland、Program Files、桌面和下载文件夹。";
+
+                CiPluginText.Text = ci.PluginInstalled
+                    ? "已安装" + (ci.PluginVersion.Length > 0 ? "，版本 " + ci.PluginVersion : "")
+                      + (ci.Running ? "；ClassIsland 正在运行，装不了新版本" : "")
+                    : (ci.Found ? "未安装。" : "先选 ClassIsland 的位置。");
+
+                CiInstallButton.Content = ci.PluginInstalled ? "更新" : "在线安装";
+                CiInstallButton.IsEnabled = ci.Found && !ci.Running && !ciBusy;
+                CiLocalButton.IsEnabled = ci.Found && !ci.Running && !ciBusy;
+                CiPickButton.IsEnabled = !ciBusy;
+                CiOpenButton.IsEnabled = ci.Found;
+                CiPluginFolderButton.IsEnabled = ci.PluginDir.Length > 0 && Directory.Exists(ci.PluginDir);
+
+                ciSyncing = true;
+                CiShareCheck.IsChecked = ClassIslandLink.ShareLedger;
+                CiShareCheck.IsEnabled = !ciBusy && ci.PluginInstalled;
+                ciSyncing = false;
+
+                CiShareText.Text = ClassIslandLink.ShareLedger
+                    ? (ci.PluginInstalled
+                        ? "已打开。重启 CSH 后，记录目录换成 " + ci.ConfigDir
+                        : "已打开，但插件还没装，暂时还是用 CSH 自己的记录。")
+                    : "现在用的是 CSH 自己的记录目录。";
+            }
+            catch (Exception ex) { Log("classisland refresh failed: " + ex.Message); }
+        }
+
+        async void OnCiPickClick(object? sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var top = TopLevel.GetTopLevel(this);
+                if (top is null) return;
+
+                var result = await FilePickerCompat.PickFolderAsync(top, "选择 ClassIsland 所在文件夹");
+                if (result.Files.Count == 0)
+                {
+                    if (!string.IsNullOrEmpty(result.Error)) ShowStatus(result.Error);
+                    return;
+                }
+
+                var ok = ClassIslandLink.SetRoot(result.Files[0], out var message);
+                ShowStatus(message);
+                if (ok) CiResultText.Text = "";
+                RefreshClassIsland();
+            }
+            catch (Exception ex) { ShowStatus("选择位置失败：" + ex.Message); }
+        }
+
+        void OnCiOpenClick(object? sender, RoutedEventArgs e)
+        {
+            var ci = ClassIslandLink.Detect();
+            if (ci.Found) OpenFolderPath(ci.Root);
+        }
+
+        void OnCiPluginFolderClick(object? sender, RoutedEventArgs e)
+        {
+            var ci = ClassIslandLink.Detect();
+            if (Directory.Exists(ci.PluginDir)) { OpenFolderPath(ci.PluginDir); return; }
+            if (Directory.Exists(Path.Combine(ci.DataRoot, "Plugins")))
+                OpenFolderPath(Path.Combine(ci.DataRoot, "Plugins"));
+        }
+
+        async void OnCiInstallClick(object? sender, RoutedEventArgs e)
+        {
+            if (ciBusy) return;
+            var ci = ClassIslandLink.Detect();
+            if (!ci.Found) { ShowStatus("先选 ClassIsland 的位置。"); return; }
+            if (ci.Running) { ShowStatus("ClassIsland 正在运行，先退出再装。"); return; }
+
+            ciBusy = true;
+            RefreshClassIsland();
+            try
+            {
+                CiResultText.Text = "正在下载…";
+                IProgress<string> progress = new Progress<string>(text => { try { CiResultText.Text = text; } catch { } });
+                var file = await ClassIslandLink.DownloadLatestAsync(ci, text => progress.Report(text));
+
+                CiResultText.Text = "正在安装…";
+                var version = await System.Threading.Tasks.Task.Run(() => ClassIslandLink.Install(file));
+                try { File.Delete(file); } catch { }
+
+                CiResultText.Text = "已安装 " + version + "。启动 ClassIsland 后生效。";
+                ShowStatus("已装好，启动 ClassIsland 就能用。");
+            }
+            catch (Exception ex)
+            {
+                CiResultText.Text = ex.Message;
+                ShowStatus(ex.Message);
+            }
+            finally
+            {
+                ciBusy = false;
+                RefreshClassIsland();
+            }
+        }
+
+        async void OnCiLocalClick(object? sender, RoutedEventArgs e)
+        {
+            if (ciBusy) return;
+            try
+            {
+                var top = TopLevel.GetTopLevel(this);
+                if (top is null) return;
+
+                var filters = new List<FilePickerFileType>
+                {
+                    new("ClassIsland 插件包（.cipx）") { Patterns = new[] { "*.cipx", "*.zip" } },
+                    new("所有文件") { Patterns = new[] { "*" } },
+                };
+
+                var result = await FilePickerCompat.PickFilesAsync(top, "选择课件续页安装包", false, filters);
+                if (result.Files.Count == 0)
+                {
+                    if (!string.IsNullOrEmpty(result.Error)) ShowStatus(result.Error);
+                    return;
+                }
+
+                var ci = ClassIslandLink.Detect();
+                if (ci.Running) { ShowStatus("ClassIsland 正在运行，先退出再装。"); return; }
+
+                ciBusy = true;
+                RefreshClassIsland();
+                CiResultText.Text = "正在安装…";
+                var version = await System.Threading.Tasks.Task.Run(() => ClassIslandLink.Install(result.Files[0]));
+                CiResultText.Text = "已安装 " + version + "。启动 ClassIsland 后生效。";
+                ShowStatus("已装好，启动 ClassIsland 就能用。");
+            }
+            catch (Exception ex)
+            {
+                CiResultText.Text = ex.Message;
+                ShowStatus(ex.Message);
+            }
+            finally
+            {
+                ciBusy = false;
+                RefreshClassIsland();
+            }
+        }
+
+        void OnCiShareChanged(object? sender, RoutedEventArgs e)
+        {
+            if (ciSyncing) return;
+
+            var want = CiShareCheck.IsChecked == true;
+            if (want && !ClassIslandLink.Detect().PluginInstalled)
+            {
+                ciSyncing = true;
+                CiShareCheck.IsChecked = false;
+                ciSyncing = false;
+                ShowStatus("先装插件，才能打开共用记录。");
+                return;
+            }
+
+            ClassIslandLink.ShareLedger = want;
+            ShowStatus(want ? "共用记录已打开，重启 CSH 后生效。" : "共用记录已关闭，重启 CSH 后生效。");
+            RefreshClassIsland();
+        }
+
+        void OpenFolderPath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return;
+            try
+            {
+                if (openFolder != null) { openFolder(path); return; }
+                var psi = new ProcessStartInfo("explorer.exe") { UseShellExecute = true };
+                psi.ArgumentList.Add(path);
+                Process.Start(psi);
+            }
+            catch (Exception ex) { Log("open folder failed: " + ex.Message); }
         }
 
         // ---- 课表页 ---------------------------------------------------------------

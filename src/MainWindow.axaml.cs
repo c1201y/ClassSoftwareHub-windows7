@@ -1423,6 +1423,28 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void ApplyBackdrop(string kind)
     {
+        // ── 自定义背景图（2026-11-27）────────────────────────────────────
+        // 先把系统材质关干净（否则亚克力/云母会在图上再糊一层，图就发灰），再把图铺到底层。
+        if (string.Equals(kind, "image", StringComparison.OrdinalIgnoreCase))
+        {
+            BackdropTheme.Apply(this, RootGrid, "solid", primaryWindow: true);
+            var ok = Platform.BackdropImage.ApplyTo(RootGrid, this);
+            if (!ok)
+            {
+                // 图没了/读不到：别把窗口留成一片白，退回亚克力并把设置修正回来
+                AppLog.Warn("appearance", "背景图不可用，退回亚克力（检查设置里的图片路径）");
+                _settings.Current.Backdrop = "acrylic";
+                ApplyBackdrop("acrylic");
+                return;
+            }
+            _settings.Current.Backdrop = "image";        // 别写 applied（那是 solid）
+            Shell?.SetNavVeil(true);                     // 左侧导航压一层蒙版：照片不抢字
+            _bridge.Send("shell.backdropChanged", new { value = "image" });
+            return;
+        }
+
+        Shell?.SetNavVeil(false);                        // 非图片模式：撤掉导航蒙版，别把材质压灰
+
         // ⚠️ 走 BackdropTheme 而不是 Backdrop：Win10 的亚克力着色必须跟深浅色走
         //    （Backdrop 里写死 60% 白，深色下会糊成奶白雾），顺带补深色标题栏。
         //    primaryWindow: true —— 只有主窗口能接受「整窗全透明 + 清空根面板底色」，
@@ -1616,7 +1638,7 @@ public sealed partial class MainWindow : Window
             _tray.MenuItems.Add(new TrayMenuItem { Text = "打开主界面", Command = "show", IsDefault = true, Glyph = "\uE80F" });
             _tray.MenuItems.Add(new TrayMenuItem { Text = "常用工具", Command = "palette", Glyph = "\uE71D" });
             _tray.MenuItems.Add(new TrayMenuItem { Text = "文件快搜", Command = "file-search", Glyph = "\uE721" });
-            _tray.MenuItems.Add(new TrayMenuItem { Text = "工具侧边栏", Command = "sidebar", Glyph = "\uE8A0" });
+            _tray.MenuItems.Add(new TrayMenuItem { Text = "打开悬浮窗", Command = "sidebar", Glyph = "\uE8A0" });
             _tray.MenuItems.Add(new TrayMenuItem { Separator = true });
             _tray.MenuItems.Add(new TrayMenuItem { Text = "检查更新", Command = "update", Glyph = "\uE72C" });
             _tray.MenuItems.Add(new TrayMenuItem { Text = "重启应用", Command = "restart", Glyph = "\uE777" });
@@ -1632,6 +1654,7 @@ public sealed partial class MainWindow : Window
             _trayTools.CommandInvoked += OnTrayCommand;
             _trayTools.MenuItems.Add(new TrayMenuItem { Text = "打开常用工具", Command = "palette", IsDefault = true, Glyph = "\uE71D" });
             _trayTools.MenuItems.Add(new TrayMenuItem { Text = "打开主界面", Command = "show", Glyph = "\uE80F" });
+            _trayTools.MenuItems.Add(new TrayMenuItem { Text = "打开悬浮窗", Command = "sidebar", Glyph = "\uE8A0" });
             _trayTools.MenuItems.Add(new TrayMenuItem { Separator = true });
             _trayTools.MenuItems.Add(new TrayMenuItem { Text = "退出", Command = "exit", Glyph = "\uE7E8" });
 
