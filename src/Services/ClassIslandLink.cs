@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -23,16 +23,30 @@ public sealed class CiInstallInfo
     public string ConfigDir { get; init; } = "";
     public string PluginVersion { get; init; } = "";
 
+    /// <summary>
+    /// 这一代 ClassIsland 要用的插件 id：2.x 是 <c>ClassSlideSync.Plugin</c>，
+    /// **1.x 是 <c>ClassSlideSync.Plugin.Legacy</c>**（插件 API 是上一代，2.x 的包装不进 1.x，
+    /// 反之亦然。1.x 那份的插件配置目录在 %APPDATA%，见 <see cref="ConfigDir"/>）。
+    /// </summary>
+    public string PluginId { get; init; } = ClassIslandLink.PluginId;
+
+    /// <summary>是不是 ClassIsland 1.x 那一代。</summary>
+    public bool Legacy => string.Equals(PluginId, ClassIslandLink.LegacyPluginId, StringComparison.OrdinalIgnoreCase) && PluginId.Length > 0;
+
     public bool Found => Root.Length > 0;
 
-    public bool PluginInstalled =>
-        PluginVersion.Length > 0 || (PluginDir.Length > 0 && File.Exists(Path.Combine(PluginDir, "ClassSlideSync.Plugin.dll")));
+    /// <summary>这一代插件的主 dll 文件名（1.x 叫 ClassSlideSync.Plugin.Legacy.dll）。</summary>
+    public string PluginDll => PluginId + ".dll";
 
-    /// <summary>ClassIsland 2.2 起插件要求 .NET 10，安装包分两种。</summary>
+    public bool PluginInstalled =>
+        PluginVersion.Length > 0 || (PluginDir.Length > 0 && File.Exists(Path.Combine(PluginDir, PluginDll)));
+
+    /// <summary>ClassIsland 2.2 起插件要求 .NET 10（只有 2.x 这一代有 net10 包）。</summary>
     public bool UsesNet10
     {
         get
         {
+            if (Legacy) return false;
             var v = ClassIslandLink.ParseVersion(Version);
             return v != null && (v.Major > 2 || (v.Major == 2 && v.Minor >= 2));
         }
@@ -68,10 +82,19 @@ public sealed class CiInstallInfo
 public static class ClassIslandLink
 {
     public const string PluginId = "ClassSlideSync.Plugin";
+
+    /// <summary>
+    /// ClassIsland **1.x 那一代**的插件 id：1.x 的插件 API 是上一代（PluginSdk 1.x），
+    /// 2.x 的 cipx 装进去也不会被加载，所以那边一直是一个独立的插件（同样是我们自己的）。
+    /// 它的配置目录在 <c>%APPDATA%\ClassSlideSync.Plugin.Legacy</c>（1.x SDK 给的位置），
+    /// 不在 CI 的 data\Config 下面。</summary>
+    public const string LegacyPluginId = "ClassSlideSync.Plugin.Legacy";
+
     public const string PluginName = "课件续页";
 
     private const string StandardAsset = "ClassSlideSync.Plugin.cipx";
     private const string Net10Asset = "ClassSlideSync.Plugin.net10.cipx";
+    private const string LegacyAsset = "ClassSlideSync.Plugin.Legacy.cipx";
     private const string LatestBase = "https://github.com/KKT446/ClassSlideSync/releases/latest/download/";
 
     private static readonly object Gate = new();
@@ -150,7 +173,35 @@ public static class ClassIslandLink
         if (!ShareLedger) return null;
         var ci = Detect();
         if (!ci.PluginInstalled || ci.ConfigDir.Length == 0) return null;
+
+        // 目录得**可写**才算能共用：CI 装在 Program Files 时 data\Config 普通用户写不进去，
+        // 硬指过去就是"共用开关打开了、台账却一直在报只读"，比不共用更迷惑。
+        if (!CanWriteTo(ci.ConfigDir))
+        {
+            AppLog.Warn("classisland",
+                "共用台账已关闭使用：插件配置目录不可写（" + ci.ConfigDir + "），本次仍用 CSH 自己的记录目录");
+            return null;
+        }
+        AppLog.Info("classisland",
+            "共用台账｜代=" + (ci.Legacy ? "1.x(Legacy)" : "2.x") + "｜目录=" + ci.ConfigDir);
         return ci.ConfigDir;
+    }
+
+    /// <summary>探测目录可写（不存在就先建）。只做一次轻量写删，别去碰台账文件本体。</summary>
+    private static bool CanWriteTo(string dir)
+    {
+        try
+        {
+            Directory.CreateDirectory(dir);
+            var probe = Path.Combine(dir, ".csh-write-test-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            File.WriteAllText(probe, "ok");
+            File.Delete(probe);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     // ── 探测 ──────────────────────────────────────────────────────────
@@ -163,19 +214,81 @@ public static class ClassIslandLink
             return new CiInstallInfo { Running = running };
 
         var dataRoot = ResolveDataRoot(root);
-        var pluginDir = Path.Combine(dataRoot, "Plugins", PluginId);
-        var configDir = Path.Combine(dataRoot, "Config", "Plugins", PluginId);
+        var version = ReadCiVersion(root);
+        var legacy = IsLegacyGeneration(version, root, dataRoot);
+        var pluginId = legacy ? LegacyPluginId : PluginId;
+
+        var pluginDir = Path.Combine(dataRoot, "Plugins", pluginId);
+        // 1.x SDK 给的插件配置目录是 %APPDATA%\<插件 id>；2.x 在 data\Config\Plugins\<插件 id>。
+        var configDir = legacy
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), pluginId)
+            : Path.Combine(dataRoot, "Config", "Plugins", pluginId);
+
+        LogDetectOnce(root, version, legacy, pluginId, pluginDir, configDir);
 
         return new CiInstallInfo
         {
             Root = root,
             DataRoot = dataRoot,
-            Version = ReadCiVersion(root),
+            Version = version,
             Running = running,
+            PluginId = pluginId,
             PluginDir = pluginDir,
             ConfigDir = configDir,
             PluginVersion = ReadManifestVersion(pluginDir),
         };
+    }
+
+    /// <summary>
+    /// 判定该用哪一代插件。
+    /// <para>
+    /// ⚠️ 2026-11-28 修正：**1.6 起 ClassIsland 就已经是 .NET 8 + Avalonia 11.x**，
+    /// 插件 API 版本（manifest 里的 <c>apiVersion: 2.0.0.0</c>）从我们 1.0.1.0 起就没变过 ——
+    /// 也就是说 1.6/1.7 直接装 GitHub 上那份默认包就行，不需要单独的 Legacy 包。
+    /// 只有 **1.5 及更早**（net6/net7 时代、插件 API 更老）才需要 Legacy 那份。
+    /// </para>
+    /// <para>
+    /// 版本读不到时：先看盘上装的到底是哪个 id 的插件目录，再拿它当证据；都没有就按"现代"处理
+    /// （宁可用默认包被试装拒绝，也别把 Legacy 包装进 2.x）。
+    /// </para>
+    /// </summary>
+    private static bool IsLegacyGeneration(string version, string root, string dataRoot)
+    {
+        var v = ParseVersion(version);
+        if (v != null)
+        {
+            if (v.Major >= 2) return false;
+            return v.Minor < 6;                       // 1.6 起与 2.x 同一代运行时/插件 API
+        }
+
+        try
+        {
+            if (Directory.Exists(Path.Combine(dataRoot, "Plugins", LegacyPluginId))) return true;
+            if (Directory.Exists(Path.Combine(dataRoot, "Plugins", PluginId))) return false;
+        }
+        catch { }
+        return false;                                  // 兜底：按现代处理
+    }
+
+    private static string _lastDetectSignature = "";
+
+    /// <summary>同一次会话里只在"根/版本/代"变化时打一条，排障要看代和两条目录。</summary>
+    private static void LogDetectOnce(string root, string version, bool legacy, string pluginId,
+        string pluginDir, string configDir)
+    {
+        try
+        {
+            var sig = root + "|" + version + "|" + legacy;
+            if (string.Equals(sig, _lastDetectSignature, StringComparison.Ordinal)) return;
+            _lastDetectSignature = sig;
+            var probe = new CiInstallInfo { Version = version, PluginId = pluginId };
+            AppLog.Info("classisland",
+                "探测｜根=" + root + "｜版本=" + (string.IsNullOrWhiteSpace(version) ? "未知" : version)
+                + "｜代=" + (legacy ? "1.x(Legacy)" : "2.x")
+                + "｜安装包=" + AssetName(probe)
+                + "｜插件目录=" + pluginDir + "｜配置目录=" + configDir);
+        }
+        catch { }
     }
 
     /// <summary>用户手动指定位置；接受 ClassIsland 根目录、data 目录或 exe 所在的目录。</summary>
@@ -355,15 +468,43 @@ public static class ClassIslandLink
         return "";
     }
 
+    /// <summary>
+    /// 读 manifest 里的插件 id（精确那一行）。⚠️ 不能用"包含 id 子串"来判断 ——
+    /// <c>id: ClassSlideSync.Plugin.Legacy</c> 也含 <c>id: ClassSlideSync.Plugin</c>，
+    /// 子串判断会让 1.x 与 2.x 的包互相认错。
+    /// </summary>
+    private static string ReadManifestId(string manifestPath)
+    {
+        try
+        {
+            if (!File.Exists(manifestPath)) return "";
+            foreach (var raw in File.ReadAllLines(manifestPath))
+            {
+                var line = raw.Trim();
+                if (!line.StartsWith("id:", StringComparison.OrdinalIgnoreCase)) continue;
+                return line.Substring("id:".Length).Trim().Trim('"', '\'');
+            }
+        }
+        catch { }
+        return "";
+    }
+
     // ── 安装 ──────────────────────────────────────────────────────────
 
     public static string AssetName(bool net10) => net10 ? Net10Asset : StandardAsset;
+
+    /// <summary>
+    /// 该装哪个安装包：1.x → Legacy 包；2.2+ → net10 包；其余 2.x → 标准包。
+    /// ⚠️ 认错一代就是"装完仍显示未安装"，所以在线安装这条路只吃 <see cref="CiInstallInfo"/>。
+    /// </summary>
+    public static string AssetName(CiInstallInfo ci)
+        => ci.Legacy ? LegacyAsset : (ci.UsesNet10 ? Net10Asset : StandardAsset);
 
     /// <summary>从 GitHub 的 latest release 下载对应安装包，返回临时文件路径（调用方负责删）。</summary>
     public static async Task<string> DownloadLatestAsync(CiInstallInfo ci, Action<string>? progress,
                                                          CancellationToken ct = default)
     {
-        var asset = AssetName(ci.UsesNet10);
+        var asset = AssetName(ci);
         var url = LatestBase + asset;
         var dest = Path.Combine(Path.GetTempPath(), "csh-" + asset);
 
@@ -373,7 +514,12 @@ public static class ClassIslandLink
 
         using var resp = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
         if (!resp.IsSuccessStatusCode)
-            throw new InvalidOperationException("下载失败（HTTP " + (int)resp.StatusCode + "）。可以在浏览器里下载安装包，再用「从安装包安装…」。");
+        {
+            var hint = ci.Legacy
+                ? "ClassIsland 1.x 要装「课件续页 1.x（Legacy）」那份 .cipx；仓库目前还没发布它，请用「从安装包…」手动选那个文件。"
+                : "可以在浏览器里下载安装包，再用「从安装包安装…」。";
+            throw new InvalidOperationException("下载 " + asset + " 失败（HTTP " + (int)resp.StatusCode + "）。" + hint);
+        }
 
         var total = resp.Content.Headers.ContentLength ?? 0;
         await using var src = await resp.Content.ReadAsStreamAsync(ct);
@@ -409,8 +555,17 @@ public static class ClassIslandLink
             ZipFile.ExtractToDirectory(packagePath, temp);
 
             var manifest = Path.Combine(temp, "manifest.yml");
-            if (!File.Exists(manifest) || !File.ReadAllText(manifest).Contains("id: " + PluginId, StringComparison.Ordinal))
-                throw new InvalidOperationException("这个文件不是「" + PluginName + "」的安装包。");
+            var manifestId = ReadManifestId(manifest);
+            if (manifestId.Length == 0)
+                throw new InvalidOperationException("这个文件不是「" + PluginName + "」的安装包（manifest.yml 里没有 id）。");
+            if (!string.Equals(manifestId, ci.PluginId, StringComparison.OrdinalIgnoreCase))
+            {
+                // 典型误装：把 2.x 的包装进 1.x、或把 Legacy 包装进 2.x —— 装进去也不会被宿主加载。
+                var want = ci.Legacy ? "ClassIsland 1.x（Legacy）" : "ClassIsland 2.x";
+                throw new InvalidOperationException(
+                    "安装包不匹配：这份是 " + manifestId + "，而当前 " + want + " 需要 " + ci.PluginId
+                    + " 的包。1.x 与 2.x 的插件 API 不是同一代，不能混装。");
+            }
 
             Directory.CreateDirectory(ci.PluginDir);
 
