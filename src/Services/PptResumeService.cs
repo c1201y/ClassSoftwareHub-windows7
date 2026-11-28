@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Globalization;
@@ -837,8 +837,23 @@ public sealed class PptResumeService
 
     // ── 卡片接线 ─────────────────────────────────────────────────────────
 
+    /// <summary>ClassIsland 在不在跑（同一份台账它也会画卡片）。</summary>
+    private static bool IsClassIslandRunning()
+    {
+        try { return System.Diagnostics.Process.GetProcessesByName("ClassIsland").Length > 0; }
+        catch { return false; }
+    }
+
     private void BuildCardLocked()
     {
+        // 2026-11-28（用户：打开课件弹了两个）：ClassIsland 在跑时它自己会画卡片，
+        // CSH 这边不再画第二张 —— 同一份记录只留一个可视入口，课件库仍由 CSH 管。
+        if (IsClassIslandRunning())
+        {
+            AppLog.Info("ppt-resume", "ClassIsland 在运行：课件卡片交给它显示，CSH 不再重复弹一张");
+            return;
+        }
+
         var c = new NativeOverlayCard();
         c.Configure(_appearance ?? new CardAppearance(),
             _settings.AutoShowOverlay, _settings.AutoHide, _settings.AutoHideSeconds,

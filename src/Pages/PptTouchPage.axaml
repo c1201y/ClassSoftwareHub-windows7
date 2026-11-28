@@ -37,7 +37,7 @@
                         <TextBlock Text="实验性功能" FontSize="12" Foreground="{DynamicResource SystemFillColorCautionBrush}" VerticalAlignment="Bottom" />
                     </StackPanel>
                     <TextBlock FontSize="12" Opacity="0.65" TextWrapping="Wrap"
-                               Text="放映时轻点屏幕：点在空白处翻页，点在视频、音频或链接上则按它自身的方式响应。上下滑动切换页面，长按弹出操作菜单。" />
+                               Text="放映时轻点空白处翻页；点在视频、音频、链接上按它自己的方式响应；上下滑换页；长按出菜单。" />
                 </StackPanel>
 
                 <views:SettingsCard Header="触控手势">
@@ -56,7 +56,7 @@
                 <views:SettingsCard Header="长按菜单">
                     <views:SettingsCard.Description>
                         <TextBlock FontSize="12" Opacity="0.6" TextWrapping="Wrap"
-                                   Text="长按屏幕后松手，弹出本程序的菜单，用于翻页、指针、暂停与结束放映。" />
+                                   Text="长按屏幕再松手，弹出菜单：翻页、指针、暂停、结束放映。" />
                     </views:SettingsCard.Description>
                     <views:SettingsCard.HeaderIcon>
                         <fa:FontIcon Glyph="&#xE8A7;" />
@@ -70,7 +70,7 @@
                 <views:SettingsCard Header="放映时鼠标锁定">
                     <views:SettingsCard.Description>
                         <TextBlock FontSize="12" Opacity="0.6" TextWrapping="Wrap"
-                                   Text="放映时把光标锁在屏幕正中央并隐藏：左键＝下一页；3 秒内双击右键或单击中键解锁；放映中再单击中键重新锁定。" />
+                                   Text="放映时鼠标锁在屏幕正中并隐藏。左键下一页；3 秒内双击右键或单击中键解锁；再单击中键重新上锁。" />
                     </views:SettingsCard.Description>
                     <views:SettingsCard.HeaderIcon>
                         <fa:FontIcon Glyph="&#xE7C9;" />
@@ -118,7 +118,7 @@
                 <views:SettingsCard Header="适用说明">
                     <views:SettingsCard.Description>
                         <TextBlock FontSize="12" Opacity="0.6" TextWrapping="Wrap"
-                                   Text="以上手势与菜单只在幻灯片放映时生效，程序未运行时不会生效。菜单里的动作作用于当前放映的演示文稿。" />
+                                   Text="只在幻灯片放映时生效。程序没启动就不生效；菜单操作作用于当前这份课件。" />
                     </views:SettingsCard.Description>
                     <views:SettingsCard.HeaderIcon>
                         <fa:FontIcon Glyph="&#xE946;" />

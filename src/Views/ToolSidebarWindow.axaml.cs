@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -274,7 +274,7 @@ public sealed partial class ToolSidebarWindow : Window
     public static int DefaultCollapsedLengthDip(bool line) => line ? LineLengthDip : GripDefaultLengthDip;
 
     /// <summary>收起条拖动判定阈值（dip）。小于它仍按点击展开。</summary>
-    private const double DragThresholdDip = 4;
+    private const double DragThresholdDip = 12;   // 手指按下必带几像素抖动；4dip 会把"点一下"误判成拖动
 
     /// <summary>收起条悬停提示；拖动期间临时拿掉，免得提示气泡跟着窗口跑。</summary>
     private const string CollapsedTip = "点一下展开，按住可拖动换边";
@@ -550,9 +550,11 @@ public sealed partial class ToolSidebarWindow : Window
     }
 
     /// <summary>隐藏：连同侧边栏里点开的附属悬浮窗一起收起；启用状态不变，下次启动仍会自动打开。</summary>
-    public static void HideSidebar()
+    public static void HideSidebar(bool sweepAccessories = true)
     {
-        Services.FloatingWindowCoordinator.HideDetachedWindows();
+        // 只有侧栏自己的「隐藏」按钮要顺手收起附属窗；设置里拨开关只是不显示侧栏，
+        // 别把老师正开着的文件快搜、音量条一起收掉。
+        if (sweepAccessories) Services.FloatingWindowCoordinator.HideDetachedWindows();
         HideSidebarOnly();
     }
 

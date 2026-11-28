@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -1810,12 +1810,13 @@ public sealed partial class ShellPage : PageBase
     {
         try
         {
-            // 用和**右侧内容卡片**同一档的半透明白（#B3FFFFFF / 深色 #B31E1E1E），
-            // 这样左栏和内容区才是"同一种料"，不是左边灰、右边白。
+            // 用和**右侧内容卡片**同一档的半透明白，左栏和内容区才是"同一种料"。
+            // 浓度可在「设置 → 外观 → 自定义图片 → 导航蒙版浓度」里调（默认 40%）。
             var dark = ActualThemeVariant == Avalonia.Styling.ThemeVariant.Dark;
+            var opacity = (byte)Math.Round(255 * Math.Clamp(App.Settings.Current.NavVeilOpacity, 0.15, 0.90));
             var brush = new Avalonia.Media.SolidColorBrush(dark
-                ? Avalonia.Media.Color.FromArgb(0xB3, 0x1E, 0x1E, 0x1E)
-                : Avalonia.Media.Color.FromArgb(0xB3, 0xFF, 0xFF, 0xFF));
+                ? Avalonia.Media.Color.FromArgb(opacity, 0x1E, 0x1E, 0x1E)
+                : Avalonia.Media.Color.FromArgb(opacity, 0xFF, 0xFF, 0xFF));
 
             if (on)
                 Nav.Resources["NavigationViewExpandedPaneBackground"] = brush;

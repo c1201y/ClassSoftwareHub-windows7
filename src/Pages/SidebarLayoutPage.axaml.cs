@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -1725,7 +1725,7 @@ public sealed partial class SidebarLayoutPage : PageBase
 
     private void ToggleSidebar_Click(object? sender, RoutedEventArgs e)
     {
-        if (ToolSidebarWindow.IsSidebarVisible) ToolSidebarWindow.HideSidebar();
+        if (ToolSidebarWindow.IsSidebarVisible) ToolSidebarWindow.HideSidebar(sweepAccessories: false);
         else ToolSidebarWindow.ShowSidebar();
         Refresh();
     }
