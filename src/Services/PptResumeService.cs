@@ -185,6 +185,10 @@ public sealed class PptResumeService
                 _armed = true;
                 _armReason = "随软件启动";
                 AppLog.Info("ppt-resume", "续播引擎已启动｜台账目录=" + ledger.Root + "｜设置目录=" + DataDir);
+
+                // 上次 CSH 退出后 ClassIsland 里可能还留着那块重复的「课件续页」面板 —— 启动顺手收掉。
+                // 不阻塞启动：真正的枚举放到 UI 线程的下一次空闲里做。
+                Dispatcher.UIThread.Post(() => { try { CiPanelCloser.CloseDuplicatePanels(); } catch { } });
             }
             catch (Exception ex)
             {
@@ -700,6 +704,11 @@ public sealed class PptResumeService
             {
                 var main = App.MainWindow;
                 if (main is null) return;
+
+                // 2026-11-28（用户：俩课件续页重叠）：CSH 课件库要露面时，
+                // 把 ClassIsland 里那个同款面板请它自己关掉 —— 屏幕上只留一套界面。
+                try { CiPanelCloser.CloseDuplicatePanels(); } catch { }
+
                 if (!main.IsVisible) main.ShowFromTray();
                 main.Activate();
                 main.Shell.NavigateToTool(typeof(Pages.Tools.PptResumePage));

@@ -20,6 +20,11 @@ public sealed partial class PptResumePage : PageBase
     public override void OnNavigatedTo(object? parameter)
     {
         if (_panel is not null) return;
+
+        // 2026-11-28（用户：俩课件续页重叠）：进这一页就把 ClassIsland 里那块同款面板请它关掉，
+        // 屏幕上只留一套界面（从侧栏、导航、快捷入口进来都会走这里）。
+        try { CiPanelCloser.CloseDuplicatePanels(); } catch { }
+
         _panel = PptResumeService.Current.CreatePanel();
         if (_panel is not null)
         {
