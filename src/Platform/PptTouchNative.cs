@@ -209,6 +209,11 @@ internal static class PptTouchNative
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool PostThreadMessage(uint idThread, uint msg, IntPtr wParam, IntPtr lParam);
 
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    public const uint WM_CLOSE = 0x0010;
+
     [DllImport("kernel32.dll")]
     public static extern uint GetCurrentThreadId();
 
