@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
@@ -1320,13 +1320,18 @@ namespace ClassSoftwareHub.Desktop.SlideSync.Ui
                     ? ci.Root
                     : "还没有找到 ClassIsland。点「选择…」，选 ClassIsland.exe 所在的文件夹。";
                 CiVersionText.Text = ci.Found
-                    ? "版本 " + (ci.Version.Length > 0 ? ci.Version : "未知") + "　插件目录：" + ci.PluginDir
+                    ? "版本 " + (ci.Version.Length > 0 ? ci.Version : "未知")
+                      + (ci.Legacy ? "（1.5 及更早 · 需要 Legacy 版插件）" : "（1.6 起 / 2.x：用默认安装包）")
+                      + "　插件目录：" + ci.PluginDir
                     : "没找到时，会自动查上次选的位置、正在运行的 ClassIsland、Program Files、桌面和下载文件夹。";
 
                 CiPluginText.Text = ci.PluginInstalled
                     ? "已安装" + (ci.PluginVersion.Length > 0 ? "，版本 " + ci.PluginVersion : "")
+                      + (ci.Legacy ? "（Legacy）" : "")
                       + (ci.Running ? "；ClassIsland 正在运行，装不了新版本" : "")
-                    : (ci.Found ? "未安装。" : "先选 ClassIsland 的位置。");
+                    : (ci.Found
+                        ? (ci.Legacy ? "未安装。这台是 1.5 及更早，要装 Legacy 版插件。" : "未安装。")
+                        : "先选 ClassIsland 的位置。");
 
                 CiInstallButton.Content = ci.PluginInstalled ? "更新" : "在线安装";
                 CiInstallButton.IsEnabled = ci.Found && !ci.Running && !ciBusy;
