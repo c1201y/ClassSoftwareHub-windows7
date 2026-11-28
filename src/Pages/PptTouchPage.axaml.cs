@@ -157,7 +157,7 @@ public sealed partial class PptTouchPage : PageBase
 
         var showing = PptTouch.IsSlideshowShowing();
         ShowStateText.Text = showing
-            ? "当前检测到 PowerPoint 正在放映。"
+            ? "当前检测到演示正在放映（PowerPoint / WPS 演示）。"
             : "当前未检测到 PowerPoint 放映。";
 
         // 没检测到时把 PowerPoint 现有的窗口类名写进日志（内部限频 30 秒），

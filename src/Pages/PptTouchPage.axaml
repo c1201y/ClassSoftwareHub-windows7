@@ -1,4 +1,4 @@
-<platform:PageBase
+﻿<platform:PageBase
     x:Class="ClassSoftwareHub.Desktop.Pages.PptTouchPage"
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -43,7 +43,7 @@
                 <views:SettingsCard Header="触控手势">
                     <views:SettingsCard.Description>
                         <TextBlock FontSize="12" Opacity="0.6" TextWrapping="Wrap"
-                                   Text="只对 PowerPoint 的幻灯片放映生效。" />
+                                   Text="对 PowerPoint 与 WPS 演示的幻灯片放映都生效。" />
                     </views:SettingsCard.Description>
                     <views:SettingsCard.HeaderIcon>
                         <fa:FontIcon Glyph="&#xE786;" />

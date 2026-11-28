@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -269,6 +269,17 @@ internal static class PptTouchNative
 
     public const uint WM_INPUT = 0x00FF;
     public const uint WS_POPUP = 0x80000000;
+    public const int GWL_STYLE = -16;
+    public const long WS_MINIMIZEBOX = 0x00020000L;
+    public const long WS_MAXIMIZEBOX = 0x00010000L;
+    public const long WS_CAPTION = 0x00C00000L;
+
+    /// <summary>取窗口样式；x64 上 GetWindowLongW 同样可用（样式在低 32 位）。</summary>
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongW")]
+    public static extern int GetWindowLongW(IntPtr hWnd, int index);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern int GetWindowTextW(IntPtr hWnd, StringBuilder text, int maxCount);
     public const uint RIDEV_INPUTSINK = 0x00000100;
     public const ushort HID_USAGE_PAGE_DIGITIZER = 0x0D;
     public const ushort HID_USAGE_DIGITIZER_TOUCH_SCREEN = 0x04;
