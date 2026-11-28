@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Avalonia;
 using Avalonia.Controls;
@@ -52,6 +52,7 @@ public sealed partial class PptTouchPage : PageBase
                 _ready = false;
                 EnableSwitch.IsChecked = config.Enabled;
                 MenuSwitch.IsChecked = config.CustomMenu;
+        MouseLockSwitch.IsChecked = config.MouseLock;
                 _ready = true;
 
                 BuildExtras(config.MenuExtras);
@@ -166,5 +167,17 @@ public sealed partial class PptTouchPage : PageBase
         // 只统计「真正补过动作」的次数：没补过就不显示，免得页面上挂一行 0。
         var taps = PptTouch.Taps;
         TapCountText.Text = taps > 0 ? $"已翻页 {taps} 次" : "";
+    }
+
+    /// <summary>需求第 7 条：放映时鼠标锁定。改完立刻生效（钩子回调只认缓存值）。</summary>
+    private void MouseLock_Toggled(object? sender, RoutedEventArgs e)
+    {
+        if (!_ready) return;
+
+        var config = PptTouchConfig.Load();
+        config.MouseLock = MouseLockSwitch.IsChecked == true;
+        config.Save();
+        PptTouch.ApplyConfig();
+        UpdateState();
     }
 }
