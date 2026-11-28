@@ -43,6 +43,12 @@ public sealed class AppSettings
     public string BackdropImageStretch { get; set; } = "cover";
     /// <summary>浮窗（常用工具、文件快搜、查阅单词、侧边栏…）也跟着用这张图。</summary>
     public bool BackdropImageOnFloating { get; set; }
+
+    /// <summary>
+    /// 图片背景模式下左侧导航与顶栏那层蒙版的浓度（0.15~0.9，默认 0.40 —— 和右侧内容卡片同档）。
+    /// 太低字会被照片花纹吃掉，太高就整块发白看不见图。
+    /// </summary>
+    public double NavVeilOpacity { get; set; } = 0.40;
     public string Theme { get; set; } = "system";              // system | light | dark
     /// <summary>分体：外部组件（侧边栏 / 常用工具浮窗 / 截图编辑窗）用**单独**的外观设置。</summary>
     public bool SplitTheme { get; set; }

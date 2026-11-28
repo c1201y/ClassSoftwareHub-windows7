@@ -1053,13 +1053,13 @@
                             HorizontalAlignment="Center"
                             Margin="24,24,24,24"
                             Spacing="10">
-                    <TextBlock Text="先把课件续页装进 ClassIsland，再打开共用记录，两边就能看到同一份进度。"
+                    <TextBlock Text="装好插件，再打开共用记录，两边看到的是同一份进度。"
                                FontSize="12"
                                TextWrapping="Wrap"
                                Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
 
                     <ui:SettingsCard IsExpanded="True" Header="ClassIsland 位置"
-                                     Description="选 ClassIsland.exe 所在的文件夹，选过一次就会记住。">
+                                     Description="选 ClassIsland.exe 所在的文件夹，之后会记住。">
                         <ui:SettingsCard.Footer>
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <Button x:Name="CiPickButton"

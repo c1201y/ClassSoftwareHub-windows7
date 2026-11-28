@@ -37,6 +37,12 @@ public sealed class PptTouchConfig
     public bool CustomMenu { get; set; } = true;
 
     /// <summary>
+    /// 放映时鼠标锁定（2026-11-28，需求第 7 条）：把光标钉在放映屏正中央并隐藏，
+    /// 左键＝下一页；3 秒内双击右键或单击中键解锁；放映中再单击中键重新锁定。默认关。
+    /// </summary>
+    public bool MouseLock { get; set; }
+
+    /// <summary>
     /// 额外菜单项的 id 清单（<see cref="PptMenu.Extras"/> 里那些），默认一个都不放 ——
     /// 放映时最常用的就那几项，其余由用户自己按需加。
     /// </summary>
@@ -124,7 +130,7 @@ public sealed class PptTouchConfig
 /// 那是防重入、防卡键的核心，改了会表现为「翻页按一下动两页」或「按键卡住」。
 /// </para>
 /// </summary>
-public static class PptTouch
+public static partial class PptTouch
 {
     // ── 判定参数 ──────────────────────────────────────────────
 
@@ -266,11 +272,11 @@ public static class PptTouch
 
                     var cls = new StringBuilder(64);
                     if (PptTouchNative.GetClassName(hwnd, cls, cls.Capacity) == 0) return true;
-                    if (!string.Equals(cls.ToString(), "screenClass", StringComparison.OrdinalIgnoreCase))
-                        return true;
 
                     PptTouchNative.GetWindowThreadProcessId(hwnd, out var pid);
-                    if (!IsPowerPointProcess(pid)) return true;
+
+                    // PowerPoint 认 screenClass；WPS 演示走 PptTouch.Wps.cs 里的三条判定
+                    if (!IsSlideshowWindow(hwnd, cls.ToString(), pid)) return true;
 
                     found = hwnd;
                     return false;   // 找到了，停止枚举
@@ -341,6 +347,7 @@ public static class PptTouch
 
         var config = PptTouchConfig.Load();
         _customMenu = config.CustomMenu;
+        SetMouseLockEnabled(config.MouseLock);
         if (!config.Enabled) return;
 
         var thread = new Thread(HookThread)
@@ -366,6 +373,9 @@ public static class PptTouch
     {
         try { PptPointerState.Stop(); } catch { /* 停不下来不影响卸载钩子 */ }
 
+        // 卸载钩子前先把鼠标放出来：宁可这次不放映，也不能把老师的鼠标锁在屏幕中间
+        SetMouseLockEnabled(false);
+
         var thread = _thread;
         if (thread is null) return;
 
@@ -385,7 +395,9 @@ public static class PptTouch
     /// </summary>
     public static void ApplyConfig()
     {
-        _customMenu = PptTouchConfig.Load().CustomMenu;
+        var cfg = PptTouchConfig.Load();
+        _customMenu = cfg.CustomMenu;
+        SetMouseLockEnabled(cfg.MouseLock);
     }
 
     /// <summary>当前 PowerPoint 放映窗口的句柄；没有放映就返回 <see cref="IntPtr.Zero"/>。</summary>
@@ -604,6 +616,9 @@ public static class PptTouch
             {
                 var msg = wParam.ToInt32();
                 var info = Marshal.PtrToStructure<PptTouchNative.MSLLHOOKSTRUCT>(lParam);
+
+                // 鼠标锁定（需求第 7 条）优先：它自己决定吞不吞，吞了就到此为止。
+                if (HandleMouseLock(msg, info)) return new IntPtr(1);
 
                 // ⚠️ 右键要在走到 HandleMouse 之前就拦掉：返回非 0 = 这条消息不再往下传。
                 if (SwallowRightButton(msg, info)) return new IntPtr(1);
@@ -1002,10 +1017,9 @@ public static class PptTouch
 
         var cls = new StringBuilder(64);
         if (PptTouchNative.GetClassName(hwnd, cls, cls.Capacity) == 0) return false;
-        if (!string.Equals(cls.ToString(), "screenClass", StringComparison.OrdinalIgnoreCase)) return false;
 
         PptTouchNative.GetWindowThreadProcessId(hwnd, out var pid);
-        if (!IsPowerPointProcess(pid)) return false;
+        if (!IsSlideshowWindow(hwnd, cls.ToString(), pid)) return false;
 
         // ⚠️ 移植差异：GetDpiForWindow 是 Win10 1607+ 的导出，Win7 上**根本不存在**，
         //    直接调会抛 EntryPointNotFoundException（而且是在钩子回调里，消息会被整条丢掉）。

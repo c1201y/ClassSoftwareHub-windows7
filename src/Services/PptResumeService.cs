@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Globalization;
@@ -185,6 +185,10 @@ public sealed class PptResumeService
                 _armed = true;
                 _armReason = "随软件启动";
                 AppLog.Info("ppt-resume", "续播引擎已启动｜台账目录=" + ledger.Root + "｜设置目录=" + DataDir);
+
+                // 上次 CSH 退出后 ClassIsland 里可能还留着那块重复的「课件续页」面板 —— 启动顺手收掉。
+                // 不阻塞启动：真正的枚举放到 UI 线程的下一次空闲里做。
+                Dispatcher.UIThread.Post(() => { try { CiPanelCloser.CloseDuplicatePanels(); } catch { } });
             }
             catch (Exception ex)
             {
@@ -700,6 +704,11 @@ public sealed class PptResumeService
             {
                 var main = App.MainWindow;
                 if (main is null) return;
+
+                // 2026-11-28（用户：俩课件续页重叠）：CSH 课件库要露面时，
+                // 把 ClassIsland 里那个同款面板请它自己关掉 —— 屏幕上只留一套界面。
+                try { CiPanelCloser.CloseDuplicatePanels(); } catch { }
+
                 if (!main.IsVisible) main.ShowFromTray();
                 main.Activate();
                 main.Shell.NavigateToTool(typeof(Pages.Tools.PptResumePage));
@@ -828,8 +837,23 @@ public sealed class PptResumeService
 
     // ── 卡片接线 ─────────────────────────────────────────────────────────
 
+    /// <summary>ClassIsland 在不在跑（同一份台账它也会画卡片）。</summary>
+    private static bool IsClassIslandRunning()
+    {
+        try { return System.Diagnostics.Process.GetProcessesByName("ClassIsland").Length > 0; }
+        catch { return false; }
+    }
+
     private void BuildCardLocked()
     {
+        // 2026-11-28（用户：打开课件弹了两个）：ClassIsland 在跑时它自己会画卡片，
+        // CSH 这边不再画第二张 —— 同一份记录只留一个可视入口，课件库仍由 CSH 管。
+        if (IsClassIslandRunning())
+        {
+            AppLog.Info("ppt-resume", "ClassIsland 在运行：课件卡片交给它显示，CSH 不再重复弹一张");
+            return;
+        }
+
         var c = new NativeOverlayCard();
         c.Configure(_appearance ?? new CardAppearance(),
             _settings.AutoShowOverlay, _settings.AutoHide, _settings.AutoHideSeconds,

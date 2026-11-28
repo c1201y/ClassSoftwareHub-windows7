@@ -1639,6 +1639,7 @@ public sealed partial class MainWindow : Window
             _tray.MenuItems.Add(new TrayMenuItem { Text = "常用工具", Command = "palette", Glyph = "\uE71D" });
             _tray.MenuItems.Add(new TrayMenuItem { Text = "文件快搜", Command = "file-search", Glyph = "\uE721" });
             _tray.MenuItems.Add(new TrayMenuItem { Text = "打开悬浮窗", Command = "sidebar", Glyph = "\uE8A0" });
+            _tray.MenuItems.Add(new TrayMenuItem { Text = "课件库", Command = "ppt-resume", Glyph = "\uE714" });
             _tray.MenuItems.Add(new TrayMenuItem { Separator = true });
             _tray.MenuItems.Add(new TrayMenuItem { Text = "检查更新", Command = "update", Glyph = "\uE72C" });
             _tray.MenuItems.Add(new TrayMenuItem { Text = "重启应用", Command = "restart", Glyph = "\uE777" });
@@ -1705,6 +1706,9 @@ public sealed partial class MainWindow : Window
                 break;
             case "file-search":
                 Views.FileSearchWindow.ShowWindow();
+                break;
+            case "ppt-resume":
+                Services.PptResumeService.Current.OpenPanel();
                 break;
             case "sidebar":
                 Views.ToolSidebarWindow.ShowSidebar();

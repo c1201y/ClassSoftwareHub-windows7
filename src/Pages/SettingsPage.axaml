@@ -223,7 +223,7 @@
                     <!-- ===== 自定义背景图（只有 Backdrop = image 时显示） ===== -->
                     <StackPanel x:Name="BackdropImagePanel" Spacing="4" IsVisible="False">
                         <views:SettingsCard Header="背景图片"
-                                               Description="选一张图铺在窗口最底层，替掉亚克力。浅色/深色可以各用一张。">
+                                               Description="选一张图当窗口底色，替掉亚克力；浅色、深色可各用一张。">
                             <views:SettingsCard.HeaderIcon>
                                 <fa:FontIcon Glyph="&#xEB9F;" />
                             </views:SettingsCard.HeaderIcon>
@@ -249,7 +249,7 @@
                         </views:SettingsCard>
 
                         <views:SettingsCard Header="模糊强度"
-                                               Description="数字越大越糊。推荐 16：既看得出图，又不抢内容。">
+                                               Description="越大越糊。推荐 16。">
                             <views:SettingsCard.HeaderIcon>
                                 <fa:FontIcon Glyph="&#xE8A9;" />
                             </views:SettingsCard.HeaderIcon>
@@ -266,7 +266,7 @@
                         </views:SettingsCard>
 
                         <views:SettingsCard Header="暗化"
-                                               Description="把图压暗一层保证文字对比度。推荐 25%。">
+                                               Description="把图压暗一点，字更清楚。推荐 25%。">
                             <views:SettingsCard.HeaderIcon>
                                 <fa:FontIcon Glyph="&#xE706;" />
                             </views:SettingsCard.HeaderIcon>
@@ -283,7 +283,7 @@
                         </views:SettingsCard>
 
                         <views:SettingsCard Header="铺法"
-                                               Description="铺满＝保持比例裁边填满（默认）；适应＝整张都看得见；平铺＝重复。">
+                                               Description="铺满：裁边填满（默认）；适应：整张可见；平铺：重复。">
                             <views:SettingsCard.HeaderIcon>
                                 <fa:FontIcon Glyph="&#xE7C2;" />
                             </views:SettingsCard.HeaderIcon>
@@ -297,7 +297,7 @@
                         </views:SettingsCard>
 
                         <views:SettingsCard Header="浮窗也跟随"
-                                               Description="常用工具、文件快搜、查阅单词等浮窗也用同一张图；侧边栏细条不参与。">
+                                               Description="浮窗也用这张图（侧边栏细条除外）。">
                             <views:SettingsCard.HeaderIcon>
                                 <fa:FontIcon Glyph="&#xE8A0;" />
                             </views:SettingsCard.HeaderIcon>

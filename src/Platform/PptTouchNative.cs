@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -61,6 +61,46 @@ internal static class PptTouchNative
 
     /// <summary>PageDown（下一页）。</summary>
     public const ushort VK_NEXT = 0x22;
+    public const int WM_MOUSEMOVE = 0x0200;
+    public const int WM_MBUTTONDOWN = 0x0207;
+    public const int WM_MBUTTONUP = 0x0208;
+
+    /// <summary>MonitorFromWindow 的兜底标志：取最近的那个显示器。</summary>
+    public const uint MONITOR_DEFAULTTONEAREST = 2;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MONITORINFO
+    {
+        public int cbSize;
+        public RECT rcMonitor;
+        public RECT rcWork;
+        public uint dwFlags;
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool ClipCursor(ref RECT rect);
+
+    /// <summary>解除限制：lpRect 传 NULL（和上面的 ref 版是两个签名）。</summary>
+    [DllImport("user32.dll", EntryPoint = "ClipCursor", SetLastError = true)]
+    public static extern bool ClipCursorAll(IntPtr rect);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool GetClipCursor(out RECT rect);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool SetCursorPos(int x, int y);
+
+    [DllImport("user32.dll")]
+    public static extern int ShowCursor(bool show);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern bool GetMonitorInfo(IntPtr monitor, ref MONITORINFO info);
+
+    [DllImport("user32.dll")]
+    public static extern int GetSystemMetrics(int index);
 
     /// <summary>PageUp（上一页）。</summary>
     public const ushort VK_PRIOR = 0x21;
@@ -169,6 +209,11 @@ internal static class PptTouchNative
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool PostThreadMessage(uint idThread, uint msg, IntPtr wParam, IntPtr lParam);
 
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    public const uint WM_CLOSE = 0x0010;
+
     [DllImport("kernel32.dll")]
     public static extern uint GetCurrentThreadId();
 
@@ -229,6 +274,17 @@ internal static class PptTouchNative
 
     public const uint WM_INPUT = 0x00FF;
     public const uint WS_POPUP = 0x80000000;
+    public const int GWL_STYLE = -16;
+    public const long WS_MINIMIZEBOX = 0x00020000L;
+    public const long WS_MAXIMIZEBOX = 0x00010000L;
+    public const long WS_CAPTION = 0x00C00000L;
+
+    /// <summary>取窗口样式；x64 上 GetWindowLongW 同样可用（样式在低 32 位）。</summary>
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongW")]
+    public static extern int GetWindowLongW(IntPtr hWnd, int index);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern int GetWindowTextW(IntPtr hWnd, StringBuilder text, int maxCount);
     public const uint RIDEV_INPUTSINK = 0x00000100;
     public const ushort HID_USAGE_PAGE_DIGITIZER = 0x0D;
     public const ushort HID_USAGE_DIGITIZER_TOUCH_SCREEN = 0x04;
@@ -293,8 +349,6 @@ internal static class PptTouchNative
     [DllImport("user32.dll")]
     public static extern uint GetDpiForWindow(IntPtr hWnd);
 
-    [DllImport("user32.dll")]
-    public static extern int GetSystemMetrics(int index);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern IntPtr OpenProcess(uint access, [MarshalAs(UnmanagedType.Bool)] bool inherit, uint pid);

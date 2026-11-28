@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
@@ -375,6 +375,7 @@ namespace ClassSoftwareHub.Desktop.SlideSync.Ui
 
             if (Tabs.SelectedIndex == 2)
             {
+                RefreshClassIsland();          // 装完插件 / CI 启停状态变了，切页就得看到最新的
                 RefreshTimetable();
                 return;
             }
