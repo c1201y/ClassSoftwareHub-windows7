@@ -2,15 +2,15 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:fa="using:FluentAvalonia.UI.Controls"
         x:Class="ClassSoftwareHub.Desktop.Views.ToolSidebarWindow"
-        SystemDecorations="None" ShowInTaskbar="False" CanResize="False" Topmost="True">
+        SystemDecorations="None" ShowInTaskbar="False" CanResize="False" Topmost="False">
 
     <!--
       屏幕边缘侧边栏：贴在屏幕的某一条边上（上下左右都能放）。
       用处：老师前台全屏放 PPT / 视频时够不到任务栏，直接从边上点工具。
         · 收起 = **两套样式二选一**（「侧边布局 → 收起样式」）：
             grip 圆角抓手（默认，一小截圆角条）｜ line 细竖线（窗口本身缩成 6×220 的圆角细线）
-          两套都是**点一下展开**，另外还都能**朝屏幕外滑一下**展开
-          （贴左边向右滑、贴右边向左滑，贴上下边同理；拖拽换边已于 2026-10-04 撤除，要换边请到设置里选）
+          两套都是**点一下展开**，按住可自由拖动，松手吸附到最近的屏幕边缘
+          （贴左边向右拖、贴右边向左拖，贴上下边同理）
         · 展开 = **两套样式二选一**（「侧边布局 → 展开样式」）：
             classic 工具竖排列表 + 底排「收起 / 常驻 / 位置复原 / 隐藏 / 打开应用」
             grid    图标网格（4 列一页 + 分页点）+ 快捷设置行（亮度 / 音量 / 键盘 / 设置）
@@ -43,7 +43,7 @@
                       ⚠️ 悬停高亮（PointerEntered/Exited）也是共用的，见 UpdateCollapsedLook。
                     -->
                     <Grid x:Name="CollapsedView" Background="Transparent"
-                          ToolTip.Tip="点一下展开（或从这条朝屏幕里滑开）"
+                          ToolTip.Tip="点一下展开，按住可拖动换边"
                           PointerPressed="Strip_PointerPressed"
                           PointerMoved="Strip_PointerMoved"
                           PointerReleased="Strip_PointerReleased"
@@ -67,10 +67,11 @@
 
                     <!-- 展开状态 -->
                     <Grid x:Name="ExpandedView" IsVisible="False">
-                        <StackPanel x:Name="ExpandedStack" Orientation="Vertical" Spacing="3" Margin="5,5,5,6">
+                        <Grid x:Name="ExpandedStack" Margin="5,5,5,6"
+                              RowDefinitions="Auto,*,Auto,Auto">
 
-                            <StackPanel x:Name="TitleRow" Orientation="Horizontal" Spacing="5"
-                                        HorizontalAlignment="Center" Opacity="0.7" Margin="0,2,0,2">
+                            <StackPanel x:Name="TitleRow" Grid.Row="0" Orientation="Horizontal" Spacing="5"
+                                        HorizontalAlignment="Center" Opacity="0.7" Margin="0,2,0,5">
                                 <fa:FontIcon Glyph="&#xE71D;" FontSize="11" VerticalAlignment="Center" />
                                 <TextBlock Text="常用工具" FontSize="11" VerticalAlignment="Center" />
                             </StackPanel>
@@ -78,22 +79,24 @@
                             <!--
                               工具按钮由代码按「侧边布局」里的模块清单生成（见 BuildToolButtons）。
                               模块多了就在这块里**滚动**（面板本身不会无限往长里长）。
+                              ⚠️ 底排固定在第 3 行：按钮增加到五颗后若仍用 StackPanel 顺序排，
+                                 工具区会把底排挤出面板，「隐藏 / 打开应用」就点不到了。
                             -->
-                            <ScrollViewer x:Name="ToolsScroll"
+                            <ScrollViewer x:Name="ToolsScroll" Grid.Row="1"
                                           VerticalScrollBarVisibility="Auto"
                                           HorizontalScrollBarVisibility="Disabled">
                                 <!-- 原 VerticalScrollMode/HorizontalScrollMode 为 WinUI 触摸属性，Avalonia 无此属性，删除 -->
                                 <StackPanel x:Name="ToolStack" Orientation="Vertical" Spacing="3" />
                             </ScrollViewer>
 
-                            <Border x:Name="Sep" Height="1" Margin="2,3,2,3" Opacity="0.2"
+                            <Border x:Name="Sep" Grid.Row="2" Height="1" Margin="2,3,2,3" Opacity="0.2"
                                     Background="{DynamicResource TextFillColorSecondaryBrush}" />
 
                             <!--
                               底下这几个按钮。内容由代码按贴的边决定（ApplyFooterContent）：
                               贴左右（竖条）= 图标在上、文字在下；贴上/下（横条）= 左图标、右文字（横条矮，竖排会被裁）。
                             -->
-                            <StackPanel x:Name="FooterStack" Orientation="Vertical" Spacing="2">
+                            <StackPanel x:Name="FooterStack" Grid.Row="3" Orientation="Vertical" Spacing="2">
                                 <Button x:Name="FoldButton" Click="Collapse_Click" MinWidth="0" MinHeight="44"
                                         Padding="0,6" Background="Transparent" BorderThickness="0"
                                         HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
@@ -109,7 +112,7 @@
                                 <Button x:Name="HideButton" Click="Hide_Click" MinWidth="0" MinHeight="44"
                                         Padding="0,6" Background="Transparent" BorderThickness="0"
                                         HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                                        ToolTip.Tip="隐藏（以后不显示，想找回来去「内置工具」页或系统托盘图标菜单）" />
+                                        ToolTip.Tip="收起悬浮窗和已打开的附属工具，下次启动仍会自动打开" />
 
                                 <!--
                                   第五个（加在最下面）：快速打开应用主界面。
@@ -122,7 +125,7 @@
                                         HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
                                         ToolTip.Tip="打开应用主界面（主窗口在托盘里或最小化时，点它叫出来）" />
                             </StackPanel>
-                        </StackPanel>
+                        </Grid>
 
                         <!--
                           ══ 展开样式的第二套：图标网格（2026-10-11，按用户给的希沃风格参考图做）══
@@ -132,7 +135,7 @@
 
                           ⚠️ 与 ExpandedStack 一样，工具格子由代码按「侧边布局」的模块清单生成
                              （见 BuildGridButtons / RenderGridPage），XAML 里只有壳。
-                          ⚠️ 顶部那排小图标按钮**沿用底排五颗的设置 key**（SidebarFooterKeys）：
+                          ⚠️ 顶部那排小图标按钮**沿用底排按钮的设置 key**（SidebarFooterKeys）：
                              设置里关掉哪颗，这里就不显示哪颗，两套样式不会"设置互相打架"。
                              「打开应用」那颗没放进来 —— 网格里固定补了「主页」格子，干的是同一件事。
                           ⚠️ 快捷设置行四颗都是复用已有功能，没有新造东西：
@@ -160,7 +163,7 @@
                                     </Button>
                                     <Button x:Name="GridHideButton" Click="Hide_Click" MinWidth="26" MinHeight="22"
                                             Padding="0" Background="Transparent" BorderThickness="0"
-                                            ToolTip.Tip="隐藏（以后不显示，想找回来去「内置工具」页或系统托盘图标菜单）">
+                                            ToolTip.Tip="收起悬浮窗和已打开的附属工具，下次启动仍会自动打开">
                                         <fa:FontIcon Glyph="&#xED1A;" FontSize="12" />
                                     </Button>
                                     <Button x:Name="GridPinButton" Click="Pin_Click" MinWidth="26" MinHeight="22"

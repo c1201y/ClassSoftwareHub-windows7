@@ -253,9 +253,9 @@ public static class CsesSchedule
     {
         if (!TryDate(semesterStart, out var start)) return null;
 
-        var weeks = (now.Date - start.Date).Days / 7;
-        if (weeks < 0) return null;               // 还没到学期，无法判断
-        return weeks % 2 == 0 ? "odd" : "even";   // 第一周算单周
+        var days = (now.Date - start.Date).Days;
+        if (days < 0) return null;               // 还没到学期，无法判断
+        return (days / 7) % 2 == 0 ? "odd" : "even";   // 第一周算单周
     }
 
     public static bool TryDate(string? text, out DateTime date)

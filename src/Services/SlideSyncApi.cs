@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -11,6 +12,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using ClassSoftwareHub.Desktop.Core;
+using ClassSoftwareHub.Desktop.Data;
 using ClassSoftwareHub.Desktop.SlideSync;
 
 namespace ClassSoftwareHub.Desktop.Services
@@ -127,7 +129,7 @@ namespace ClassSoftwareHub.Desktop.Services
                     var path = q >= 0 ? target.Substring(0, q) : target;
                     var query = q >= 0 ? target.Substring(q + 1) : "";
 
-                    if (path.Equals("/api/slidesync/health", StringComparison.OrdinalIgnoreCase))
+                    if (PathIs(path, "/api/slidesync/health", "/api/slidesync/ci/health"))
                     {
                         await WriteJsonAsync(stream, 200, HealthJson()).ConfigureAwait(false);
                         return;
@@ -143,35 +145,79 @@ namespace ClassSoftwareHub.Desktop.Services
                         return;
                     }
 
-                    if (method == "GET" && path.Equals("/api/slidesync/status", StringComparison.OrdinalIgnoreCase))
+                    if (method == "GET" && PathIs(path, "/api/slidesync/status", "/api/slidesync/ci/status"))
                     {
                         await WriteJsonAsync(stream, 200, StatusJson()).ConfigureAwait(false);
                         return;
                     }
 
-                    if (method == "GET" && path.Equals("/api/slidesync/subjects", StringComparison.OrdinalIgnoreCase))
+                    if (method == "GET" && PathIs(path, "/api/slidesync/subjects", "/api/slidesync/ci/subjects"))
                     {
                         await WriteJsonAsync(stream, 200, SubjectsJson()).ConfigureAwait(false);
                         return;
                     }
 
-                    if (method == "GET" && path.Equals("/api/slidesync/lesson", StringComparison.OrdinalIgnoreCase))
+                    if (method == "GET" && PathIs(path, "/api/slidesync/lesson", "/api/slidesync/ci/lesson"))
                     {
                         await WriteJsonAsync(stream, 200, LessonJson()).ConfigureAwait(false);
                         return;
                     }
 
+                    if (method == "GET" && PathIs(path, "/api/slidesync/timetable", "/api/slidesync/ci/timetable"))
+                    {
+                        var json = TimetableJson();
+                        if (json is null)
+                            await WriteJsonAsync(stream, 404, "{\"error\":\"no_timetable\"}").ConfigureAwait(false);
+                        else
+                            await WriteJsonAsync(stream, 200, json).ConfigureAwait(false);
+                        return;
+                    }
+
+                    if (method == "GET" && PathIs(path, "/api/slidesync/context", "/api/slidesync/ci/context"))
+                    {
+                        await WriteJsonAsync(stream, 200, ContextJson()).ConfigureAwait(false);
+                        return;
+                    }
+
+                    if (method == "GET" && PathIs(path, "/api/slidesync/next", "/api/slidesync/ci/next"))
+                    {
+                        await WriteJsonAsync(stream, 200, NextJson()).ConfigureAwait(false);
+                        return;
+                    }
+
+                    if (method == "POST" && PathIs(path, "/api/slidesync/timetable", "/api/slidesync/ci/timetable", "/api/slidesync/ci/sync"))
+                    {
+                        var (body, bodyError) = await ReadBodyAsync(stream, leftover, headers, cts.Token).ConfigureAwait(false);
+                        if (bodyError is not null)
+                        {
+                            await WriteBodyErrorAsync(stream, bodyError).ConfigureAwait(false);
+                            return;
+                        }
+                        await ImportTimetableAsync(stream, body ?? "", query).ConfigureAwait(false);
+                        return;
+                    }
+
                     if (method == "POST" && path.Equals("/api/slidesync/resume", StringComparison.OrdinalIgnoreCase))
                     {
-                        var body = await ReadBodyAsync(stream, leftover, headers, cts.Token).ConfigureAwait(false);
-                        await ResumeAsync(stream, body).ConfigureAwait(false);
+                        var (body, bodyError) = await ReadBodyAsync(stream, leftover, headers, cts.Token).ConfigureAwait(false);
+                        if (bodyError is not null)
+                        {
+                            await WriteBodyErrorAsync(stream, bodyError).ConfigureAwait(false);
+                            return;
+                        }
+                        await ResumeAsync(stream, body ?? "").ConfigureAwait(false);
                         return;
                     }
 
                     if (method == "POST" && path.Equals("/api/slidesync/jump", StringComparison.OrdinalIgnoreCase))
                     {
-                        var body = await ReadBodyAsync(stream, leftover, headers, cts.Token).ConfigureAwait(false);
-                        await JumpAsync(stream, body).ConfigureAwait(false);
+                        var (body, bodyError) = await ReadBodyAsync(stream, leftover, headers, cts.Token).ConfigureAwait(false);
+                        if (bodyError is not null)
+                        {
+                            await WriteBodyErrorAsync(stream, bodyError).ConfigureAwait(false);
+                            return;
+                        }
+                        await JumpAsync(stream, body ?? "").ConfigureAwait(false);
                         return;
                     }
 
@@ -280,6 +326,348 @@ namespace ClassSoftwareHub.Desktop.Services
             }, JsonOptions);
         }
 
+        private static bool PathIs(string path, params string[] candidates)
+        {
+            foreach (var candidate in candidates)
+                if (path.Equals(candidate, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
+        private string? TimetableJson()
+        {
+            var snap = _service.Snapshot();
+            var table = snap.Timetable;
+            if (table is null) return null;
+
+            var now = DateTime.Now;
+            var parity = CsesSchedule.WeekParity(snap.SemesterStart, now);
+            var days = new List<object>();
+            for (var weekday = 1; weekday <= 7; weekday++)
+            {
+                var classes = new List<(string Subject, TimeSpan Start, TimeSpan End, string Weeks, bool Ongoing)>();
+                foreach (var schedule in table.Schedules)
+                {
+                    if (schedule.EnableDay != weekday) continue;
+                    var weeks = NormalizeWeeks(schedule.Weeks);
+                    if (weeks != "all" && parity is not null && weeks != parity) continue;
+
+                    foreach (var item in schedule.Classes)
+                    {
+                        var subject = (item.Subject ?? "").Trim();
+                        if (subject.Length == 0) continue;
+                        if (!TryTime(item.StartTime, out var start) || !TryTime(item.EndTime, out var end)) continue;
+                        if (end <= start) continue;
+
+                        var ongoing = weekday == WeekdayOf(now)
+                                      && now.TimeOfDay >= start
+                                      && now.TimeOfDay < end;
+                        classes.Add((subject, start, end, weeks, ongoing));
+                    }
+                }
+
+                classes.Sort((a, b) =>
+                {
+                    var byStart = a.Start.CompareTo(b.Start);
+                    if (byStart != 0) return byStart;
+                    var byEnd = a.End.CompareTo(b.End);
+                    return byEnd != 0 ? byEnd : StringComparer.OrdinalIgnoreCase.Compare(a.Subject, b.Subject);
+                });
+
+                days.Add(new
+                {
+                    weekday,
+                    name = WeekdayName(weekday),
+                    classes = classes.Select(c => new
+                    {
+                        subject = c.Subject,
+                        start = FormatTime(c.Start),
+                        end = FormatTime(c.End),
+                        time = FormatTime(c.Start) + "–" + FormatTime(c.End),
+                        weeks = c.Weeks,
+                        ongoing = c.Ongoing,
+                    }).ToList(),
+                });
+            }
+
+            var subjects = table.Subjects
+                .Where(s => !string.IsNullOrWhiteSpace(s.Name))
+                .GroupBy(s => (s.Name ?? "").Trim(), StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First())
+                .OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(s => new
+                {
+                    name = (s.Name ?? "").Trim(),
+                    simplifiedName = s.SimplifiedName,
+                    teacher = s.Teacher,
+                    room = s.Room,
+                }).ToList();
+
+            return JsonSerializer.Serialize(new
+            {
+                ok = true,
+                now = IsoDateTime(now),
+                date = now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                time = now.ToString("HH:mm", CultureInfo.InvariantCulture),
+                weekday = WeekdayOf(now),
+                semesterStart = (snap.SemesterStart ?? "").Trim(),
+                weekType = parity,
+                source = SourceFileName(snap.TimetableSource),
+                updatedAt = SourceUpdatedAt(snap.TimetableSource),
+                subjects,
+                days,
+            }, JsonOptions);
+        }
+
+        private string ContextJson()
+        {
+            var now = DateTime.Now;
+            var snap = _service.Snapshot();
+            var current = _service.CurrentOngoingLesson(now);
+            var upcoming = _service.NextLesson(now);
+            var live = snap.Live;
+            var liveSubject = (live.Subject ?? "").Trim();
+            var subject = liveSubject.Length > 0 ? liveSubject : current?.Subject ?? "";
+            var record = snap.Subjects.FirstOrDefault(s =>
+                string.Equals(s.Name, subject, StringComparison.OrdinalIgnoreCase));
+
+            return JsonSerializer.Serialize(new
+            {
+                ok = true,
+                now = IsoDateTime(now),
+                date = now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                time = now.ToString("HH:mm", CultureInfo.InvariantCulture),
+                weekday = WeekdayOf(now),
+                timetableAvailable = snap.Timetable is not null,
+                weekType = snap.Timetable is null
+                    ? null
+                    : CsesSchedule.WeekParity(snap.SemesterStart, now),
+                ongoing = current is not null,
+                current = ScheduledLessonPayload(current),
+                upcoming = ScheduledLessonPayload(upcoming),
+                nearby = NearbyLessonPayload(_service.CurrentLesson(now), now),
+                playing = live.Playing,
+                status = live.Status,
+                armed = _service.Armed,
+                armReason = _service.ArmReason,
+                subject,
+                fileName = LiveFileName(live.File),
+                slide = live.Slide,
+                total = live.Total,
+                hasCourseware = record?.HasRecord == true,
+                recordSlide = record?.Slide ?? 0,
+                recordTotal = record?.Total ?? 0,
+            }, JsonOptions);
+        }
+
+        private string NextJson()
+        {
+            var now = DateTime.Now;
+            var lesson = _service.NextLesson(now);
+            return JsonSerializer.Serialize(new
+            {
+                ok = true,
+                now = IsoDateTime(now),
+                lesson = ScheduledLessonPayload(lesson),
+                next = ScheduledLessonPayload(lesson),
+            }, JsonOptions);
+        }
+
+        private static object? ScheduledLessonPayload(PptScheduledLesson? lesson)
+        {
+            return lesson is null ? null : LessonPayload(
+                lesson.Subject, lesson.Date, lesson.Weekday, lesson.Weeks,
+                lesson.Start, lesson.End, lesson.Ongoing);
+        }
+
+        private static object? NearbyLessonPayload(PptLesson? lesson, DateTime now)
+        {
+            return lesson is null ? null : LessonPayload(
+                lesson.Subject, now.Date, WeekdayOf(now), null,
+                lesson.Start, lesson.End, lesson.Ongoing);
+        }
+
+        private static object LessonPayload(
+            string subject, DateTime date, int weekday, string? weeks,
+            TimeSpan start, TimeSpan end, bool ongoing)
+        {
+            var startAt = date + start;
+            var endAt = date + end;
+            return new
+            {
+                subject,
+                date = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                weekday,
+                weeks,
+                start = FormatTime(start),
+                end = FormatTime(end),
+                startAt = IsoDateTime(startAt),
+                endAt = IsoDateTime(endAt),
+                time = FormatTime(start) + "–" + FormatTime(end),
+                ongoing,
+            };
+        }
+
+        private async Task ImportTimetableAsync(NetworkStream stream, string body, string query)
+        {
+            if (string.IsNullOrWhiteSpace(body))
+            {
+                await WriteJsonAsync(stream, 400, "{\"error\":\"empty_body\"}").ConfigureAwait(false);
+                return;
+            }
+
+            string json;
+            string semesterStart = QueryValue(query, "semesterStart");
+            var source = QueryValue(query, "source");
+            if (source.Length == 0) source = "ci";
+            try
+            {
+                using var doc = JsonDocument.Parse(body);
+                var root = doc.RootElement;
+                if (root.ValueKind != JsonValueKind.Object)
+                {
+                    await WriteJsonAsync(stream, 400, "{\"error\":\"timetable_object_required\"}").ConfigureAwait(false);
+                    return;
+                }
+
+                if (root.TryGetProperty("semesterStart", out var semester) && semester.ValueKind == JsonValueKind.String)
+                    semesterStart = semester.GetString() ?? semesterStart;
+                if (root.TryGetProperty("source", out var src) && src.ValueKind == JsonValueKind.String)
+                    source = src.GetString() ?? source;
+
+                if (root.TryGetProperty("timetable", out var timetable))
+                    json = TimetableText(timetable) ?? "";
+                else if (root.TryGetProperty("json", out var jsonNode) && jsonNode.ValueKind == JsonValueKind.String)
+                    json = jsonNode.GetString() ?? "";
+                else if (root.TryGetProperty("cses", out var cses))
+                    json = TimetableText(cses) ?? "";
+                else
+                    json = body;    // 直接 POST 一份 CSES JSON
+            }
+            catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+            {
+                await WriteJsonAsync(stream, 400, "{\"error\":\"bad_json\"}").ConfigureAwait(false);
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                await WriteJsonAsync(stream, 400, "{\"error\":\"timetable_required\"}").ConfigureAwait(false);
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(semesterStart) && !CsesSchedule.TryDate(semesterStart, out _))
+            {
+                await WriteJsonAsync(stream, 400, "{\"error\":\"invalid_semester_start\"}").ConfigureAwait(false);
+                return;
+            }
+
+            var (ok, message) = _service.ImportCsesJson(json, source);
+            if (!ok)
+            {
+                await WriteJsonAsync(stream, 400,
+                    JsonSerializer.Serialize(new { error = "invalid_timetable", message }, JsonOptions))
+                    .ConfigureAwait(false);
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(semesterStart))
+            {
+                var applied = _service.ApplySemesterStart(semesterStart);
+                if (!applied.Ok)
+                {
+                    await WriteJsonAsync(stream, 400,
+                        JsonSerializer.Serialize(new { error = "invalid_semester_start", message = applied.Message }, JsonOptions))
+                        .ConfigureAwait(false);
+                    return;
+                }
+            }
+
+            await WriteJsonAsync(stream, 200,
+                JsonSerializer.Serialize(new
+                {
+                    ok = true,
+                    message,
+                    semesterStart = (_service.Snapshot().SemesterStart ?? "").Trim(),
+                }, JsonOptions)).ConfigureAwait(false);
+        }
+
+        private static string? TimetableText(JsonElement node)
+        {
+            return node.ValueKind switch
+            {
+                JsonValueKind.String => node.GetString(),
+                JsonValueKind.Object or JsonValueKind.Array => node.GetRawText(),
+                _ => null,
+            };
+        }
+
+        private static string NormalizeWeeks(string? weeks)
+        {
+            var value = (weeks ?? "all").Trim().ToLowerInvariant();
+            return value == "odd" || value == "even" ? value : "all";
+        }
+
+        private static bool TryTime(string? text, out TimeSpan time)
+        {
+            time = default;
+            var value = (text ?? "").Trim();
+            if (value.Length == 0) return false;
+
+            return TimeSpan.TryParseExact(value, @"hh\:mm\:ss", CultureInfo.InvariantCulture, out time)
+                   || TimeSpan.TryParseExact(value, @"hh\:mm", CultureInfo.InvariantCulture, out time)
+                   || TimeSpan.TryParse(value, CultureInfo.InvariantCulture, out time);
+        }
+
+        private static string FormatTime(TimeSpan time) => time.ToString(@"hh\:mm", CultureInfo.InvariantCulture);
+
+        private static int WeekdayOf(DateTime date) => ((int)date.DayOfWeek + 6) % 7 + 1;
+
+        private static string WeekdayName(int weekday) => weekday switch
+        {
+            1 => "周一",
+            2 => "周二",
+            3 => "周三",
+            4 => "周四",
+            5 => "周五",
+            6 => "周六",
+            _ => "周日",
+        };
+
+        private static string? IsoDateTime(DateTime? value) => value?.ToString(
+            "yyyy-MM-ddTHH:mm:sszzz", CultureInfo.InvariantCulture);
+
+        private static string SourceFileName(string? source)
+        {
+            var value = (source ?? "").Trim();
+            if (value.Length == 0) return "";
+            try { return Path.GetFileName(value); }
+            catch { return ""; }
+        }
+
+        private static string? SourceUpdatedAt(string? source)
+        {
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(source) && File.Exists(source))
+                    return IsoDateTime(File.GetLastWriteTime(source));
+            }
+            catch { }
+            return null;
+        }
+
+        private static string LiveFileName(string? file)
+        {
+            var value = file ?? "";
+            if (value.Length == 0) return "";
+            try
+            {
+                return SeewoBridge.IsSeewoKey(value)
+                    ? SeewoBridge.DisplayName(value)
+                    : Path.GetFileName(value);
+            }
+            catch { return ""; }
+        }
+
         private async Task ResumeAsync(NetworkStream stream, string body)
         {
             var subject = "";
@@ -295,7 +683,7 @@ namespace ClassSoftwareHub.Desktop.Services
                     }
                 }
             }
-            catch (JsonException)
+            catch (Exception ex) when (ex is JsonException or InvalidOperationException)
             {
                 await WriteJsonAsync(stream, 400, "{\"error\":\"bad_json\"}").ConfigureAwait(false);
                 return;
@@ -340,7 +728,7 @@ namespace ClassSoftwareHub.Desktop.Services
                 if (doc.RootElement.TryGetProperty("file", out var f)) file = (f.GetString() ?? "").Trim();
                 if (doc.RootElement.TryGetProperty("slide", out var s) && s.TryGetInt32(out var n)) slide = n;
             }
-            catch (JsonException)
+            catch (Exception ex) when (ex is JsonException or InvalidOperationException)
             {
                 await WriteJsonAsync(stream, 400, "{\"error\":\"bad_json\"}").ConfigureAwait(false);
                 return;
@@ -363,13 +751,13 @@ namespace ClassSoftwareHub.Desktop.Services
                 JsonSerializer.Serialize(new { ok = true, file, slide }, JsonOptions)).ConfigureAwait(false);
         }
 
-        private static async Task<string> ReadBodyAsync(
+        private static async Task<(string? Body, string? Error)> ReadBodyAsync(
             NetworkStream stream, byte[] leftover, Dictionary<string, string> headers, CancellationToken token)
         {
-            var length = 0;
-            if (headers.TryGetValue("Content-Length", out var raw)) int.TryParse(raw, out length);
-            if (length <= 0) return "";
-            if (length > MaxBodyBytes) throw new InvalidDataException("body too large");
+            if (!headers.TryGetValue("Content-Length", out var raw)) return ("", null);
+            if (!int.TryParse(raw, out var length) || length < 0) return (null, "bad_content_length");
+            if (length == 0) return ("", null);
+            if (length > MaxBodyBytes) return (null, "body_too_large");
 
             var body = new byte[length];
             var read = Math.Min(leftover.Length, length);
@@ -380,7 +768,15 @@ namespace ClassSoftwareHub.Desktop.Services
                 if (n <= 0) break;
                 read += n;
             }
-            return Encoding.UTF8.GetString(body, 0, read);
+            // 对端提前断开时不能把半截 JSON 当成完整请求继续处理。
+            if (read < length) return (null, "body_incomplete");
+            return (Encoding.UTF8.GetString(body, 0, read), null);
+        }
+
+        private static Task WriteBodyErrorAsync(NetworkStream stream, string error)
+        {
+            return WriteJsonAsync(stream, 400,
+                JsonSerializer.Serialize(new { error }, JsonOptions));
         }
 
         private bool TokenOk(string? given)

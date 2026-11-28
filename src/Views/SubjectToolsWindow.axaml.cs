@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
@@ -122,6 +122,9 @@ public sealed partial class SubjectToolsWindow : Window
             AppLog.Exception("subject-tools", ex, "打开学科工具窗口");
         }
     }
+
+    /// <summary>隐藏窗口但保留状态；侧边栏「隐藏」时调用。</summary>
+    public static void HideWindow() => _instance?.Hide();
 
     /// <summary>退出应用时真正销毁（见 <c>MainWindow</c> 的 FinishExit；由主控接线）。</summary>
     public static void CloseForExit()
@@ -366,12 +369,6 @@ public sealed partial class SubjectToolsWindow : Window
                 _shownOnce = true;
                 Show();                                     // Avalonia 首次显示（原版 Activate）
 
-                // ⚠️ 主题/材质/圆角都要等窗口真显示之后再补一遍（构造期拿不到 HWND / 主题尚未传播）
-                ThemeCompat.Apply(Root);
-                _corners = RoundedCorners.Attach(this);
-                _corners.Refresh();
-                BackdropTheme.Apply(this, Root, App.Settings.Current.Backdrop);
-
                 ApplySize();
                 CenterOnScreen();
             }
@@ -382,6 +379,25 @@ public sealed partial class SubjectToolsWindow : Window
                 try { NativeMethods.SetForegroundWindow(hwnd); } catch { }
                 Activate();
             }
+
+            // ⚠️ 每次显示都重上主题 / 圆角 / 材质（同 ToolPaletteWindow.ShowPalette 的说明：
+            //    只在首次显示做的话，收起再打开会丢掉亚克力与逐像素圆角）。
+            ThemeCompat.Apply(Root);
+            _corners ??= RoundedCorners.Attach(this);
+            _corners.Refresh();
+            BackdropTheme.Apply(this, Root, App.Settings.Current.Backdrop);
+            // 图片背景模式下，浮窗也跟着用同一张图（设置里可关）
+            BackdropImage.ApplyToFloating(this, Root);
+            // ⚠️ 圆角必须显式声明：RemoveBorder(rounded:true) 才会写 DWMWA_WINDOW_CORNER_PREFERENCE
+            //    （老系统退到区域裁剪）。本窗以前没调过它，真机上就是直角 + 一圈系统边框。每次显示都调，幂等。
+            try
+            {
+                var frameHwnd = Backdrop.TryGetHwnd(this);
+                WindowChrome.RemoveBorder(frameHwnd, rounded: true,
+                    dark: Root.ActualThemeVariant == Avalonia.Styling.ThemeVariant.Dark);
+            }
+            catch { }
+            try { Root.InvalidateVisual(); } catch { }
 
             // ⚠️ 2026-11-01（真机反馈「学科工具窗口有黑边，拖动一下才消失」）：
             //    首次 Show 时 Avalonia 的 surface 尺寸还是按"没被吃掉边框"的客户区算的，

@@ -2,9 +2,10 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:fa="using:FluentAvalonia.UI.Controls"
         x:Class="ClassSoftwareHub.Desktop.Views.VirtualKeyboardWindow"
-        SystemDecorations="None" ShowInTaskbar="False" CanResize="False"
+        SystemDecorations="None" ShowInTaskbar="False" CanResize="True"
         Topmost="True"
-        TransparencyLevelHint="None">
+        Background="Transparent"
+        TransparencyLevelHint="Transparent">
 
     <!--
         ⚠️ 窗口外壳：无边框 + 置顶 + 不进 Alt+Tab，走 Core.WindowChrome.RemoveBorder（项目统一那一套）。
@@ -20,7 +21,16 @@
            键帽自身 Height 固定，行高不再吃掉间隙，间距值与原版一致。
     -->
 
-    <Grid x:Name="Root" Background="{DynamicResource SolidBackgroundFillColorBaseBrush}">
+    <!--
+      ⚠️ 2026-11-27：窗口改成**逐像素透明**（TransparencyLevelHint=Transparent + 内容 alpha），
+        面板底色由代码按「键盘透明度」设置给（见 VirtualKeyboardWindow.ApplyTheme 里的 Shell.Background），
+        圆角也改由 Shell 的 CornerRadius 抠（Win11/Win10 都走内容 alpha，Win7 退成实色 + 区域裁剪）。
+        键帽仍是系统按钮，做成半透明反而不易辨认，保持原样。
+    -->
+    <Border x:Name="Shell" CornerRadius="10" BorderThickness="1"
+            BorderBrush="{DynamicResource CardStrokeColorDefaultBrush}"
+            Background="Transparent">
+        <Grid x:Name="Root" Background="Transparent">
 
         <Grid.Resources>
             <!-- 顶栏图标按钮：透明底 + 系统前景色，跟项目里其它浮窗一个手感 -->
@@ -42,8 +52,7 @@
         </Grid.RowDefinitions>
 
         <!-- 顶栏：握把 + 层名 + 两颗图标按钮。整条都是拖动区。 -->
-        <Grid x:Name="Toolbar" Grid.Row="0" Height="34" Background="Transparent"
-              PointerPressed="Toolbar_PointerPressed">
+        <Grid x:Name="Toolbar" Grid.Row="0" Height="34" Background="Transparent">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
@@ -63,7 +72,7 @@
                         ToolTip.Tip="贴靠屏幕底边 / 自由悬浮">
                     <fa:FontIcon x:Name="FloatIcon" Glyph="&#xE8A7;" FontSize="12" />
                 </Button>
-                <Button Theme="{StaticResource KbdIconButton}"
+                <Button x:Name="HideButton" Theme="{StaticResource KbdIconButton}"
                         Click="Hide_Click"
                         ToolTip.Tip="收起键盘">
                     <fa:FontIcon Glyph="&#xE70D;" FontSize="12" />
@@ -73,5 +82,6 @@
 
         <!-- 键区：行列都在代码里按布局表建 -->
         <Grid x:Name="KeyArea" Grid.Row="1" Margin="6,0,2,4" />
-    </Grid>
+        </Grid>
+    </Border>
 </Window>

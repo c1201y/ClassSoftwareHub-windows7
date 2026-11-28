@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Avalonia;
 using Avalonia.Controls;
@@ -201,10 +201,6 @@ public sealed partial class FileSearchWindow : Window
             {
                 _shownOnce = true;
                 Show();
-
-                ThemeCompat.Apply(Root);
-                _corners?.Refresh();
-                BackdropTheme.Apply(this, Root, _backdropPrefer);
                 ApplyPosition();
             }
             else
@@ -213,8 +209,31 @@ public sealed partial class FileSearchWindow : Window
                 try { NativeMethods.ShowWindow(hwnd, SW_SHOW); } catch { }
                 try { NativeMethods.SetForegroundWindow(hwnd); } catch { }
                 Activate();
-                _corners?.Refresh();
             }
+
+            // ⚠️ 每次显示都重上主题 / 圆角 / 材质 / 渲染表面 —— 只在首次显示做的话，
+            //    收起再打开会丢掉亚克力与 alpha 圆角（系统在隐藏/重显后会清掉），
+            //    与首次显示完全两个样。详见 ToolPaletteWindow.ShowPalette 的注释。
+            ThemeCompat.Apply(Root);
+            _corners?.Refresh();
+            BackdropTheme.Apply(this, Root, _backdropPrefer);
+
+            // 图片背景模式下，浮窗也跟着用同一张图（设置里可关）
+            BackdropImage.ApplyToFloating(this, Root);
+
+            // ⚠️ 圆角必须显式声明：RemoveBorder(rounded:true) 才会上 DWMWA_WINDOW_CORNER_PREFERENCE
+            //    （老系统退到区域裁剪）。本窗以前从来没调过它，所以真机上是**直角 + 一圈系统边框**
+            //    ——"太有棱角"就是这一条。每次显示都调，幂等。
+            try
+            {
+                var frameHwnd = Backdrop.TryGetHwnd(this);
+                WindowChrome.RemoveBorder(frameHwnd, rounded: true,
+                    dark: Root.ActualThemeVariant == Avalonia.Styling.ThemeVariant.Dark);
+            }
+            catch { }
+            _frame?.NudgeSurface("文件快搜窗显示");
+            _frame?.RefreshFrame("文件快搜窗显示");
+            try { Root.InvalidateVisual(); } catch { }
 
             _visible = true;
             UpdatePinVisual();

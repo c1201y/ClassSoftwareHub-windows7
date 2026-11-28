@@ -75,6 +75,19 @@ public sealed partial class VirtualKeyboardWindow : Window
     /// <summary>本轮显示由用户主动打开（非触摸自动弹出）——主动打开的不自动收起。</summary>
     public static bool ShownByUser { get; private set; }
 
+    /// <summary>本次显示已经记过一条"指针按下"诊断（每轮只记一条，免得刷日志）。</summary>
+    private bool _pressLogged;
+
+    /// <summary>
+    /// 自绘窗口框架：顶栏当标题栏（系统拖动）、四周 6dip 当缩放带。
+    /// 有了它就不用再自己 SendMessage(WM_NCLBUTTONDOWN) —— 那条路会漏掉 PointerReleased、
+    /// 把 Avalonia 的指针捕获留在工具栏上（2026-11-27 排查的"键帽全失效"）。
+    /// </summary>
+    private SelfDrawnFrame? _frame;
+
+    /// <summary>拖动/缩放结束后把新的位置与尺寸写回设置（防抖，别每帧写盘）。</summary>
+    private DispatcherTimer? _persistTimer;
+
     public static bool IsVisibleNow => _instance is not null && _instance._visible;
 
     public static IntPtr Handle => _instance?.HwndNow() ?? IntPtr.Zero;
@@ -108,6 +121,38 @@ public sealed partial class VirtualKeyboardWindow : Window
         ApplyTheme();
         BuildKeys();
         RefreshToolbar();
+
+        AttachFrame();
+
+        // 拖动 / 缩放走的是**系统**循环（WM_NCLBUTTONDOWN / HTxxx），结束时既没有
+        // Avalonia 的 PointerReleased 也没有"拖完了"回调 —— 只能靠窗口自己报：
+        //   PositionChanged（拖）与 Resized（缩放）各自防抖一次，落盘位置与尺寸。
+        _persistTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+        _persistTimer.Tick += (_, _) => { _persistTimer?.Stop(); PersistGeometry(); };
+        try
+        {
+            PositionChanged += (_, _) => QueuePersist();
+            Resized += (_, _) => QueuePersist();
+        }
+        catch { }
+
+        // 诊断（隧道阶段，先于键帽拿到事件）：能区分「窗口根本没收到鼠标」和
+        // 「收到了但没触发键」。每轮显示只记一条，正常使用不会刷日志。
+        try
+        {
+            Root.AddHandler(PointerPressedEvent, (_, e) =>
+            {
+                if (_pressLogged) return;
+                _pressLogged = true;
+                try
+                {
+                    var p = e.GetPosition(Root);
+                    VkbdLog.Write($"收到指针按下｜{p.X:0},{p.Y:0}｜指针={e.Pointer.Type}｜窗口={HwndNow()}");
+                }
+                catch { }
+            }, RoutingStrategies.Tunnel);
+        }
+        catch { }
     }
 
     /// <summary>当前原生句柄（窗口没 Show 之前也可能拿得到，拿不到给 Zero）。</summary>
@@ -252,6 +297,12 @@ public sealed partial class VirtualKeyboardWindow : Window
             WindowChrome.RemoveBorder(hwnd, rounded: true,
                 dark: Root.ActualThemeVariant == ThemeVariant.Dark);
 
+        // 逐像素透明：面板底色本身带 alpha（见 ApplyTheme 的 Shell.Background），
+        //    窗口得允许"内容 alpha"才能真的透出后面的画面。
+        //    Win7 没有透明窗口能力，BackdropTheme 会自己退回实色 —— 不影响可用性。
+        try { BackdropTheme.Apply(this, Root, "acrylic", alphaCorners: true); } catch { }
+        _frame?.RefreshFrame("虚拟键盘显示");
+
         // 显示走 SW_SHOWNOACTIVATE（不激活也不置前），摆位用 SetWindowPos(SWP_NOZORDER)（不动 Z 序），
         //    两者叠加时键盘会停在原 Z 序位置上，被全屏窗口盖住。
         //    XAML 的 Topmost 在 Win7 上有时来不及生效（Avalonia 在窗口创建那一刻应用该属性），
@@ -269,6 +320,7 @@ public sealed partial class VirtualKeyboardWindow : Window
 
         _visible = true;
         ShownByUser = userInitiated;
+        _pressLogged = false;
 
         TrackTarget();
         _targetTimer.Start();
@@ -312,6 +364,18 @@ public sealed partial class VirtualKeyboardWindow : Window
         // Avalonia 里 RequestedThemeVariant 只在 TopLevel / ThemeVariantScope 上生效，
         //    这里直接设在窗口（TopLevel）上，语义与原版 Root.RequestedTheme 相同。
         RequestedThemeVariant = ThemeCompat.Map(App.Settings.Current.VirtualKeyboardTheme);
+
+        // 面板底色：按「键盘透明度」给半透明刷子（2026-11-27 用户要的"透明键盘"）。
+        // 键帽保持系统实色 —— 整块都调透明度会把字糊掉，看不清更没法用。
+        try
+        {
+            var opacity = Math.Clamp(App.Settings.Current.VirtualKeyboardOpacity, 0.2, 1.0);
+            // 底色直接按深浅色给：读主题画刷要走资源树，深色下取错会变成白雾，不值当。
+            var dark = ActualThemeVariant == ThemeVariant.Dark;
+            var baseColor = dark ? Color.FromArgb(255, 0x20, 0x20, 0x20) : Color.FromArgb(255, 0xF3, 0xF3, 0xF3);
+            Shell.Background = new SolidColorBrush(baseColor, opacity);
+        }
+        catch { }
     }
 
     private void RefreshToolbar()
@@ -390,6 +454,10 @@ public sealed partial class VirtualKeyboardWindow : Window
     {
         try
         {
+            // 用户正在拖边缘缩放 / 拖顶栏移动时别插手：系统的模态循环结束时窗口才是最终值，
+            //    这中间调 SetWindowPos 会把缩放打断（表现为"拉到一半被弹回原尺寸"）。
+            if (_frame?.InSizeMove == true) return;
+
             var settings = App.Settings.Current;
             var layout = KeyboardLayouts.Get(_mode, _layer);
             var scale = ScaleSetting;
@@ -417,6 +485,28 @@ public sealed partial class VirtualKeyboardWindow : Window
             {
                 x = (int)Math.Round(settings.VirtualKeyboardFloatX);
                 y = (int)Math.Round(settings.VirtualKeyboardFloatY);
+            }
+            else if (settings.VirtualKeyboardFloating)
+            {
+                // ⚠️ 2026-11-27：**悬浮但坐标没存成**（-1 / 负数，历史存档里就有 FloatX=-3 这种）。
+                //    老代码在这一支里默默退回"贴底居中"，于是设置里显示是悬浮、键盘却贴着底边不动 ——
+                //    用户以为"脱离锁定了"，其实位置根本没变。现在改成：按窗口**当前所在位置**当悬浮点，
+                //    并把坐标补写回设置，下一次就是真正按悬浮位置摆。
+                var cur = HwndNow();
+                if (cur != IntPtr.Zero && NativeMethods.GetWindowRect(cur, out var cr))
+                {
+                    x = cr.Left;
+                    y = cr.Top;
+                    settings.VirtualKeyboardFloatX = x;
+                    settings.VirtualKeyboardFloatY = y;
+                    App.Settings.Save();
+                    VkbdLog.Write($"悬浮坐标缺失，按当前位置补记（{x},{y}）");
+                }
+                else
+                {
+                    x = work.X + (work.Width - w) / 2;
+                    y = work.Y + work.Height - h;
+                }
             }
             else
             {
@@ -567,40 +657,122 @@ public sealed partial class VirtualKeyboardWindow : Window
 
     // ── 顶栏交互 ────────────────────────────────────────────
 
-    private void Toolbar_PointerPressed(object? sender, PointerPressedEventArgs e)
+    /// <summary>
+    /// 挂自绘窗口框架：顶栏当标题栏（系统拖动 + 双击/贴边）、四周 6dip 当缩放带。
+    /// <para>
+    /// ⚠️ 2026-11-27：以前是自己 <c>SendMessage(WM_NCLBUTTONDOWN, HTCAPTION)</c> 手搓拖动，
+    ///    系统模态循环结束后 Avalonia 收不到 PointerReleased，指针捕获留在工具栏上 →
+    ///    之后整块键盘的点击都被路由回工具栏（键帽看起来"全部失效"）。
+    ///    交给框架后走的是系统的非客户区命中，Avalonia 的指针状态始终是干净的。
+    /// </para>
+    /// </summary>
+    private void AttachFrame()
     {
-        if (!e.GetCurrentPoint(Root).Properties.IsLeftButtonPressed) return;
-
-        var hwnd = HwndNow();
-
-        // 拖动交给系统合成（ReleaseCapture + WM_NCLBUTTONDOWN/HTCAPTION），
-        //    自己算 PointerMoved + Move 会卡顿、位置乱飘。
-        _ = NativeMethods.ReleaseCapture();
-        _ = NativeMethods.SendMessage(hwnd, NativeMethods.WM_NCLBUTTONDOWN,
-            new IntPtr(NativeMethods.HTCAPTION), IntPtr.Zero);
-
-        // SendMessage 返回时已经拖完了 —— 新位置要从窗口**读回来**再存。
-        var pos = PixelPoint.Origin;
-        if (hwnd != IntPtr.Zero && NativeMethods.GetWindowRect(hwnd, out var r))
-            pos = new PixelPoint(r.Left, r.Top);
-
-        var settings = App.Settings.Current;
-        var wasDocked = !settings.VirtualKeyboardFloating;
-
-        settings.VirtualKeyboardFloating = true;
-        settings.VirtualKeyboardFloatX = pos.X;
-        settings.VirtualKeyboardFloatY = pos.Y;
-        App.Settings.Save();
-
-        if (wasDocked)
+        try
         {
-            // 本来就贴着底边，拖一下自然就成"自由摆位"了 —— 不用先去点悬浮按钮。
-            VkbdLog.Write($"键盘从贴靠拖成悬浮（{pos.X},{pos.Y}）");
+            _frame = SelfDrawnFrame.Attach(this);
+            _frame.ResizeEnabled = true;
+            _frame.ResizeBorder = 6;
+            _frame.TitleBarHeight = ToolbarDip;          // 34dip：整条顶栏都能拖
+            _frame.InteractiveRegions = ToolbarInteractiveRegions;
+            _frame.EraseColorProvider = SelfDrawnFrame.EraseColorFrom(Root);
         }
-
-        RefreshToolbar();
-        e.Handled = true;
+        catch (Exception ex)
+        {
+            _frame = null;
+            VkbdLog.Write("⚠️ 挂自绘窗口框架失败（退回无拖动/无缩放）：" + ex.Message);
+        }
     }
+
+    /// <summary>顶栏上的两颗图标按钮要报给框架，否则它们会被当成标题栏（点了变拖窗口）。</summary>
+    private IReadOnlyList<Rect> ToolbarInteractiveRegions()
+    {
+        var list = new List<Rect>(2);
+        AddRegion(list, FloatButton);
+        AddRegion(list, HideButton);
+        return list;
+    }
+
+    private void AddRegion(List<Rect> list, Control button)
+    {
+        try
+        {
+            if (button.IsVisible && button.Bounds.Width > 0 && button.Bounds.Height > 0
+                && button.TranslatePoint(new Point(0, 0), this) is { } p)
+                list.Add(new Rect(p.X, p.Y, button.Bounds.Width, button.Bounds.Height));
+        }
+        catch { }
+    }
+
+    /// <summary>拖动/缩放中会连续触发 —— 防抖，停下来 400ms 再落盘一次。</summary>
+    private void QueuePersist()
+    {
+        try
+        {
+            _persistTimer?.Stop();
+            _persistTimer?.Start();
+        }
+        catch { }
+    }
+
+    /// <summary>
+    /// 把窗口当前的真实位置/尺寸折算回设置：
+    ///   高度 → 键高缩放（VirtualKeyboardScale）；宽度 → 占工作区比例（VirtualKeyboardWidthRatio）；
+    ///   悬浮时顺手记坐标。用户拖边缘缩放手感是"自由缩放"，落盘后下次打开还是这个大小。
+    /// </summary>
+    private void PersistGeometry()
+    {
+        try
+        {
+            var hwnd = HwndNow();
+            if (hwnd == IntPtr.Zero || !NativeMethods.GetWindowRect(hwnd, out var r)) return;
+            if (r.Width <= 0 || r.Height <= 0) return;
+
+            var settings = App.Settings.Current;
+            var work = WorkArea();
+            var dpi = DpiScale;
+            var layout = KeyboardLayouts.Get(_mode, _layer);
+
+            var ratio = Math.Clamp((double)r.Width / Math.Max(1, work.Width), 0.35, 1.0);
+
+            var heightDip = r.Height / dpi;
+            var inner = heightDip - ToolbarDip - KeyAreaBottomDip - (layout.RowCount - 1) * KeyGapDip;
+            var keyHeight = layout.RowCount > 0 ? inner / layout.RowCount : KeyHeightDip;
+            var scale = Math.Clamp(keyHeight / KeyHeightDip, 0.7, 1.6);
+
+            settings.VirtualKeyboardWidthRatio = Math.Round(ratio, 3);
+            settings.VirtualKeyboardScale = Math.Round(scale, 2);
+
+            // 贴靠状态下把键盘拖走了 = 用户想自由摆位（老行为：拖一下即成悬浮）。
+            if (!settings.VirtualKeyboardFloating)
+            {
+                var dockedY = work.Y + work.Height - r.Height;
+                var dockedX = work.X + (work.Width - r.Width) / 2;
+                if (Math.Abs(r.Top - dockedY) > 8 || Math.Abs(r.Left - dockedX) > 8)
+                {
+                    settings.VirtualKeyboardFloating = true;
+                    VkbdLog.Write($"键盘从贴靠拖成悬浮（{r.Left},{r.Top}）");
+                }
+            }
+
+            if (settings.VirtualKeyboardFloating)
+            {
+                settings.VirtualKeyboardFloatX = r.Left;
+                settings.VirtualKeyboardFloatY = r.Top;
+            }
+
+            App.Settings.Save();
+            ApplyScale();
+            RefreshCaptions();
+            VkbdLog.Write($"键盘尺寸已记：{r.Width}x{r.Height}px｜缩放={settings.VirtualKeyboardScale}｜宽度比={settings.VirtualKeyboardWidthRatio}");
+        }
+        catch (Exception ex)
+        {
+            VkbdLog.Write("⚠️ 记录键盘位置/尺寸失败：" + ex.Message);
+        }
+    }
+
+    private void Hide_Click(object? sender, RoutedEventArgs e) => HideInternal();
 
     private void Float_Click(object? sender, RoutedEventArgs e)
     {
@@ -624,10 +796,25 @@ public sealed partial class VirtualKeyboardWindow : Window
 
         App.Settings.Save();
         ApplyBounds();
+
+        // 切完模式把"窗口外观"重新声明一遍：位置/尺寸变了，圆角和置顶都可能被系统重置，
+        //    而这一步以前只在"显示"时做过 —— 悬浮之后变直角 / 被别的窗口压住就是这个原因。
+        var hwndAfter = HwndNow();
+        if (hwndAfter != IntPtr.Zero)
+        {
+            try
+            {
+                WindowChrome.RemoveBorder(hwndAfter, rounded: true,
+                    dark: Root.ActualThemeVariant == ThemeVariant.Dark);
+            }
+            catch { }
+            _corners?.Refresh();
+            _ = NativeMethods.SetWindowPos(hwndAfter, NativeMethodsUtil.HWND_TOPMOST, 0, 0, 0, 0,
+                NativeMethodsUtil.SWP_NOMOVE | NativeMethodsUtil.SWP_NOSIZE | NativeMethodsUtil.SWP_NOACTIVATE);
+        }
+        try { Root.InvalidateVisual(); } catch { }
         RefreshToolbar();
     }
-
-    private void Hide_Click(object? sender, RoutedEventArgs e) => HideInternal();
 
     /// <summary>排障用：把每个键帽的屏幕位置打出来（自动验证脚本靠它反推点击坐标）。</summary>
     private void LogRects()

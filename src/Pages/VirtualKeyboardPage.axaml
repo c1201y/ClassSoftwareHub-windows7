@@ -154,6 +154,19 @@
                         </StackPanel>
                     </views:SettingsCard>
 
+                    <views:SettingsCard Header="键盘透明度"
+                                           Description="面板底色透出后面画面的程度，1.0 为不透明。键帽保持实色，避免字被糊掉。">
+                        <views:SettingsCard.HeaderIcon>
+                            <fa:FontIcon Glyph="&#xE790;" />
+                        </views:SettingsCard.HeaderIcon>
+                        <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                            <Slider x:Name="OpacitySlider" MinWidth="180" Minimum="0.2" Maximum="1.0"
+                                    ValueChanged="Opacity_Changed" />
+                            <TextBlock x:Name="OpacityText" MinWidth="46" VerticalAlignment="Center"
+                                       FontSize="12.5" Opacity="0.75" />
+                        </StackPanel>
+                    </views:SettingsCard>
+
                     <views:SettingsCard Header="排列方式"
                                            Description="贴靠屏幕底边，或自由摆位。自由摆位时按住键盘顶栏拖动即可移动。">
                         <views:SettingsCard.HeaderIcon>

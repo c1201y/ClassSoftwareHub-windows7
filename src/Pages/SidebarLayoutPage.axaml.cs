@@ -123,7 +123,7 @@ public sealed partial class SidebarLayoutPage : PageBase
     private int _dragSrcIndex = -1;         // 拿起来的那一行在 _tiles 里的下标（-1 = 从模块库拖的）
     private double _rowsTop;                // 第一行在 PreviewPanel 里的 Y（按下那一刻量的）
     private bool _swapping;                 // ↑/↓ 的滑动动画正在进行（这段时间别再点）
-    private bool _footerSync;               // 正在把设置刷进底排的那五个开关（此时 Toggled 是"回声"，别当用户拨的）
+    private bool _footerSync;               // 正在把设置刷进底排的那六个开关（此时 Toggled 是"回声"，别当用户拨的）
     // ⛔⛔ 2026-10-22 上游：**默认 true**。XAML 解析控件时就会触发 ValueChanged / Toggled，
     //    那时候 LoadAsync 还没置 true，等于完全裸奔 —— 存的就是"空档默认值"（45% 就是这么来的）。
     private bool _toolSync = true;          // 同上，但针对「常用工具」与「截图」那几张卡（开关 / 下拉的"回声"）
@@ -245,6 +245,12 @@ public sealed partial class SidebarLayoutPage : PageBase
             App.Settings.Save();
         }
 
+        if (s.SidebarTopMostMode is not ("startup" or "change" or "fast"))
+        {
+            s.SidebarTopMostMode = "change";
+            App.Settings.Save();
+        }
+
         // 「侧边栏样式」两套外观：认不出的值一律归到经典那套（老存档 / 手改坏的 settings.json）。
         // ⚠️ 跟上面两条同一个路子：进页面先修值再同步给下拉，免得下拉停在一个没有对应项的索引上。
         if (s.SidebarPanelStyle is not ("classic" or "grid"))
@@ -289,6 +295,11 @@ public sealed partial class SidebarLayoutPage : PageBase
         {
             if (PaletteTopSwitch is not null) PaletteTopSwitch.IsChecked = s.PaletteOnTop;
             if (SidebarSwitch is not null) SidebarSwitch.IsChecked = s.SidebarEnabled;
+            if (SidebarTopMostCombo is not null)
+            {
+                var index = s.SidebarTopMostMode switch { "startup" => 0, "fast" => 2, _ => 1 };
+                if (SidebarTopMostCombo.SelectedIndex != index) SidebarTopMostCombo.SelectedIndex = index;
+            }
             if (LongLabelSwitch is not null) LongLabelSwitch.IsChecked = s.SidebarLongLabels;
             if (SidebarModeCombo is not null)
             {
@@ -394,7 +405,7 @@ public sealed partial class SidebarLayoutPage : PageBase
     }
 
     /// <summary>
-    /// 把设置里的"底下那排按钮哪几颗被关了"刷进五个开关。
+    /// 把设置里的"底下那排按钮哪几颗被关了"刷进六个开关。
     /// ⚠️ 赋值会触发 IsCheckedChanged，全程压着 <c>_footerSync</c> 挡住那声"回声"，否则每次进这一页都会
     ///    白写一遍设置、还顺手重建一遍真侧边栏（页面还没挂到窗口上时更没必要）。
     /// </summary>
@@ -1759,6 +1770,18 @@ public sealed partial class SidebarLayoutPage : PageBase
         // 右下角那颗按钮跟这个开关说的是同一件事（都看 SidebarEnabled），跟着换字
         if (SidebarButton is not null)
             SidebarButton.Content = ToolSidebarWindow.IsSidebarVisible ? "隐藏侧边栏" : "显示侧边栏";
+    }
+
+    /// <summary>
+    /// 按钮文案在**建按钮时**就写进去了，所以这里只能重建侧边栏（ApplySetting）让新文案生效。
+    /// </summary>
+    private void SidebarTopMost_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_toolSync) return;
+        if (SidebarTopMostCombo.SelectedItem is not ComboBoxItem item || item.Tag is not string mode) return;
+        App.Settings.Current.SidebarTopMostMode = mode;
+        App.Settings.Save();
+        ToolSidebarWindow.ApplyTopmostSetting();
     }
 
     /// <summary>

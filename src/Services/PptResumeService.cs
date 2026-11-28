@@ -39,6 +39,24 @@ public sealed class PptSubjectView
     public bool HasRecord => File.Length > 0;
 }
 
+/// <summary>带具体日期与星期信息的课程，供本机 API 与 CI 联动使用。</summary>
+public sealed class PptScheduledLesson
+{
+    public string Subject { get; init; } = "";
+    public DateTime Date { get; init; }
+    /// <summary>1 = 周一 … 7 = 周日。</summary>
+    public int Weekday { get; init; }
+    /// <summary>all | odd | even。</summary>
+    public string Weeks { get; init; } = "all";
+    public TimeSpan Start { get; init; }
+    public TimeSpan End { get; init; }
+    public bool Ongoing { get; init; }
+
+    public DateTime StartAt => Date + Start;
+    public DateTime EndAt => Date + End;
+    public string TimeText => Start.ToString(@"hh\:mm") + "–" + End.ToString(@"hh\:mm");
+}
+
 /// <summary>界面一次刷新用的快照。</summary>
 public sealed class PptResumeSnapshot
 {
@@ -105,6 +123,13 @@ public sealed class PptResumeService
         "ClassSoftwareHub",
         "slidesync");
 
+    /// <summary>
+    /// 台账目录。在 ClassIsland 联动页打开「共用课件记录」后，直接用插件的配置目录，
+    /// 两边的课件进度就是同一份；设置与外观仍留在 CSH 自己的目录里，互不覆盖。
+    /// 目录在启动时定一次，运行中改开关要重启才生效。
+    /// </summary>
+    private static string LedgerDir => ClassIslandLink.SharedLedgerDir() ?? DataDir;
+
     private static string SettingsPath => Path.Combine(DataDir, "SyncSettings.json");
 
     /// <summary>状态 / 记录 / 课表有变化时触发（已切回 UI 线程）。</summary>
@@ -128,8 +153,8 @@ public sealed class PptResumeService
             {
                 LoadSettingsLocked();
 
-                var ledger = Ledger.Load(DataDir);
-                _settings.DataFolder = DataDir;
+                var ledger = Ledger.Load(LedgerDir);
+                _settings.DataFolder = ledger.Root;
                 _settings.LogSink = m => { try { ledger.Log(m); } catch { } };
 
                 var engine = new SessionEngine(ledger, _settings)
@@ -159,7 +184,7 @@ public sealed class PptResumeService
 
                 _armed = true;
                 _armReason = "随软件启动";
-                AppLog.Info("ppt-resume", "续播引擎已启动｜数据目录=" + DataDir);
+                AppLog.Info("ppt-resume", "续播引擎已启动｜台账目录=" + ledger.Root + "｜设置目录=" + DataDir);
             }
             catch (Exception ex)
             {
@@ -240,6 +265,123 @@ public sealed class PptResumeService
         }
     }
 
+    /// <summary>严格当前课：start ≤ now &lt; end，不带任何前后宽限。</summary>
+    public PptScheduledLesson? CurrentOngoingLesson(DateTime? now = null)
+    {
+        EnsureStarted();
+        lock (_gate)
+        {
+            return FindOngoingLessonLocked(now ?? DateTime.Now);
+        }
+    }
+
+    /// <summary>下一节严格未来的课（start &gt; now），最多向后查两周以覆盖单双周。</summary>
+    public PptScheduledLesson? NextLesson(DateTime? now = null)
+    {
+        EnsureStarted();
+        lock (_gate)
+        {
+            return FindNextLessonLocked(now ?? DateTime.Now);
+        }
+    }
+
+    private PptScheduledLesson? FindOngoingLessonLocked(DateTime now)
+    {
+        var table = _timetable;
+        if (table is null) return null;
+
+        var weekday = WeekdayOf(now);
+        var parity = CsesSchedule.WeekParity(_data.SemesterStart, now);
+        foreach (var schedule in table.Schedules)
+        {
+            if (schedule.EnableDay != weekday) continue;
+            if (!ScheduleApplies(schedule, parity)) continue;
+
+            foreach (var item in schedule.Classes)
+            {
+                var lesson = CreateScheduledLesson(schedule, item, now.Date, true);
+                if (lesson is not null && now >= lesson.StartAt && now < lesson.EndAt)
+                    return lesson;
+            }
+        }
+
+        return null;
+    }
+
+    private PptScheduledLesson? FindNextLessonLocked(DateTime now)
+    {
+        var table = _timetable;
+        if (table is null) return null;
+
+        PptScheduledLesson? best = null;
+        for (var offset = 0; offset < 14; offset++)
+        {
+            var date = now.Date.AddDays(offset);
+            var weekday = WeekdayOf(date);
+            var parity = CsesSchedule.WeekParity(_data.SemesterStart, date);
+
+            foreach (var schedule in table.Schedules)
+            {
+                if (schedule.EnableDay != weekday) continue;
+                if (!ScheduleApplies(schedule, parity)) continue;
+
+                foreach (var item in schedule.Classes)
+                {
+                    var lesson = CreateScheduledLesson(schedule, item, date, false);
+                    if (lesson is null || lesson.StartAt <= now) continue;
+                    if (best is null || lesson.StartAt < best.StartAt) best = lesson;
+                }
+            }
+        }
+
+        return best;
+    }
+
+    private static PptScheduledLesson? CreateScheduledLesson(
+        CsesDaySchedule schedule, CsesClass item, DateTime date, bool ongoing)
+    {
+        var subject = (item.Subject ?? "").Trim();
+        if (subject.Length == 0) return null;
+        if (!TryTime(item.StartTime, out var start) || !TryTime(item.EndTime, out var end)) return null;
+        if (end <= start) return null;
+
+        return new PptScheduledLesson
+        {
+            Subject = subject,
+            Date = date,
+            Weekday = schedule.EnableDay,
+            Weeks = NormalizeWeeks(schedule.Weeks),
+            Start = start,
+            End = end,
+            Ongoing = ongoing,
+        };
+    }
+
+    private static bool ScheduleApplies(CsesDaySchedule schedule, string? parity)
+    {
+        var weeks = NormalizeWeeks(schedule.Weeks);
+        return weeks == "all" || parity is null || weeks == parity;
+    }
+
+    private static string NormalizeWeeks(string? weeks)
+    {
+        var value = (weeks ?? "all").Trim().ToLowerInvariant();
+        return value == "odd" || value == "even" ? value : "all";
+    }
+
+    private static int WeekdayOf(DateTime date) => ((int)date.DayOfWeek + 6) % 7 + 1;
+
+    private static bool TryTime(string? text, out TimeSpan time)
+    {
+        time = default;
+        var value = (text ?? "").Trim();
+        if (value.Length == 0) return false;
+
+        return TimeSpan.TryParseExact(value, @"hh\:mm\:ss", CultureInfo.InvariantCulture, out time)
+               || TimeSpan.TryParseExact(value, @"hh\:mm", CultureInfo.InvariantCulture, out time)
+               || TimeSpan.TryParse(value, CultureInfo.InvariantCulture, out time);
+    }
+
     public string? RecordFile(string subject)
     {
         lock (_gate)
@@ -258,25 +400,43 @@ public sealed class PptResumeService
         try
         {
             var json = File.ReadAllText(path);
+            return ImportCsesJson(json, path);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Exception("ppt-resume", ex, "导入 CSES 课表｜格式=CSES 课表文件");
+            return (false, "读取课表失败：" + ex.Message);
+        }
+    }
+
+    /// <summary>直接导入 CSES JSON / YAML 文本（本机 API 与 CI 联动用）。</summary>
+    public (bool Ok, string Message) ImportCsesJson(string json, string source)
+    {
+        EnsureStarted();
+        try
+        {
             var table = CsesSchedule.Parse(json, out var error);
             if (table is null) return (false, error);
 
             lock (_gate)
             {
                 _data.TimetableJson = json;
-                _data.TimetableSource = path;
+                _data.TimetableSource = source ?? "";
                 _timetable = table;
                 PptResumeStore.Save(_data);
             }
 
-            var message = "已导入课表：" + Path.GetFileName(path) + "（" + CsesSchedule.Describe(table) + "）";
+            var label = string.IsNullOrWhiteSpace(source)
+                ? "本机接口"
+                : Path.GetFileName(source);
+            var message = "已导入课表：" + label + "（" + CsesSchedule.Describe(table) + "）";
             SetMessage(message);
             return (true, message);
         }
         catch (Exception ex)
         {
-            AppLog.Exception("ppt-resume", ex, "导入 CSES 课表｜格式=CSES 课表文件");
-            return (false, "读取课表失败：" + ex.Message);
+            AppLog.Exception("ppt-resume", ex, "导入 CSES 课表｜来源=JSON 文本");
+            return (false, "导入课表失败：" + ex.Message);
         }
     }
 
@@ -778,7 +938,7 @@ public sealed class PptResumeService
             AppLog.Catch("ppt-resume", "读取课件续页设置", ex, LogLevel.Debug);
         }
 
-        _settings.DataFolder = DataDir;
+        _settings.DataFolder = LedgerDir;
         DeckLauncher.Preferred = _settings.DeckOpenApp;
     }
 

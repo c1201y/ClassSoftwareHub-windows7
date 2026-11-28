@@ -523,7 +523,17 @@ public static class EdgeGeometry
 /// </summary>
 public static class FlyoutFade
 {
-    private static DispatcherTimer? _timer;
+    /// <summary>
+    /// 每个控件各自一条动画计时器。
+    /// <para>
+    /// ⚠️ 2026-11-27 修：原来只有**一条静态计时器**，谁开动画就把上一条 <c>Stop()</c> 掉 ——
+    ///    常用工具、文件快搜、查阅单词、音量条、托盘菜单共用同一份，任何一个窗口在这时候淡入/淡出，
+    ///    另一个窗口的动画就停在半路：<c>Opacity</c> 卡在 0.3~0.6，整窗发灰发透，
+    ///    看着像"同一个背景，有时磨砂有时不是"。
+    ///    现在按控件各自计时，互不打断；键用弱表，控件回收不留尾巴。
+    /// </para>
+    /// </summary>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Control, DispatcherTimer> Timers = new();
 
     /// <summary>把内容压到透明（不播动画）。用在"窗口露脸之前"——先压透明再淡入，免得先闪一帧再淡。</summary>
     public static void Prepare(Control? element)
@@ -535,7 +545,7 @@ public static class FlyoutFade
     {
         try
         {
-            Stop();
+            Stop(element);
             element.Opacity = 0f;
 
             var sw = Stopwatch.StartNew();
@@ -548,10 +558,10 @@ public static class FlyoutFade
                 if (t >= 1)
                 {
                     element.Opacity = 1;
-                    Stop();
+                    Stop(element);
                 }
             };
-            _timer = timer;
+            Timers.AddOrUpdate(element, timer);
             timer.Start();
         }
         catch
@@ -565,7 +575,7 @@ public static class FlyoutFade
     {
         try
         {
-            Stop();
+            Stop(element);
             var sw = Stopwatch.StartNew();
             var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
             timer.Tick += (_, _) =>
@@ -574,10 +584,10 @@ public static class FlyoutFade
                 element.Opacity = 1 - t;                  // 线性淡出（原版近似贝塞尔，观感一致）
                 if (t < 1) return;
                 element.Opacity = 0;
-                Stop();
+                Stop(element);
                 done?.Invoke();
             };
-            _timer = timer;
+            Timers.AddOrUpdate(element, timer);
             timer.Start();
         }
         catch
@@ -587,9 +597,13 @@ public static class FlyoutFade
         }
     }
 
-    private static void Stop()
+    private static void Stop(Control? element)
     {
-        _timer?.Stop();
-        _timer = null;
+        if (element is null) return;
+        if (Timers.TryGetValue(element, out var timer))
+        {
+            try { timer.Stop(); } catch { }
+            Timers.Remove(element);
+        }
     }
 }

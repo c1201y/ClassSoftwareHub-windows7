@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
@@ -294,26 +294,11 @@ public sealed partial class ToolPaletteWindow : Window
             Topmost = App.Settings.Current.PaletteOnTop;
 
             var hwnd = Backdrop.TryGetHwnd(this);
-            if (!_shownOnce)
+            var firstShow = !_shownOnce;
+            if (firstShow)
             {
                 _shownOnce = true;
                 Show();                                     // Avalonia 首次显示（原版 Activate）
-
-                // 构造期那次 ThemeCompat.Apply 发生在窗口显示之前，主题变体未必传播到位；
-                //    显示后补一次主题 + 按钮配色，再 Dispatcher 补一拍兜底。
-                ThemeCompat.Apply(Root, external: true);
-                ApplySelection();
-                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
-                {
-                    ThemeCompat.Apply(Root, external: true);
-                    ApplySelection();
-                }, Avalonia.Threading.DispatcherPriority.Loaded);
-
-                // 圆角要在显示之后补一次（构造期窗口尺寸还没有最终定）：
-                //    Win10/7 走 SetWindowRgn 裁剪，尺寸/半径没变时是空转。
-                _corners?.Refresh();
-                // 材质必须等窗口真显示出来之后再上（构造期拿不到 HWND，上了也是纯色兜底）
-                BackdropTheme.Apply(this, Root, _backdropPrefer);
                 ApplyPosition();
             }
             else
@@ -322,7 +307,43 @@ public sealed partial class ToolPaletteWindow : Window
                 NativeMethods.SetForegroundWindow(hwnd);
                 Activate();
                 ApplyPosition();
-                _corners?.Refresh();
+            }
+
+            // ⚠️ 每次显示都要重上：主题 / 圆角 / 材质 / 渲染表面。
+            //    原来这一整套只在首次显示时做，SW_HIDE 再 SW_SHOW 之后既不重上材质、也不重画表面：
+            //      · Windows 会把 accent（亚克力）与逐像素 alpha 状态在隐藏/重显后清掉 →
+            //        重开变成一块纯色直角，和首次显示的磨砂圆角完全两个样
+            //        （2026-11-27 隐藏桌面实测：首次显示有「[port] 材质: acrylic」日志，
+            //          收起再打开不再出现，且 PrintWindow 抓回空白）；
+            //      · 只 ShowWindow 不给 Avalonia 重算表面 → 内容一帧都不重画。
+            //    两次都是幂等的，重复调用无害。
+            ThemeCompat.Apply(Root, external: true);
+            ApplySelection();
+            _corners?.Refresh();
+            BackdropTheme.Apply(this, Root, _backdropPrefer);
+
+            // 图片背景模式下，浮窗也跟着用同一张图（设置里可关）
+            BackdropImage.ApplyToFloating(this, Root);
+            // 圆角/边框也是"要重新声明"的东西：重开之后不补，Win11 上会退回直角（真机上就是
+            //   磨砂圆角 → 纯色直角这一种"两个样"）。侧边栏 Present() 每次显示都补，这里对齐。
+            try
+            {
+                WindowChrome.RemoveBorder(hwnd, rounded: true, dark: Root.ActualThemeVariant == ThemeVariant.Dark);
+                WindowChrome.MarkToolWindow(hwnd);
+            }
+            catch { }
+            _frame?.NudgeSurface("常用工具浮窗显示");
+            _frame?.RefreshFrame("常用工具浮窗显示");
+            try { Root.InvalidateVisual(); } catch { }
+
+            // 首次显示：主题变体要等一轮布局才传播到位，再补一拍
+            if (firstShow)
+            {
+                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                {
+                    ThemeCompat.Apply(Root, external: true);
+                    ApplySelection();
+                }, Avalonia.Threading.DispatcherPriority.Loaded);
             }
         }
         catch (Exception ex)
