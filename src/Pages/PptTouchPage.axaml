@@ -1,4 +1,4 @@
-﻿<platform:PageBase
+<platform:PageBase
     x:Class="ClassSoftwareHub.Desktop.Pages.PptTouchPage"
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -64,6 +64,26 @@
                     <ToggleSwitch x:Name="MenuSwitch" MinWidth="0"
                                   OnContent="已开启" OffContent="已关闭"
                                   IsCheckedChanged="MenuSwitch_Toggled" />
+                </views:SettingsCard>
+
+                <!-- 2026-11-28 需求第 7 条：放映时鼠标锁定（默认关，右侧标 NEW） -->
+                <views:SettingsCard Header="放映时鼠标锁定">
+                    <views:SettingsCard.Description>
+                        <TextBlock FontSize="12" Opacity="0.6" TextWrapping="Wrap"
+                                   Text="放映时把光标锁在屏幕正中央并隐藏：左键＝下一页；3 秒内双击右键或单击中键解锁；放映中再单击中键重新锁定。" />
+                    </views:SettingsCard.Description>
+                    <views:SettingsCard.HeaderIcon>
+                        <fa:FontIcon Glyph="&#xE7C9;" />
+                    </views:SettingsCard.HeaderIcon>
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <Border Background="{DynamicResource AccentFillColorDefaultBrush}" CornerRadius="4" Padding="6,2">
+                            <TextBlock Text="NEW" FontSize="10" FontWeight="Bold"
+                                       Foreground="{DynamicResource TextOnAccentFillColorPrimaryBrush}" />
+                        </Border>
+                        <ToggleSwitch x:Name="MouseLockSwitch" MinWidth="0"
+                                      OnContent="已开启" OffContent="已关闭"
+                                      IsCheckedChanged="MouseLock_Toggled" />
+                    </StackPanel>
                 </views:SettingsCard>
 
                 <!-- 额外菜单项：清单来自 PptMenu.Extras（唯一真源），这里只负责铺出来。 -->
