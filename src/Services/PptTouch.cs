@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -272,11 +272,11 @@ public static partial class PptTouch
 
                     var cls = new StringBuilder(64);
                     if (PptTouchNative.GetClassName(hwnd, cls, cls.Capacity) == 0) return true;
-                    if (!string.Equals(cls.ToString(), "screenClass", StringComparison.OrdinalIgnoreCase))
-                        return true;
 
                     PptTouchNative.GetWindowThreadProcessId(hwnd, out var pid);
-                    if (!IsPowerPointProcess(pid)) return true;
+
+                    // PowerPoint 认 screenClass；WPS 演示走 PptTouch.Wps.cs 里的三条判定
+                    if (!IsSlideshowWindow(hwnd, cls.ToString(), pid)) return true;
 
                     found = hwnd;
                     return false;   // 找到了，停止枚举
@@ -1017,10 +1017,9 @@ public static partial class PptTouch
 
         var cls = new StringBuilder(64);
         if (PptTouchNative.GetClassName(hwnd, cls, cls.Capacity) == 0) return false;
-        if (!string.Equals(cls.ToString(), "screenClass", StringComparison.OrdinalIgnoreCase)) return false;
 
         PptTouchNative.GetWindowThreadProcessId(hwnd, out var pid);
-        if (!IsPowerPointProcess(pid)) return false;
+        if (!IsSlideshowWindow(hwnd, cls.ToString(), pid)) return false;
 
         // ⚠️ 移植差异：GetDpiForWindow 是 Win10 1607+ 的导出，Win7 上**根本不存在**，
         //    直接调会抛 EntryPointNotFoundException（而且是在钩子回调里，消息会被整条丢掉）。
